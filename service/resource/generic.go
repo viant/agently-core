@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 )
 
@@ -11,7 +12,8 @@ import (
 // identity, pin and execution provenance. T has no effect on routing or admission.
 type Result[T any] struct {
 	primitive.GetResult
-	Definition T `json:"-"`
+	Definition      T `json:"-"`
+	definitionCache *definitionCacheReference
 }
 
 // Located is provider metadata with an optional typed inline definition. Lists
@@ -66,4 +68,64 @@ func untypedLocations[T any](rows []Located[T]) []LocatedResource {
 		out[i] = rows[i].LocatedResource
 	}
 	return out
+}
+
+// DefinitionCodec parses a target-independent immutable representation. Its
+// identifier names the trusted schema; callers never supply it on the wire.
+type DefinitionCodec[T any] struct {
+	ID    string
+	Parse DefinitionDecoder[T]
+}
+
+func GetWithCodec[T any](ctx context.Context, g *Gateway, connection Connection, ref identity.ResourceRef, pin *identity.ResolvedResource, codec DefinitionCodec[T]) (*Result[T], error) {
+	if codec.ID == "" || codec.Parse == nil {
+		return nil, identity.ErrResource
+	}
+	raw, err := Get[json.RawMessage](ctx, g, connection, ref, pin)
+	if err != nil {
+		return nil, err
+	}
+	decodeTiming := observe.Start(ctx, observe.GatewayDefinitionDecode, observe.Labels{})
+	parsed := false
+	parse := func(data json.RawMessage) (T, error) { parsed = true; return codec.Parse(data) }
+	var definition T
+	if raw.definitionCache == nil {
+		definition, err = parse(raw.Definition)
+	} else {
+		reference := raw.definitionCache
+		value, parseErr := g.Manager.VisibleCatalogRepresentation(ctx, reference.key, reference.entry, codec.ID, func(stored json.RawMessage) (any, error) {
+			var result primitive.GetResult
+			if err := json.Unmarshal(stored, &result); err != nil {
+				return nil, err
+			}
+			definition := result.Resource.DefinitionBytes
+			if len(definition) == 0 {
+				definition = result.Resource.Definition
+			}
+			return parse(definition)
+		})
+		err = parseErr
+		if err == nil {
+			var ok bool
+			definition, ok = value.(T)
+			if !ok {
+				return nil, identity.ErrResource
+			}
+		}
+	}
+	cacheStatus := observe.CacheHit
+	if parsed {
+		cacheStatus = observe.CacheMiss
+	}
+	decodeTiming.End(observe.OutcomeFor(err), cacheStatus)
+	if err != nil {
+		return nil, err
+	}
+	if raw.ResolvedResource == nil || !identity.MetadataExpiryValid(raw.ResolvedResource.ValidUntil, g.now()) {
+		return nil, identity.ErrResourceDenied
+	}
+	if g.generation(connection.Name) != connection.Generation {
+		return nil, identity.ErrResourceStale
+	}
+	return &Result[T]{GetResult: raw.GetResult, Definition: definition, definitionCache: raw.definitionCache}, nil
 }

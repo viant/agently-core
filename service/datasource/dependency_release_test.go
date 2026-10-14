@@ -6,6 +6,7 @@ import (
 	"errors"
 	datasource "github.com/viant/agently-core/service/datasource"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,10 +14,12 @@ import (
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	"github.com/viant/agently-core/protocol/mcp/config"
 	manager "github.com/viant/agently-core/protocol/mcp/manager"
-	resourcecatalog "github.com/viant/agently-core/service/resource"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
+	resourcecatalog "github.com/viant/agently-core/service/resource"
 	"github.com/viant/forge/backend/types"
+	"github.com/viant/jsonrpc"
+	protoclient "github.com/viant/mcp-protocol/client"
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -31,8 +34,23 @@ type releaseResource struct {
 }
 type releaseMCPProvider struct {
 	mcpclient.Interface
-	owner string
-	items map[string]*releaseResource
+	owner          string
+	items          map[string]*releaseResource
+	notificationMu sync.Mutex
+	handler        protoclient.Handler
+}
+
+func (p *releaseMCPProvider) SetNotificationHandler(handler protoclient.Handler) {
+	p.notificationMu.Lock()
+	p.handler = handler
+	p.notificationMu.Unlock()
+}
+
+func (p *releaseMCPProvider) resourceChanged() {
+	p.notificationMu.Lock()
+	handler := p.handler
+	p.notificationMu.Unlock()
+	handler.OnNotification(context.Background(), &jsonrpc.Notification{Jsonrpc: jsonrpc.Version, Method: "notifications/resources/list_changed"})
 }
 
 func (p *releaseMCPProvider) ListTools(context.Context, *string, ...mcpclient.RequestOption) (*schema.ListToolsResult, error) {
@@ -120,12 +138,13 @@ func (p releaseFixtureOptions) Names(context.Context) ([]string, error) {
 }
 
 type releaseStack struct {
-	parentURI string
-	parentPin identity.ResolvedResource
-	target    types.WindowTarget
-	child     *releaseResource
-	executor  *releaseToolExecutor
-	service   *datasource.Service
+	parentURI    string
+	parentPin    identity.ResolvedResource
+	target       types.WindowTarget
+	child        *releaseResource
+	executor     *releaseToolExecutor
+	service      *datasource.Service
+	childChanged func()
 }
 
 type releaseToolExecutor struct {
@@ -222,7 +241,7 @@ func newReleaseStack(t *testing.T) *releaseStack {
 		},
 	})
 	_ = parentConnection
-	return &releaseStack{parentURI: parentURI, parentPin: parentPin, target: target, child: child, executor: executor, service: service}
+	return &releaseStack{parentURI: parentURI, parentPin: parentPin, target: target, child: child, executor: executor, service: service, childChanged: childProvider.resourceChanged}
 }
 
 func TestFetchRevalidatesWindowChildAfterRealMCPToolDispatch(t *testing.T) {
@@ -247,6 +266,7 @@ func TestFetchRevalidatesWindowChildAfterRealMCPToolDispatch(t *testing.T) {
 		descriptor.Backend.Method = "drifted-after-dispatch"
 		envelope.DataSource, _ = json.Marshal(descriptor)
 		stack.child.raw, _ = json.Marshal(envelope)
+		stack.childChanged()
 	}
 	result, err = fetch()
 	require.Nil(t, result, "no rows may escape after a child datasource changes during dispatch")

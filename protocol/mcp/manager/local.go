@@ -52,6 +52,11 @@ func (m *Manager) RegisterLocal(ctx context.Context, name string, options *mcpcf
 	if options.PrimitiveProviderIdentity == "" {
 		return fmt.Errorf("local MCP registration requires declared provider identity")
 	}
+	m.definitionBindMu.Lock()
+	defer m.definitionBindMu.Unlock()
+	if provider, ok := m.prov.(*RepoProvider); ok && provider.definitionReaderBound() {
+		return fmt.Errorf("local MCP registration must precede definition reader binding")
+	}
 	// Require inventory when a provider exists: checking Options alone cannot
 	// distinguish a missing entry from providers with default configurations.
 	m.localMu.Lock()
@@ -102,6 +107,9 @@ func (m *Manager) RegisterLocal(ctx context.Context, name string, options *mcpcf
 }
 
 func (m *Manager) checkLocalCollision(ctx context.Context, name string) error {
+	if provider, ok := m.prov.(*RepoProvider); ok && provider.reservedLocalName(name) {
+		return nil
+	}
 	if m.prov == nil {
 		return nil
 	}

@@ -74,8 +74,6 @@ type Options struct {
 	// adopted completed manual run when its full durable snapshot is valid.
 	ConversationAdoptionEnabled bool
 	ForgeUIViewResolver         ForgeUIViewResolver
-	AuthorizationPolicy         *policy.Runtime
-	ActionAuthorize             func(context.Context, string, string) error
 }
 
 // Service is the agently-core runtime boundary for reporting compile and
@@ -102,8 +100,6 @@ type Service struct {
 	conversationAdoptionEnabled bool
 	activeRunResolver           ActiveReportRunResolver
 	forgeUIViewResolver         ForgeUIViewResolver
-	authorizationPolicy         *policy.Runtime
-	actionAuthorize             func(context.Context, string, string) error
 }
 
 // New constructs a reporting Service.
@@ -139,8 +135,6 @@ func New(opts Options) *Service {
 		conversationAdoptionEnabled: opts.ConversationAdoptionEnabled,
 		activeRunResolver:           normalizeActiveReportRunResolver(opts.ActiveRunResolver),
 		forgeUIViewResolver:         normalizeForgeUIViewResolver(opts.ForgeUIViewResolver),
-		authorizationPolicy:         opts.AuthorizationPolicy,
-		actionAuthorize:             opts.ActionAuthorize,
 	}
 }
 
@@ -159,12 +153,6 @@ func (s *Service) ConfigureReportCompilation(backend evidence.ReportCompilation)
 	return nil
 }
 
-func (s *Service) SetAuthorizationPolicy(runtime *policy.Runtime) {
-	if s != nil {
-		s.authorizationPolicy = runtime
-	}
-}
-
 // Store exposes the configured storage to trusted startup composition. Runtime
 // resource consumers use the managing MCP provider, never this accessor.
 func (s *Service) Store() Store {
@@ -172,31 +160,6 @@ func (s *Service) Store() Store {
 		return nil
 	}
 	return s.store
-}
-
-// SetActionAuthorizer installs host-owned backend action checks. UI metadata
-// visibility never authorizes a saved-report read or mutation by itself.
-func (s *Service) SetActionAuthorizer(authorize func(context.Context, string, string) error) {
-	if s != nil {
-		s.actionAuthorize = authorize
-	}
-}
-
-func (s *Service) authorizeAction(ctx context.Context, operation, id string) error {
-	if s == nil || s.actionAuthorize == nil {
-		return nil
-	}
-	if strings.TrimSpace(id) == "" {
-		return policy.ErrDenied
-	}
-	return s.actionAuthorize(ctx, operation, id)
-}
-
-func (s *Service) authorizeExport(ctx context.Context, artifactRef string) error {
-	if err := s.authorizeAction(ctx, "report.retrieve", artifactRef); err != nil {
-		return err
-	}
-	return s.authorizeAction(ctx, "report.export", artifactRef)
 }
 
 func (s *Service) AsyncConfig(toolName string) *asynccfg.Config {
@@ -743,18 +706,12 @@ func (s *Service) ShareArtifact(ctx context.Context, request *ShareArtifactReque
 	if s.hasResourceReader() {
 		return nil, identity.ErrResourceDenied
 	}
-	if err := s.authorizeAction(ctx, "report.retrieve", normalized.ArtifactRef); err != nil {
-		return nil, err
-	}
 	existing, err := s.findVisibleSharedArtifactByRef(ctx, normalized.ArtifactRef)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
 	if existing != nil {
 		return cloneSharedArtifact(existing), nil
-	}
-	if err := s.authorizeAction(withReportCreateKind(ctx, savedViewArtifactKind), "report.create", normalized.ArtifactRef); err != nil {
-		return nil, err
 	}
 	if normalized.ReportExportRequest == nil {
 		return nil, fmt.Errorf("reporting lifecycle: shared artifact payload is required to create a saved view")
@@ -816,12 +773,6 @@ func (s *Service) TransitionArtifact(ctx context.Context, request *TransitionArt
 	}
 	normalized, err := normalizeTransitionArtifactRequest(request)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.authorizeAction(ctx, "report.retrieve", normalized.ArtifactRef); err != nil {
-		return nil, err
-	}
-	if err := s.authorizeAction(ctx, "report.publish", normalized.ArtifactRef); err != nil {
 		return nil, err
 	}
 	targetLifecycle := normalizeSharedArtifactLifecycle(normalized.To, "")
@@ -948,9 +899,6 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 	if err := validateSubmitExportRequest(normalizedRequest, exportValidationOptions{resourceDatasourceRequests: resourcePin != nil}); err != nil {
 		return nil, err
 	}
-	if err := s.authorizeExport(ctx, strings.TrimSpace(normalizedRequest.ArtifactRef)); err != nil {
-		return nil, err
-	}
 	if resourcePin != nil {
 		probe := &ExportJob{DependencyPins: cloneDependencyPins(normalizedRequest.DependencyPins), DependencyToken: normalizedRequest.DependencyToken, ArtifactRef: normalizedRequest.ArtifactRef, ResourcePin: cloneResolvedResource(resourcePin)}
 		if err := s.validateExportResourcePinFresh(ctx, probe, "report.export"); err != nil {
@@ -1060,9 +1008,6 @@ func (s *Service) submitExportFromRun(ctx context.Context, request *SubmitExport
 		ExportRequestID: exportRequestID,
 		SubmittedAt:     s.now().UTC(),
 	}
-	if err := s.authorizeExport(ctx, candidate.ArtifactRef); err != nil {
-		return nil, err
-	}
 	job, replay, err := runStore.SubmitJobFromRun(ctx, candidate)
 	if err != nil {
 		return nil, err
@@ -1128,7 +1073,7 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (out *ExportJob, 
 	if s.exporter == nil {
 		return nil, fmt.Errorf("reporting export execution: exporter is not configured")
 	}
-	startCtx := context.WithValue(ctx, runExportStartKey{}, true)
+	startCtx := ctx
 	if isUnifiedExportService(s) {
 		queued, err := s.store.GetJob(startCtx, strings.TrimSpace(jobID))
 		if err != nil {
@@ -1174,9 +1119,6 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (out *ExportJob, 
 		}
 	}()
 	runCtx = scoped
-	if err := s.authorizeExport(runCtx, job.ArtifactRef); err != nil {
-		return s.failRunExport(runCtx, job.JobID, err)
-	}
 	if err := s.validateExportResourcePin(runCtx, job, "report.export"); err != nil {
 		return s.failRunExport(runCtx, job.JobID, err)
 	}
@@ -1366,21 +1308,6 @@ func (s *Service) StartExport(ctx context.Context, jobID string) (*ExportJob, er
 			return nil, err
 		}
 	}
-	if s.actionAuthorize != nil && ctx.Value(runExportStartKey{}) != true {
-		job, err := pinnedJob, error(nil)
-		if job == nil {
-			job, err = s.store.GetJob(ctx, strings.TrimSpace(jobID))
-		}
-		if err != nil {
-			return nil, err
-		}
-		if job == nil {
-			return nil, ErrNotFound
-		}
-		if err := s.authorizeAction(ctx, "report.export.start", job.ArtifactRef); err != nil {
-			return nil, err
-		}
-	}
 	if runStore, ok := s.store.(RunExportStore); ok {
 		job, err := runStore.ClaimJob(ctx, strings.TrimSpace(jobID), s.now().UTC())
 		if errors.Is(err, reportstore.ErrInvalidTransition) {
@@ -1451,9 +1378,6 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 		return nil, identity.ErrResourceDenied
 	}
 	if err := s.validateExportResourcePin(ctx, job, "report.export"); err != nil {
-		return nil, err
-	}
-	if err := s.authorizeAction(ctx, "report.export.complete", job.ArtifactRef); err != nil {
 		return nil, err
 	}
 	if job.Status != JobStatusRunning {
@@ -1620,9 +1544,6 @@ func (s *Service) FailExport(ctx context.Context, request *FailExportRequest) (*
 		return nil, ErrNotFound
 	}
 	if ctx.Value(internalExportFailureKey{}) != true {
-		if err := s.authorizeAction(ctx, "report.export.fail", job.ArtifactRef); err != nil {
-			return nil, err
-		}
 	}
 	if job.Status != JobStatusRunning {
 		return nil, fmt.Errorf("reporting export failure: job %s is not running", strings.TrimSpace(request.JobID))
@@ -1704,12 +1625,6 @@ func (s *Service) GetExportStatus(ctx context.Context, jobID string) (*ExportJob
 	if !isExportJobVisible(ctx, job) {
 		return nil, ErrNotFound
 	}
-	if err := s.authorizeAction(ctx, "report.exportResult.read", job.ArtifactRef); err != nil {
-		if isExplicitReportDenial(err) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
 	if err := s.validateExportResourcePin(ctx, job, "report.exportResult.read"); err != nil {
 		return nil, ErrNotFound
 	}
@@ -1769,12 +1684,6 @@ func (s *Service) ListExportJobs(ctx context.Context, input *ListExportJobsInput
 		}
 		if normalized.Status != "" && job.Status != normalized.Status {
 			continue
-		}
-		if err := s.authorizeAction(ctx, "report.exportResult.read", job.ArtifactRef); err != nil {
-			if isExplicitReportDenial(err) {
-				continue
-			}
-			return nil, err
 		}
 		if err := s.validateExportResourcePin(ctx, job, "report.exportResult.read"); err != nil {
 			continue
@@ -1866,12 +1775,6 @@ func (s *Service) ListExportArtifacts(ctx context.Context, input *ListExportArti
 		if job == nil {
 			continue
 		}
-		if err := s.authorizeAction(ctx, "report.exportResult.read", job.ArtifactRef); err != nil {
-			if isExplicitReportDenial(err) {
-				continue
-			}
-			return nil, err
-		}
 		if err := s.validateExportResourcePin(ctx, job, "report.exportResult.read"); err != nil {
 			continue
 		}
@@ -1956,12 +1859,6 @@ func (s *Service) getArtifactUnscoped(ctx context.Context, artifactID string) (*
 	if !isCompletedArtifactVisibleToActor(ctx, artifact, job, s.now().UTC()) {
 		return nil, ErrNotFound
 	}
-	if err := s.authorizeAction(ctx, "report.exportResult.read", job.ArtifactRef); err != nil {
-		if isExplicitReportDenial(err) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
 	if err := s.validateExportResourcePin(ctx, job, "report.exportResult.read"); err != nil {
 		return nil, ErrNotFound
 	}
@@ -2022,23 +1919,7 @@ func (s *Service) GetSharedArtifact(ctx context.Context, artifactID string) (*Sh
 	if artifact.Resource == nil && s.requiresCanonicalSharedReport(artifact) {
 		return nil, ErrNotFound
 	}
-	if strings.TrimSpace(artifact.Kind) == savedReportArtifactKind {
-		if err := s.authorizeReport(ctx, artifact); err != nil {
-			if errors.Is(err, policy.ErrIdentityRejected) {
-				return nil, err
-			}
-			if isExplicitReportDenial(err) {
-				return nil, ErrNotFound
-			}
-			return nil, err
-		}
-	}
-	if err := s.authorizeAction(ctx, "report.retrieve", sharedArtifactActionID(artifact)); err != nil {
-		if isExplicitReportDenial(err) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
+
 	if artifact.Resource != nil {
 		refreshed, _, err := s.reauthorizeSharedReport(ctx, artifact)
 		if err != nil {
@@ -2106,23 +1987,7 @@ func (s *Service) ListSharedArtifacts(ctx context.Context, input *ListSharedArti
 		if normalized.Lifecycle != "" && strings.TrimSpace(strings.ToLower(artifact.Lifecycle)) != normalized.Lifecycle {
 			continue
 		}
-		if strings.TrimSpace(artifact.Kind) == savedReportArtifactKind {
-			if err := s.authorizeReport(ctx, artifact); err != nil {
-				if errors.Is(err, policy.ErrIdentityRejected) {
-					return nil, err
-				}
-				if isExplicitReportDenial(err) {
-					continue
-				}
-				return nil, err
-			}
-		}
-		if err := s.authorizeAction(ctx, "report.retrieve", sharedArtifactActionID(artifact)); err != nil {
-			if isExplicitReportDenial(err) {
-				continue
-			}
-			return nil, err
-		}
+
 		if artifact.Resource != nil {
 			refreshed, _, err := s.reauthorizeSharedReport(ctx, artifact)
 			if err != nil {
@@ -2209,9 +2074,6 @@ func (s *Service) SaveReport(ctx context.Context, request *SaveReportRequest) (*
 	normalized.ReportID = reportID
 	normalized.Title = title
 	if err := validateInlineSaveReport(&normalized); err != nil {
-		return nil, err
-	}
-	if err := s.authorizeAction(withReportCreateKind(ctx, savedReportArtifactKind), "report.create", reportID); err != nil {
 		return nil, err
 	}
 	sourceArtifactID := normalizeSharedArtifactSourceID("report", "", reportID, "")
@@ -2436,15 +2298,6 @@ func (s *Service) GetReport(ctx context.Context, input *GetReportInput) (*Shared
 		if strings.TrimSpace(artifact.Kind) != savedReportArtifactKind {
 			return nil, ErrNotFound
 		}
-		if err := s.authorizeReport(ctx, artifact); err != nil {
-			return nil, reportPolicyReadError(err)
-		}
-		if err := s.authorizeAction(ctx, "report.retrieve", reportAuthorizationID(artifact.ReportID, artifact.ArtifactID, artifact.ArtifactRef)); err != nil {
-			if isExplicitReportDenial(err) {
-				return nil, ErrNotFound
-			}
-			return nil, err
-		}
 		return artifact, nil
 	}
 	artifactRef := strings.TrimSpace(input.ArtifactRef)
@@ -2464,27 +2317,9 @@ func (s *Service) GetReport(ctx context.Context, input *GetReportInput) (*Shared
 			continue
 		}
 		if artifactRef != "" && strings.TrimSpace(artifact.ArtifactRef) == artifactRef {
-			if err := s.authorizeReport(ctx, artifact); err != nil {
-				return nil, reportPolicyReadError(err)
-			}
-			if err := s.authorizeAction(ctx, "report.retrieve", reportAuthorizationID(artifact.ReportID, artifact.ArtifactID, artifact.ArtifactRef)); err != nil {
-				if isExplicitReportDenial(err) {
-					return nil, ErrNotFound
-				}
-				return nil, err
-			}
 			return cloneSharedArtifact(artifact), nil
 		}
 		if reportID != "" && strings.TrimSpace(artifact.ReportID) == reportID {
-			if err := s.authorizeReport(ctx, artifact); err != nil {
-				return nil, reportPolicyReadError(err)
-			}
-			if err := s.authorizeAction(ctx, "report.retrieve", reportAuthorizationID(artifact.ReportID, artifact.ArtifactID, artifact.ArtifactRef)); err != nil {
-				if isExplicitReportDenial(err) {
-					return nil, ErrNotFound
-				}
-				return nil, err
-			}
 			return cloneSharedArtifact(artifact), nil
 		}
 	}
@@ -2520,7 +2355,7 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 		normalized = *input
 	}
 	sharedLimit := normalized.Limit
-	if strings.TrimSpace(normalized.OrderID) != "" || (s.authorizationPolicy != nil && s.authorizationPolicy.IsEnabled(policy.OperationReportView)) {
+	if strings.TrimSpace(normalized.OrderID) != "" {
 		sharedLimit = 0
 	}
 	result, err := s.ListSharedArtifacts(ctx, &ListSharedArtifactsInput{
@@ -2538,12 +2373,8 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 			reports = append(reports, summary)
 		}
 	}
-	reports, err = s.filterAuthorizedReports(ctx, reports)
-	if err != nil {
-		return nil, err
-	}
 	totalCount := result.TotalCount
-	if strings.TrimSpace(normalized.OrderID) != "" || (s.authorizationPolicy != nil && s.authorizationPolicy.IsEnabled(policy.OperationReportView)) {
+	if strings.TrimSpace(normalized.OrderID) != "" {
 		totalCount = len(reports)
 	}
 	if normalized.Limit > 0 && len(reports) > normalized.Limit {
@@ -2553,95 +2384,6 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 		Reports:    reports,
 		TotalCount: totalCount,
 	}, nil
-}
-
-func isExplicitReportDenial(err error) bool {
-	return errors.Is(err, policy.ErrDenied) && !errors.Is(err, policy.ErrIdentityRejected)
-}
-
-func reportPolicyReadError(err error) error {
-	if errors.Is(err, policy.ErrIdentityRejected) {
-		return err
-	}
-	if isExplicitReportDenial(err) {
-		return ErrNotFound
-	}
-	return err
-}
-
-func (s *Service) authorizeReport(ctx context.Context, artifact *SharedArtifact) error {
-	if s == nil || s.authorizationPolicy == nil || !s.authorizationPolicy.IsEnabled(policy.OperationReportView) {
-		return nil
-	}
-	id := reportAuthorizationID(artifact.ReportID, artifact.ArtifactID, artifact.ArtifactRef)
-	return s.authorizationPolicy.Authorize(ctx, policy.OperationReportView,
-		runtimerequestctx.ConversationIDFromContext(ctx),
-		policy.Candidate{ID: id, Kind: "report", Metadata: map[string]any{"title": artifact.Title}}, nil)
-}
-
-func (s *Service) filterAuthorizedReports(ctx context.Context, reports []*ReportSummary) ([]*ReportSummary, error) {
-	if s == nil || s.authorizationPolicy == nil || !s.authorizationPolicy.IsEnabled(policy.OperationReportView) || len(reports) == 0 {
-		return reports, nil
-	}
-	candidates := make([]policy.Candidate, 0, len(reports))
-	byID := make(map[string]*ReportSummary, len(reports))
-	normalizeID := func(id string) string {
-		if s.authorizationPolicy.ExactIDs {
-			return id
-		}
-		return strings.ToLower(strings.TrimSpace(id))
-	}
-	for _, report := range reports {
-		if report == nil {
-			continue
-		}
-		id := reportAuthorizationID(report.ReportID, report.ArtifactID, report.ArtifactRef)
-		candidates = append(candidates, policy.Candidate{ID: id, Kind: "report", Metadata: map[string]any{"title": report.Title}})
-		byID[normalizeID(id)] = report
-	}
-	allowed, err := s.authorizationPolicy.Filter(ctx, policy.OperationReportView,
-		runtimerequestctx.ConversationIDFromContext(ctx), candidates, nil)
-	if errors.Is(err, policy.ErrIdentityRejected) {
-		return nil, err
-	}
-	if isExplicitReportDenial(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	result := make([]*ReportSummary, 0, len(allowed))
-	for _, candidate := range allowed {
-		if report := byID[normalizeID(candidate.ID)]; report != nil {
-			result = append(result, report)
-		}
-	}
-	return result, nil
-}
-
-func reportAuthorizationID(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return "unknown"
-}
-
-func sharedArtifactActionID(artifact *SharedArtifact) string {
-	if artifact == nil {
-		return ""
-	}
-	values := []string{artifact.ArtifactRef, artifact.ArtifactID, artifact.ReportID}
-	if strings.TrimSpace(artifact.Kind) == savedReportArtifactKind {
-		values = []string{artifact.ReportID, artifact.ArtifactID, artifact.ArtifactRef}
-	}
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func (s *Service) listReportsTool(ctx context.Context, in, out interface{}) error {
@@ -2674,9 +2416,6 @@ func (s *Service) UpdateReport(ctx context.Context, request *UpdateReportRequest
 		ReportID:    request.ReportID,
 	})
 	if err != nil {
-		return nil, err
-	}
-	if err := s.authorizeAction(ctx, "report.edit", reportAuthorizationID(current.ReportID, current.ArtifactID, current.ArtifactRef)); err != nil {
 		return nil, err
 	}
 	updated := cloneSharedArtifact(current)
@@ -2804,9 +2543,6 @@ func (s *Service) DeleteReport(ctx context.Context, request *DeleteReportRequest
 	if err != nil {
 		return nil, err
 	}
-	if err := s.authorizeAction(ctx, "report.delete", reportAuthorizationID(current.ReportID, current.ArtifactID, current.ArtifactRef)); err != nil {
-		return nil, err
-	}
 	if strings.TrimSpace(current.Kind) != savedReportArtifactKind {
 		return nil, fmt.Errorf("report store: only user-defined saved reports can be deleted")
 	}
@@ -2859,9 +2595,6 @@ func (s *Service) RecordReportRun(ctx context.Context, request *RecordReportRunR
 		ReportID:    request.ReportID,
 	})
 	if err != nil {
-		return nil, err
-	}
-	if err := s.authorizeAction(ctx, "report.execute", reportAuthorizationID(current.ReportID, current.ArtifactID, current.ArtifactRef)); err != nil {
 		return nil, err
 	}
 	ranAt := request.RanAt

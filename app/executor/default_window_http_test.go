@@ -34,7 +34,7 @@ func TestDefaultWindowHTTPAndViewConsumeSameMCPDefinition(t *testing.T) {
 	rt := &Runtime{MCPManager: mgr, UIBridge: forge.NewService(&forge.Config{})}
 	b := NewBuilder()
 	require.NoError(t, b.configurePrimitiveProviders(rt))
-	b.configureDefaultWindowOpenAdmission(rt)
+	b.configureWindowUIProjection(rt)
 	defer rt.PrimitiveProviders.Close()
 	require.True(t, rt.UIBridge.UsesWindowResourceResolution())
 	startedList := time.Now()

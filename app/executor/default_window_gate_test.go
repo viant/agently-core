@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/protocol/mcp/manager"
+	auth "github.com/viant/agently-core/service/auth"
 	forge "github.com/viant/agently-core/service/primitiveprovider"
 	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/agently-core/service/ui/permittedview"
@@ -14,10 +15,17 @@ import (
 	"time"
 )
 
-type defaultWindowFacts struct{ roles []string }
+type defaultWindowFacts struct {
+	roles     []string
+	userRoles map[string][]string
+}
 
-func (r *defaultWindowFacts) Resolve(context.Context, *permittedview.Request) (*permittedview.Snapshot, error) {
-	return &permittedview.Snapshot{AuthorizationVersion: "current", ExpiresAt: time.Now().Add(time.Minute), Principal: map[string]any{"roles": r.roles}}, nil
+func (r *defaultWindowFacts) Resolve(ctx context.Context, _ *permittedview.Request) (*permittedview.Snapshot, error) {
+	roles := r.roles
+	if r.userRoles != nil {
+		roles = r.userRoles[auth.EffectiveUserID(ctx)]
+	}
+	return &permittedview.Snapshot{AuthorizationVersion: "current", ExpiresAt: time.Now().Add(time.Minute), Principal: map[string]any{"roles": roles}}, nil
 }
 func TestDefaultWindowOriginalApplicationGateUsesCurrentFacts(t *testing.T) {
 	root := t.TempDir()
@@ -46,5 +54,13 @@ func TestDefaultWindowOriginalApplicationGateUsesCurrentFacts(t *testing.T) {
 	require.NotNil(t, got.Definition)
 	facts.roles = nil
 	_, err = rt.UIBridge.WindowDefinitionGet(context.Background(), &forge.WindowDefinitionGetInput{WindowID: "protected"})
+	require.NoError(t, err, "unannounced owning changes leave captured metadata stable")
+	mgr.CloseConversation("")
+	_, err = rt.UIBridge.WindowDefinitionGet(context.Background(), &forge.WindowDefinitionGetInput{WindowID: "protected"})
 	require.Error(t, err)
+	facts.userRoles = map[string][]string{"alice": {"reader"}}
+	_, err = rt.UIBridge.WindowDefinitionGet(auth.InjectUser(context.Background(), "alice"), &forge.WindowDefinitionGetInput{WindowID: "protected"})
+	require.NoError(t, err)
+	_, err = rt.UIBridge.WindowDefinitionGet(auth.InjectUser(context.Background(), "bob"), &forge.WindowDefinitionGetInput{WindowID: "protected"})
+	require.Error(t, err, "another user's metadata must not reuse a projected window grant")
 }

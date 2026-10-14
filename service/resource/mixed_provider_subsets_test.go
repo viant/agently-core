@@ -64,9 +64,8 @@ func (p *subsetProvider) CallTool(ctx context.Context, request *schema.CallToolR
 	return result, err
 }
 
-// This is an ordinary tools/call skills provider: no namespace methods or
-// authoring extension, and no native skills extension. The existing fallback
-// must preserve both its manifest and resources/read package delivery.
+// This is a native skills-only provider: no namespace methods or ordinary
+// skill tools. Native manifests and resources/read share one owning source.
 type ordinarySubsetSkills struct {
 	mcpclient.Interface
 	entry     schema.Skill
@@ -76,22 +75,25 @@ type ordinarySubsetSkills struct {
 }
 
 func (p *ordinarySubsetSkills) Initialize(context.Context, ...mcpclient.RequestOption) (*schema.InitializeResult, error) {
-	return &schema.InitializeResult{ProtocolVersion: "2025-11-25"}, nil
+	return &schema.InitializeResult{ProtocolVersion: "2025-11-25", Capabilities: schema.ServerCapabilities{Resources: &schema.ServerCapabilitiesResources{}, Extensions: map[string]map[string]interface{}{schema.SkillsExtension: {}}}}, nil
 }
 func (p *ordinarySubsetSkills) ListTools(context.Context, *string, ...mcpclient.RequestOption) (*schema.ListToolsResult, error) {
-	return &schema.ListToolsResult{Tools: []schema.Tool{{Name: "skills/list"}, {Name: "skills/get"}}}, nil
+	return &schema.ListToolsResult{Tools: []schema.Tool{}}, nil
+}
+func (p *ordinarySubsetSkills) ListSkills(context.Context, *string, ...mcpclient.RequestOption) (*schema.ListSkillsResult, error) {
+	p.calls["skills/list"]++
+	return &schema.ListSkillsResult{ResultType: "complete", Skills: []schema.Skill{p.entry}}, nil
+}
+func (p *ordinarySubsetSkills) GetSkill(_ context.Context, uri string, _ ...mcpclient.RequestOption) (*schema.GetSkillResult, error) {
+	p.calls["skills/get"]++
+	if uri != p.entry.Uri {
+		return nil, fmt.Errorf("unknown skill")
+	}
+	return &schema.GetSkillResult{ResultType: "complete", Skill: p.entry}, nil
 }
 func (p *ordinarySubsetSkills) CallTool(_ context.Context, request *schema.CallToolRequestParams, _ ...mcpclient.RequestOption) (*schema.CallToolResult, error) {
-	p.calls[request.Name]++
-	switch request.Name {
-	case "skills/list":
-		return &schema.CallToolResult{StructuredContent: map[string]any{"skills": []schema.Skill{p.entry}}}, nil
-	case "skills/get":
-		return &schema.CallToolResult{StructuredContent: map[string]any{"skill": p.entry}}, nil
-	default:
-		p.forbidden = append(p.forbidden, request.Name)
-		return nil, fmt.Errorf("unsupported ordinary skill tool %s", request.Name)
-	}
+	p.forbidden = append(p.forbidden, request.Name)
+	return nil, fmt.Errorf("unsupported ordinary tool")
 }
 func (p *ordinarySubsetSkills) ReadResource(_ context.Context, request *schema.ReadResourceRequestParams, _ ...mcpclient.RequestOption) (*schema.ReadResourceResult, error) {
 	p.calls["resources/read"]++

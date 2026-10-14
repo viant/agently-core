@@ -17,7 +17,7 @@ import (
 )
 
 func matchProviderProof(pin identity.ResolvedResource, proof *primitive.ExecutionProof) error {
-	if proof == nil || proof.Binding == "" || proof.Token == "" || pin.ProviderIdentity != proof.Resource.ProviderIdentity || pin.URI != proof.Resource.URI || pin.ResourceCandidate != proof.Resource.ResourceCandidate || pin.AuthorityBinding != proof.Resource.AuthorityBinding || pin.ValidUntil.After(proof.Resource.ValidUntil) || !proof.Resource.ValidUntil.After(time.Now()) || !pin.ValidUntil.After(time.Now()) {
+	if proof == nil || proof.Binding == "" || proof.Token == "" || pin.ProviderIdentity != proof.Resource.ProviderIdentity || pin.URI != proof.Resource.URI || pin.ResourceCandidate != proof.Resource.ResourceCandidate || pin.AuthorityBinding != proof.Resource.AuthorityBinding || pin.ValidUntil.After(proof.Resource.ValidUntil) || !proof.Resource.ValidUntil.After(time.Now()) || !identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) {
 		return identity.ErrResourceDenied
 	}
 	return nil

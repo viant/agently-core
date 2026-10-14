@@ -11,11 +11,8 @@ import (
 )
 
 func (c *WindowCatalog) fetchReferencedDatasource(ctx context.Context, parent identity.ResolvedResource, target *types.WindowTarget, child identity.ResolvedResource, expected *dsproto.DataSource, inputs map[string]interface{}) (json.RawMessage, error) {
-	deadline := parent.ValidUntil
-	if child.ValidUntil.Before(deadline) {
-		deadline = child.ValidUntil
-	}
-	ctx, cancel := context.WithDeadline(ctx, deadline)
+	deadline := identity.MinimumMetadataExpiry(parent.ValidUntil, child.ValidUntil)
+	ctx, cancel := identity.WithMetadataExpiry(ctx, deadline)
 	defer cancel()
 	connection, err := c.Gateway.ConnectionForProvider(ctx, parent.ProviderIdentity)
 	if err != nil {
@@ -41,7 +38,7 @@ func (c *WindowCatalog) fetchReferencedDatasource(ctx context.Context, parent id
 			return identity.ErrResourceDenied
 		}
 		var actual dsproto.DataSource
-		if json.Unmarshal(variant.DataSources[expected.ID], &actual) != nil || !reflect.DeepEqual(expected, &actual) || result.ResolvedResource.ValidUntil.Before(parent.ValidUntil) {
+		if json.Unmarshal(variant.DataSources[expected.ID], &actual) != nil || !reflect.DeepEqual(expected, &actual) || identity.MinimumMetadataExpiry(result.ResolvedResource.ValidUntil, parent.ValidUntil).Before(parent.ValidUntil) {
 			return identity.ErrResourceDenied
 		}
 		return nil
@@ -63,7 +60,7 @@ func (c *WindowCatalog) fetchReferencedDatasource(ctx context.Context, parent id
 	if err = check(); err != nil {
 		return nil, err
 	}
-	if ctx.Err() != nil || !parent.ValidUntil.After(c.Gateway.now()) || !child.ValidUntil.After(c.Gateway.now()) {
+	if ctx.Err() != nil || !identity.MetadataExpiryValid(parent.ValidUntil, c.Gateway.now()) || !identity.MetadataExpiryValid(child.ValidUntil, c.Gateway.now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	return body, nil

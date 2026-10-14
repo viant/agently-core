@@ -30,7 +30,6 @@ import (
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	mcpclienthandler "github.com/viant/agently-core/protocol/mcp/clienthandler"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
-	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/protocol/tool"
 	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
 	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
@@ -96,6 +95,7 @@ type Runtime struct {
 	LocalPrimitiveProvider    *resourcesvc.LocalProvider
 	NativeHostDocuments       *resourcesvc.HostDocuments
 	localPrimitiveRegistered  bool
+	mcpDefinitions            *mcpDefinitionRuntime
 	standaloneDSConfigured    bool
 	nativeDocumentOnlyGateway bool
 	Defaults                  *config.Defaults
@@ -103,7 +103,6 @@ type Runtime struct {
 	// Forge views.
 	AuthorizationTool              string
 	AuthorizationPolicy            *policy.Runtime
-	WindowAuthorizer               func(context.Context, string) (bool, error)
 	PermittedResolver              permittedview.Resolver
 	DatasourceAuthorizer           func(context.Context, string, map[string]interface{}) error
 	DatasourceNewDeliveryPreparer  dssvc.NewDeliveryPreparer
@@ -115,7 +114,6 @@ type Runtime struct {
 	DatasourceDefinitionResolver   dssvc.ResourceDefinitionResolver
 	DatasourceProviderExecutor     dssvc.ProviderExecutor
 	DatasourceDisableCache         bool
-	ReportAuthorizer               func(context.Context, string, string) error
 	ToolAuthorizer                 func(context.Context, string, map[string]interface{}) error
 	Native                         *standalone.Server
 	Conversation                   conversation.Client
@@ -170,6 +168,7 @@ func resolveScratchpadTemplate() string {
 type Builder struct {
 	nativeWindowDefaults           []resourcesvc.NativeFrameworkWindowBinding
 	nativeWindowAliases            map[string]string
+	nativeHTTPWindowURIs           []string
 	nativeLayoutDefault            []byte
 	nativeComponentServices        []string
 	componentDispatcher            windowprotocol.ComponentDispatcher
@@ -202,8 +201,6 @@ type Builder struct {
 	primitiveVerifier              resourcesvc.ActorVerifier
 	primitiveLocalIdentity         string
 	primitiveGatewayIdentity       string
-	windowOpenBootstrap            permittedview.OpenBootstrap
-	windowOpenSelection            permittedview.OpenSelectionCheck
 	newDatasourceDeliveryPreparer  dssvc.NewDeliveryPreparer
 	pinnedDatasourceRevalidator    dssvc.ResourceRevalidator
 	pinnedDatasourceResolver       dssvc.ResourceDefinitionResolver
@@ -248,7 +245,6 @@ type AuthorizationProvider struct {
 	Gate                          policy.GateCheck
 	GateEvaluator                 policy.EvaluatorBridge
 	DatasourceAuthorize           func(context.Context, string, map[string]interface{}) error
-	ReportAuthorize               func(context.Context, string, string) error
 	ToolAuthorize                 func(context.Context, string, map[string]interface{}) error
 	PolicyVersion                 string
 	PolicyResource                func(context.Context, string, policy.Candidate) (authz.Resource, string, error)
@@ -298,8 +294,7 @@ func (b *Builder) WithDatasourceDenialRootRead(check dssvc.DefinitionAuthorizer)
 	return b
 }
 
-// WithUIBridge supplies a host-configured Forge bridge. Authz window mode
-// requires its catalog to report a host-installed admission callback.
+// WithUIBridge supplies a host-configured Forge bridge.
 func (b *Builder) WithUIBridge(bridge *forgeuisvc.Service) *Builder {
 	b.uiBridge = bridge
 	return b
@@ -438,13 +433,6 @@ func (b *Builder) WithPrimitiveReportDependencyProof(proof forgetypes.WindowTarg
 
 // WithPrimitiveWindows enables delegated windows on the existing host open
 // path. Provider namespaces and resources are discovered from MCP connections.
-// WithWindowOpenBootstrap supplies explicit protected row provenance and selected
-// object matching. It never infers a datasource from UI rendering hints.
-func (b *Builder) WithWindowOpenBootstrap(load permittedview.OpenBootstrap, match permittedview.OpenSelectionCheck) *Builder {
-	b.windowOpenBootstrap, b.windowOpenSelection = load, match
-	return b
-}
-
 func (b *Builder) WithPrimitiveWindows(proof forgetypes.WindowTargetProof) *Builder {
 	b.primitiveTargetProof = proof
 	return b
@@ -692,9 +680,6 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			log.Printf("[warn] tool execution protection is enabled but the configured custom registry does not support the standard concrete registry guard")
 		}
 	}
-	if !b.skipRegistryInitialize && !shouldSkipRegistryInitialize() {
-		out.Registry.Initialize(ctx)
-	}
 	workspaceConfig, err := wscfg.Load(workspace.Root())
 	if err != nil {
 		return nil, err
@@ -713,21 +698,21 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			}
 			out.AuthorizationTool = uiSettings.LegacyTool
 		case "authz":
-			if uiSettings.LegacyTool != "" || uiSettings.ProviderRef == "" || uiSettings.CapabilityMappingRef == "" {
-				return nil, fmt.Errorf("ui.authorization authz mode requires providerRef and capabilityMappingRef without tool")
+			if uiSettings.LegacyTool != "" || uiSettings.ProviderRef == "" {
+				return nil, fmt.Errorf("ui.authorization authz mode requires providerRef without tool")
 			}
 			provider, found := b.authorizationProviders[uiSettings.ProviderRef]
-			mapping, mapped := b.capabilityMappings[uiSettings.CapabilityMappingRef]
-			mappingV2, mappedV2 := b.capabilityMappingsV2[uiSettings.CapabilityMappingRef]
-			if !found || (!mapped && !mappedV2) || provider.Service == nil || provider.Account == nil || provider.AuthoritySnapshot == nil || provider.AuthorityRevision == nil || provider.AccountProjection == nil || provider.Gate == nil || provider.DatasourceAuthorize == nil || provider.PolicyVersion == "" || (mapping == nil && mappingV2 == nil) {
-				return nil, fmt.Errorf("ui.authorization references are not registered")
+			if !found || provider.Service == nil || provider.Service.Provider == nil || provider.PolicyVersion == "" {
+				return nil, fmt.Errorf("ui.authorization principal provider is not registered")
 			}
-			out.PermittedResolver = &permittedview.AuthzResolver{Service: provider.Service, Version: provider.PolicyVersion, Account: provider.Account, AuthorityRevision: provider.AuthorityRevision, ProjectAccount: provider.AccountProjection, Map: mapping, MapV2: mappingV2, Gate: provider.Gate, EntityPermission: provider.EntityPermission, EntityPermissionWithLease: provider.EntityPermissionWithLease, EntityRoles: provider.EntityRoles}
+			if provider.AuthoritySnapshot == nil {
+				return nil, fmt.Errorf("ui.authorization requires a trusted authority snapshot for the UI session")
+			}
+			out.PermittedResolver = &permittedview.AuthzResolver{Service: provider.Service, Version: provider.PolicyVersion}
 			out.ComponentAuthority = provider.ComponentAuthoritySnapshot
 			out.ExecutionContext = provider.ExecutionContext
 			out.UIBridge.ConfigureWindowReadDecisionScope(provider.WindowReadDecisionScope)
 			out.UIBridge.ConfigureNamespaceResolver(trustedUINamespace(provider.AuthoritySnapshot, provider.ExecutionContext), provider.ExecutionContext)
-			out.DatasourceAuthorizer = provider.DatasourceAuthorize
 			out.DatasourceDefinitionAuthorizer = provider.DatasourceDefinitionAuthorize
 			out.DatasourceDefinitionResolver = provider.DatasourceDefinitionResolver
 			out.DatasourceResourceRevalidator = provider.DatasourceResourceRevalidator
@@ -744,8 +729,6 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 		var operations []string
 		for section, operation := range map[string]string{
-			"ui":            policy.OperationWindowView,
-			"reports":       policy.OperationReportView,
 			"starterPrompt": policy.OperationStarterPromptView,
 			"intent":        policy.OperationIntentView,
 		} {
@@ -754,12 +737,6 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			}
 		}
 		if len(operations) > 0 {
-			if policySettings.Mode == "authz" && workspaceConfig.PolicyAuthorizationEnabled("ui") {
-				ready, ok := any(out.UIBridge).(interface{ AuthzReady() bool })
-				if !ok || !ready.AuthzReady() {
-					return nil, fmt.Errorf("authz window admission requires a host-protected Forge catalog")
-				}
-			}
 			switch policySettings.Mode {
 			case "", "legacy-mcp":
 				if policySettings.ProviderRef != "" {
@@ -774,17 +751,11 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 					return nil, fmt.Errorf("policy.authorization authz mode requires providerRef without mcpTool")
 				}
 				provider, found := b.authorizationProviders[policySettings.ProviderRef]
-				if !found || provider.Service == nil || provider.Account == nil || provider.Gate == nil || provider.PolicyResource == nil || provider.WindowAuthorize == nil || provider.PolicyVersion == "" {
+				if !found || provider.Service == nil || provider.Account == nil || provider.Gate == nil || provider.PolicyResource == nil || provider.PolicyVersion == "" {
 					return nil, fmt.Errorf("policy.authorization providerRef is not registered")
 				}
-				out.WindowAuthorizer = provider.WindowAuthorize
 				out.DatasourceDisableCache = true
-				if workspaceConfig.PolicyAuthorizationEnabled("reports") {
-					if provider.ReportAuthorize == nil {
-						return nil, fmt.Errorf("authz reporting requires backend action authorizer")
-					}
-					out.ReportAuthorizer = provider.ReportAuthorize
-				}
+
 				if provider.ToolAuthorize != nil {
 					if toolAuthorizerRef != "" && toolAuthorizerRef != policySettings.ProviderRef {
 						return nil, fmt.Errorf("conflicting authz tool authorization providers")
@@ -796,15 +767,6 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			default:
 				return nil, fmt.Errorf("unsupported policy.authorization mode %q", policySettings.Mode)
 			}
-		} else if policySettings.Mode == "authz" {
-			if policySettings.ProviderRef == "" || policySettings.LegacyTool != "" {
-				return nil, fmt.Errorf("policy.authorization authz mode requires providerRef without mcpTool")
-			}
-			provider, found := b.authorizationProviders[policySettings.ProviderRef]
-			if !found || provider.Service == nil || provider.Account == nil || provider.Gate == nil || provider.PolicyResource == nil || provider.WindowAuthorize == nil || provider.PolicyVersion == "" {
-				return nil, fmt.Errorf("policy.authorization providerRef is not registered")
-			}
-			out.DatasourceDisableCache = true
 		}
 	}
 	if out.DatasourceDisableCache && !tool.SetResultReuseDisabled(out.Registry, true) {
@@ -946,9 +908,6 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	if (b.windowOpenBootstrap == nil) != (b.windowOpenSelection == nil) {
-		return nil, fmt.Errorf("window open bootstrap requires explicit selection matcher")
-	}
 	if out.PermittedResolver == nil && out.AuthorizationTool != "" {
 		execute, ok := any(out.Registry).(permittedview.ToolExecutor)
 		if !ok {
@@ -956,28 +915,12 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 		out.PermittedResolver = &permittedview.MCPResolver{Executor: execute, ToolName: out.AuthorizationTool}
 	}
-	if out.UIBridge != nil && out.UIBridge.HasWindowOpenAdmission() && b.windowOpenBootstrap != nil {
-		return nil, fmt.Errorf("window open admission is already supplied by the host")
-	}
-	if out.UIBridge != nil && out.PermittedResolver != nil && !out.UIBridge.HasWindowOpenAdmission() {
-		admission := &permittedview.OpenAdmission{Runtime: permittedview.NewRuntime(out.PermittedResolver), Bootstrap: b.windowOpenBootstrap, MatchSelection: b.windowOpenSelection}
-		out.UIBridge.ConfigureWindowOpenAdmission(func(ctx context.Context, pin identity.ResolvedResource, window *forgetypes.Window, parameters map[string]any) (*forgeuisvc.WindowOpenDecision, error) {
-			decision, err := admission.ApplyDecision(ctx, pin, window, parameters)
-			if err != nil {
-				return nil, err
-			}
-			return &forgeuisvc.WindowOpenDecision{Window: decision.Window, ValidUntil: decision.ExpiresAt}, nil
-		})
-	}
+	b.configureWindowUIProjection(out)
 	if err := b.configureComponentTransport(out); err != nil {
 		return nil, err
 	}
 	if out.Reporting == nil && b.reportingService != nil {
 		out.Reporting = b.reportingService
-		out.Reporting.SetAuthorizationPolicy(out.AuthorizationPolicy)
-	}
-	if out.Reporting != nil && out.ReportAuthorizer != nil {
-		out.Reporting.SetActionAuthorizer(out.ReportAuthorizer)
 	}
 	scratchpadsvc.RegisterProvider()
 	if out.Reporting == nil && out.Defaults != nil && out.Defaults.Reporting.Enabled {
@@ -1029,8 +972,6 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			TokenProvider:               b.tokenProvider,
 			ExportFromRunEnabled:        out.Defaults.Reporting.ExportFromRunEnabled(),
 			ConversationAdoptionEnabled: out.Defaults.Reporting.ConversationAdoptionEnabled(),
-			AuthorizationPolicy:         out.AuthorizationPolicy,
-			ActionAuthorize:             out.ReportAuthorizer,
 		})
 	}
 	if b.reportCatalog != nil || b.reportResourceResolver != nil {
@@ -1050,9 +991,6 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 	}
 	if out.Registry != nil && out.Reporting != nil {
-		if out.ReportAuthorizer != nil {
-			out.Reporting.SetActionAuthorizer(out.ReportAuthorizer)
-		}
 		if err := tool.AddInternalService(out.Registry, out.Reporting); err != nil {
 			return nil, err
 		}
@@ -1143,12 +1081,17 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		return nil, err
 	}
 	b.configureDefaultUIOwner(out)
-	b.configureDefaultWindowOpenAdmission(out)
 	if out.Agent != nil && out.NativeHostDocuments != nil {
 		out.Agent.SetHostDocuments(out.NativeHostDocuments)
 	}
 	if err := b.configurePrimitiveSkills(ctx, out); err != nil {
 		return nil, err
+	}
+	if err := b.bindMCPDefinitions(out); err != nil {
+		return nil, fmt.Errorf("MCP definition loading: %w", err)
+	}
+	if !b.skipRegistryInitialize && !shouldSkipRegistryInitialize() {
+		out.Registry.Initialize(ctx)
 	}
 	if b.hotSwapEnabled {
 		mgr, err := initHotSwap(ctx, b)
@@ -1239,6 +1182,9 @@ func (r *Runtime) Close(ctx context.Context) error {
 		return nil
 	}
 	r.closeOnce.Do(func() {
+		if r.mcpDefinitions != nil {
+			r.mcpDefinitions.gateway.Close()
+		}
 		if r.PrimitiveProviders != nil {
 			r.PrimitiveProviders.Close()
 		}

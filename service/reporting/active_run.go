@@ -111,9 +111,6 @@ func (s *Service) GetActiveReportRun(ctx context.Context) (*ActiveReportRun, err
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if err := s.authorizeAction(ctx, "report.retrieve", "report-run://"+reportRunID); err != nil {
-		return nil, reportPolicyReadError(err)
-	}
 	return &ActiveReportRun{
 		ReportRunID:     reportRunID,
 		Revision:        run.Revision,

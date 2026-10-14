@@ -43,7 +43,7 @@ func (uiAuthzStore) Replace(context.Context, authz.Document, int64, string) (aut
 	return authz.Document{}, authz.ErrDenied
 }
 
-func TestFileWindowAuthzAdmissionAndCapabilityPreflight(t *testing.T) {
+func TestFileWindowUsesPrincipalPresentationWithoutEntityPreflight(t *testing.T) {
 	metaRoot, workspaceRoot := t.TempDir(), t.TempDir()
 	previous := workspace.Root()
 	workspace.SetRoot(workspaceRoot)
@@ -53,8 +53,13 @@ authorization:
   scope: resource
   resource: {type: customer, id: {source: windowForm, selector: CustomerID}}
   requestedCapabilities: [read]
-view: {content: {id: root}}
+view:
+  content:
+    id: root
+    containers:
+      - {id: feature, visibleWhen: {source: authorization, field: principal.features, contains: FEATURE}}
 `)
+
 	facts := &uiAuthzFacts{authz.Facts{Subject: "alice", Issuer: "issuer", Tenant: "tenant", Roles: []string{"reader"}, Exposures: []string{"FEATURE"}, EntityGroups: authz.EntityGroups{"customer": {"42"}}, ValidUntil: time.Now().Add(time.Hour)}}
 	windowResource := authz.Resource{Kind: "window", ID: "protected", Version: "1", Tenant: "tenant"}
 	entityResource := authz.Resource{Kind: "customer", ID: "catalog", Version: "1", Tenant: "tenant"}
@@ -100,21 +105,22 @@ view: {content: {id: root}}
 	var payload struct {
 		Authorization permittedview.Snapshot `json:"authorization"`
 	}
-	if err := json.Unmarshal(permitted.Body.Bytes(), &payload); err != nil || payload.Authorization.Resources["42"] == nil || !payload.Authorization.Resources["42"].Capabilities["read"] {
-		t.Fatalf("missing verified capability: %+v %v", payload, err)
+	if err := json.Unmarshal(permitted.Body.Bytes(), &payload); err != nil || len(payload.Authorization.Resources) != 0 || payload.Authorization.Principal["features"] == nil {
+		t.Fatalf("principal projection missing or entity permission leaked: %+v %v", payload, err)
 	}
 	facts.facts.Exposures = nil
 	for _, path := range []string{"/window/protected", "/window/protected?applyPermission=true&windowParams=" + url.QueryEscape(`{"CustomerID":42}`)} {
 		denied := open(path)
-		if denied.Code != http.StatusNotFound {
-			t.Fatalf("gate bypassed on %q: status=%d body=%s", path, denied.Code, denied.Body.String())
+		if denied.Code != http.StatusOK {
+			t.Fatalf("consumer policy incorrectly denied owner window on %q: status=%d body=%s", path, denied.Code, denied.Body.String())
 		}
 	}
 }
 
-func TestWholeWindowIdentityRejectionIsNotHiddenAsMissingNavigation(t *testing.T) {
+func TestWindowConsumerPolicyDoesNotReplaceIngressAuthentication(t *testing.T) {
 	root := t.TempDir()
 	mustWriteWorkspaceUIFile(t, filepath.Join(root, "shared", "navigation.yaml"), "- {id: orders, label: Orders, windowKey: orders}\n")
+	mustWriteWorkspaceUIFile(t, filepath.Join(root, "window", "orders.yaml"), "view: {content: {id: orders}}\n")
 	resource := authz.Resource{Kind: "window", ID: "orders", Version: "1", Tenant: "tenant"}
 	resolver := &policy.AuthzResolver{Service: &authz.Service{Provider: uiRejectedFacts{}}, PolicyVersion: "v1",
 		Account: func(context.Context, authz.Facts) (string, error) { return "account", nil },
@@ -131,13 +137,17 @@ func TestWholeWindowIdentityRejectionIsNotHiddenAsMissingNavigation(t *testing.T
 	for _, path := range []string{"/window/orders", "/navigation"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
-		if response.Code != http.StatusUnauthorized {
+		want := http.StatusUnauthorized
+		if path == "/window/orders" {
+			want = http.StatusOK
+		}
+		if response.Code != want {
 			t.Fatalf("identity rejection on %s became hidden resource: status=%d body=%s", path, response.Code, response.Body.String())
 		}
 	}
 }
 
-func TestSDKV2StringIDPassesActualWindowPreflight(t *testing.T) {
+func TestSDKV2WindowMetadataDoesNotRequestEntityPermissions(t *testing.T) {
 	if !reflect.ValueOf(&forgetypes.AuthorizationSpec{}).Elem().FieldByName("SchemaVersion").IsValid() {
 		t.Skip("pinned Forge predates v2 authorization metadata")
 	}
@@ -198,15 +208,15 @@ view: {content: {id: root}}
 			} `json:"resources"`
 		} `json:"authorizationSnapshot"`
 	}
-	if err := json.Unmarshal(raw, &permitted); err != nil || permitted.AuthorizationSnapshot.SchemaVersion != 2 || permitted.AuthorizationSnapshot.Resources[id].ID != id || !permitted.AuthorizationSnapshot.Resources[id].Capabilities["read"] {
-		t.Fatalf("v2 response lost exact ID: %s %v", raw, err)
+	if err := json.Unmarshal(raw, &permitted); err != nil || len(permitted.AuthorizationSnapshot.Resources) != 0 {
+		t.Fatalf("consumer response included entity permissions: %s %v", raw, err)
 	}
-	if _, err := client.ApplyPermission(context.Background(), "customer", &sdk.ApplyPermissionInput{AuthorizationSchemaVersion: 2, WindowParams: map[string]interface{}{"CustomerID": float64(9007199254740993)}}); err == nil {
-		t.Fatal("rounded numeric v2 ID passed server preflight")
+	if _, err := client.ApplyPermission(context.Background(), "customer", &sdk.ApplyPermissionInput{AuthorizationSchemaVersion: 1, WindowParams: map[string]interface{}{"CustomerID": id}}); err == nil {
+		t.Fatal("mismatched authored schema accepted")
 	}
 }
 
-func TestFileAndBuiltInWindowsShareWholeWindowAdmission(t *testing.T) {
+func TestFileAndBuiltInWindowsDoNotUseConsumerWindowPolicy(t *testing.T) {
 	metaRoot, workspaceRoot := t.TempDir(), t.TempDir()
 	previous := workspace.Root()
 	workspace.SetRoot(workspaceRoot)
@@ -246,7 +256,7 @@ func TestFileAndBuiltInWindowsShareWholeWindowAdmission(t *testing.T) {
 		for _, id := range []string{"file", "builtin"} {
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/window/"+id, nil))
-			if response.Code != expectedStatus {
+			if response.Code != http.StatusOK {
 				t.Fatalf("%s status=%d want=%d body=%s", id, response.Code, expectedStatus, response.Body.String())
 			}
 		}

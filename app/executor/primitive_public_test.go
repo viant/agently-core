@@ -63,11 +63,14 @@ func TestDefaultPublicEmptyAndAuthenticatedComposition(t *testing.T) {
 	out := &Runtime{MCPManager: mgr}
 	require.NoError(t, NewBuilder().configurePrimitiveProviders(out))
 	require.NotNil(t, out.PrimitiveProviders)
-	// Bootstrapped standard host documents may have a metadata-only provider.
-	// Empty composition still declares no business primitive capabilities.
+	// Empty workspaces still expose their configuration catalog, with no
+	// configured servers or business primitive entries.
 	namespaces, err := out.PrimitiveProviders.Discover(context.Background())
 	require.NoError(t, err)
-	require.Empty(t, namespaces)
+	require.Len(t, namespaces, 1)
+	require.Equal(t, configurationMCPName, namespaces[0].Connection.ProviderIdentity)
+	require.Len(t, namespaces[0].Kinds, 1)
+	require.Equal(t, "mcp", namespaces[0].Kinds[0].Kind)
 	page, err := resources.ListPage[primitive.ToolfeedDefinition](context.Background(), out.PrimitiveProviders, primitive.ToolfeedKind, resources.CatalogQuery{}, true)
 	require.NoError(t, err)
 	require.Empty(t, page.Items)
@@ -162,14 +165,14 @@ func TestDefaultPublicOtherPrimitivesPreserveConfiguredCanonicalWindowConsumer(t
 	builder := NewBuilder()
 	require.NoError(t, builder.configurePrimitiveProviders(out))
 	defer out.PrimitiveProviders.Close()
-	builder.configureDefaultWindowOpenAdmission(out)
+	builder.configureWindowUIProjection(out)
 	require.Nil(t, out.PrimitiveWindows, "default composition must retain the configured window consumer")
 	require.Nil(t, builder.primitiveTargetProof, "default composition must not create a second window selection owner")
 	bridge.ConfigureWindowCatalog(func(actual service.WindowDefinitionCatalog) service.WindowDefinitionCatalog {
 		require.Same(t, configured, actual)
 		return actual
 	})
-	require.False(t, bridge.HasWindowOpenAdmission(), "default startup must not overlay the explicit consumer's UI admission")
+	require.False(t, bridge.HasWindowUIProjection(), "default startup must not overlay the explicit consumer's UI admission")
 	got, err := resources.ResolveDefinition[primitive.ToolfeedDefinition](context.Background(), out.PrimitiveProviders, primitive.ToolfeedKind, "media-plan", func(v primitive.ToolfeedDefinition) string { return v.ID })
 	require.NoError(t, err, "other default primitives still publish through the existing manager")
 	require.Equal(t, "toolfeed://workspace/media", got.Resource.URI)

@@ -71,7 +71,7 @@ func (s *Service) EmitWindowSelection(ctx context.Context, window *types.Window,
 	if s.cfg.WindowSelectionEmitter == nil {
 		return withoutWindowSelectionBinding(window), nil
 	}
-	if ctx == nil || ctx.Err() != nil || window == nil || window.Resource == nil || !window.Resource.ValidUntil.After(time.Now()) {
+	if ctx == nil || ctx.Err() != nil || window == nil || window.Resource == nil || !identity.MetadataExpiryValid(window.Resource.ValidUntil, time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	original := withoutWindowSelectionBinding(window)
@@ -102,7 +102,7 @@ func (s *Service) EmitWindowSelection(ctx context.Context, window *types.Window,
 	if ctx.Err() != nil {
 		return nil, sanitizedSelectionError(ctx.Err())
 	}
-	if binding == nil || binding.Token == "" || binding.Actor.Issuer == "" || binding.Actor.Subject == "" || binding.Actor.TenantID == "" || binding.Actor.AccountID == "" || binding.InstanceID == "" || binding.ParametersDigest != digest || !output.Resource.ValidUntil.After(time.Now()) {
+	if binding == nil || binding.Token == "" || binding.Actor.Issuer == "" || binding.Actor.Subject == "" || binding.Actor.TenantID == "" || binding.Actor.AccountID == "" || binding.InstanceID == "" || binding.ParametersDigest != digest || !identity.MetadataExpiryValid(output.Resource.ValidUntil, time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	copy := *binding

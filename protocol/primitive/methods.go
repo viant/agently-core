@@ -8,6 +8,10 @@ import (
 
 func Plural(kind string) string {
 	switch kind {
+	case "lookup":
+		return "lookups"
+	case "mcp":
+		return "mcps"
 	case "menu":
 		return "menus"
 	case "toolfeed":
@@ -32,7 +36,7 @@ func Plural(kind string) string {
 	return ""
 }
 func Kind(plural string) string {
-	for _, kind := range []string{"menu", "toolfeed", "window", "report", "intent", "template", "datasource", "skill", "eval", "prompt"} {
+	for _, kind := range []string{"menu", "toolfeed", "window", "report", "intent", "template", "datasource", "skill", "eval", "prompt", "mcp", "lookup"} {
 		if Plural(kind) == plural {
 			return kind
 		}

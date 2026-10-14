@@ -178,3 +178,21 @@ func DefaultRuntime() *Runtime {
 	defer defaultRuntimeState.RUnlock()
 	return defaultRuntimeState.runtime
 }
+
+// ResolvePresentation forwards authored UI facts inputs to their configured MCP.
+// Its response controls presentation only; no capability admits resource reads.
+func (r *MCPResolver) ResolvePresentation(ctx context.Context, bound *BoundView) (*Snapshot, error) {
+	selected, err := BindResource(bound.Window, bound.WindowID, bound.ConversationID, bound.WindowForm, bound.ResourceData)
+	if err != nil {
+		return nil, err
+	}
+	*bound = *selected
+	request, err := ResolveRequest(bound)
+	if err != nil {
+		return nil, err
+	}
+	if request == nil {
+		return r.Resolve(ctx, &Request{IncludePrincipal: true})
+	}
+	return r.Resolve(ctx, request)
+}

@@ -40,7 +40,7 @@ func (s *Service) bindOperationDependencies(ctx context.Context, originalParent,
 	if originalParent == nil || parent == nil || original == nil || originalParent.ValidUntil.Equal(parent.ValidUntil) {
 		return s.bindDependencies(ctx, parent, definition, original, token)
 	}
-	if originalParent.URI != parent.URI || originalParent.ProviderIdentity != parent.ProviderIdentity || originalParent.ResourceCandidate != parent.ResourceCandidate || originalParent.AuthorityBinding != parent.AuthorityBinding || parent.ValidUntil.After(originalParent.ValidUntil) || !originalParent.ValidUntil.After(s.now()) {
+	if originalParent.URI != parent.URI || originalParent.ProviderIdentity != parent.ProviderIdentity || originalParent.ResourceCandidate != parent.ResourceCandidate || originalParent.AuthorityBinding != parent.AuthorityBinding || identity.MetadataExpiryExtends(parent.ValidUntil, originalParent.ValidUntil) || !identity.MetadataExpiryValid(originalParent.ValidUntil, s.now()) {
 		return nil, "", identity.ErrResourceDenied
 	}
 	old := *originalParent
@@ -48,9 +48,7 @@ func (s *Service) bindOperationDependencies(ctx context.Context, originalParent,
 	if err != nil {
 		return nil, "", err
 	}
-	if old.ValidUntil.Before(parent.ValidUntil) {
-		parent.ValidUntil = old.ValidUntil
-	}
+	parent.ValidUntil = identity.MinimumMetadataExpiry(parent.ValidUntil, old.ValidUntil)
 	if len(pins) == 0 {
 		return nil, "", nil
 	}
@@ -84,24 +82,20 @@ func (s *Service) bindDependencies(ctx context.Context, parent *identity.Resolve
 	}
 	for id, ref := range definition.DataSourceResources {
 		pin, ok := pins[id]
-		if !ok || ref.Validate(parent.Kind == identity.StampedCandidate) != nil || pin.URI != ref.Resource.URI || pin.Selector() != ref.Resource.Revision || pin.ContentFingerprint != ref.ContentFingerprint || pin.ProviderIdentity != ref.ProviderIdentity || !pin.ResourceCandidate.Valid() || pin.AuthorityBinding == "" || !pin.ValidUntil.After(s.now()) {
+		if !ok || ref.Validate(parent.Kind == identity.StampedCandidate) != nil || pin.URI != ref.Resource.URI || pin.Selector() != ref.Resource.Revision || pin.ContentFingerprint != ref.ContentFingerprint || pin.ProviderIdentity != ref.ProviderIdentity || !pin.ResourceCandidate.Valid() || pin.AuthorityBinding == "" || !identity.MetadataExpiryValid(pin.ValidUntil, s.now()) {
 			return nil, "", identity.ErrResourceDenied
 		}
 		if original != nil {
 			old, ok := original[id]
-			if !ok || old.URI != pin.URI || old.ProviderIdentity != pin.ProviderIdentity || old.ResourceCandidate != pin.ResourceCandidate || old.AuthorityBinding != pin.AuthorityBinding || !old.ValidUntil.After(s.now()) {
+			if !ok || old.URI != pin.URI || old.ProviderIdentity != pin.ProviderIdentity || old.ResourceCandidate != pin.ResourceCandidate || old.AuthorityBinding != pin.AuthorityBinding || !identity.MetadataExpiryValid(old.ValidUntil, s.now()) {
 				return nil, "", identity.ErrResourceDenied
 			}
-			if pin.ValidUntil.After(old.ValidUntil) {
-				pin.ValidUntil = old.ValidUntil
-			}
+			pin.ValidUntil = identity.MinimumMetadataExpiry(pin.ValidUntil, old.ValidUntil)
 			pins[id] = pin
 		}
-		if pin.ValidUntil.Before(parent.ValidUntil) {
-			parent.ValidUntil = pin.ValidUntil
-		}
+		parent.ValidUntil = identity.MinimumMetadataExpiry(parent.ValidUntil, pin.ValidUntil)
 	}
-	if !parent.ValidUntil.After(s.now()) {
+	if !identity.MetadataExpiryValid(parent.ValidUntil, s.now()) {
 		return nil, "", identity.ErrResourceDenied
 	}
 	signed, e := s.resourceDependencyProof.Sign(ctx, *parent, types.WindowTarget{DependencyPins: pins}, reportDependencyDomain)

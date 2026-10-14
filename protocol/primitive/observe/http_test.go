@@ -26,11 +26,22 @@ func TestHTTPPreservesWriterAndCollectsDetachedMetadataOnly(t *testing.T) {
 		t.Fatal("missing disabled handler")
 	}
 	HTTP(next, func(v map[string]float64) { values = v }).ServeHTTP(w, httptest.NewRequest("GET", "/secret?token=private", nil))
-	if values["provider.get.calls"] != 1 || values["http.total.calls"] != 1 || len(values) != 4 {
+	if values["provider.get.calls"] != 1 || values["http.total.calls"] != 1 || values["provider.get.cache.hit"] != 1 || len(values) != 5 {
 		t.Fatalf("unexpected totals: %v", values)
 	}
 	if !w.Flushed {
 		t.Fatal("flush lost")
+	}
+}
+
+func TestCollectorKeepsCacheOutcomesWithoutUnboundedLabels(t *testing.T) {
+	collector := &Collector{}
+	for _, cache := range []Cache{CacheHit, CacheMiss, CacheBypass, CacheUnknown, Cache("untrusted-value")} {
+		collector.Observe(Event{Phase: GatewayDefinitionDecode, Outcome: OK, Cache: cache, Labels: Labels{Namespace: "private-user-path"}})
+	}
+	values := collector.Totals()
+	if values["gateway.definition.decode.calls"] != 5 || values["gateway.definition.decode.cache.hit"] != 1 || values["gateway.definition.decode.cache.miss"] != 1 || values["gateway.definition.decode.cache.bypass"] != 1 || len(values) != 5 {
+		t.Fatalf("unexpected bounded cache totals: %v", values)
 	}
 }
 

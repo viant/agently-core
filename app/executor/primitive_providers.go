@@ -17,6 +17,9 @@ import (
 )
 
 func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
+	if err := b.configureMCPDefinitionSource(out); err != nil {
+		return fmt.Errorf("MCP definition source: %w", err)
+	}
 	if err := b.configurePublicPrimitiveProviders(out); err != nil {
 		return fmt.Errorf("public primitive providers: %w", err)
 	}
@@ -28,8 +31,19 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 			return fmt.Errorf("internal primitives require a manager and declared provider identity")
 		}
 		provider := out.LocalPrimitiveProvider
+		var resourceScopes map[string]string
+		if out.publicPrimitiveDefault {
+			resourceScopes = map[string]string{"workspace": mcpcfg.ResourceCachePublic, "system": mcpcfg.ResourceCachePublic, "workspace/menu": mcpcfg.ResourceCacheUser, "workspace/mcp": mcpcfg.ResourceCacheUser, "system/menu": mcpcfg.ResourceCacheUser}
+			// Window availability can be projected through original application
+			// visibility rules. Such metadata belongs to the current user even
+			// though its authored bytes are immutable and grant no data access.
+			if out.PermittedResolver != nil || out.AuthorizationTool != "" || out.AuthorizationPolicy != nil {
+				resourceScopes["workspace/window"] = mcpcfg.ResourceCacheUser
+			}
+		}
 		if err := out.MCPManager.RegisterLocal(context.Background(), "internal", &mcpcfg.MCPClient{
 			ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: provider.ProviderIdentity(),
+			ResourceCacheScopes: resourceScopes,
 		}, func(context.Context) (mcpclient.Interface, error) {
 			return resourcesvc.NewLocalMCPClient(provider)
 		}); err != nil {
@@ -99,6 +113,9 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 	if out.publicPrimitiveDefault {
 		remote.DefaultProviderIdentity = resourcesvc.InternalProviderIdentity
 		remote.Aliases = b.nativeWindowAliases
+		if err := remote.RegisterNativeHTTPWindows(resourcesvc.Connection{Name: "internal", ProviderIdentity: resourcesvc.InternalProviderIdentity}, b.nativeHTTPWindowURIs); err != nil {
+			return err
+		}
 	}
 	out.UIBridge.ConfigureWindowCatalog(func(local forge.WindowDefinitionCatalog) forge.WindowDefinitionCatalog {
 		out.PrimitiveWindows = &resourcesvc.CompositeWindowCatalog{Local: local, LocalProviderIdentity: b.primitiveLocalIdentity, Remote: remote}

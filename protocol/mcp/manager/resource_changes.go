@@ -100,6 +100,9 @@ func (m *Manager) WithCatalogSources(ctx context.Context, partition VisibleCatal
 	partition.sources = &sources
 	versions := make(map[string][2]uint64, len(names))
 	receiver := m.resourceReceiver(ctx)
+	if partition.manager == m && partition.owner == ([32]byte{}) {
+		receiver = [32]byte{}
+	}
 	m.mu.Lock()
 	for _, name := range names {
 		versions[name] = m.resourceCatalogGenerationLocked(name, receiver)

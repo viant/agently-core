@@ -10,7 +10,7 @@ type Config struct {
 	// resolve identity before UI registration; client token hints never select it.
 	NamespaceResolver       NamespaceResolver
 	WindowReadDecisionScope WindowReadDecisionScope
-	WindowOpenAdmission     WindowOpenAdmission
+	WindowUIProjection      WindowUIProjection
 	WindowSelectionEmitter  WindowSelectionEmitter
 	ReportCatalog           catalog.Provider
 	// PrimitiveProvider exposes published remote windows and provider execution.

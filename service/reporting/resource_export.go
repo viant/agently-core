@@ -262,7 +262,7 @@ func (s *Service) prepareUnifiedExportRequestUnscoped(ctx context.Context, reque
 	if execution == nil || execution.Resource == nil || !exportPinLeaseValid(execution.Resource, s.now()) {
 		return nil, nil, identity.ErrResourceDenied
 	}
-	if execution.Resource.ValidUntil.Before(exportPin.ValidUntil) {
+	if narrowed := identity.MinimumMetadataExpiry(execution.Resource.ValidUntil, exportPin.ValidUntil); !narrowed.Equal(exportPin.ValidUntil) {
 		exportPin = cloneResolvedResource(execution.Resource)
 	}
 	// A second grant cannot renew the first action deadline.
@@ -270,7 +270,7 @@ func (s *Service) prepareUnifiedExportRequestUnscoped(ctx context.Context, reque
 	if err != nil {
 		return nil, nil, err
 	}
-	if checked == nil || checked.ValidUntil.After(exportPin.ValidUntil) {
+	if checked == nil || identity.MetadataExpiryExtends(checked.ValidUntil, exportPin.ValidUntil) {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	exportPin = checked
@@ -305,7 +305,7 @@ func sameResourcePin(a, b *identity.ResolvedResource) bool {
 }
 
 func exportPinLeaseValid(pin *identity.ResolvedResource, now time.Time) bool {
-	return pin != nil && pin.ResourceCandidate.Valid() && pin.AuthorityBinding != "" && pin.ValidUntil.After(now)
+	return pin != nil && pin.ResourceCandidate.Valid() && pin.AuthorityBinding != "" && identity.MetadataExpiryValid(pin.ValidUntil, now)
 }
 
 // exportUsesResource distinguishes selected stored definitions from supplied

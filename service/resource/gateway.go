@@ -42,13 +42,16 @@ type LocatedResource struct {
 	Resource         primitive.ResourceState    `json:"resource"`
 }
 type capabilities struct {
-	actor           identity.VerifiedActor
-	connection      Connection
-	namespaces      []primitive.NamespaceCapabilities
-	installed       map[string]bool
-	bindingKey      string
-	resourceVersion [2]uint64
-	expires         time.Time
+	sharedIndex            bool
+	indexedResources       map[string]primitive.ResourceState
+	actor                  identity.VerifiedActor
+	connection             Connection
+	namespaces             []primitive.NamespaceCapabilities
+	installed              map[string]bool
+	bindingKey             string
+	resourceVersion        [2]uint64
+	publicResourceMetadata bool
+	expires                time.Time
 }
 type Gateway struct {
 	Manager                 *manager.Manager
@@ -60,6 +63,7 @@ type Gateway struct {
 	generations             map[string]uint64
 	cache                   map[string]capabilities
 	stopChanges             func()
+	stopResourceChanges     func()
 	closed                  bool
 	observedOwners          map[string]string
 }
@@ -68,6 +72,15 @@ func NewGateway(m *manager.Manager, a ActorResolver, v ActorVerifier, localIdent
 	g := &Gateway{Manager: m, Actor: a, Verify: v, GatewayProviderIdentity: localIdentity, generations: map[string]uint64{}, cache: map[string]capabilities{}, observedOwners: map[string]string{}}
 	if m != nil {
 		g.stopChanges = m.OnCatalogChange(g.Invalidate)
+		g.stopResourceChanges = m.OnResourceCatalogChange(func(name string) {
+			g.mu.Lock()
+			defer g.mu.Unlock()
+			for key, c := range g.cache {
+				if c.connection.Name == name && c.publicResourceMetadata {
+					delete(g.cache, key)
+				}
+			}
+		})
 	}
 	return g
 }
@@ -85,10 +98,15 @@ func (g *Gateway) Close() {
 	g.closed = true
 	g.cache = map[string]capabilities{}
 	stop := g.stopChanges
+	stopResource := g.stopResourceChanges
+	g.stopResourceChanges = nil
 	g.stopChanges = nil
 	g.mu.Unlock()
 	if stop != nil {
 		stop()
+	}
+	if stopResource != nil {
+		stopResource()
 	}
 }
 func (g *Gateway) Invalidate(connection string) {
@@ -301,7 +319,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 			return read, nil
 		}
 	}
-	if !force && ok && cached.expires.After(g.now()) && cached.bindingKey == binding.key && cached.resourceVersion == resourceVersion {
+	if !force && ok && identity.MetadataExpiryValid(cached.expires, g.now()) && cached.bindingKey == binding.key && cached.resourceVersion == resourceVersion {
 		if e = g.checkReadBinding(ctx, a, binding); e != nil {
 			return capabilities{}, e
 		}
@@ -316,6 +334,8 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 		return cached, nil
 	}
 	installed := map[string]bool{}
+	sharedContract := false
+	seenTools := map[string]bool{}
 	owners := map[string]bool{}
 	configuredOwner := options.PrimitiveProviderIdentity
 	if configuredOwner != "" {
@@ -339,6 +359,20 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 				return capabilities{}, ErrUnavailable
 			}
 			for _, tool := range tools.Tools {
+				if seenTools[tool.Name] {
+					return capabilities{}, identity.ErrResource
+				}
+				seenTools[tool.Name] = true
+				if tool.Name == "namespaces/get" {
+					var shape struct {
+						Properties map[string]json.RawMessage `json:"properties"`
+					}
+					raw, _ := json.Marshal(tool.InputSchema)
+					if json.Unmarshal(raw, &shape) == nil && shape.Properties["uri"] != nil {
+						sharedContract = true
+					}
+				}
+
 				raw, _ := json.Marshal(tool.Meta[primitive.AuthoringExtension])
 				var meta struct {
 					Version          int    `json:"version"`
@@ -346,9 +380,6 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 					Transport        string `json:"transport"`
 				}
 				if json.Unmarshal(raw, &meta) == nil && meta.Version == 1 && meta.ProviderIdentity != "" && meta.Transport == "tools/call" {
-					if installed[tool.Name] {
-						return capabilities{}, identity.ErrResource
-					}
 					installed[tool.Name] = true
 					owners[meta.ProviderIdentity] = true
 				}
@@ -363,101 +394,178 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 		}
 
 	}
+	if sharedContract {
+		for _, method := range []string{"namespaces/list", "namespaces/get", "resource/get"} {
+			if seenTools[method] {
+				installed[method] = true
+			}
+		}
+	}
 	if !installed["namespaces/list"] || !installed["namespaces/get"] {
 		return capabilities{}, ErrUnavailable
 	}
-	if len(owners) != 1 {
-		return capabilities{}, ErrCollision
+	var result capabilities
+	var owner string
+	var listRequest any = primitive.NamespaceListRequest{Limit: 100}
+	if sharedContract || configuredOwner != "" {
+		listRequest = struct{}{}
 	}
-	listedFirst, e := call[primitive.NamespaceListResult](ctx, c, "namespaces/list", primitive.NamespaceListRequest{Limit: 100})
+	listedRaw, e := toolRaw(ctx, c, "namespaces/list", listRequest)
 	if e != nil {
 		return capabilities{}, e
 	}
-	owner := listedFirst.ProviderIdentity
-	if owner == "" || !owners[owner] || owner == g.GatewayProviderIdentity {
-		return capabilities{}, ErrCollision
+	if sharedContract && !sharedNamespaceIndex(listedRaw) {
+		return capabilities{}, identity.ErrResource
 	}
-	if options.PrimitiveProviderIdentity != "" && owner != options.PrimitiveProviderIdentity {
-		return capabilities{}, ErrCollision
-	}
-	g.mu.Lock()
-	priorOwner := g.observedOwners[name]
-	g.mu.Unlock()
-	if priorOwner != "" && priorOwner != owner && options.PrimitiveProviderIdentity != owner {
-		return capabilities{}, ErrCollision
-	}
-	ext := c
-	allowed := map[string]bool{}
-	for _, ns := range options.PrimitiveNamespaces {
-		allowed[ns] = true
-	}
-	result := capabilities{actor: a, connection: Connection{Name: name, ProviderIdentity: owner, Generation: generation}, expires: a.ValidUntil, installed: installed, bindingKey: binding.key, resourceVersion: resourceVersion}
-	// Capability caching remains bounded even when a source issues long tokens.
-	if until := g.now().Add(time.Minute); result.expires.After(until) {
-		result.expires = until
-	}
-	seen := map[string]bool{}
-	cursor := ""
-	for page := 0; page < 100; page++ {
-		listed := listedFirst
-		if page > 0 {
-			listed, e = call[primitive.NamespaceListResult](ctx, ext, "namespaces/list", primitive.NamespaceListRequest{Cursor: cursor, Limit: 100})
-			if e != nil {
-				return capabilities{}, e
-			}
-		}
-		if listed.ProviderIdentity != "" && listed.ProviderIdentity != owner {
-			return capabilities{}, ErrCollision
-		}
-		for _, ns := range listed.Namespaces {
-			if seen[ns.Name] {
-				return capabilities{}, identity.ErrResource
-			}
-			seen[ns.Name] = true
-			if len(allowed) > 0 && !allowed[ns.Name] {
-				continue
-			}
-			detail, e := call[primitive.NamespaceCapabilities](ctx, ext, "namespaces/get", primitive.NamespaceGetRequest{Namespace: ns.Name})
-			if e != nil {
-				return capabilities{}, e
-			}
-			if detail.ProviderIdentity != owner || detail.Namespace != ns.Name {
-				return capabilities{}, ErrCollision
-			}
-			if detail.Description == "" {
-				detail.Description = ns.Description
-			}
-			if len(detail.UseCases) == 0 {
-				detail.UseCases = append([]string(nil), ns.UseCases...)
-			}
-			seenKinds := map[string]bool{}
-			for _, kind := range detail.Kinds {
-				if !identity.ValidResourceKind(kind.Kind) || seenKinds[kind.Kind] {
+	if sharedNamespaceIndex(listedRaw) {
+		if configuredOwner != "" {
+			// Only a shared-index response needs ordinary tool/schema discovery;
+			// declared legacy sources keep their existing direct metadata path.
+			cursor := (*string)(nil)
+			seen := map[string]bool{}
+			for page := 0; page < 100; page++ {
+				tools, err := c.ListTools(ctx, cursor)
+				if err != nil {
+					return capabilities{}, err
+				}
+				if tools == nil {
+					return capabilities{}, ErrUnavailable
+				}
+				for _, tool := range tools.Tools {
+					if tool.Name == "namespaces/list" || tool.Name == "namespaces/get" || tool.Name == "resource/get" {
+						installed[tool.Name] = true
+					}
+				}
+				if tools.NextCursor == nil {
+					break
+				}
+				if *tools.NextCursor == "" || seen[*tools.NextCursor] || page == 99 {
 					return capabilities{}, identity.ErrResource
 				}
-				seenKinds[kind.Kind] = true
-				for _, operation := range kind.Operations {
-					method := kind.Methods[operation]
-					if method == "" || configuredOwner == "" && !installed[method] {
-						return capabilities{}, identity.ErrResource
-					}
-					if configuredOwner != "" {
-						installed[method] = true
-					}
+				seen[*tools.NextCursor] = true
+				cursor = tools.NextCursor
+			}
+		}
+		owner = configuredOwner
+		if owner == "" {
+			owner = name
+		}
+		if owner == g.GatewayProviderIdentity {
+			return capabilities{}, ErrCollision
+		}
+		allowed := map[string]bool{}
+		for _, namespace := range options.PrimitiveNamespaces {
+			allowed[namespace] = true
+		}
+		result = capabilities{actor: a, connection: Connection{Name: name, ProviderIdentity: owner, Generation: generation}, expires: a.ValidUntil, installed: installed, bindingKey: binding.key, resourceVersion: resourceVersion}
+		for _, scope := range options.ResourceCacheScopes {
+			if scope == cfg.ResourceCachePublic {
+				result.publicResourceMetadata = true
+				break
+			}
+		}
+		result, e = g.discoverNamespaceIndex(ctx, c, listedRaw, result, allowed)
+		if e != nil {
+			return capabilities{}, e
+		}
+	} else {
+		if len(owners) != 1 {
+			return capabilities{}, ErrCollision
+		}
+		var listedFirst primitive.NamespaceListResult
+		if e = json.Unmarshal(listedRaw, &listedFirst); e != nil {
+			return capabilities{}, e
+		}
+		owner = listedFirst.ProviderIdentity
+		if owner == "" || !owners[owner] || owner == g.GatewayProviderIdentity {
+			return capabilities{}, ErrCollision
+		}
+		if options.PrimitiveProviderIdentity != "" && owner != options.PrimitiveProviderIdentity {
+			return capabilities{}, ErrCollision
+		}
+		g.mu.Lock()
+		priorOwner := g.observedOwners[name]
+		g.mu.Unlock()
+		if priorOwner != "" && priorOwner != owner && options.PrimitiveProviderIdentity != owner {
+			return capabilities{}, ErrCollision
+		}
+		ext := c
+		allowed := map[string]bool{}
+		for _, ns := range options.PrimitiveNamespaces {
+			allowed[ns] = true
+		}
+		result = capabilities{actor: a, connection: Connection{Name: name, ProviderIdentity: owner, Generation: generation}, expires: a.ValidUntil, installed: installed, bindingKey: binding.key, resourceVersion: resourceVersion}
+		for _, scope := range options.ResourceCacheScopes {
+			if scope == cfg.ResourceCachePublic {
+				result.publicResourceMetadata = true
+				break
+			}
+		}
+		// Namespace metadata is notification-bound unless the managing actor supplies a real deadline.
+		seen := map[string]bool{}
+		cursor := ""
+		for page := 0; page < 100; page++ {
+			listed := listedFirst
+			if page > 0 {
+				listed, e = call[primitive.NamespaceListResult](ctx, ext, "namespaces/list", primitive.NamespaceListRequest{Cursor: cursor, Limit: 100})
+				if e != nil {
+					return capabilities{}, e
 				}
 			}
-			result.namespaces = append(result.namespaces, detail)
-		}
-		if listed.Complete {
-			if listed.NextCursor != "" {
+			if listed.ProviderIdentity != "" && listed.ProviderIdentity != owner {
+				return capabilities{}, ErrCollision
+			}
+			for _, ns := range listed.Namespaces {
+				if seen[ns.Name] {
+					return capabilities{}, identity.ErrResource
+				}
+				seen[ns.Name] = true
+				if len(allowed) > 0 && !allowed[ns.Name] {
+					continue
+				}
+				detail, e := call[primitive.NamespaceCapabilities](ctx, ext, "namespaces/get", primitive.NamespaceGetRequest{Namespace: ns.Name})
+				if e != nil {
+					return capabilities{}, e
+				}
+				if detail.ProviderIdentity != owner || detail.Namespace != ns.Name {
+					return capabilities{}, ErrCollision
+				}
+				if detail.Description == "" {
+					detail.Description = ns.Description
+				}
+				if len(detail.UseCases) == 0 {
+					detail.UseCases = append([]string(nil), ns.UseCases...)
+				}
+				seenKinds := map[string]bool{}
+				for _, kind := range detail.Kinds {
+					if !identity.ValidResourceKind(kind.Kind) || seenKinds[kind.Kind] {
+						return capabilities{}, identity.ErrResource
+					}
+					seenKinds[kind.Kind] = true
+					for _, operation := range kind.Operations {
+						method := kind.Methods[operation]
+						if method == "" || configuredOwner == "" && !installed[method] {
+							return capabilities{}, identity.ErrResource
+						}
+						if configuredOwner != "" {
+							installed[method] = true
+						}
+					}
+				}
+				result.namespaces = append(result.namespaces, detail)
+			}
+			if listed.Complete {
+				if listed.NextCursor != "" {
+					return capabilities{}, identity.ErrResource
+				}
+				break
+			}
+			if listed.NextCursor == "" || listed.NextCursor == cursor || page == 99 {
 				return capabilities{}, identity.ErrResource
 			}
-			break
+			cursor = listed.NextCursor
 		}
-		if listed.NextCursor == "" || listed.NextCursor == cursor || page == 99 {
-			return capabilities{}, identity.ErrResource
-		}
-		cursor = listed.NextCursor
+
 	}
 	if g.generation(name) != generation || g.Manager.ResourceCatalogGeneration(ctx, name) != resourceVersion {
 		return capabilities{}, identity.ErrResourceStale
@@ -470,7 +578,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 	}
 	g.mu.Lock()
 	for k, v := range g.cache {
-		if !v.expires.After(g.now()) {
+		if !identity.MetadataExpiryValid(v.expires, g.now()) {
 			delete(g.cache, k)
 		}
 	}
@@ -489,7 +597,9 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 }
 
 type DiscoveredNamespace struct {
-	Connection Connection `json:"connection"`
+	sharedIndex      bool
+	indexedResources map[string]primitive.ResourceState
+	Connection       Connection `json:"connection"`
 	primitive.NamespaceCapabilities
 }
 
@@ -502,7 +612,7 @@ func (g *Gateway) discoverExcept(ctx context.Context, excludedLocal string) ([]D
 	if e != nil {
 		return nil, e
 	}
-	names, e := g.Manager.Names(ctx)
+	names, e := g.catalogConnectionNames(ctx)
 	if e != nil {
 		return nil, e
 	}
@@ -529,6 +639,9 @@ func (g *Gateway) discoverExcept(ctx context.Context, excludedLocal string) ([]D
 		if e != nil {
 			return nil, e
 		}
+		if !catalogRootMatches(ctx, c.connection) {
+			return nil, ErrCollision
+		}
 		if prior := owners[c.connection.ProviderIdentity]; prior != "" && prior != name {
 			return nil, ErrCollision
 		}
@@ -537,7 +650,7 @@ func (g *Gateway) discoverExcept(ctx context.Context, excludedLocal string) ([]D
 		// manager-bound metadata reused by internal Get/action dispatch.
 		exported := cloneCapabilities(c)
 		for _, ns := range exported.namespaces {
-			out = append(out, DiscoveredNamespace{Connection: c.connection, NamespaceCapabilities: ns})
+			out = append(out, DiscoveredNamespace{Connection: c.connection, NamespaceCapabilities: ns, sharedIndex: c.sharedIndex, indexedResources: c.indexedResources})
 		}
 	}
 	if e = g.final(ctx, a); e != nil {
@@ -637,6 +750,20 @@ func list[T any](ctx context.Context, g *Gateway, kind, namespace, excludedLocal
 		if !supports(caps, ns.Namespace, kind, "list") {
 			continue
 		}
+		if ns.sharedIndex {
+			for _, resource := range ns.indexedResources {
+				if resource.Kind != kind || resource.Namespace != ns.Namespace {
+					continue
+				}
+				key := ns.Connection.ProviderIdentity + "\x00" + resource.URI
+				if seen[key] {
+					return nil, identity.ErrResource
+				}
+				seen[key] = true
+				out = append(out, Located[T]{LocatedResource: LocatedResource{Connection: ns.Connection, Resource: resource}})
+			}
+			continue
+		}
 		ext, e := g.client(ctx, ns.Connection.Name)
 		if e != nil {
 			return nil, e
@@ -725,13 +852,14 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 		return nil, identity.ErrResourceDenied
 	}
 	if pin != nil {
-		if pin.URI != ref.URI || pin.ProviderIdentity != connection.ProviderIdentity || !pin.ValidUntil.After(g.now()) || !pin.ResourceCandidate.Valid() {
+		if pin.URI != ref.URI || pin.ProviderIdentity != connection.ProviderIdentity || !identity.MetadataExpiryValid(pin.ValidUntil, g.now()) || !pin.ResourceCandidate.Valid() {
 			return nil, identity.ErrResourceDenied
 		}
 		ref.Revision = pin.Selector()
 	}
 	ext := binding.client
 	var result primitive.GetResult
+	var cacheReference *definitionCacheReference
 	found := false
 	if sequence := sequenceFromContext(ctx); sequence != nil && !force {
 		result, found, e = sequence.reportRead(connection, pin, binding.key)
@@ -743,7 +871,12 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 		e = g.checkReadBinding(ctx, a, binding)
 	}
 	if e == nil && !found {
-		result, e = call[primitive.GetResult](ctx, ext, operationMethod(c, uri.Namespace, uri.Kind, "get"), primitive.GetRequest{URI: ref.URI, Revision: ref.Revision})
+		result, cacheReference, e = g.cachedDefinitionGet(ctx, a, binding, c, uri, ref, func(ctx context.Context) (primitive.GetResult, error) {
+			if c.sharedIndex {
+				return indexedDefinitionGet(ctx, ext, c, ref)
+			}
+			return call[primitive.GetResult](ctx, ext, operationMethod(c, uri.Namespace, uri.Kind, "get"), primitive.GetRequest{URI: ref.URI, Revision: ref.Revision})
+		})
 	}
 	if e != nil {
 		return nil, e
@@ -752,7 +885,7 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 		return nil, identity.ErrResourceDenied
 	}
 	actual := result.ResolvedResource
-	if uri.Kind == "menu" {
+	if uri.Kind == "menu" && !c.sharedIndex {
 		if !menuRead || result.MenuProjection == nil || result.MenuProjection.SchemaVersion != 1 || result.Resource.FormatVersion != 1 || result.Resource.Lifecycle != actual.Kind || !declaresMenuFormat(c, uri.Namespace) || len(result.Resource.Definition) != 0 || len(result.Resource.DefinitionBytes) != 0 || ValidateMenu(1, result.MenuProjection.DefinitionBytes) != nil || identity.ContentFingerprint(result.MenuProjection.DefinitionBytes) != result.MenuProjection.ContentFingerprint {
 			return nil, identity.ErrResourceDenied
 		}
@@ -772,7 +905,7 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 		}
 		result.Resource.Definition = append(json.RawMessage(nil), result.Resource.DefinitionBytes...)
 	}
-	if actual.ProviderIdentity != connection.ProviderIdentity || actual.URI != ref.URI || !actual.ResourceCandidate.Valid() || !actual.ValidUntil.After(g.now()) || actual.AuthorityBinding == "" || result.Resource.URI != ref.URI || result.Resource.ContentFingerprint != actual.ContentFingerprint || (uri.Kind != "menu" && identity.ContentFingerprint(result.Resource.Definition) != actual.ContentFingerprint) {
+	if actual.ProviderIdentity != connection.ProviderIdentity || actual.URI != ref.URI || !actual.ResourceCandidate.Valid() || !identity.MetadataExpiryValid(actual.ValidUntil, g.now()) || (!c.sharedIndex && actual.AuthorityBinding == "") || result.Resource.URI != ref.URI || result.Resource.ContentFingerprint != actual.ContentFingerprint || (uri.Kind != "menu" && identity.ContentFingerprint(result.Resource.Definition) != actual.ContentFingerprint) {
 		return nil, identity.ErrResourceDenied
 	}
 	if result.Resource.Kind != "" && result.Resource.Kind != uri.Kind || result.Resource.Namespace != "" && result.Resource.Namespace != uri.Namespace || result.Resource.Name != "" && result.Resource.Name != uri.Name || result.Resource.Revision != "" && result.Resource.Revision != actual.Selector() {
@@ -786,12 +919,10 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 		if actual.ResourceCandidate != pin.ResourceCandidate || actual.AuthorityBinding != pin.AuthorityBinding {
 			return nil, identity.ErrResourceDenied
 		}
-		if actual.ValidUntil.After(pin.ValidUntil) {
-			actual.ValidUntil = pin.ValidUntil
-		}
+		actual.ValidUntil = identity.MinimumMetadataExpiry(actual.ValidUntil, pin.ValidUntil)
 	}
-	if actual.ValidUntil.After(a.ValidUntil) {
-		actual.ValidUntil = a.ValidUntil
+	if !c.sharedIndex {
+		actual.ValidUntil = identity.MinimumMetadataExpiry(actual.ValidUntil, a.ValidUntil)
 	}
 	if sequence := sequenceFromContext(ctx); sequence != nil {
 		sequence.constrainLease(actual.ValidUntil)
@@ -805,7 +936,7 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 	if e = g.final(ctx, a); e != nil {
 		return nil, e
 	}
-	if !actual.ValidUntil.After(g.now()) {
+	if !identity.MetadataExpiryValid(actual.ValidUntil, g.now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	if sequence := sequenceFromContext(ctx); sequence != nil && !force && !found {
@@ -821,6 +952,7 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 	if len(decoders) > 1 {
 		return nil, identity.ErrResource
 	}
+	decodeTiming := observe.Start(ctx, observe.GatewayDefinitionDecode, observe.Labels{})
 	if len(decoders) == 1 {
 		if decoders[0] == nil {
 			return nil, identity.ErrResource
@@ -829,6 +961,7 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 	} else {
 		definition, err = decodeDefinition[T](raw)
 	}
+	decodeTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, err
 	}
@@ -840,10 +973,10 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 	if e = g.final(ctx, a); e != nil {
 		return nil, e
 	}
-	if !actual.ValidUntil.After(g.now()) {
+	if !identity.MetadataExpiryValid(actual.ValidUntil, g.now()) {
 		return nil, identity.ErrResourceDenied
 	}
-	return &Result[T]{GetResult: result, Definition: definition}, nil
+	return &Result[T]{GetResult: result, Definition: definition, definitionCache: cacheReference}, nil
 }
 func semanticJSON(raw []byte) (any, error) {
 	if !json.Valid(raw) {

@@ -130,6 +130,23 @@ func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDataso
 	if err = json.Unmarshal(raw, &request); err != nil {
 		return nil, err
 	}
+	if request.Resource == nil && request.Reference != nil && c.primitiveProviders != nil {
+		uri, e := identity.ParseResourceURI(request.Reference.URI)
+		if e != nil || uri.Kind != "datasource" || request.ProviderIdentity == "" {
+			return nil, identity.ErrResource
+		}
+		got, e := c.primitiveProviders.GetForProvider(ctx, request.ProviderIdentity, *request.Reference, nil)
+		if e != nil {
+			return nil, e
+		}
+		definition, e := resourcesvc.DecodeDatasourceDefinition(got.Resource.Definition)
+		if e != nil {
+			return nil, e
+		}
+		request.ID = definition.ID
+		request.Resource = got.ResolvedResource
+		request.ResourceProof = got.ExecutionProof
+	}
 	if request.Resource == nil && c.primitiveProviders != nil {
 		resolved, err := resourcesvc.ResolveDefinition[*dsproto.DataSource](ctx, c.primitiveProviders, "datasource", request.ID, func(ds *dsproto.DataSource) string { return ds.ID }, resourcesvc.DecodeDatasourceDefinition)
 		if err != nil {
@@ -143,7 +160,7 @@ func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDataso
 			return nil, err
 		}
 	}
-	if request.Resource != nil && request.Resource.ProviderIdentity == resourcesvc.InternalProviderIdentity && request.Resource.AuthorityBinding == "public-local-definition" && strings.HasPrefix(request.Resource.URI, "window://workspace/") && !request.Resource.ValidUntil.After(time.Now()) {
+	if request.Resource != nil && request.Resource.ProviderIdentity == resourcesvc.InternalProviderIdentity && request.Resource.AuthorityBinding == "public-local-definition" && strings.HasPrefix(request.Resource.URI, "window://workspace/") && !identity.MetadataExpiryValid(request.Resource.ValidUntil, time.Now()) {
 		if c.prepareNativePresentationRead == nil {
 			return nil, identity.ErrResourceDenied
 		}
@@ -188,10 +205,10 @@ func (c *backendClient) InvalidateDatasourceCache(ctx context.Context, in *api.I
 
 // ListLookupRegistry implements LookupRegistryBackend.
 func (c *backendClient) ListLookupRegistry(ctx context.Context, in *api.ListLookupRegistryInput) (*api.ListLookupRegistryOutput, error) {
-	if c.overlaySvc == nil {
-		return nil, ErrDatasourceStackNotConfigured
+	if in == nil || strings.TrimSpace(in.Context) == "" {
+		return nil, fmt.Errorf("context query parameter is required")
 	}
-	if in != nil && c.primitiveProviders != nil {
+	if c.primitiveProviders != nil {
 		copy := *in
 		if copy.Owner == nil {
 			if uri, err := identity.ParseResourceURI(copy.Context); err == nil {
@@ -199,29 +216,39 @@ func (c *backendClient) ListLookupRegistry(ctx context.Context, in *api.ListLook
 				copy.Context = uri.Kind + ":" + uri.Name
 			}
 		}
+		var owner *identity.ResolvedResource
 		if copy.Owner != nil {
-			owner, err := c.lookupOwner(ctx, &copy)
+			var err error
+			owner, err = c.lookupOwner(ctx, &copy)
 			if err != nil {
 				return nil, err
 			}
-			service, err := oversvc.ReadAttachments(ctx, c.primitiveProviders, *owner)
-			if err != nil {
-				return nil, err
-			}
-			kind, id := splitContext(copy.Context)
-			return &api.ListLookupRegistryOutput{Entries: toAPIRegistryEntries(service.Registry(kind, id))}, nil
 		}
+		service, err := c.primitiveLookupService(ctx, owner, copy.ProviderIdentity)
+		if err != nil {
+			return nil, err
+		}
+		kind, id := splitContext(copy.Context)
+		entries, err := service.RegistryScoped(kind, id)
+		if err != nil {
+			return nil, err
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+		return &api.ListLookupRegistryOutput{Entries: toAPIRegistryEntries(entries)}, nil
+	}
+	if c.overlaySvc == nil {
+		return nil, ErrDatasourceStackNotConfigured
 	}
 	if err := c.refreshDatasourceStack(ctx); err != nil {
 		return nil, err
 	}
-	if in == nil || strings.TrimSpace(in.Context) == "" {
-		return nil, fmt.Errorf("context query parameter is required")
-	}
 	kind, id := splitContext(in.Context)
-	entries := c.overlaySvc.Registry(kind, id)
-	return &api.ListLookupRegistryOutput{Entries: toAPIRegistryEntries(entries)}, nil
+	return &api.ListLookupRegistryOutput{Entries: toAPIRegistryEntries(c.overlaySvc.Registry(kind, id))}, nil
 }
+
+type lookupDefinitionStore struct{ definitions []*loproto.Overlay }
+
+func (s lookupDefinitionStore) List() []*loproto.Overlay { return s.definitions }
 
 func splitContext(s string) (kind, id string) {
 	i := strings.Index(s, ":")
@@ -251,6 +278,7 @@ func toAPIRegistryEntries(in []loproto.RegistryEntry) []api.LookupRegistryEntry 
 	out := make([]api.LookupRegistryEntry, 0, len(in))
 	for _, e := range in {
 		entry := api.LookupRegistryEntry{
+			DataSourceResource: e.DataSourceResource, PickerResource: e.PickerResource, ProviderIdentity: e.ProviderIdentity,
 			Name:       e.Name,
 			Title:      e.Title,
 			DataSource: e.DataSource,

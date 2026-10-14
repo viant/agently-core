@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -100,6 +101,7 @@ func handleListLookupRegistry(client Backend) http.HandlerFunc {
 		}
 		out, err := client.ListLookupRegistry(r.Context(), input)
 		if err != nil {
+			log.Printf("lookup registry diagnostic: %v", err)
 			writeDatasourceError(w, err)
 			return
 		}

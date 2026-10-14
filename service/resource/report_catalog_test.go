@@ -60,7 +60,7 @@ func reportGatewayFixture(t *testing.T) (*ReportGatewayCatalog, *localFixtureSou
 			return identity.ErrResourceDenied
 		}
 		return nil
-	}, Bindings: []LocalResourceBinding{{URI: "report://steward/sales", Title: "Approved", FormatVersion: 1, Resolver: func(_ context.Context, a identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
+	}, Bindings: []LocalResourceBinding{{Changes: source, URI: "report://steward/sales", Title: "Approved", FormatVersion: 1, Resolver: func(_ context.Context, a identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
 		return &identity.ResourceResolver{ProviderIdentity: "internal", Source: source, Policy: boundedReportFixturePolicy{actor: a, until: until}}, nil
 	}}}, Validators: map[string]LocalResourceValidator{"report": ValidateReportEnvelope}})
 	require.NoError(t, err)
@@ -84,6 +84,7 @@ func TestReportingServiceUsesGatewayForListGetCompileAndRechecks(t *testing.T) {
 			source.mu.Lock()
 			source.raw = json.RawMessage(`{"schemaVersion":1,"reportDocument":{"title":"Changed"},"reportSpec":{"title":"Changed"}}`)
 			source.mu.Unlock()
+			source.Publish(context.Background())
 		}
 		return &reporting.CompileResult{ReportSpec: request.Document}, nil
 	})})
@@ -105,11 +106,13 @@ func TestReportingServiceUsesGatewayForListGetCompileAndRechecks(t *testing.T) {
 	require.False(t, compiled.Resource.ValidUntil.After(original.ValidUntil))
 	require.Equal(t, 1, calls)
 	allowed.Store(false)
+	source.Publish(ctx)
 	result, err := service.Compile(ctx, &reporting.CompileRequest{ResolvedResource: compiled.Resource})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	require.Nil(t, result)
 	require.Equal(t, 1, calls)
 	allowed.Store(true)
+	source.Publish(ctx)
 	drift = true
 	result, err = service.Compile(ctx, &reporting.CompileRequest{ResolvedResource: compiled.Resource})
 	require.Error(t, err)
@@ -162,10 +165,11 @@ func TestReportGatewayCatalogSnapshotDoesNotReReadForUIProjection(t *testing.T) 
 	require.NoError(t, err)
 	require.Len(t, result.Reports, 1)
 	require.Equal(t, "Approved", result.Reports[0].Title)
+	source.Publish(context.Background())
 	reader, err := catalog.Reader(context.Background(), "report.retrieve")
 	require.NoError(t, err)
 	_, _, err = reader.ReadResolved(context.Background(), *result.Reports[0].Resource)
-	require.Error(t, err, "opening a cached entry must still use its managing provider")
+	require.Error(t, err, "a source notification refreshes the owning definition and rejects the old content pin")
 }
 
 func TestReportGatewayMetadataFinishCannotReleaseExpiredPins(t *testing.T) {

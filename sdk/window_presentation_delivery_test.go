@@ -22,6 +22,40 @@ func (f presentationExecutor) Execute(ctx context.Context, name string, args map
 
 type presentationCredential struct{}
 
+func TestFetchDatasourceDoesNotRenewNotificationBoundWindow(t *testing.T) {
+	pin := &identity.ResolvedResource{URI: "window://workspace/media", ProviderIdentity: "internal", AuthorityBinding: "public-local-definition"}
+	target := &types.WindowTarget{Platform: "web", SelectionToken: "original"}
+	descriptor := &dsproto.DataSource{ID: "records", DataSource: types.DataSource{Selectors: &types.Selectors{Data: "data"}}, Backend: &dsproto.Backend{Kind: dsproto.BackendMCPTool, Service: "managing", Method: "read"}}
+	prepared, calls := 0, 0
+	client := &backendClient{prepareNativePresentationRead: func(context.Context, *identity.ResolvedResource, *types.WindowTarget) (*identity.ResolvedResource, *types.WindowTarget, error) {
+		prepared++
+		return nil, nil, identity.ErrResourceDenied
+	}}
+	client.datasourceSvc = dssvc.New(dssvc.Options{DisableCache: true,
+		ResolveResource: func(_ context.Context, original identity.ResolvedResource) (*identity.ResolvedResource, error) {
+			require.True(t, original.ValidUntil.IsZero())
+			return &original, nil
+		},
+		ResolveDefinition: func(_ context.Context, _ identity.ResolvedResource, held *types.WindowTarget, _ string) (*dsproto.DataSource, error) {
+			require.Equal(t, "original", held.SelectionToken)
+			return descriptor, nil
+		},
+		Executor: presentationExecutor(func(_ context.Context, name string, arguments map[string]interface{}) (string, error) {
+			calls++
+			require.Equal(t, "managing:read", name)
+			require.Equal(t, "unchanged", arguments["Name"])
+			return `{"data":[{"id":"normal"}]}`, nil
+		}),
+	})
+	result, err := client.FetchDatasource(context.Background(), &api.FetchDatasourceInput{ID: "records", Resource: pin, Target: target, Inputs: map[string]interface{}{"Name": "unchanged"}})
+	require.NoError(t, err)
+	require.Len(t, result.Rows, 1)
+	require.Equal(t, 1, calls)
+	require.Zero(t, prepared)
+	require.True(t, pin.ValidUntil.IsZero(), "metadata read cannot manufacture a lease")
+	require.Equal(t, "original", target.SelectionToken)
+}
+
 func TestFetchDatasourceRefreshesPublicWindowBeforeReadAssociation(t *testing.T) {
 	expired := identity.ResolvedResource{URI: "window://workspace/media", ProviderIdentity: "internal", AuthorityBinding: "public-local-definition", ValidUntil: time.Now().Add(-time.Minute)}
 	target := &types.WindowTarget{Platform: "web", SelectionToken: "original"}

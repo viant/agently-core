@@ -30,7 +30,7 @@ type ProviderResourceReader interface {
 type ResourceReaderFactory func(context.Context, string) (ResourceReader, error)
 
 // SetResourceReaderFactory is a pre-serving host composition seam. It overrides
-// only resource delivery; actionAuthorize and metadata scopes remain intact.
+// only resource delivery; metadata scopes remain intact.
 func (s *Service) SetResourceReaderFactory(factory ResourceReaderFactory) {
 	if s != nil {
 		s.resourceReaderFactory = factory

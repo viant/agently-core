@@ -88,6 +88,7 @@ func TestDeclaredOwnerRoutingDoesNotContactUnrelatedOfflineProvider(t *testing.T
 					revoked = true
 				}
 			}
+			local.resourceChanged()
 			_, err = g.Get(context.Background(), selected, identity.ResourceRef{URI: uri.String()}, opened.ResolvedResource)
 			require.ErrorIs(t, err, identity.ErrResourceDenied)
 			require.Zero(t, remoteCalls)

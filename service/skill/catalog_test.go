@@ -31,17 +31,16 @@ func (p querySkillOptions) Names(context.Context) ([]string, error) {
 func (p querySkillOptions) Options(_ context.Context, name string) (*cfg.MCPClient, error) {
 	return p[name], nil
 }
-func TestSkillPagesUseSharedCachedKernelForNativeAndOrdinaryProviders(t *testing.T) {
+func TestSkillPagesUseSharedCachedKernelForNativeProviders(t *testing.T) {
 	native := &queryNativeSkill{skillMCPFixture: skillMCPFixture{body: "---\nname: zulu\ndescription: Sales native skill\n---\nNever fetched to filter."}}
-	legacy := &legacySkillFixture{entry: (&skillMCPFixture{body: "---\nname: alpha\ndescription: Sales ordinary skill\n---\nNever fetched to filter."}).entry()}
-	legacy.entry = renameQuerySkill(legacy.entry, "alpha")
+	secondProvider := &queryNativeSkill{skillMCPFixture: skillMCPFixture{body: "---\nname: alpha\ndescription: Sales second native skill\n---\nNever fetched to filter."}, name: "alpha"}
 	options := querySkillOptions{"native": {SkillDiscovery: &cfg.SkillDiscovery{Enabled: true}}, "ordinary": {SkillDiscovery: &cfg.SkillDiscovery{Enabled: true}}, "unsupported": {}}
 	mgr, err := manager.New(options, manager.WithClientFactory(func(_ context.Context, _, name string) (mcpclient.Interface, error) {
 		switch name {
 		case "native":
 			return native, nil
 		case "ordinary":
-			return &fallbackCapabilityClient{legacy}, nil
+			return secondProvider, nil
 		default:
 			t.Error("non-skill provider contacted")
 			return nil, nil
@@ -70,7 +69,7 @@ func TestSkillPagesUseSharedCachedKernelForNativeAndOrdinaryProviders(t *testing
 	}
 	wg.Wait()
 	require.Equal(t, 1, native.listCalls)
-	require.Equal(t, []string{"skills/list"}, legacy.names)
+	require.Equal(t, 1, secondProvider.listCalls)
 	require.Zero(t, native.readCalls)
 	_, err = service.ListVisiblePage(actor, agent, primitive.CatalogQuery{Limit: 1, Cursor: first.NextCursor, Keywords: []string{"sales"}})
 	require.ErrorIs(t, err, primitive.ErrCatalogCursor)
@@ -82,13 +81,16 @@ func TestSkillPagesUseSharedCachedKernelForNativeAndOrdinaryProviders(t *testing
 	first.Items[0].Description = "mutated"
 	again, err := service.ListVisiblePage(actor, agent, primitive.CatalogQuery{Namespace: "vendor"})
 	require.NoError(t, err)
-	require.Equal(t, "Sales ordinary skill", again.Items[0].Description)
+	require.Equal(t, "Sales second native skill", again.Items[0].Description)
 	mgr.CloseConversation("skill-catalog")
 	_, err = service.ListVisiblePage(actor, agent, primitive.CatalogQuery{Limit: 1, Cursor: first.NextCursor})
 	require.ErrorIs(t, err, primitive.ErrCatalogCursor)
 }
 
-type queryNativeSkill struct{ skillMCPFixture }
+type queryNativeSkill struct {
+	skillMCPFixture
+	name string
+}
 
 func renameQuerySkill(entry schema.Skill, name string) schema.Skill {
 	entry.Uri = strings.Replace(entry.Uri, "/review/", "/"+name+"/", 1)
@@ -101,7 +103,11 @@ func (f *queryNativeSkill) ListSkills(ctx context.Context, cursor *string, optio
 	result, err := f.skillMCPFixture.ListSkills(ctx, cursor, options...)
 	if result != nil {
 		for i := range result.Skills {
-			result.Skills[i] = renameQuerySkill(result.Skills[i], "zulu")
+			name := f.name
+			if name == "" {
+				name = "zulu"
+			}
+			result.Skills[i] = renameQuerySkill(result.Skills[i], name)
 		}
 	}
 	return result, err
@@ -139,7 +145,7 @@ func (f *queryNamespaceOrdinary) CallTool(ctx context.Context, r *schema.CallToo
 	return f.legacySkillFixture.CallTool(ctx, r, options...)
 }
 func TestSkillCatalogPartitionsOriginalNamespacesWithinOneMCPConnection(t *testing.T) {
-	for _, mode := range []string{"native", "ordinary"} {
+	for _, mode := range []string{"native"} {
 		t.Run(mode, func(t *testing.T) {
 			body := "---\nname: review\ndescription: Review selected records\n---\nbody"
 			fixture := &skillMCPFixture{body: body}

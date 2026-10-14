@@ -9,7 +9,6 @@ import (
 	"github.com/viant/agently-core/service/ui/permittedview"
 
 	auth "github.com/viant/agently-core/service/auth"
-	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/forge/backend/types"
 )
 
@@ -32,17 +31,17 @@ func (b *Builder) configureDefaultWindowDelivery(out *Runtime) error {
 	return nil
 }
 
-func (b *Builder) configureDefaultWindowOpenAdmission(out *Runtime) {
-	if !out.publicPrimitiveDefault || out.UIBridge == nil || out.UIBridge.HasWindowOpenAdmission() || out.PrimitiveWindows == nil && out.UIBridge.UsesWindowResourceResolution() {
+func (b *Builder) configureWindowUIProjection(out *Runtime) {
+	if out.UIBridge == nil || out.PermittedResolver == nil || out.UIBridge.HasWindowUIProjection() {
 		return
 	}
-	admission := &permittedview.OpenAdmission{Runtime: permittedview.NewRuntime(out.PermittedResolver), Bootstrap: b.windowOpenBootstrap, MatchSelection: b.windowOpenSelection}
-	out.UIBridge.ConfigureWindowOpenAdmission(func(ctx context.Context, pin identity.ResolvedResource, w *types.Window, parameters map[string]any) (*forge.WindowOpenDecision, error) {
-		decision, err := admission.ApplyDecision(ctx, pin, w, parameters)
+	runtime := permittedview.NewRuntime(out.PermittedResolver)
+	out.UIBridge.ConfigureWindowUIProjection(func(ctx context.Context, input *permittedview.BoundView) (*types.Window, error) {
+		result, err := runtime.Project(ctx, input.Window, input)
 		if err != nil {
 			return nil, err
 		}
-		return &forge.WindowOpenDecision{Window: decision.Window, ValidUntil: decision.ExpiresAt}, nil
+		return result.Window, nil
 	})
 }
 
@@ -55,7 +54,6 @@ func (b *Builder) configureDefaultUIOwner(out *Runtime) {
 	if out.UIBridge.HasNamespaceResolver() {
 		return
 	}
-	publicRead, _ := resources.PublicReadActors()
 	out.UIBridge.ConfigureNamespaceResolver(func(ctx context.Context) (forge.NamespaceIdentity, error) {
 		if ctx == nil || ctx.Err() != nil {
 			return forge.NamespaceIdentity{}, identity.ErrResourceDenied
@@ -67,10 +65,6 @@ func (b *Builder) configureDefaultUIOwner(out *Runtime) {
 				return forge.NamespaceIdentity{}, identity.ErrResourceDenied
 			}
 		}
-		held, err := publicRead(ctx)
-		if err != nil {
-			return forge.NamespaceIdentity{}, err
-		}
-		return forge.NamespaceIdentity{Namespace: namespace, ValidUntil: held.ValidUntil}, nil
+		return forge.NamespaceIdentity{Namespace: namespace, SessionBound: true}, nil
 	})
 }

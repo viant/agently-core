@@ -352,8 +352,8 @@ func TestExplicitRemoteCapabilityDenialIsFalseWhileOutageInvalidates(t *testing.
 		t.Fatal(err)
 	}
 	result, err := NewRuntime(resolver).Apply(context.Background(), bound)
-	if err != nil || !result.Denied || result.Window != nil {
-		t.Fatalf("resource read denial rendered: %+v %v", result, err)
+	if err != nil || result.Denied || result.Window == nil {
+		t.Fatalf("entity read capability incorrectly became whole-window admission: %+v %v", result, err)
 	}
 	if _, detailed := any(service).(interface {
 		AuthorizeWithStatus(context.Context, authz.Request) (authz.Decision, authz.Facts, int64, error)

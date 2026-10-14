@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
@@ -20,6 +21,7 @@ import (
 	"github.com/viant/jsonrpc"
 	"github.com/viant/jsonrpc/transport"
 	"github.com/viant/mcp-protocol/client"
+	skillformat "github.com/viant/mcp-protocol/extension/skills"
 	"github.com/viant/mcp-protocol/logger"
 	"github.com/viant/mcp-protocol/schema"
 	protocol "github.com/viant/mcp-protocol/server"
@@ -35,6 +37,7 @@ type ActorVerifier func(context.Context, identity.VerifiedActor) error
 var ErrUnavailable = errors.New("primitive producer unavailable")
 
 type LocalResourceBinding struct {
+	Changes       ResourceChangeSource
 	OwnerID       string
 	URI           string
 	Title         string
@@ -58,6 +61,7 @@ type DefinitionValidationCache func(identity.ResourceSource, string, int64, stri
 type LocalConfig struct {
 	Catalog                   LocalCatalog
 	Authoring                 primitive.ResourceAuthoring
+	NativeSkills              []*skillformat.Static
 	NativeResources           []NativeResource
 	NamespaceMetadata         map[string]primitive.NamespaceMetadata
 	ProviderIdentity          string
@@ -80,6 +84,7 @@ type LocalProvider struct {
 	authoring                 primitive.ResourceAuthoring
 	catalogOperations         map[string]map[string]map[string]bool
 	catalogKinds              map[string]map[string]map[int64]bool
+	nativeSkills              []*skillformat.Static
 	nativeResources           []NativeResource
 	namespaceMetadata         map[string]primitive.NamespaceMetadata
 	identity                  string
@@ -105,16 +110,19 @@ func (p *LocalProvider) ProviderIdentity() string {
 }
 
 func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
-	if strings.TrimSpace(config.ProviderIdentity) == "" || strings.TrimSpace(config.ProviderIdentity) != config.ProviderIdentity || config.Actor == nil || config.Verify == nil || config.Authorize == nil || len(config.Bindings) == 0 && len(config.NativeResources) == 0 && config.Catalog == nil {
+	if strings.TrimSpace(config.ProviderIdentity) == "" || strings.TrimSpace(config.ProviderIdentity) != config.ProviderIdentity || config.Actor == nil || config.Verify == nil || config.Authorize == nil || len(config.Bindings) == 0 && len(config.NativeResources) == 0 && config.Catalog == nil && config.NativeSkills == nil {
 		return nil, fmt.Errorf("local resource provider requires identity, verified actor, namespace authorizer, and bindings")
 	}
 	if config.WindowListVisibility != nil && config.WindowIndex == nil {
 		return nil, fmt.Errorf("window list visibility requires a trusted static window index")
 	}
+	if err := checkNativeSkills(config.NativeSkills); err != nil {
+		return nil, err
+	}
 	if err := checkNativeResources(config.NativeResources); err != nil {
 		return nil, err
 	}
-	p := &LocalProvider{observedNamespaces: map[string]bool{}, authoring: config.Authoring, nativeResources: append([]NativeResource(nil), config.NativeResources...), namespaceMetadata: cloneNamespaceMetadata(config.NamespaceMetadata), identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now}
+	p := &LocalProvider{observedNamespaces: map[string]bool{}, authoring: config.Authoring, nativeSkills: cloneNativeSkills(config.NativeSkills), nativeResources: append([]NativeResource(nil), config.NativeResources...), namespaceMetadata: cloneNamespaceMetadata(config.NamespaceMetadata), identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now}
 	if p.now == nil {
 		p.now = time.Now
 	}
@@ -154,6 +162,7 @@ func (p *LocalProvider) ConfigurationSnapshot() LocalConfig {
 	config := LocalConfig{
 		Catalog:           p.catalog,
 		Authoring:         p.authoring,
+		NativeSkills:      cloneNativeSkills(p.nativeSkills),
 		NativeResources:   append([]NativeResource(nil), p.nativeResources...),
 		NamespaceMetadata: cloneNamespaceMetadata(p.namespaceMetadata),
 		ProviderIdentity:  p.identity, Actor: p.actor, Verify: p.verify,
@@ -270,7 +279,7 @@ func (p *LocalProvider) checkedRead(ctx context.Context, actor identity.Verified
 	if err != nil {
 		return nil, nil, err
 	}
-	if pin == nil || pin.ProviderIdentity != p.identity || pin.URI != uri.String() || !pin.ResourceCandidate.Valid() || (uri.Kind != "menu" && (pin.Kind != identity.WorkingCandidate || pin.Revision != "")) || !pin.ValidUntil.After(p.nowTime()) {
+	if pin == nil || pin.ProviderIdentity != p.identity || pin.URI != uri.String() || !pin.ResourceCandidate.Valid() || (uri.Kind != "menu" && (pin.Kind != identity.WorkingCandidate || pin.Revision != "")) || !identity.MetadataExpiryValid(pin.ValidUntil, p.nowTime()) {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	readSpan := p.timing(ctx, observe.RevisionRead, uri.Kind, uri.Namespace)
@@ -310,7 +319,7 @@ func (p *LocalProvider) checkedRead(ctx context.Context, actor identity.Verified
 			return nil, nil, err
 		}
 	}
-	if ctx.Err() != nil || !fresh.ValidUntil.After(p.nowTime()) {
+	if ctx.Err() != nil || !identity.MetadataExpiryValid(fresh.ValidUntil, p.nowTime()) {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	return append(json.RawMessage(nil), raw...), fresh, nil
@@ -684,6 +693,9 @@ func (p *LocalProvider) Get(ctx context.Context, kind string, input primitive.Ge
 }
 
 func (p *LocalProvider) InstalledTools() []string {
+	if p.nativeSkillIndex() {
+		return []string{"namespaces/list", "namespaces/get", "resource/get"}
+	}
 	tools := []string{"namespaces/list", "namespaces/get"}
 	kinds := map[string]bool{}
 	for _, b := range p.bindings {
@@ -806,6 +818,9 @@ type localMCPHandler struct {
 }
 
 func (h *localMCPHandler) Implements(method string) bool {
+	if h.provider.nativeSkills != nil && (method == schema.MethodSkillsList || method == schema.MethodSkillsGet || method == schema.MethodResourcesList || method == schema.MethodResourcesRead) {
+		return true
+	}
 	for _, name := range h.provider.InstalledTools() {
 		if name == method {
 			return true
@@ -822,10 +837,36 @@ func (h *localMCPHandler) Discover(ctx context.Context, result *schema.DiscoverR
 	h.addMetadata(&result.Capabilities)
 }
 func (h *localMCPHandler) addMetadata(c *schema.ServerCapabilities) {
+	if h.provider.nativeSkills != nil {
+		if c.Extensions == nil {
+			c.Extensions = map[string]map[string]interface{}{}
+		}
+		c.Extensions[schema.SkillsExtension] = map[string]interface{}{}
+		if c.Resources == nil {
+			c.Resources = &schema.ServerCapabilitiesResources{}
+		}
+	}
+	if h.provider.hasResourceChanges() && len(h.provider.nativeResources) > 0 {
+		if c.Resources == nil {
+			c.Resources = &schema.ServerCapabilitiesResources{}
+		}
+		enabled := true
+		c.Resources.ListChanged = &enabled
+	}
 	if c.Extensions == nil {
 		c.Extensions = map[string]map[string]interface{}{}
 	}
 	c.Extensions[primitive.AuthoringExtension] = map[string]interface{}{"version": 1, "providerIdentity": h.provider.identity, "transport": "tools/call"}
+}
+
+// FilterSubscriptions accepts only change notifications this owning source emits.
+func (h *localMCPHandler) FilterSubscriptions(_ context.Context, requested schema.SubscriptionFilter) schema.SubscriptionFilter {
+	var accepted schema.SubscriptionFilter
+	if requested.ResourcesListChanged != nil && *requested.ResourcesListChanged && h.provider.hasResourceChanges() && len(h.provider.nativeResources) > 0 {
+		yes := true
+		accepted.ResourcesListChanged = &yes
+	}
+	return accepted
 }
 
 // NewLocalMCPHandler builds the standard MCP tools/list and tools/call path.
@@ -850,12 +891,23 @@ func NewLocalMCPHandler(provider *LocalProvider, protect func(http.Handler) http
 
 func NewMCPServer(provider *LocalProvider, compact ...bool) (*mcp.Server, error) {
 	compactNative := len(compact) > 0 && compact[0]
-	return mcp.New(mcp.WithImplementation(schema.Implementation{Name: "agently-local-resources", Version: "1"}), mcp.WithStreamableURI("/mcp"), mcp.WithRootRedirect(false), mcp.WithNewHandler(func(_ context.Context, n transport.Notifier, l logger.Logger, c client.Operations) (protocol.Handler, error) {
+	var sessions sync.Map
+	return mcp.New(mcp.WithImplementation(schema.Implementation{Name: "agently-local-resources", Version: "1"}), mcp.WithStreamableURI("/mcp"), mcp.WithRootRedirect(false), mcp.WithOnSessionClose(func(n transport.Notifier) {
+		if stop, ok := sessions.LoadAndDelete(n); ok {
+			stop.(func())()
+		}
+	}), mcp.WithNewHandler(func(_ context.Context, n transport.Notifier, l logger.Logger, c client.Operations) (protocol.Handler, error) {
 		h := &localMCPHandler{DefaultHandler: protocol.NewDefaultHandler(n, l, c), provider: provider}
+		if err := h.registerNativeSkills(); err != nil {
+			return nil, err
+		}
 		if err := h.registerNativeResources(); err != nil {
 			return nil, err
 		}
 		for _, method := range provider.InstalledTools() {
+			if provider.nativeSkills != nil && (method == schema.MethodSkillsList || method == schema.MethodSkillsGet) {
+				continue
+			}
 			name := method
 			description := "List authorized local resource definitions"
 			var sample any = primitive.ListRequest{}
@@ -868,6 +920,12 @@ func NewMCPServer(provider *LocalProvider, compact ...bool) (*mcp.Server, error)
 			} else if strings.HasSuffix(name, "/get") {
 				description = "Read an authorized local resource definition"
 				sample = primitive.GetRequest{}
+			}
+			if provider.nativeSkillIndex() {
+				sample = struct {
+					URI    string  `json:"uri,omitempty"`
+					Cursor *string `json:"cursor,omitempty"`
+				}{}
 			}
 			if writeSample := authoringSample(name); writeSample != nil {
 				sample = writeSample
@@ -884,7 +942,10 @@ func NewMCPServer(provider *LocalProvider, compact ...bool) (*mcp.Server, error)
 				if e != nil {
 					return nil, jsonrpc.NewInvalidParamsError("invalid resource request", nil)
 				}
-				value, e := provider.Call(ctx, name, raw)
+				value, handled, e := h.nativeSkillIndexCall(ctx, name, r.Params.Arguments)
+				if !handled {
+					value, e = provider.Call(ctx, name, raw)
+				}
 				failed := e != nil
 				if e != nil {
 					value = map[string]string{"code": "resource_unavailable", "message": "local resource operation denied or unavailable"}
@@ -914,6 +975,9 @@ func NewMCPServer(provider *LocalProvider, compact ...bool) (*mcp.Server, error)
 			})
 			entry, _ := h.ToolRegistry.Get(name)
 			entry.Metadata.Meta = map[string]interface{}{primitive.AuthoringExtension: map[string]interface{}{"version": 1, "providerIdentity": provider.identity, "transport": "tools/call"}}
+		}
+		if n != nil {
+			sessions.Store(n, provider.subscribeResourceChanges(n))
 		}
 		return h, nil
 	}))

@@ -42,8 +42,10 @@ func (c *backendClient) bootstrapDatasourceStack(rt *executor.Runtime) error {
 	overlayStore := oversvc.NewMemoryStore()
 	c.overlayStore = overlayStore
 
-	if err := c.refreshDatasourceStack(ctx); err != nil {
-		return err
+	if c.primitiveProviders == nil {
+		if err := c.refreshDatasourceStack(ctx); err != nil {
+			return err
+		}
 	}
 
 	// Build the datasource service. Executor stays nil when the runtime

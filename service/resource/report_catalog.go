@@ -127,13 +127,13 @@ func readReport[T any](ctx context.Context, r *gatewayReportReader, ref identity
 	if err != nil {
 		return nil, err
 	}
-	if !sameLocalActor(captured, fresh) || !got.ResolvedResource.ValidUntil.After(r.catalog.Gateway.now()) {
+	if !sameLocalActor(captured, fresh) || !identity.MetadataExpiryValid(got.ResolvedResource.ValidUntil, r.catalog.Gateway.now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	if err = r.catalog.Gateway.final(ctx, captured); err != nil {
 		return nil, err
 	}
-	if ctx.Err() != nil || !got.ResolvedResource.ValidUntil.After(r.catalog.Gateway.now()) {
+	if ctx.Err() != nil || !identity.MetadataExpiryValid(got.ResolvedResource.ValidUntil, r.catalog.Gateway.now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	if err = r.recordReportRead(ctx, connection, &got.GetResult); err != nil {
@@ -208,7 +208,7 @@ func (c *ReportGatewayCatalog) List(ctx context.Context, input catalog.ReportCat
 				return
 			}
 			for _, entry := range out.Reports {
-				if entry.Resource == nil || !entry.Resource.ValidUntil.After(c.Gateway.now()) {
+				if entry.Resource == nil || !identity.MetadataExpiryValid(entry.Resource.ValidUntil, c.Gateway.now()) {
 					out = nil
 					failure = identity.ErrResourceDenied
 					return
@@ -246,11 +246,16 @@ func (c *ReportGatewayCatalog) List(ctx context.Context, input catalog.ReportCat
 		return nil, err
 	}
 	result := &catalog.ReportCatalogResult{Reports: []catalog.ReportCatalogEntry{}, NextCursor: page.NextCursor}
+	owners := make(map[string]string, len(page.Items))
 	for _, row := range page.Items {
 		resource, pin := row.Resource, row.ResolvedResource
 		if pin == nil || pin.ContentFingerprint != resource.ContentFingerprint {
 			return nil, identity.ErrResourceStale
 		}
+		if owner, exists := owners[resource.URI]; exists && owner != pin.ProviderIdentity {
+			return nil, ErrCollision
+		}
+		owners[resource.URI] = pin.ProviderIdentity
 		envelope := row.Definition
 		candidate := catalog.ReportCatalogCandidate{URI: resource.URI, Title: resource.Title, OwnerID: resource.OwnerID, BuilderRef: envelope.BuilderRef, BuilderWindow: c.BuilderWindows[envelope.BuilderRef], ReportID: resource.URI}
 		capabilities := catalog.ReportCapabilities{}

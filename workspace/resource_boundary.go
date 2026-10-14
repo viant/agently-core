@@ -25,7 +25,7 @@ func NewRawResourceBoundary(root string) *RawResourceBoundary {
 			root = Root()
 		}
 	}
-	return &RawResourceBoundary{Root: root, paths: []string{"window", "windows", KindForgeWindow, "report", "reports", "extension/forge/reporting", "intent", KindIntent, "prompt", KindPrompt, "skill", KindSkill}}
+	return &RawResourceBoundary{Root: root, paths: []string{"window", "windows", KindForgeWindow, "report", "reports", "extension/forge/reporting", "intent", KindIntent, "prompt", KindPrompt, "skill", KindSkill, "lookup", "lookups", KindForgeLookup, KindForgeDataSource, KindForgeDialog, KindForgeModel}}
 }
 func validRawParts(value string) bool {
 	if value == "" || strings.TrimSpace(value) != value || filepath.IsAbs(value) || strings.Contains(value, "\\") {

@@ -69,9 +69,15 @@ func TestRuntimeToolfeedDefinitionsThroughMCPGateway(t *testing.T) {
 	require.Contains(t, names, "toolfeeds/get")
 	namespaces, err := runtime.PrimitiveProviders.Discover(ctx)
 	require.NoError(t, err)
-	require.Len(t, namespaces, 1)
-	require.Equal(t, primitive.ToolfeedSchemaURI, namespaces[0].Kinds[0].SchemaURI)
-	require.Equal(t, "toolfeeds/get", namespaces[0].Kinds[0].Methods["get"])
+	var feedNamespace *resources.DiscoveredNamespace
+	for i := range namespaces {
+		if namespaces[i].Namespace == "user-alice" {
+			feedNamespace = &namespaces[i]
+		}
+	}
+	require.NotNil(t, feedNamespace)
+	require.Equal(t, primitive.ToolfeedSchemaURI, feedNamespace.Kinds[0].SchemaURI)
+	require.Equal(t, "toolfeeds/get", feedNamespace.Kinds[0].Methods["get"])
 	listed, err := runtime.PrimitiveProviders.List(ctx, primitive.ToolfeedKind, "user-alice")
 	require.NoError(t, err)
 	require.Len(t, listed, 2)
@@ -82,7 +88,7 @@ func TestRuntimeToolfeedDefinitionsThroughMCPGateway(t *testing.T) {
 		}
 	}
 	require.Equal(t, "toolfeed://user-alice/tools/terminal", uri)
-	connection := namespaces[0].Connection
+	connection := feedNamespace.Connection
 	got, err := runtime.PrimitiveProviders.Get(ctx, connection, identity.ResourceRef{URI: uri}, nil)
 	require.NoError(t, err)
 	var projection api.FeedSpec
@@ -104,11 +110,12 @@ func TestRuntimeToolfeedDefinitionsThroughMCPGateway(t *testing.T) {
 	require.NotNil(t, failed.IsError)
 	require.True(t, *failed.IsError)
 	require.NoError(t, os.WriteFile(file, []byte("id: legacy-terminal\ntitle: Changed\nmatch:\n  service: system/exec\n"), 0600))
-	_, err = runtime.PrimitiveProviders.Get(ctx, connection, identity.ResourceRef{URI: uri}, got.ResolvedResource)
-	require.Error(t, err)
+	pinned, err := runtime.PrimitiveProviders.Get(ctx, connection, identity.ResourceRef{URI: uri}, got.ResolvedResource)
+	require.NoError(t, err, "file edits do not replace the captured provider generation")
+	require.Equal(t, got.ResolvedResource.ContentFingerprint, pinned.ResolvedResource.ContentFingerprint)
 	fresh, err := runtime.PrimitiveProviders.Get(ctx, connection, identity.ResourceRef{URI: uri, Revision: "working"}, nil)
 	require.NoError(t, err)
-	require.NotEqual(t, got.ResolvedResource.ContentFingerprint, fresh.ResolvedResource.ContentFingerprint)
+	require.Equal(t, got.ResolvedResource.ContentFingerprint, fresh.ResolvedResource.ContentFingerprint)
 	expiredPin := *fresh.ResolvedResource
 	expiredPin.ValidUntil = time.Now().Add(-time.Second)
 	_, err = runtime.PrimitiveProviders.Get(ctx, connection, identity.ResourceRef{URI: uri}, &expiredPin)

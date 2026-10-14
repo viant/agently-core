@@ -109,14 +109,9 @@ func (g *Gateway) FetchDatasource(ctx context.Context, pin identity.ResolvedReso
 	if err != nil {
 		return nil, err
 	}
-	deadline := pin.ValidUntil
-	if proof.Resource.ValidUntil.Before(deadline) {
-		deadline = proof.Resource.ValidUntil
-	}
-	if actor.ValidUntil.Before(deadline) {
-		deadline = actor.ValidUntil
-	}
-	ctx, cancel := context.WithDeadline(ctx, deadline)
+	deadline := identity.MinimumMetadataExpiry(pin.ValidUntil, proof.Resource.ValidUntil)
+	deadline = identity.MinimumMetadataExpiry(deadline, actor.ValidUntil)
+	ctx, cancel := identity.WithMetadataExpiry(ctx, deadline)
 	defer cancel()
 	connection, err := g.ConnectionForProvider(ctx, pin.ProviderIdentity)
 	if err != nil {
@@ -207,7 +202,7 @@ func (g *Gateway) FetchDatasource(ctx context.Context, pin identity.ResolvedReso
 	if err = g.final(ctx, actor); err != nil {
 		return nil, err
 	}
-	if ctx.Err() != nil || !actor.Valid(g.now()) || !pin.ValidUntil.After(g.now()) || !proof.Resource.ValidUntil.After(time.Now()) {
+	if ctx.Err() != nil || !actor.Valid(g.now()) || !identity.MetadataExpiryValid(pin.ValidUntil, g.now()) || !proof.Resource.ValidUntil.After(time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	return body, nil

@@ -3,9 +3,9 @@ package resource
 import (
 	"context"
 	"github.com/stretchr/testify/require"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
-	identity "github.com/viant/agently-core/protocol/resource"
 	"testing"
 	"time"
 )

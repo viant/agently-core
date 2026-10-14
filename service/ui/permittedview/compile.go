@@ -40,10 +40,6 @@ func Compile(bound *BoundView, snapshot *Snapshot) (*Result, error) {
 	if bound.ResourceIDString != "" && snapshot != nil {
 		resource = snapshot.Resources[bound.ResourceIDString]
 	}
-	if strings.EqualFold(bound.Window.Authorization.Scope, "resource") && (resource == nil || resource.Capabilities["read"] != true) {
-		return &Result{Authorization: snapshot, Resource: resource, DataSourceRefs: map[string]bool{}, Denied: true,
-			Diagnostics: []Diagnostic{{Code: "resource_read_denied", Message: "resource read capability was not granted"}}}, nil
-	}
 	authorization := authorizationScope(snapshot, resource)
 	raw, err := json.Marshal(bound.Window)
 	if err != nil {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	policy "github.com/viant/agently-core/service/policy"
 	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
@@ -91,39 +92,20 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 		canonical := settings.windows != nil && settings.windows.UsesWindowResourceResolution()
 		if canonical {
 			var err error
+			span := observe.Start(r.Context(), observe.HTTPWindowResolve, observe.Labels{Kind: "window"})
 			aWindow, err = resolvedHTTPWindow(r, settings.windows, strings.Join(pathParts, "/"))
+			span.End(observe.OutcomeFor(err), observe.CacheUnknown)
 			if err != nil {
 				log.Printf("window metadata lookup failed: %v", err)
 				switch {
 				case errors.Is(err, context.DeadlineExceeded), errors.Is(err, forgeservice.ErrWindowSelectionUnavailable):
-					writeOpenAdmissionError(w, err)
+					writeWindowError(w, err)
 				default:
 					http.Error(w, "window not found or access denied", http.StatusNotFound)
 				}
 				return
 			}
 		} else {
-			runtime := admission
-			if runtime == nil && useDefaults {
-				runtime = policy.DefaultRuntime()
-			}
-			if runtime != nil && runtime.IsEnabled(policy.OperationWindowView) {
-				err := runtime.Authorize(r.Context(), policy.OperationWindowView,
-					strings.TrimSpace(r.URL.Query().Get("conversationId")),
-					policy.Candidate{ID: windowKey, Kind: "window"}, nil)
-				if errors.Is(err, policy.ErrIdentityRejected) {
-					http.Error(w, "authentication required", http.StatusUnauthorized)
-					return
-				}
-				if errors.Is(err, policy.ErrDenied) {
-					http.Error(w, "window not found", http.StatusNotFound)
-					return
-				}
-				if err != nil {
-					http.Error(w, "window authorization unavailable", http.StatusServiceUnavailable)
-					return
-				}
-			}
 			subPath := strings.Join(pathParts[1:], "/")
 			target := targetContextFromRequest(r)
 			var workspaceErr error
@@ -165,149 +147,65 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 		}
 		if r.URL.Query().Get("expectedResource") != "" {
 			if !canonical || !applyPermissionRequested(r) || r.Header.Get("Mcp-Session-Id") == "" || r.URL.Query().Get("windowId") == "" || r.URL.Query().Get("clientId") == "" || checkExpectedWindowResource(r, aWindow.Resource) != nil {
-				writeOpenAdmissionError(w, identity.ErrResourceDenied)
+				writeWindowError(w, identity.ErrResourceDenied)
 				return
 			}
 		}
 		var authorization *permittedview.Snapshot
-		var openOriginal *forgeTypes.Window
 		var openParameters map[string]any
-		var openLease time.Time
-		if applyPermissionRequested(r) && (aWindow.Authorization != nil || canonical) {
-			runtime := capabilities
-			if runtime == nil && useDefaults {
-				runtime = permittedview.DefaultRuntime()
-			}
-			if runtime == nil && !canonical {
-				http.Error(w, "permitted-view authorization runtime is unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			parameters, err := windowParametersFromRequest(r)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
+		var presentationResource map[string]any
+		if applyPermissionRequested(r) {
 			if rawVersion := strings.TrimSpace(r.URL.Query().Get("authorizationSchemaVersion")); rawVersion != "" && aWindow.Authorization != nil {
-				version, e := strconv.Atoi(rawVersion)
-				if e != nil || version != permittedview.SchemaVersion(aWindow.Authorization) {
+				version, err := strconv.Atoi(rawVersion)
+				if err != nil || version != permittedview.SchemaVersion(aWindow.Authorization) {
 					http.Error(w, "authorization schema version mismatch", http.StatusBadRequest)
 					return
 				}
 			}
+			var err error
+			openParameters, err = windowParametersFromRequest(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			presentationResource, err = resourceDataFromRequest(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			runtime := capabilities
+			if runtime == nil && useDefaults {
+				runtime = permittedview.DefaultRuntime()
+			}
 			if canonical {
-				// Caller resourceData never supplies protected bootstrap authority.
-				checker, ok := settings.windows.(interface {
-					AdmitWindowOpenDecision(context.Context, *forgeTypes.Window, map[string]any) (*forgeservice.WindowOpenDecision, error)
-				})
-				if !ok {
-					http.Error(w, "window open admission is unavailable", http.StatusForbidden)
-					return
-				}
-				admissionContext, cancel := context.WithTimeout(r.Context(), permissionApplyTimeout)
-				admitted, err := checker.AdmitWindowOpenDecision(admissionContext, aWindow, parameters)
-				cancel()
-				if err != nil || admitted == nil || admitted.Window == nil {
-					writeOpenAdmissionError(w, err)
-					return
-				}
-				openOriginal, openParameters, openLease = aWindow, parameters, admitted.ValidUntil
-				aWindow = admitted.Window
-				if len(aWindow.AuthorizationSnapshot) > 0 {
-					raw, _ := json.Marshal(aWindow.AuthorizationSnapshot)
-					authorization = &permittedview.Snapshot{}
-					if json.Unmarshal(raw, authorization) != nil {
-						http.Error(w, "window authorization is unavailable", http.StatusForbidden)
-						return
-					}
+				if project, ok := settings.windows.(interface {
+					ProjectWindowWithInput(context.Context, *permittedview.BoundView) (*forgeTypes.Window, error)
+				}); ok {
+					aWindow, err = project.ProjectWindowWithInput(r.Context(), &permittedview.BoundView{Window: aWindow, WindowID: aWindow.WindowKey, WindowForm: openParameters, ResourceData: presentationResource})
 				}
 			} else {
-				var resourceData map[string]any
-				if aWindow.Authorization.Resource != nil && strings.EqualFold(aWindow.Authorization.Resource.ID.Source, "resource") {
-					http.Error(w, "trusted resource bootstrap is unavailable", http.StatusForbidden)
-					return
-				}
-				windowID := strings.TrimSpace(r.URL.Query().Get("windowId"))
-				conversationID := strings.TrimSpace(r.URL.Query().Get("conversationId"))
-				applyContext := r.Context()
-				if canonical {
-					if aWindow.Resource == nil {
-						http.Error(w, "window resource unavailable", http.StatusNotFound)
-						return
-					}
-					applyContext = runtimerequestctx.WithResolvedResource(applyContext, *aWindow.Resource)
-					applyContext = runtimerequestctx.WithWindowTarget(applyContext, aWindow.ResourceTarget)
-				}
-				if conversationID != "" {
-					applyContext = runtimerequestctx.WithConversationID(applyContext, conversationID)
-				}
-				bound, err := permittedview.BindResource(aWindow, windowID, conversationID, parameters, resourceData)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest)
-					return
-				}
-				if rawVersion := strings.TrimSpace(r.URL.Query().Get("authorizationSchemaVersion")); rawVersion != "" {
-					version, parseErr := strconv.Atoi(rawVersion)
-					if parseErr != nil || version != bound.SchemaVersion {
-						http.Error(w, "authorization schema version mismatch", http.StatusBadRequest)
-						return
-					}
-				}
-				permissionContext, cancel := context.WithTimeout(applyContext, permissionApplyTimeout)
-				compiled, err := runtime.Apply(permissionContext, bound)
-				cancel()
-				if err != nil {
-					if errors.Is(err, context.DeadlineExceeded) || errors.Is(permissionContext.Err(), context.DeadlineExceeded) {
-						http.Error(w, "permission service timed out", http.StatusGatewayTimeout)
-						return
-					}
-					if errors.Is(err, permittedview.ErrUnavailable) {
-						http.Error(w, "permission service unavailable", http.StatusServiceUnavailable)
-						return
-					}
-					http.Error(w, "resource not found or access denied", http.StatusForbidden)
-					return
-				}
-				if compiled == nil || compiled.Denied || compiled.Window == nil {
-					http.Error(w, "resource not found or access denied", http.StatusForbidden)
-					return
-				}
-				aWindow = compiled.Window
-				authorization = compiled.Authorization
-				if raw, marshalErr := json.Marshal(authorization); marshalErr == nil {
-					_ = json.Unmarshal(raw, &aWindow.AuthorizationSnapshot)
+				var result *permittedview.Result
+				bound := &permittedview.BoundView{Window: aWindow, WindowID: aWindow.WindowKey, WindowForm: openParameters, ResourceData: presentationResource}
+				result, err = runtime.Project(r.Context(), aWindow, bound)
+				if result != nil {
+					aWindow = result.Window
+					authorization = result.Authorization
 				}
 			}
-		}
-		if openOriginal != nil {
-			checker := settings.windows.(interface {
-				AdmitWindowOpenDecision(context.Context, *forgeTypes.Window, map[string]any) (*forgeservice.WindowOpenDecision, error)
-			})
-			if !openLease.After(time.Now()) {
-				http.Error(w, "window admission expired", http.StatusForbidden)
+			if err != nil || aWindow == nil {
+				writeWindowError(w, err)
 				return
 			}
-			finalContext, cancel := context.WithTimeout(r.Context(), permissionApplyTimeout)
-			_, err := checker.AdmitWindowOpenDecision(finalContext, openOriginal, openParameters)
-			cancel()
-			if err != nil {
-				writeOpenAdmissionError(w, err)
-				return
-			}
-		}
-		if canonical && applyPermissionRequested(r) {
-			if emitter, ok := settings.windows.(interface {
-				EmitWindowSelection(context.Context, *forgeTypes.Window, map[string]any) (*forgeTypes.Window, error)
-			}); ok {
-				emitted, err := emitter.EmitWindowSelection(r.Context(), aWindow, openParameters)
-				if err != nil || emitted == nil {
-					writeOpenAdmissionError(w, err)
-					return
+			if canonical {
+				if emitter, ok := settings.windows.(interface {
+					EmitWindowSelection(context.Context, *forgeTypes.Window, map[string]any) (*forgeTypes.Window, error)
+				}); ok {
+					aWindow, err = emitter.EmitWindowSelection(r.Context(), aWindow, openParameters)
+					if err != nil || aWindow == nil {
+						writeWindowError(w, err)
+						return
+					}
 				}
-				aWindow = emitted
-			}
-			if !openLease.IsZero() && !openLease.After(time.Now()) {
-				http.Error(w, "window admission expired", http.StatusForbidden)
-				return
 			}
 		}
 		if canonical && applyPermissionRequested(r) && (r.URL.Query().Get("clientId") != "" || r.URL.Query().Get("windowId") != "") {
@@ -315,40 +213,39 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 				BindAdmittedFrameworkWindow(context.Context, string, string, string, *forgeTypes.Window) error
 			})
 			if !ok {
-				writeOpenAdmissionError(w, identity.ErrResourceDenied)
+				writeWindowError(w, identity.ErrResourceDenied)
 				return
 			}
 			bindContext := r.Context()
-			if !openLease.IsZero() {
-				var stop context.CancelFunc
-				bindContext, stop = context.WithDeadline(bindContext, openLease)
-				defer stop()
-			}
 			bindContext = runtimerequestctx.WithUIBridgeSessionID(bindContext, r.Header.Get("Mcp-Session-Id"))
 			handled := false
 			if native, ok := settings.windows.(interface {
 				BindAdmittedNativePresentationWindow(context.Context, string, string, string, *forgeTypes.Window) (bool, error)
 			}); ok {
 				var err error
+				bindSpan := observe.Start(bindContext, observe.HTTPWindowBind, observe.Labels{Kind: "window"})
 				handled, err = native.BindAdmittedNativePresentationWindow(bindContext, r.URL.Query().Get("clientId"), r.URL.Query().Get("windowId"), strings.Join(pathParts, "/"), aWindow)
+				bindSpan.End(observe.OutcomeFor(err), observe.CacheUnknown)
 				if err != nil {
-					writeOpenAdmissionError(w, err)
+					writeWindowError(w, err)
 					return
 				}
 			}
 			if !handled {
 				if err := binder.BindAdmittedFrameworkWindow(bindContext, r.URL.Query().Get("clientId"), r.URL.Query().Get("windowId"), strings.Join(pathParts, "/"), aWindow); err != nil {
-					writeOpenAdmissionError(w, err)
+					writeWindowError(w, err)
 					return
 				}
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(permittedWindowResponse{
+		encodeSpan := observe.Start(r.Context(), observe.HTTPResponseEncode, observe.Labels{Kind: "window"})
+		encodeErr := json.NewEncoder(w).Encode(permittedWindowResponse{
 			Status:        "ok",
 			Data:          aWindow,
 			Authorization: authorization,
 		})
+		encodeSpan.End(observe.OutcomeFor(encodeErr), observe.CacheBypass)
 	})
 
 	return mux
@@ -543,7 +440,7 @@ func capabilityValuesFromQuery(values []string) []string {
 	return capabilities
 }
 
-func writeOpenAdmissionError(w http.ResponseWriter, err error) {
+func writeWindowError(w http.ResponseWriter, err error) {
 	status, message := http.StatusForbidden, "resource not found or access denied"
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):

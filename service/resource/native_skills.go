@@ -204,3 +204,14 @@ func (c *nativeSkillClient) ListResources(ctx context.Context, cursor *string, o
 	}
 	return out, nil
 }
+
+// ReadSkillResource uses the already configured managing connection. Shared-index
+// skill definitions do not require the optional native skills extension.
+func (s *NativeSkillSource) ReadSkillResource(ctx context.Context, server, uri string) (*schema.ReadResourceResult, error) {
+	ctx = s.Gateway.Manager.WithAuthTokenContext(ctx, server)
+	cli, err := s.Get(ctx, "", server)
+	if err != nil {
+		return nil, err
+	}
+	return cli.ReadResource(ctx, &schema.ReadResourceRequestParams{Uri: uri})
+}

@@ -515,9 +515,9 @@ func (s *Service) WindowAuthorize(ctx context.Context, windowID string) (bool, e
 	return checker.CheckWindowAdmission(ctx, windowID)
 }
 
-// AuthzReady requires host admission for saved and dynamic opens in authz mode.
+// AuthzReady reports source-owned resource resolution for selected definitions.
 func (s *Service) AuthzReady() bool {
-	if s == nil || s.cfg == nil || s.cfg.WindowDefinitions == nil || s.cfg.DynamicWindowAuthorizer == nil {
+	if s == nil || s.cfg == nil || s.cfg.WindowDefinitions == nil {
 		return false
 	}
 	ready, ok := s.cfg.WindowDefinitions.(interface{ AuthzReady() bool })

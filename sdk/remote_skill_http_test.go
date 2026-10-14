@@ -22,6 +22,7 @@ import (
 	authsvc "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/mcp"
+	"github.com/viant/mcp-protocol/schema"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
@@ -72,18 +73,14 @@ func (f *remoteSDKSkillHTTP) serve(w http.ResponseWriter, r *http.Request) {
 	var rpc any
 	sum := sha256.Sum256([]byte(remoteSDKSkillDocument))
 	entry := map[string]any{"localSelector": "local-review", "uri": remoteSDKSkillURI, "frontmatter": map[string]any{"name": "remote-review", "description": "Owned remote review", "metadata": map[string]any{"agently-context": "inline"}}, "resources": []any{map[string]any{"uri": remoteSDKSkillURI, "size": len(remoteSDKSkillDocument), "digest": fmt.Sprintf("sha256:%x", sum[:])}}}
-	wrap := func(v any) any {
-		body, _ := json.Marshal(v)
-		return map[string]any{"structuredContent": v, "content": []any{map[string]any{"type": "text", "text": string(body)}}}
-	}
 	switch q.Method {
 	case "initialize":
-		value = map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{"tools": map[string]any{}, "resources": map[string]any{}}, "serverInfo": map[string]any{"name": "owned-skills", "version": "1"}}
+		value = map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{"tools": map[string]any{}, "resources": map[string]any{}, "extensions": map[string]any{schema.SkillsExtension: map[string]any{}}}, "serverInfo": map[string]any{"name": "owned-skills", "version": "1"}}
 	case "ping":
 		value = map[string]any{}
 	case "tools/list":
-		value = map[string]any{"tools": []any{map[string]any{"name": "skills/list", "inputSchema": map[string]any{"type": "object"}}, map[string]any{"name": "skills/get", "inputSchema": map[string]any{"type": "object"}}}}
-	case "tools/call", "resources/read":
+		value = map[string]any{"tools": []any{}}
+	case "skills/list", "skills/get", "resources/read":
 		var p struct {
 			Name string         `json:"name"`
 			Args map[string]any `json:"arguments"`
@@ -101,9 +98,7 @@ func (f *remoteSDKSkillHTTP) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		name := p.Name
-		if q.Method == "resources/read" {
-			name = q.Method
-		}
+		name = q.Method
 		authed := r.Header.Get("Authorization") == "Bearer "+remoteSDKCredential
 		f.mu.Lock()
 		f.calls[name]++
@@ -111,11 +106,7 @@ func (f *remoteSDKSkillHTTP) serve(w http.ResponseWriter, r *http.Request) {
 		mode := f.mode
 		f.mu.Unlock()
 		if !authed || mode == "deny" {
-			if q.Method == "resources/read" {
-				rpc = map[string]any{"code": -32001, "message": "unavailable"}
-			} else {
-				value = map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "unavailable"}}}
-			}
+			rpc = map[string]any{"code": 403, "message": "owning source denied"}
 			break
 		}
 		if q.Method == "resources/read" {
@@ -124,10 +115,10 @@ func (f *remoteSDKSkillHTTP) serve(w http.ResponseWriter, r *http.Request) {
 				body += "changed"
 			}
 			value = map[string]any{"contents": []any{map[string]any{"uri": remoteSDKSkillURI, "mimeType": "text/markdown", "text": body}}}
-		} else if p.Name == "skills/list" {
-			value = wrap(map[string]any{"skills": []any{entry}})
-		} else if p.Name == "skills/get" && p.Args["uri"] == remoteSDKSkillURI {
-			value = wrap(map[string]any{"skill": entry})
+		} else if q.Method == "skills/list" {
+			value = map[string]any{"resultType": "complete", "skills": []any{entry}}
+		} else if q.Method == "skills/get" && p.URI == remoteSDKSkillURI {
+			value = map[string]any{"resultType": "complete", "skill": entry}
 		} else {
 			rpc = map[string]any{"code": -32602, "message": "invalid reference"}
 		}

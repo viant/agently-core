@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/viant/jsonrpc"
 	protoclient "github.com/viant/mcp-protocol/client"
 	"github.com/viant/mcp-protocol/schema"
@@ -31,6 +32,7 @@ type changeHandler struct {
 	server          string
 	receiver        [32]byte
 	publicResources bool
+	subscriptionAck chan schema.SubscriptionsAcknowledgedNotificationParams
 	sequence        int64
 	initialized     int64
 }
@@ -53,6 +55,16 @@ func (h *changeHandler) SetConversationID(id string) {
 func (h *changeHandler) OnNotification(ctx context.Context, n *jsonrpc.Notification) {
 	if n != nil {
 		switch n.Method {
+		case schema.MethodNotificationSubscriptionsAcknowledged:
+			if h.subscriptionAck != nil {
+				var ack schema.SubscriptionsAcknowledgedNotificationParams
+				if err := json.Unmarshal(n.Params, &ack); err == nil {
+					select {
+					case h.subscriptionAck <- ack:
+					default:
+					}
+				}
+			}
 		case "notifications/resources/list_changed", "notifications/resources/updated":
 			h.manager.notifyResourceCatalogChange(h.server, h.receiver, h.publicResources)
 		case "notifications/tools/list_changed", "notifications/prompts/list_changed", "notifications/skills/list_changed":

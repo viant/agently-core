@@ -55,7 +55,7 @@ func (windowPolicyResolver) Resolve(_ context.Context, request *policy.Request) 
 	}, nil
 }
 
-func TestWindowHandlerAppliesWholeWindowPolicyAndKeepsLegacyPermissionOptional(t *testing.T) {
+func TestWindowHandlerDoesNotApplyConsumerWindowPolicy(t *testing.T) {
 	metaRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
 	previous := workspace.Root()
@@ -73,7 +73,7 @@ func TestWindowHandlerAppliesWholeWindowPolicyAndKeepsLegacyPermissionOptional(t
 	}
 	denied := httptest.NewRecorder()
 	newHandler("file://"+metaRoot, nil).ServeHTTP(denied, httptest.NewRequest(http.MethodGet, "/window/denied", nil))
-	if denied.Code != http.StatusNotFound {
+	if denied.Code != http.StatusOK {
 		t.Fatalf("denied status = %d: %s", denied.Code, denied.Body.String())
 	}
 }
@@ -99,7 +99,7 @@ func TestInjectedWindowPolicyOverridesProcessDefault(t *testing.T) {
 	}
 }
 
-func TestWindowHandlerBoundsPermissionPreflightWithoutGrantingAccess(t *testing.T) {
+func TestWindowWithoutPresentationGuardsDoesNotStartPermissionPreflight(t *testing.T) {
 	metaRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
 	previous := workspace.Root()
@@ -119,12 +119,12 @@ view: {content: {id: root}}
 	req := httptest.NewRequest(http.MethodGet, "/window/advertiserList?applyPermission=true", nil).WithContext(ctx)
 	recorder := httptest.NewRecorder()
 	newHandler("file://"+metaRoot, nil).ServeHTTP(recorder, req)
-	if recorder.Code != http.StatusGatewayTimeout {
-		t.Fatalf("expected 504 for unavailable permission service, got %d: %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unused permission service delayed or denied window, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
 
-func TestWindowHandlerReportsPermissionAuthorityOutage(t *testing.T) {
+func TestWindowWithoutGuardsSkipsUnusedPermissionAuthority(t *testing.T) {
 	metaRoot, workspaceRoot := t.TempDir(), t.TempDir()
 	previous := workspace.Root()
 	workspace.SetRoot(workspaceRoot)
@@ -132,7 +132,7 @@ func TestWindowHandlerReportsPermissionAuthorityOutage(t *testing.T) {
 	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "protected.yaml"), "authorization: {scope: principal, resourceType: document}\nview: {content: {id: root}}\n")
 	response := httptest.NewRecorder()
 	newHandlerWithAuthorization("file://"+metaRoot, nil, nil, permittedview.NewRuntime(unavailableAuthorizationResolver{})).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/window/protected?applyPermission=true", nil))
-	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "permission service unavailable\n" {
+	if response.Code != http.StatusOK {
 		t.Fatalf("outage status=%d body=%q", response.Code, response.Body.String())
 	}
 }
@@ -200,7 +200,7 @@ view:
       - {id: overview, dataSourceRef: identity}
       - id: edit
         dataSourceRef: edit
-        visibleWhen: {source: authorization, field: resource.capabilities.write, equals: true}
+        visibleWhen: {source: authorization, field: principal.roles, contains: editor}
 `)
 	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "datasources", "identity.yaml"), "cardinality: collection\n")
 	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "datasources", "edit.yaml"), "cardinality: collection\n")
@@ -236,8 +236,8 @@ view:
 	if len(payload.Data.View.Content.Containers) != 1 || payload.Data.View.Content.Containers[0].ID != "overview" {
 		t.Fatalf("protected metadata was not pruned: %#v", payload.Data.View.Content.Containers)
 	}
-	if _, ok := payload.Data.DataSource["edit"]; ok {
-		t.Fatalf("pruned datasource remained in response: %#v", payload.Data.DataSource)
+	if _, ok := payload.Data.DataSource["edit"]; !ok {
+		t.Fatalf("presentation projection removed owning datasource definition: %#v", payload.Data.DataSource)
 	}
 }
 
@@ -258,7 +258,7 @@ view:
       - {id: overview, dataSourceRef: identity}
       - id: edit
         dataSourceRef: edit
-        visibleWhen: {source: authorization, field: resource.capabilities.write, equals: true}
+        visibleWhen: {source: authorization, field: principal.roles, contains: editor}
 `)
 
 	req := httptest.NewRequest(http.MethodGet, "/window/advertiser", nil)

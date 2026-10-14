@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	authctx "github.com/viant/agently-core/internal/auth"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -17,7 +18,7 @@ import (
 )
 
 func TestNativeMenuSharesSnapshotAndRetainsLiveVisibility(t *testing.T) {
-	ctx := context.Background()
+	ctx := authctx.WithCanonicalUserID(context.Background(), "alice")
 	root := t.TempDir()
 	file := filepath.Join(root, "ui/layout.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0700))
@@ -69,12 +70,14 @@ func TestNativeMenuSharesSnapshotAndRetainsLiveVisibility(t *testing.T) {
 	}
 	require.Equal(t, 1, reads, "warm generic Get reads compiled snapshot, not YAML")
 	actor.Subject = "bob"
+	ctx = authctx.WithCanonicalUserID(ctx, "bob")
 	bob, err := Get[json.RawMessage](ctx, gateway, connection, identity.ResourceRef{URI: def.URI}, nil)
 	require.NoError(t, err)
 	require.NotContains(t, string(bob.Definition), "advertiserList")
 	require.Contains(t, string(bob.Definition), "campaignList")
 	require.Equal(t, fingerprint, bob.Resource.ContentFingerprint)
 	actor.Subject = "alice"
+	ctx = authctx.WithCanonicalUserID(ctx, "alice")
 	*revoked = true
 	_, err = Get[json.RawMessage](ctx, gateway, connection, identity.ResourceRef{URI: def.URI}, nil)
 	require.ErrorIs(t, err, identity.ErrResourceDenied)

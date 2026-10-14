@@ -23,7 +23,7 @@ func ReadAttachments(ctx context.Context, gateway *resources.Gateway, owner iden
 		return nil, identity.ErrResourceDenied
 	}
 	parsed, err := identity.ParseResourceURI(owner.URI)
-	if err != nil || (parsed.Kind != "window" && parsed.Kind != "template" && parsed.Kind != "intent") {
+	if err != nil || (parsed.Kind != "window" && parsed.Kind != "template" && parsed.Kind != "intent" && parsed.Kind != "lookup") {
 		return nil, identity.ErrResourceDenied
 	}
 	visited := map[string]bool{}
@@ -68,7 +68,23 @@ func ReadAttachments(ctx context.Context, gateway *resources.Gateway, owner iden
 		if err := json.Unmarshal(raw, &attached); err != nil {
 			return err
 		}
-		overlays = append(overlays, attached.Overlays...)
+		if uri.Kind == "lookup" {
+			definition, err := resources.DecodeLookupDefinition(1, raw)
+			if err != nil {
+				return err
+			}
+			definition.Resource = got.ResolvedResource
+			for i := range definition.Bindings {
+				projected, e := definition.Bindings[i].Lookup.WithResourceScope(got.ResolvedResource)
+				if e != nil {
+					return e
+				}
+				definition.Bindings[i].Lookup = projected
+			}
+			overlays = append(overlays, definition)
+		} else {
+			overlays = append(overlays, attached.Overlays...)
+		}
 		immutable := got.ResolvedResource.Kind == identity.StampedCandidate
 		if err := loproto.ValidateLibraryReferences(attached.Libraries, immutable); err != nil {
 			return err

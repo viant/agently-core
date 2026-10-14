@@ -12,6 +12,7 @@ import (
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/mcp"
+	protoclient "github.com/viant/mcp-protocol/client"
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -34,6 +35,11 @@ func (c *reportConsumerClient) CallTool(ctx context.Context, request *schema.Cal
 	return c.Interface.CallTool(ctx, request, options...)
 }
 
+func (c *reportConsumerClient) SetNotificationHandler(h protoclient.Handler) {
+	c.Interface.(interface{ SetNotificationHandler(protoclient.Handler) }).SetNotificationHandler(h)
+}
+func (c *reportConsumerClient) Close() error { return c.Interface.(interface{ Close() error }).Close() }
+
 // The policy/error hook is installed on the managing MCP client, never on the
 // report consumer. Its context is the original transport request context.
 func attachReportConsumerClient(t *testing.T, catalog *ReportGatewayCatalog, provider *LocalProvider, before func(context.Context, *schema.CallToolRequestParams) error) *reportConsumerClient {
@@ -53,7 +59,7 @@ func attachReportConsumerClient(t *testing.T, catalog *ReportGatewayCatalog, pro
 }
 
 func TestReportConsumerUsesOneManagingReadAndForwardsContext(t *testing.T) {
-	catalog, _, _, _, provider := reportGatewayFixture(t)
+	catalog, source, _, _, provider := reportGatewayFixture(t)
 	type credentialKey struct{}
 	ctx := context.WithValue(context.Background(), credentialKey{}, "original-session")
 	seen := []map[string]interface{}{}
@@ -75,7 +81,11 @@ func TestReportConsumerUsesOneManagingReadAndForwardsContext(t *testing.T) {
 	original := *pin
 	_, fresh, err := reader.ReadResolved(ctx, *pin)
 	require.NoError(t, err)
-	require.Equal(t, 2, client.gets, "a separate read forwards its exact owning pin once")
+	require.Equal(t, 1, client.gets, "a pinned metadata read reuses the same user namespace definition")
+	source.Publish(ctx)
+	_, fresh, err = reader.ReadResolved(ctx, *pin)
+	require.NoError(t, err)
+	require.Equal(t, 2, client.gets, "notification makes the next read dispatch with its exact owning pin")
 	require.Equal(t, map[string]interface{}{"uri": pin.URI, "revision": identity.WorkingCandidate}, seen[1])
 	require.Equal(t, original.ProviderIdentity, fresh.ProviderIdentity)
 	require.Equal(t, original.AuthorityBinding, fresh.AuthorityBinding)
@@ -84,7 +94,7 @@ func TestReportConsumerUsesOneManagingReadAndForwardsContext(t *testing.T) {
 }
 
 func TestReportConsumerHonorsCurrentManagingMCPDenial(t *testing.T) {
-	catalog, _, _, _, provider := reportGatewayFixture(t)
+	catalog, source, _, _, provider := reportGatewayFixture(t)
 	var denied atomic.Bool
 	client := attachReportConsumerClient(t, catalog, provider, func(_ context.Context, request *schema.CallToolRequestParams) error {
 		if request.Name == "reports/get" && denied.Load() {
@@ -97,11 +107,12 @@ func TestReportConsumerHonorsCurrentManagingMCPDenial(t *testing.T) {
 	pin, err := reader.Resolve(context.Background(), identity.ResourceRef{URI: "report://steward/sales"})
 	require.NoError(t, err)
 	denied.Store(true)
+	source.Publish(context.Background())
 	raw, fresh, err := reader.ReadResolved(context.Background(), *pin)
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	require.Nil(t, raw)
 	require.Nil(t, fresh)
-	require.Equal(t, 2, client.gets, "server denial is freshly consulted without local callback or cached grant")
+	require.Equal(t, 2, client.gets, "after notification the managing denial is returned without retry or local fallback")
 }
 
 func TestReportConsumerPreservesManagingErrorsAndChecksIdentity(t *testing.T) {

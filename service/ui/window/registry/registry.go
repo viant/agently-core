@@ -657,7 +657,7 @@ func (r *Registry) admitEvent(ctx context.Context, event UIEvent) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("window resource authority unavailable")
 	}
-	if current == nil || current.URI != event.Resource.URI || current.ResourceCandidate != event.Resource.ResourceCandidate || current.AuthorityBinding != event.Resource.AuthorityBinding || !event.Resource.ValidUntil.After(time.Now()) {
+	if current == nil || current.URI != event.Resource.URI || current.ResourceCandidate != event.Resource.ResourceCandidate || current.AuthorityBinding != event.Resource.AuthorityBinding || !identity.MetadataExpiryValid(event.Resource.ValidUntil, time.Now()) {
 		return false, nil
 	}
 	return true, nil

@@ -598,9 +598,11 @@ func (h *Hub) Call(ctx context.Context, ns, clientID string, method string, para
 		if err != nil || callerIdentity.Namespace != ns {
 			return nil, errors.New("UI caller identity unavailable")
 		}
-		bounded, cancelCaller := context.WithDeadline(ctx, callerIdentity.ValidUntil)
-		defer cancelCaller()
-		ctx = bounded
+		if !callerIdentity.ValidUntil.IsZero() {
+			bounded, cancelCaller := context.WithDeadline(ctx, callerIdentity.ValidUntil)
+			defer cancelCaller()
+			ctx = bounded
+		}
 		if c == nil || c.ctx == nil {
 			return nil, errors.New("UI receiver unavailable")
 		}
@@ -612,7 +614,11 @@ func (h *Hub) Call(ctx context.Context, ns, clientID string, method string, para
 		if err != nil || receiverIdentity.Namespace != ns {
 			return nil, errors.New("UI receiver identity unavailable")
 		}
-		bounded, cancelReceiver := context.WithDeadline(ctx, receiverIdentity.ValidUntil)
+		bounded, cancelReceiver := context.WithCancel(ctx)
+		if !receiverIdentity.ValidUntil.IsZero() {
+			cancelReceiver()
+			bounded, cancelReceiver = context.WithDeadline(ctx, receiverIdentity.ValidUntil)
+		}
 		stopReceiver := context.AfterFunc(c.ctx, cancelReceiver)
 		defer stopReceiver()
 		defer cancelReceiver()

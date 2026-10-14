@@ -8,7 +8,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 )
 
-// LibraryReference pins one reusable template library resource. The provider
+// LibraryReference pins one reusable lookup or legacy template library resource. The provider
 // and content fingerprint are expectations verified by the trusted reader;
 // they never grant access or select a transport.
 type LibraryReference struct {
@@ -17,11 +17,11 @@ type LibraryReference struct {
 	ContentFingerprint string               `json:"contentFingerprint" yaml:"contentFingerprint"`
 }
 
-// Validate checks the canonical template identity and its original source
+// Validate checks the canonical lookup/template identity and its original source
 // candidate. Immutable parents may reference only a stamped library revision.
 func (r LibraryReference) Validate(immutableParent bool) error {
 	uri, err := identity.ParseResourceURI(r.Resource.URI)
-	if err != nil || uri.Kind != "template" || uri.String() != r.Resource.URI {
+	if err != nil || (uri.Kind != "template" && uri.Kind != "lookup") || uri.String() != r.Resource.URI {
 		return identity.ErrResource
 	}
 	if r.ProviderIdentity == "" || len(r.ProviderIdentity) > 2048 || !utf8.ValidString(r.ProviderIdentity) || strings.TrimSpace(r.ProviderIdentity) != r.ProviderIdentity {

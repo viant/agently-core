@@ -52,7 +52,7 @@ func readSequenceFixture(t *testing.T) (*Gateway, *mutableNamespaceFixture, *ide
 	return g, p, actor, options
 }
 
-func TestReadSequenceReusesContractAcrossPhasesWithFreshResourceReads(t *testing.T) {
+func TestReadSequenceReusesDefinitionAndContractAcrossPhases(t *testing.T) {
 	g, p, _, _ := readSequenceFixture(t)
 	ctx, finish, err := g.BeginReadSequence(context.Background(), nil)
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestReadSequenceReusesContractAcrossPhasesWithFreshResourceReads(t *testing
 		_, err := g.GetForProvider(ctx, "owned", ref, nil)
 		require.NoError(t, err)
 	}
-	require.Equal(t, 3, p.calls["windows/get"], "resource content/policy reads remain fresh")
+	require.Equal(t, 1, p.calls["windows/get"], "definitions are captured once for the authenticated user until notification")
 	require.Equal(t, 1, p.calls["namespaces/list"])
 	require.Equal(t, 1, p.calls["namespaces/get"])
 	endDispatch, err := requestctx.BeginResourceReadDispatch(ctx)
@@ -72,8 +72,8 @@ func TestReadSequenceReusesContractAcrossPhasesWithFreshResourceReads(t *testing
 		_, err := g.GetForProvider(ctx, "owned", ref, nil)
 		require.NoError(t, err)
 	}
-	require.Equal(t, 5, p.calls["windows/get"])
-	require.Equal(t, 1, p.calls["namespaces/list"], "POST reuses metadata while resource Gets remain fresh")
+	require.Equal(t, 1, p.calls["windows/get"])
+	require.Equal(t, 1, p.calls["namespaces/list"], "POST reuses the same captured definition and namespace contract")
 	require.NoError(t, finish())
 	require.Equal(t, 1, p.calls["namespaces/list"], "release fences transport without another namespace RPC")
 	_, err = g.GetForProvider(ctx, "owned", ref, nil)
@@ -100,13 +100,13 @@ func TestReadSequenceRejectsCatalogCredentialActorGenerationAndDeadlineDrift(t *
 			switch change {
 			case "visibility":
 				p.hidden = true
-				g.Invalidate("remote")
+				p.resourceChanged()
 			case "methods":
 				p.changed = true
-				g.Invalidate("remote")
+				p.resourceChanged()
 			case "unavailable":
 				p.unavailable = true
-				g.Invalidate("remote")
+				p.resourceChanged()
 			case "credential":
 				ctx = authctx.WithIDToken(ctx, "different-session-credential")
 			case "identity":
@@ -136,6 +136,12 @@ func TestReadSequenceRejectsCatalogCredentialActorGenerationAndDeadlineDrift(t *
 			case "cancel":
 				cancel()
 			}
+			if change == "visibility" || change == "methods" || change == "unavailable" {
+				// A resource event refreshes the advertised contract on the next read;
+				// it does not turn a transport barrier into namespace-policy polling.
+				_, err = g.GetForProvider(ctx, "owned", ref, nil)
+				require.Error(t, err, "the notified owner contract cannot be adopted by the original operation")
+			}
 			_, err = requestctx.BeginResourceReadDispatch(ctx)
 			require.Error(t, err, "changed facts must stop actual dispatch")
 			require.Error(t, finish())
@@ -155,7 +161,7 @@ func TestReadSequencePostPhaseCannotAdoptChangedMethodContract(t *testing.T) {
 	endDispatch, err := requestctx.BeginResourceReadDispatch(ctx)
 	require.NoError(t, err)
 	p.changed = true
-	g.Invalidate("remote")
+	p.resourceChanged()
 	require.NoError(t, endDispatch())
 	_, err = g.GetForProvider(ctx, "owned", ref, nil)
 	require.Error(t, err, "a fresh POST phase must compare the original method contract rather than silently adopting drift")
@@ -178,6 +184,7 @@ func TestReadSequenceProviderFetchBarrierClosesPreBeforeActualRPC(t *testing.T) 
 				require.Equal(t, 1, depth)
 				if revoke {
 					provider.items[pin.URI].denied = true
+					provider.resourceChanged()
 				}
 			}
 			body, err := g.FetchDatasource(ctx, pin, proof, descriptor, nil)

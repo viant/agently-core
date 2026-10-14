@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
+	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/authz"
-	identity "github.com/viant/agently-core/protocol/resource"
 	"time"
 )
 
@@ -52,7 +52,7 @@ func NewStaticCapabilityMappings(bindings []CapabilityBinding) (CapabilityMappin
 		}
 		if binding.UseResolvedResource {
 			pin, found := requestctx.ResolvedResourceFromContext(ctx)
-			if !found || pin == nil || !pin.ValidUntil.After(time.Now()) || pin.AuthorityBinding == "" || !pin.ResourceCandidate.Valid() {
+			if !found || pin == nil || !identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) || pin.AuthorityBinding == "" || !pin.ResourceCandidate.Valid() {
 				return CapabilityBinding{}, authz.ErrDenied
 			}
 			uri, err := identity.ParseResourceURI(pin.URI)

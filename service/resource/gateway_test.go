@@ -10,7 +10,9 @@ import (
 	manager "github.com/viant/agently-core/protocol/mcp/manager"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/jsonrpc"
 	mcp "github.com/viant/mcp"
+	protoclient "github.com/viant/mcp-protocol/client"
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 	"net/http"
@@ -73,7 +75,28 @@ func (p fixtureOptions) Names(context.Context) ([]string, error) {
 	return names, nil
 }
 
+type fixtureNotificationPort struct {
+	notificationMu sync.RWMutex
+	handler        protoclient.Handler
+}
+
+func (p *fixtureNotificationPort) SetNotificationHandler(h protoclient.Handler) {
+	p.notificationMu.Lock()
+	p.handler = h
+	p.notificationMu.Unlock()
+}
+func (p *fixtureNotificationPort) resourceChanged() {
+	p.notificationMu.RLock()
+	h := p.handler
+	p.notificationMu.RUnlock()
+	if h == nil {
+		panic("fixture notification receiver not connected")
+	}
+	h.OnNotification(context.Background(), &jsonrpc.Notification{Jsonrpc: jsonrpc.Version, Method: "notifications/resources/list_changed"})
+}
+
 type fixtureProvider struct {
+	fixtureNotificationPort
 	mcpclient.Interface
 	owner      string
 	definition json.RawMessage
@@ -156,6 +179,7 @@ func TestGatewayOrdinaryToolsDiscoveryAndPinnedDrift(t *testing.T) {
 	_, e = g.Get(ctx, connection, identity.ResourceRef{URI: result.Resource.URI}, result.ResolvedResource)
 	require.NoError(t, e)
 	p.definition = json.RawMessage(`{"schemaVersion":2,"view":{"title":"Changed"}}`)
+	p.resourceChanged()
 	_, e = g.Get(ctx, connection, identity.ResourceRef{URI: result.Resource.URI}, result.ResolvedResource)
 	require.ErrorIs(t, e, identity.ErrResourceDenied)
 	require.GreaterOrEqual(t, p.calls["namespaces/list"], 1) // only discovery, never extension dispatch

@@ -79,14 +79,14 @@ func (s *Service) rememberWindowPin(ctx context.Context, key windowPinKey, pin w
 	}
 	s.resourceMu.Lock()
 	defer s.resourceMu.Unlock()
-	if ctx == nil || ctx.Err() != nil || !pin.Resource.ValidUntil.After(time.Now()) {
+	if ctx == nil || ctx.Err() != nil || !identity.MetadataExpiryValid(pin.Resource.ValidUntil, time.Now()) {
 		return identity.ErrResourceDenied
 	}
 	if s.resourcePins == nil {
 		s.resourcePins = map[windowPinKey]windowResourcePin{}
 	}
 	for key, value := range s.resourcePins {
-		if !value.Resource.ValidUntil.After(time.Now()) && !defaultPresentationPin(value) {
+		if !identity.MetadataExpiryValid(value.Resource.ValidUntil, time.Now()) && !defaultPresentationPin(value) {
 			delete(s.resourcePins, key)
 		}
 	}
@@ -143,7 +143,7 @@ func (s *Service) authorizePinnedCommand(ctx context.Context, ns, clientID, meth
 	if err != nil {
 		return nil, errors.New("window resource is unavailable")
 	}
-	if fresh == nil || fresh.URI != pin.Resource.URI || fresh.ProviderIdentity != pin.Resource.ProviderIdentity || fresh.ResourceCandidate != pin.Resource.ResourceCandidate || fresh.AuthorityBinding != pin.Resource.AuthorityBinding || fresh.ValidUntil.After(pin.Resource.ValidUntil) || !fresh.ValidUntil.After(time.Now()) {
+	if fresh == nil || fresh.URI != pin.Resource.URI || fresh.ProviderIdentity != pin.Resource.ProviderIdentity || fresh.ResourceCandidate != pin.Resource.ResourceCandidate || fresh.AuthorityBinding != pin.Resource.AuthorityBinding || identity.MetadataExpiryExtends(fresh.ValidUntil, pin.Resource.ValidUntil) || !identity.MetadataExpiryValid(fresh.ValidUntil, time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	return &pin, nil
@@ -238,7 +238,7 @@ func (s *Service) WindowResource(ctx context.Context, namespace, clientID, windo
 	}
 	// Only this exact pinned read shares verified facts. The local phase ends
 	// before callers persist events or execute any component/datasource action.
-	readCtx, stop := context.WithDeadline(ctx, pin.Resource.ValidUntil)
+	readCtx, stop := identity.WithMetadataExpiry(ctx, pin.Resource.ValidUntil)
 	defer stop()
 	finish := func() error { return nil }
 	if !requestctx.WindowReadDecisionActive(readCtx) {
@@ -256,29 +256,27 @@ func (s *Service) WindowResource(ctx context.Context, namespace, clientID, windo
 	if finalErr != nil {
 		return nil, finalErr
 	}
-	if readCtx.Err() != nil || !pin.Resource.ValidUntil.After(time.Now()) || current == nil || current.URI != pin.Resource.URI || current.ProviderIdentity != pin.Resource.ProviderIdentity || current.ResourceCandidate != pin.Resource.ResourceCandidate || current.AuthorityBinding != pin.Resource.AuthorityBinding || current.ValidUntil.After(pin.Resource.ValidUntil) || !current.ValidUntil.After(time.Now()) {
+	if readCtx.Err() != nil || !identity.MetadataExpiryValid(pin.Resource.ValidUntil, time.Now()) || current == nil || current.URI != pin.Resource.URI || current.ProviderIdentity != pin.Resource.ProviderIdentity || current.ResourceCandidate != pin.Resource.ResourceCandidate || current.AuthorityBinding != pin.Resource.AuthorityBinding || identity.MetadataExpiryExtends(current.ValidUntil, pin.Resource.ValidUntil) || !identity.MetadataExpiryValid(current.ValidUntil, time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	terminalLease := pin.Resource.ValidUntil
-	if current.ValidUntil.Before(terminalLease) {
-		terminalLease = current.ValidUntil
-	}
-	terminalCtx, stopTerminal := context.WithDeadline(ctx, terminalLease)
+	terminalLease = identity.MinimumMetadataExpiry(terminalLease, current.ValidUntil)
+	terminalCtx, stopTerminal := identity.WithMetadataExpiry(ctx, terminalLease)
 	defer stopTerminal()
 	if err := s.checkWindowContentCurrent(terminalCtx, pin); err != nil {
 		return nil, err
 	}
-	if terminalCtx.Err() != nil || !current.ValidUntil.After(time.Now()) || !pin.Resource.ValidUntil.After(time.Now()) {
+	if terminalCtx.Err() != nil || !identity.MetadataExpiryValid(current.ValidUntil, time.Now()) || !identity.MetadataExpiryValid(pin.Resource.ValidUntil, time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	return current, nil
 }
 
 func (s *Service) checkWindowContentCurrent(ctx context.Context, pin windowResourcePin) error {
-	if ctx == nil || ctx.Err() != nil || !pin.Resource.ValidUntil.After(time.Now()) {
+	if ctx == nil || ctx.Err() != nil || !identity.MetadataExpiryValid(pin.Resource.ValidUntil, time.Now()) {
 		return identity.ErrResourceDenied
 	}
-	bounded, stop := context.WithDeadline(ctx, pin.Resource.ValidUntil)
+	bounded, stop := identity.WithMetadataExpiry(ctx, pin.Resource.ValidUntil)
 	defer stop()
 	ctx = bounded
 	if check, ok := s.cfg.WindowDefinitions.(interface {
@@ -294,11 +292,11 @@ func (s *Service) checkWindowContentCurrent(ctx context.Context, pin windowResou
 		if err != nil {
 			return err
 		}
-		if terminal == nil || terminal.URI != pin.Resource.URI || terminal.ProviderIdentity != pin.Resource.ProviderIdentity || terminal.ResourceCandidate != pin.Resource.ResourceCandidate || terminal.AuthorityBinding != pin.Resource.AuthorityBinding || terminal.ValidUntil.After(pin.Resource.ValidUntil) || !terminal.ValidUntil.After(time.Now()) {
+		if terminal == nil || terminal.URI != pin.Resource.URI || terminal.ProviderIdentity != pin.Resource.ProviderIdentity || terminal.ResourceCandidate != pin.Resource.ResourceCandidate || terminal.AuthorityBinding != pin.Resource.AuthorityBinding || identity.MetadataExpiryExtends(terminal.ValidUntil, pin.Resource.ValidUntil) || !identity.MetadataExpiryValid(terminal.ValidUntil, time.Now()) {
 			return identity.ErrResourceDenied
 		}
 	}
-	if ctx.Err() != nil || !pin.Resource.ValidUntil.After(time.Now()) {
+	if ctx.Err() != nil || !identity.MetadataExpiryValid(pin.Resource.ValidUntil, time.Now()) {
 		return identity.ErrResourceDenied
 	}
 	return nil
@@ -337,7 +335,7 @@ func (s *Service) BindAdmittedFrameworkWindow(ctx context.Context, clientID, win
 }
 
 func (s *Service) renewDefaultPresentationPin(ctx context.Context, key windowPinKey, pin windowResourcePin) (windowResourcePin, error) {
-	if !pin.Resource.ValidUntil.After(time.Now()) {
+	if !identity.MetadataExpiryValid(pin.Resource.ValidUntil, time.Now()) {
 		if !defaultPresentationPin(pin) {
 			return windowResourcePin{}, identity.ErrResourceDenied
 		}
@@ -357,7 +355,7 @@ func (s *Service) renewDefaultPresentationPin(ctx context.Context, key windowPin
 		}
 		s.resourceMu.Lock()
 		held, exists := s.resourcePins[key]
-		if ctx == nil || ctx.Err() != nil || !got.Definition.Resource.ValidUntil.After(time.Now()) || !exists || held.Resource != pin.Resource || !types.SameWindowTarget(held.Target, pin.Target) {
+		if ctx == nil || ctx.Err() != nil || !identity.MetadataExpiryValid(got.Definition.Resource.ValidUntil, time.Now()) || !exists || !identity.SameResolvedResource(held.Resource, pin.Resource) || !types.SameWindowTarget(held.Target, pin.Target) {
 			s.resourceMu.Unlock()
 			return windowResourcePin{}, identity.ErrResourceDenied
 		}

@@ -454,14 +454,14 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 			approved := denialDescriptor
 			var e error
 			check := func() error {
-				if ctx.Err() != nil || !pin.ValidUntil.After(s.now()) {
+				if ctx.Err() != nil || !identity.MetadataExpiryValid(pin.ValidUntil, s.now()) {
 					return identity.ErrResourceDenied
 				}
 				fresh, e := s.resolveResource(ctx, *pin)
 				if e != nil {
 					return e
 				}
-				if fresh == nil || *fresh != *pin || !fresh.ValidUntil.After(s.now()) {
+				if fresh == nil || *fresh != *pin || !identity.MetadataExpiryValid(fresh.ValidUntil, s.now()) {
 					return identity.ErrResourceDenied
 				}
 				definition, e := s.resolveDefinition(ctx, *pin, target, id)

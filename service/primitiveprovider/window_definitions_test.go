@@ -180,8 +180,8 @@ func TestWindowAuthorizerChecksListAndDirectGetIncludingRolelessEntries(t *testi
 	if catalog.ConfiguredWindowIDs()[0] != "open" {
 		t.Fatal("catalog inventory was mutable")
 	}
-	if NewService(&Config{WindowDefinitions: catalog}).AuthzReady() {
-		t.Fatal("dynamic open lacked a host authorizer")
+	if !NewService(&Config{WindowDefinitions: catalog}).AuthzReady() {
+		t.Fatal("source-owned resolved catalog unexpectedly required consumer authorizer")
 	}
 	dynamic := func(_ context.Context, id string) (bool, error) { calls["dynamic:"+id]++; return allowed[id], nil }
 	if !NewService(&Config{WindowDefinitions: catalog, DynamicWindowAuthorizer: dynamic}).AuthzReady() {

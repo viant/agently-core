@@ -78,18 +78,20 @@ type dirChecker interface {
 }
 
 // inlineOverlay is the in-memory runtime registry of validated inline MCP
-// providers, keyed by stable provider ID. It is shared process-wide so every
-// registry instance (MCP manager, background refresh watcher) observes an
-// inline provider once its MCP configuration has been loaded. It does not
+// providers, keyed by canonical owner and stable provider ID. It is shared
+// process-wide so registry instances observe the same owner's inline provider.
+// Trusted no-user startup definitions remain a separate authoritative scope. It does not
 // survive restarts: until the defining MCP configuration is loaded again,
 // resolution fails closed with a not-found error.
+type inlineProviderKey struct{ owner, id string }
+
 type inlineOverlay struct {
 	mu    sync.RWMutex
-	byRef map[string]*authcfg.OAuthProvider
+	byRef map[inlineProviderKey]*authcfg.OAuthProvider
 }
 
 func newInlineOverlay() *inlineOverlay {
-	return &inlineOverlay{byRef: map[string]*authcfg.OAuthProvider{}}
+	return &inlineOverlay{byRef: map[inlineProviderKey]*authcfg.OAuthProvider{}}
 }
 
 // sharedInlineOverlay backs registries created with New so inline providers
@@ -97,34 +99,63 @@ func newInlineOverlay() *inlineOverlay {
 // registry instance within the same process.
 var sharedInlineOverlay = newInlineOverlay()
 
-func (o *inlineOverlay) register(id string, provider *authcfg.OAuthProvider) error {
+func (o *inlineOverlay) register(owner, id string, provider *authcfg.OAuthProvider) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if existing := o.byRef[id]; existing != nil {
+	if owner != "" {
+		if global := o.byRef[inlineProviderKey{id: id}]; global != nil {
+			if authcfg.NormalizeIssuer(global.Issuer) != authcfg.NormalizeIssuer(provider.Issuer) {
+				return fmt.Errorf("inline oauth provider conflicts with trusted startup provider")
+			}
+			return nil
+		}
+	}
+	key := inlineProviderKey{owner: owner, id: id}
+	if existing := o.byRef[key]; existing != nil {
 		if !equalProviderDefinition(existing, provider) {
 			return fmt.Errorf("inline oauth provider %q conflicts with a different inline definition already registered under the same id", id)
 		}
 		return nil
 	}
-	o.byRef[id] = provider.Clone()
+	o.byRef[key] = provider.Clone()
 	return nil
 }
 
-func (o *inlineOverlay) provider(id string) *authcfg.OAuthProvider {
+func (o *inlineOverlay) provider(owner, id string) *authcfg.OAuthProvider {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
-	if provider := o.byRef[id]; provider != nil {
+	if provider := o.byRef[inlineProviderKey{id: id}]; provider != nil {
+		return provider.Clone()
+	}
+	if provider := o.byRef[inlineProviderKey{owner: owner, id: id}]; provider != nil {
 		return provider.Clone()
 	}
 	return nil
 }
 
-func (o *inlineOverlay) snapshot() map[string]*authcfg.OAuthProvider {
+func (o *inlineOverlay) snapshot(owner string) map[string]*authcfg.OAuthProvider {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
-	result := make(map[string]*authcfg.OAuthProvider, len(o.byRef))
-	for id, provider := range o.byRef {
-		result[id] = provider
+	result := map[string]*authcfg.OAuthProvider{}
+	for key, provider := range o.byRef {
+		if key.owner == owner {
+			result[key.id] = provider.Clone()
+		}
+	}
+	// Trusted startup definitions are authoritative over same-ID user definitions.
+	for key, provider := range o.byRef {
+		if key.owner == "" {
+			result[key.id] = provider.Clone()
+		}
+	}
+	return result
+}
+func (o *inlineOverlay) allProviders() []*authcfg.OAuthProvider {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	result := make([]*authcfg.OAuthProvider, 0, len(o.byRef))
+	for _, provider := range o.byRef {
+		result = append(result, provider.Clone())
 	}
 	return result
 }
@@ -278,13 +309,22 @@ func (r *Registry) Provider(ctx context.Context, ref string) (*oauthprovider.Doc
 // Registry-file providers win; the runtime inline overlay answers only for
 // references absent from the workspace registry.
 func (r *Registry) ResolveProvider(ctx context.Context, ref string) (*authcfg.OAuthProvider, error) {
+	if lookupOwnerPresent(ctx) {
+		if _, err := inlineLookupOwner(ctx); err != nil {
+			return nil, err
+		}
+	}
 	if GloballyDisabled() {
 		return nil, &DisabledError{Ref: strings.TrimSpace(ref)}
 	}
 	doc, err := r.Provider(ctx, ref)
 	if err != nil {
 		if IsNotFound(err) && r.overlay != nil {
-			if inline := r.overlay.provider(strings.TrimSpace(ref)); inline != nil {
+			owner, scopeErr := inlineLookupOwner(ctx)
+			if scopeErr != nil {
+				return nil, scopeErr
+			}
+			if inline := r.overlay.provider(owner, strings.TrimSpace(ref)); inline != nil {
 				return inline, nil
 			}
 		}
@@ -303,6 +343,9 @@ func (r *Registry) ResolveProvider(ctx context.Context, ref string) (*authcfg.OA
 // the file definition. Conflicting definitions fail so a delegated MCP can
 // never silently switch providers.
 func (r *Registry) RegisterInline(ctx context.Context, provider *authcfg.OAuthProvider) error {
+	if lookupOwnerPresent(ctx) {
+		return fmt.Errorf("inline provider lookup context cannot authorize registration")
+	}
 	if r == nil || r.overlay == nil {
 		return fmt.Errorf("provider registry is not configured for inline providers")
 	}
@@ -316,6 +359,10 @@ func (r *Registry) RegisterInline(ctx context.Context, provider *authcfg.OAuthPr
 	if err := provider.Validate(); err != nil {
 		return err
 	}
+	owner, scopeErr := inlineOwner(ctx)
+	if scopeErr != nil {
+		return scopeErr
+	}
 	snap, err := r.load(ctx)
 	if err != nil {
 		return err
@@ -327,13 +374,18 @@ func (r *Registry) RegisterInline(ctx context.Context, provider *authcfg.OAuthPr
 		// File definition wins; nothing to overlay.
 		return nil
 	}
-	return r.overlay.register(id, provider)
+	return r.overlay.register(owner, id, provider)
 }
 
 // MatchIssuer implements viant/mcp config.ProviderRegistry. It hard-fails
 // when more than one enabled provider has the normalized issuer — ordering is
 // never a tie-break for challenge learning.
 func (r *Registry) MatchIssuer(ctx context.Context, issuer string) (*authcfg.OAuthProvider, error) {
+	if lookupOwnerPresent(ctx) {
+		if _, err := inlineLookupOwner(ctx); err != nil {
+			return nil, err
+		}
+	}
 	if GloballyDisabled() {
 		return nil, &DisabledError{Ref: authcfg.NormalizeIssuer(issuer)}
 	}
@@ -365,7 +417,11 @@ func (r *Registry) MatchIssuer(ctx context.Context, issuer string) (*authcfg.OAu
 	// no file provider carries the issuer, with the same ambiguity rule.
 	if r.overlay != nil {
 		var inline *authcfg.OAuthProvider
-		for _, provider := range r.overlay.snapshot() {
+		owner, scopeErr := inlineLookupOwner(ctx)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		for _, provider := range r.overlay.snapshot(owner) {
 			if provider == nil || authcfg.NormalizeIssuer(provider.Issuer) != normalized {
 				continue
 			}
@@ -414,8 +470,9 @@ func (r *Registry) MaxRefreshLead(ctx context.Context) time.Duration {
 			}
 		}
 	}
+	// Only a numeric scan horizon spans owners; lookup/matching never do.
 	if r.overlay != nil {
-		for _, provider := range r.overlay.snapshot() {
+		for _, provider := range r.overlay.allProviders() {
 			if provider == nil {
 				continue
 			}

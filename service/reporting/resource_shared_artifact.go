@@ -122,9 +122,6 @@ func (s *Service) shareCanonicalReport(ctx context.Context, request *ShareArtifa
 		existing.Resource = refreshed
 		return cloneSharedArtifact(existing), nil
 	}
-	if err := s.authorizeAction(withReportCreateKind(ctx, savedViewArtifactKind), "report.create", pin.URI); err != nil {
-		return nil, err
-	}
 	persistedPin := cloneResolvedResource(pin)
 	persistedPin.ValidUntil = pin.ValidUntil
 	artifact := &SharedArtifact{

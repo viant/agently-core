@@ -102,12 +102,17 @@ func TestWindowConsumerUsesOwningHTTPServerAuthorizationAndCurrentCredentials(t 
 	require.Equal(t, originalTarget, targetAfter, "the caller's selected target must stay intact")
 	mu.Lock()
 	denied = true
+	beforeDenial := len(gets)
 	mu.Unlock()
-	unavailable, err := catalog.Get(second, input)
+	// This ordinary HTTP wrapper cannot publish resource notifications. A real
+	// reconnect invalidates its metadata; the next fresh request reaches owner.
+	mgr.CloseConversation("")
+	unavailable, err := catalog.Get(second, &bridge.WindowDefinitionGetInput{WindowID: input.WindowID})
 	require.Error(t, err, "owning-server denial must pass through even after a successful open")
 	require.Nil(t, unavailable)
 	mu.Lock()
 	defer mu.Unlock()
+	require.Equal(t, beforeDenial+1, len(gets), "managing server denied the actual fresh Get after reconnect")
 	require.Contains(t, credentials, "Bearer window-first")
 	require.Contains(t, credentials, "Bearer window-second")
 	for _, args := range gets {

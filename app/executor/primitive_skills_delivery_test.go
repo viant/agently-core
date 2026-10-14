@@ -16,6 +16,7 @@ import (
 	skills "github.com/viant/agently-core/service/skill"
 	"github.com/viant/mcp"
 	format "github.com/viant/mcp-protocol/extension/skills"
+	"github.com/viant/mcp-protocol/schema"
 	protocol "github.com/viant/mcp-protocol/server"
 	client "github.com/viant/mcp/client"
 	server "github.com/viant/mcp/server"
@@ -91,6 +92,13 @@ func TestNativeSkillGatewayCapturesFilesAndFreshlyChecksCaller(t *testing.T) {
 	unchanged, err := d.ReadSupporting(ctx, retained, "refs/note.txt")
 	require.NoError(t, err)
 	require.Equal(t, "original supporting bytes", string(unchanged), "file edits cannot replace captured support bytes")
+	exported, err := d.ExportLocalSkill(ctx, local)
+	require.NoError(t, err)
+	entry := exported.Metadata()
+	require.Equal(t, got.RemoteURI, entry.Uri)
+	read, rpcErr := exported.ReadResource(ctx, &schema.ReadResourceRequest{Params: schema.ReadResourceRequestParams{Uri: entry.Uri}})
+	require.Nil(t, rpcErr)
+	require.Contains(t, read.Contents[0].Text, "Original local body.")
 
 }
 
@@ -200,7 +208,11 @@ func registerNamespaceSkill(t *testing.T, mgr *manager.Manager, uri string, deni
 	parsed, err := identity.ParseResourceURI(uri)
 	require.NoError(t, err)
 	actor, verify := resources.PublicReadActors()
-	raw := json.RawMessage(`{"Frontmatter":{"Name":"review","Description":"Namespace skill","AllowedTools":"system/exec:execute lookup"},"Body":"Original remote instruction","Root":"/forged/local","Source":"workspace"}`)
+	body := "---\nname: review\ndescription: Namespace skill\nallowed-tools: system/exec:execute lookup\n---\nOriginal remote instruction"
+	compiled, err := (format.Compiler{Source: fstest.MapFS{"SKILL.md": {Data: []byte(body)}}}).Compile(context.Background(), uri)
+	require.NoError(t, err)
+	raw, err := json.Marshal(schema.GetSkillResult{ResultType: "complete", Skill: compiled.Metadata()})
+	require.NoError(t, err)
 	provider, err := resources.NewLocalProvider(resources.LocalConfig{ProviderIdentity: "synthetic-namespace-owner", Actor: actor, Verify: verify, Authorize: func(ctx context.Context, a identity.VerifiedActor, u identity.ResourceURI, action string) error {
 		if denied.Load() {
 			return identity.ErrResourceDenied
@@ -210,14 +222,17 @@ func registerNamespaceSkill(t *testing.T, mgr *manager.Manager, uri string, deni
 		return &identity.ResourceResolver{ProviderIdentity: "synthetic-namespace-owner", Source: &identity.LocalResource{URI: parsed, Load: func(context.Context) (json.RawMessage, error) { return append(json.RawMessage(nil), raw...), nil }}, Policy: skillRevision{uri: uri, actor: a}}, nil
 	}}}, Validators: map[string]resources.LocalResourceValidator{"skill": func(int64, json.RawMessage) error { return nil }}})
 	require.NoError(t, err)
-	require.NoError(t, mgr.RegisterLocal(context.Background(), "namespace-skills", &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "synthetic-namespace-owner"}, func(context.Context) (client.Interface, error) { return resources.NewLocalMCPClient(provider) }))
+	require.NoError(t, mgr.RegisterLocal(context.Background(), "namespace-skills", &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "synthetic-namespace-owner"}, func(context.Context) (client.Interface, error) {
+		base, e := resources.NewLocalMCPClient(provider)
+		return &namespaceSkillFileClient{Interface: base, compiled: compiled, denied: denied}, e
+	}))
 }
 func TestNamespaceAndNativeSkillsShareGatewayAndRejectCollision(t *testing.T) {
 	mgr, err := manager.New(nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { mgr.CloseConversation(""); mgr.CloseConversation("skill-catalog") })
 	var denied atomic.Bool
-	uri := "skill://studio/nested/review"
+	uri := "skill://studio/nested/review/SKILL.md"
 	registerNamespaceSkill(t, mgr, uri, &denied)
 	actor, verify := resources.PublicReadActors()
 	gateway := resources.NewGateway(mgr, actor, verify, "host")
@@ -260,4 +275,22 @@ func TestNamespaceAndNativeSkillsShareGatewayAndRejectCollision(t *testing.T) {
 	_, handled, err := collision.Read(ctx, "skill://workspace/review/SKILL.md")
 	require.True(t, handled)
 	require.ErrorIs(t, err, resources.ErrCollision)
+}
+
+// These bytes remain managed by the same owning endpoint as its manifest.
+type namespaceSkillFileClient struct {
+	client.Interface
+	compiled *format.Static
+	denied   *atomic.Bool
+}
+
+func (c *namespaceSkillFileClient) ReadResource(ctx context.Context, in *schema.ReadResourceRequestParams, _ ...client.RequestOption) (*schema.ReadResourceResult, error) {
+	if c.denied.Load() {
+		return nil, identity.ErrResourceDenied
+	}
+	result, e := c.compiled.ReadResource(ctx, &schema.ReadResourceRequest{Params: *in})
+	if e != nil {
+		return nil, e
+	}
+	return result, nil
 }

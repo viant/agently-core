@@ -16,6 +16,7 @@ import (
 type WindowContentCheck func(context.Context, identity.ResolvedResource) error
 
 type WindowCatalog struct {
+	nativeHTTPWindows map[Connection]map[string]bool
 	// DefaultNamespace is trusted host routing for original unqualified keys.
 	DefaultNamespace string
 	// DefaultProviderIdentity and Aliases are startup-owned routing for local
@@ -168,13 +169,14 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 		}
 		ref = *input.Resource
 	}
-	result, e := Get[*types.WindowResourceVariant](ctx, c.Gateway, loc.Connection, ref, input.ResolvedResource, func(raw json.RawMessage) (*types.WindowResourceVariant, error) {
-		return types.SelectWindowResourceWithReferences(raw, input.Target)
-	})
+	result, e := GetWithCodec[*types.CompiledWindowResource](ctx, c.Gateway, loc.Connection, ref, input.ResolvedResource, DefinitionCodec[*types.CompiledWindowResource]{ID: "forge.window.resource.v1", Parse: types.CompileWindowResource})
 	if e != nil {
 		return nil, fmt.Errorf("window read/select: %w", e)
 	}
-	selected := result.Definition
+	selected, e := result.Definition.Select(input.Target)
+	if e != nil {
+		return nil, e
+	}
 	if selected == nil {
 		return nil, identity.ErrResourceDenied
 	}
@@ -233,9 +235,7 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 			return nil, e
 		}
 		for _, child := range dependencyPins {
-			if child.ValidUntil.Before(pin.ValidUntil) {
-				pin.ValidUntil = child.ValidUntil
-			}
+			pin.ValidUntil = identity.MinimumMetadataExpiry(pin.ValidUntil, child.ValidUntil)
 		}
 	} else if input.Target != nil && len(input.Target.DependencyPins) > 0 {
 		return nil, identity.ErrResourceDenied
@@ -251,7 +251,7 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 		return nil, e
 	}
 	// No source fallback: only the exact provider bytes above enter the window.
-	if !pin.ValidUntil.After(time.Now()) {
+	if !identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	if target.SelectionToken != "" {
@@ -266,24 +266,18 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 	}
 	// Project host transport only after provider definition, target, source and
 	// integrity checks complete. Never rewrite provider bytes or descriptors.
-	projected, err := json.Marshal(definition)
-	if err != nil {
-		return nil, err
-	}
-	var clientDefinition types.Window
-	if err = json.Unmarshal(projected, &clientDefinition); err != nil {
-		return nil, err
-	}
-	if err := projectWindowDatasourceTransport(&clientDefinition, selected.DataSources); err != nil {
+	// Compiled selection already returned a detached caller-owned variant.
+	nativeConnection := loc.Connection
+	nativeConnection.Generation = 0
+	if err := projectWindowDatasourceTransport(definition, selected.DataSources, c.nativeHTTPWindows[nativeConnection][loc.URI]); err != nil {
 		return nil, err
 	}
 	if c.Gateway.generation(loc.Connection.Name) != loc.Connection.Generation {
 		return nil, identity.ErrResourceStale
 	}
-	if ctx.Err() != nil || !pin.ValidUntil.After(time.Now()) {
+	if ctx.Err() != nil || !identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
-	definition = &clientDefinition
 	definition.Resource = &pin
 	definition.ResourceTarget = &target
 	return &service.WindowDefinitionGetOutput{WindowID: input.WindowID, Definition: definition}, nil
@@ -315,7 +309,7 @@ func (c *WindowCatalog) VerifyWindowTarget(ctx context.Context, pin identity.Res
 // CheckWindowContent is the terminal check after a pure identity phase finishes.
 // It never selects a new candidate, accepts a caller source, or renews a pin.
 func (c *WindowCatalog) CheckWindowContent(ctx context.Context, key string, pin identity.ResolvedResource, target *types.WindowTarget) error {
-	if c == nil || !c.AuthzReady() || ctx == nil || ctx.Err() != nil || !pin.ValidUntil.After(time.Now()) {
+	if c == nil || !c.AuthzReady() || ctx == nil || ctx.Err() != nil || !identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) {
 		return identity.ErrResourceDenied
 	}
 	if strings.HasPrefix(key, locatorPrefix) {
@@ -324,6 +318,13 @@ func (c *WindowCatalog) CheckWindowContent(ctx context.Context, key string, pin 
 			return identity.ErrResourceDenied
 		}
 	} else {
+		if !strings.Contains(key, "://") && c.DefaultNamespace != "" && c.DefaultProviderIdentity == pin.ProviderIdentity {
+			if alias := c.Aliases[key]; alias != "" {
+				key = alias
+			} else {
+				key = "window://" + c.DefaultNamespace + "/" + key
+			}
+		}
 		uri, err := identity.ParseResourceURI(key)
 		if err != nil || uri.Kind != "window" || uri.String() != pin.URI {
 			return identity.ErrResourceDenied
@@ -346,11 +347,11 @@ func (c *WindowCatalog) CheckWindowContent(ctx context.Context, key string, pin 
 			return identity.ErrResourceDenied
 		}
 		current := result.ResolvedResource
-		if current.URI != pin.URI || current.ProviderIdentity != pin.ProviderIdentity || current.ResourceCandidate != pin.ResourceCandidate || current.AuthorityBinding != pin.AuthorityBinding || current.ValidUntil.After(pin.ValidUntil) || !current.ValidUntil.After(time.Now()) {
+		if current.URI != pin.URI || current.ProviderIdentity != pin.ProviderIdentity || current.ResourceCandidate != pin.ResourceCandidate || current.AuthorityBinding != pin.AuthorityBinding || identity.MetadataExpiryExtends(current.ValidUntil, pin.ValidUntil) || !identity.MetadataExpiryValid(current.ValidUntil, time.Now()) {
 			return identity.ErrResourceDenied
 		}
 	}
-	if ctx.Err() != nil || !pin.ValidUntil.After(time.Now()) {
+	if ctx.Err() != nil || !identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) {
 		return identity.ErrResourceDenied
 	}
 	return nil

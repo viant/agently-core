@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/service/ui/permittedview"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -55,7 +56,7 @@ func TestViewNativeMetadataIndexListsWithoutGetOrOpenAuthority(t *testing.T) {
 		}
 		catalog := &indexedViewCatalog{}
 		bootstrap := 0
-		bridge := forge.NewService(&forge.Config{WindowDefinitions: catalog, WindowOpenAdmission: func(context.Context, identity.ResolvedResource, *types.Window, map[string]any) (*forge.WindowOpenDecision, error) {
+		bridge := forge.NewService(&forge.Config{WindowDefinitions: catalog, WindowUIProjection: func(context.Context, *permittedview.BoundView) (*types.Window, error) {
 			bootstrap++
 			return nil, identity.ErrResourceDenied
 		}})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -14,11 +15,12 @@ import (
 )
 
 type windowAccessFixture struct {
-	allow       bool
-	calls       int
-	requestedID string
-	allowedID   string
-	admission   *permittedview.OpenAdmission
+	allow          bool
+	calls          int
+	requestedID    string
+	allowedID      string
+	projection     *permittedview.Runtime
+	selectorSource string
 }
 
 func (*windowAccessFixture) UsesWindowResourceResolution() bool { return true }
@@ -36,18 +38,54 @@ func (f *windowAccessFixture) WindowDefinitionGet(_ context.Context, input *forg
 		return nil, identity.ErrResourceDenied
 	}
 	pin := identity.ResolvedResource{URI: "window://workspace/customer", ResourceCandidate: identity.ResourceCandidate{Kind: identity.WorkingCandidate, ContentFingerprint: identity.ContentFingerprint([]byte("definition"))}, AuthorityBinding: "actor", ValidUntil: time.Now().Add(time.Minute)}
-	return &forgeservice.WindowDefinitionGetOutput{WindowID: "customer", Definition: &forgetypes.Window{Resource: &pin, Authorization: &forgetypes.AuthorizationSpec{Scope: "resource", Resource: &forgetypes.AuthorizationResourceSpec{Type: "customer", ID: forgetypes.AuthorizationValueSelector{Source: "windowForm", Selector: "CustomerID"}}}}}, nil
+	source := f.selectorSource
+	if source == "" {
+		source = "windowForm"
+	}
+	return &forgeservice.WindowDefinitionGetOutput{WindowID: "customer", Definition: &forgetypes.Window{Resource: &pin, Authorization: &forgetypes.AuthorizationSpec{Scope: "resource", Resource: &forgetypes.AuthorizationResourceSpec{Type: "customer", ID: forgetypes.AuthorizationValueSelector{Source: source, Selector: "CustomerID"}}}}}, nil
 }
 
-func (f *windowAccessFixture) AdmitWindowOpenDecision(ctx context.Context, w *forgetypes.Window, p map[string]any) (*forgeservice.WindowOpenDecision, error) {
-	if f.admission == nil || w.Resource == nil {
-		return nil, identity.ErrResourceDenied
+type selectedEntityResolver struct{ ids []int }
+
+func (r *selectedEntityResolver) Resolve(_ context.Context, request *permittedview.Request) (*permittedview.Snapshot, error) {
+	r.ids = append(r.ids, request.ResourceIDs...)
+	result := &permittedview.Snapshot{AuthorizationVersion: "current", ExpiresAt: time.Now().Add(time.Minute), Resources: map[string]*permittedview.Resource{}}
+	if len(request.ResourceIDs) == 1 && request.ResourceIDs[0] == 42 {
+		result.Resources["42"] = &permittedview.Resource{ID: 42, Type: "customer", Capabilities: map[string]bool{"read": true}}
 	}
-	result, err := f.admission.ApplyDecision(ctx, *w.Resource, w, p)
+	return result, nil
+}
+
+func TestCanonicalWindowOpenDoesNotRequestEntityPermissions(t *testing.T) {
+	resolver := &selectedEntityResolver{}
+	provider := &windowAccessFixture{allow: true, selectorSource: "resource", projection: permittedview.NewRuntime(resolver)}
+	handler := NewEmbeddedHandlerWithAuthorization(t.TempDir(), nil, nil, nil, WithWindowResourceProvider(provider))
+	request := func(resource string) int {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/window/customer?applyPermission=true&resource="+url.QueryEscape(resource), nil))
+		return response.Code
+	}
+	if status := request(`{"CustomerID":42}`); status != http.StatusOK {
+		t.Fatalf("owner-provided window did not open: %d", status)
+	}
+	if len(resolver.ids) != 0 {
+		t.Fatalf("consumer unexpectedly requested entity IDs: %v", resolver.ids)
+	}
+	if status := request(`{"CustomerID":99,"capabilities":{"read":true},"roles":["admin"]}`); status != http.StatusOK {
+		t.Fatalf("irrelevant resource permission hints affected opening: %d", status)
+	}
+	before := len(resolver.ids)
+	if status := request(`{"capabilities":{"read":true}}`); status != http.StatusOK || len(resolver.ids) != before {
+		t.Fatalf("opening depended on a resource selector: status=%d IDs=%v", status, resolver.ids)
+	}
+}
+
+func (f *windowAccessFixture) ProjectWindowWithInput(ctx context.Context, input *permittedview.BoundView) (*forgetypes.Window, error) {
+	result, err := f.projection.Project(ctx, input.Window, input)
 	if err != nil {
 		return nil, err
 	}
-	return &forgeservice.WindowOpenDecision{Window: result.Window, ValidUntil: result.ExpiresAt}, nil
+	return result.Window, nil
 }
 
 func TestCanonicalMetadataPreservesFullRegisteredWindowID(t *testing.T) {
@@ -73,10 +111,10 @@ func (r *denyEntityResolver) Resolve(context.Context, *permittedview.Request) (*
 	return &permittedview.Snapshot{AuthorizationVersion: "v1", ExpiresAt: time.Now().Add(time.Minute), Resources: map[string]*permittedview.Resource{}}, nil
 }
 
-func TestDirectMetadataChecksWindowBeforeRequestingEntity(t *testing.T) {
+func TestDirectMetadataPreservesOwningDenialWithoutEntityPreflight(t *testing.T) {
 	authority := &windowAccessFixture{}
 	entities := &denyEntityResolver{}
-	authority.admission = &permittedview.OpenAdmission{Runtime: permittedview.NewRuntime(entities)}
+	authority.projection = permittedview.NewRuntime(entities)
 	handler := NewEmbeddedHandlerWithAuthorization(t.TempDir(), nil, nil, permittedview.NewRuntime(entities), WithWindowResourceProvider(authority))
 	request := func(path string) int {
 		response := httptest.NewRecorder()
@@ -87,11 +125,11 @@ func TestDirectMetadataChecksWindowBeforeRequestingEntity(t *testing.T) {
 		t.Fatalf("forbidden window reached entity preflight: code=%d calls=%d", code, entities.calls)
 	}
 	authority.allow = true
-	if code := request("/window/customer?applyPermission=true"); code != http.StatusBadRequest || entities.calls != 0 {
-		t.Fatalf("allowed window must bind entity: code=%d calls=%d", code, entities.calls)
+	if code := request("/window/customer?applyPermission=true"); code != http.StatusOK || entities.calls != 0 {
+		t.Fatalf("owner allowed window should open without entity binding: code=%d calls=%d", code, entities.calls)
 	}
-	if code := request("/window/customer?applyPermission=true&windowParams=%7B%22CustomerID%22%3A42%7D"); code != http.StatusForbidden || entities.calls != 1 {
-		t.Fatalf("guessed entity not checked: code=%d calls=%d", code, entities.calls)
+	if code := request("/window/customer?applyPermission=true&windowParams=%7B%22CustomerID%22%3A42%7D"); code != http.StatusOK || entities.calls != 0 {
+		t.Fatalf("UI metadata open performed entity lookup: code=%d calls=%d", code, entities.calls)
 	}
 	if code := request("/window/unknown"); code != http.StatusNotFound {
 		t.Fatalf("unknown ID loaded through legacy files: %d", code)

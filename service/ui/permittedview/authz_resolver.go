@@ -53,6 +53,9 @@ type AuthzResolver struct {
 }
 
 func (r *AuthzResolver) Resolve(ctx context.Context, request *Request) (*Snapshot, error) {
+	if request != nil && request.IncludePrincipal && strings.TrimSpace(request.ResourceType) == "" && len(request.ResourceIDs) == 0 && len(request.StringResourceIDs) == 0 && len(request.RequestedCapabilities) == 0 && len(request.RequestedGlobalCapabilities) == 0 {
+		return r.resolvePrincipal(ctx, request)
+	}
 	if r == nil || r.Service == nil || r.Service.Provider == nil || r.Account == nil || r.Gate == nil || strings.TrimSpace(r.Version) == "" || request == nil || strings.TrimSpace(request.ResourceType) == "" || ctx.Err() != nil {
 		return nil, fmt.Errorf("permitted view: authz resolver is not configured")
 	}
@@ -413,6 +416,38 @@ func (r *AuthzResolver) Resolve(ctx context.Context, request *Request) (*Snapsho
 	}
 	if ctx.Err() != nil || !snapshot.ExpiresAt.After(time.Now()) {
 		return nil, ErrUnavailable
+	}
+	return snapshot, nil
+}
+
+// resolvePrincipal projects current authenticated roles/exposures for rendering.
+// It never resolves an account, reads resource policies, or evaluates actions.
+func (r *AuthzResolver) resolvePrincipal(ctx context.Context, request *Request) (*Snapshot, error) {
+	if r == nil || r.Service == nil || r.Service.Provider == nil || ctx == nil || ctx.Err() != nil {
+		return nil, ErrUnavailable
+	}
+	if request.SchemaVersion != 0 && request.SchemaVersion != 1 && request.SchemaVersion != 2 {
+		return nil, fmt.Errorf("permitted view: unsupported schema")
+	}
+	facts, err := r.Service.Provider.Resolve(ctx)
+	if err != nil {
+		if errors.Is(err, authz.ErrDenied) {
+			return nil, authz.ErrDenied
+		}
+		return nil, ErrUnavailable
+	}
+	if facts.Subject == "" || !facts.ValidUntil.After(time.Now()) || ctx.Err() != nil {
+		return nil, ErrUnavailable
+	}
+	principal := map[string]any{"subject": facts.Subject, "issuer": facts.Issuer, "tenantId": facts.Tenant, "roles": append([]string{}, facts.Roles...), "features": append([]string{}, facts.Exposures...)}
+	raw, err := json.Marshal(principal)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	revision := sha256.Sum256(raw)
+	snapshot := &Snapshot{AuthorizationVersion: "principal:" + hex.EncodeToString(revision[:]), ExpiresAt: facts.ValidUntil, Principal: principal, GlobalCapabilities: map[string]bool{}, Resources: map[string]*Resource{}}
+	if request.SchemaVersion == 2 {
+		snapshot.SchemaVersion = 2
 	}
 	return snapshot, nil
 }

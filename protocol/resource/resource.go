@@ -130,6 +130,15 @@ type ResolvedResource struct {
 	AuthorityBinding string    `json:"authorityBinding" yaml:"authorityBinding"`
 	ValidUntil       time.Time `json:"validUntil" yaml:"validUntil"`
 }
+
+// SameResolvedResource compares the complete lease across transport encodings.
+// time.Time.Equal ignores the monotonic reading that JSON does not preserve.
+func SameResolvedResource(a, b ResolvedResource) bool {
+	return a.ProviderIdentity == b.ProviderIdentity && a.URI == b.URI &&
+		a.ResourceCandidate == b.ResourceCandidate && a.AuthorityBinding == b.AuthorityBinding &&
+		a.ValidUntil.Equal(b.ValidUntil)
+}
+
 type ResourceDecision struct {
 	Candidate        ResourceCandidate
 	AuthorityBinding string
@@ -200,7 +209,7 @@ func (r *ResourceResolver) selectCandidate(ctx context.Context, ref ResourceRef,
 	if err != nil {
 		return nil, err
 	}
-	if ctx.Err() != nil || decision.AuthorityBinding == "" || strings.TrimSpace(decision.AuthorityBinding) != decision.AuthorityBinding || !decision.ValidUntil.After(r.now()) {
+	if ctx.Err() != nil || decision.AuthorityBinding == "" || strings.TrimSpace(decision.AuthorityBinding) != decision.AuthorityBinding || !MetadataExpiryValid(decision.ValidUntil, r.now()) {
 		return nil, ErrResourceDenied
 	}
 	for _, candidate := range candidates {
@@ -221,7 +230,7 @@ func (r *ResourceResolver) ReadResolved(ctx context.Context, pinned ResolvedReso
 	if err != nil || !pinned.ResourceCandidate.Valid() || pinned.AuthorityBinding == "" {
 		return nil, nil, ErrResource
 	}
-	if !pinned.ValidUntil.After(r.now()) {
+	if !MetadataExpiryValid(pinned.ValidUntil, r.now()) {
 		return nil, nil, ErrResourceDenied
 	}
 	if pinned.ProviderIdentity != r.ProviderIdentity {
@@ -251,12 +260,10 @@ func (r *ResourceResolver) ReadResolved(ctx context.Context, pinned ResolvedReso
 		return nil, nil, ErrResourceDenied
 	}
 	// Recheck after potentially slow I/O. The previous lease remains a cap.
-	if !pinned.ValidUntil.After(r.now()) || !fresh.ValidUntil.After(r.now()) || ctx.Err() != nil {
+	if !MetadataExpiryValid(pinned.ValidUntil, r.now()) || !MetadataExpiryValid(fresh.ValidUntil, r.now()) || ctx.Err() != nil {
 		return nil, nil, ErrResourceDenied
 	}
-	if fresh.ValidUntil.After(pinned.ValidUntil) {
-		fresh.ValidUntil = pinned.ValidUntil
-	}
+	fresh.ValidUntil = MinimumMetadataExpiry(fresh.ValidUntil, pinned.ValidUntil)
 	return append(json.RawMessage(nil), raw...), fresh, nil
 }
 

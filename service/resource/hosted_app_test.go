@@ -78,15 +78,22 @@ func (c *hostedWindowCatalog) RevalidateWindowResource(context.Context, string, 
 
 type hostedReadClient struct {
 	*dependencyMCPProvider
-	result       *schema.ReadResourceResult
-	opened       primitive.MCPAppOpenResult
-	signer       *types.WindowTargetHMAC
-	calls, opens int
-	after        func()
+	result             *schema.ReadResourceResult
+	opened             primitive.MCPAppOpenResult
+	signer             *types.WindowTargetHMAC
+	proofUntil         *time.Time
+	calls, opens       int
+	managingReadDenied bool
+	managingOpenDenied bool
+	after              func()
 }
 
 func (c *hostedReadClient) CallTool(ctx context.Context, in *schema.CallToolRequestParams, opts ...mcpclient.RequestOption) (*schema.CallToolResult, error) {
 	if in.Name == "apps/open" {
+		if c.managingOpenDenied {
+			c.opens++
+			return dependencyToolError(identity.ErrResourceDenied), nil
+		}
 		raw, _ := json.Marshal(in.Arguments)
 		var request primitive.MCPAppOpenRequest
 		if json.Unmarshal(raw, &request) != nil || request.ExecutionProof == nil || request.ResourceURI != c.opened.ResourceURI || c.signer.Verify(ctx, request.ExecutionProof.Resource, types.WindowTarget{}, request.ExecutionProof.Binding, request.ExecutionProof.Token) != nil {
@@ -99,17 +106,24 @@ func (c *hostedReadClient) CallTool(ctx context.Context, in *schema.CallToolRequ
 	if err == nil && in.Name == "windows/get" {
 		got := result.StructuredContent.(primitive.GetResult)
 		binding := "compiled-ui:" + c.opened.AssetClosure.Fingerprint
-		token, e := c.signer.Sign(ctx, *got.ResolvedResource, types.WindowTarget{}, binding)
+		proofResource := *got.ResolvedResource
+		if c.proofUntil != nil {
+			proofResource.ValidUntil = *c.proofUntil
+		}
+		token, e := c.signer.Sign(ctx, proofResource, types.WindowTarget{}, binding)
 		if e != nil {
 			return nil, e
 		}
-		got.ExecutionProof = &primitive.ExecutionProof{Resource: *got.ResolvedResource, Binding: binding, Token: token}
+		got.ExecutionProof = &primitive.ExecutionProof{Resource: proofResource, Binding: binding, Token: token}
 		result.StructuredContent = got
 	}
 	return result, err
 }
 func (c *hostedReadClient) ReadResource(context.Context, *schema.ReadResourceRequestParams, ...mcpclient.RequestOption) (*schema.ReadResourceResult, error) {
 	c.calls++
+	if c.managingReadDenied {
+		return nil, identity.ErrResourceDenied
+	}
 	if c.after != nil {
 		c.after()
 	}
@@ -117,11 +131,14 @@ func (c *hostedReadClient) ReadResource(context.Context, *schema.ReadResourceReq
 }
 
 func TestHostedAppSelectedClosureAndActorFences(t *testing.T) {
-	for _, scenario := range []string{"accepted", "missing-open-context", "unknown-uri", "wrong-origin", "wrong-sandbox", "foreign-provider", "source-drift", "revoked-after-read", "expired-instance", "binary-html", "asset-drift", "cross-window", "closure-drift-after-read", "provider-options-drift-after-read", "actor-drift-after-read", "actor-lease-shortened-after-read", "partial-html", "expired-final-pin", "escaped-renderer-path"} {
+	for _, scenario := range []string{"accepted", "managing-open-denied", "managing-html-denied", "zero-metadata", "zero-execution-expiry", "expired-authenticated-actor", "missing-open-context", "unknown-uri", "wrong-origin", "wrong-sandbox", "foreign-provider", "source-drift", "revoked-after-read", "expired-instance", "binary-html", "asset-drift", "cross-window", "closure-drift-after-read", "provider-options-drift-after-read", "actor-drift-after-read", "actor-lease-shortened-after-read", "partial-html", "expired-final-pin", "escaped-renderer-path"} {
 		t.Run(scenario, func(t *testing.T) {
 			lease := time.Now().Add(time.Minute)
 			actor := identity.VerifiedActor{Subject: "alice", Issuer: "owned-issuer", TenantID: "tenant", AccountID: "21", IdentityRevision: "1", ValidUntil: lease}
 			pin := identity.ResolvedResource{ProviderIdentity: "owned-studio", URI: "window://authoring/DatlyStudio", ResourceCandidate: identity.ResourceCandidate{Kind: "working", ContentFingerprint: identity.ContentFingerprint([]byte(`{}`))}, AuthorityBinding: "verified-alice", ValidUntil: lease}
+			if scenario == "zero-metadata" || scenario == "zero-execution-expiry" {
+				pin.ValidUntil = time.Time{}
+			}
 			binding := HostedAppBinding{WindowURI: pin.URI, ProviderIdentity: pin.ProviderIdentity, ResourceURI: "ui://owned-studio/datly-studio", RendererOrigin: "http://127.0.0.1:29391", RendererPathPrefix: "/api/embedded", Sandbox: HostedAppSandbox}
 			html := "<!doctype html><main>Actual captured entry</main>"
 			digest := sha256.Sum256([]byte(html))
@@ -134,6 +151,18 @@ func TestHostedAppSelectedClosureAndActorFences(t *testing.T) {
 			readURI := "ui://owned-studio/selected/owned_instance_1234567890"
 			mime := "text/html;profile=mcp-app"
 			client := &hostedReadClient{dependencyMCPProvider: &dependencyMCPProvider{owner: pin.ProviderIdentity, items: map[string]*dependencyResource{pin.URI: {raw: json.RawMessage(`{}`), formatVersion: 2, revision: "working", authorityBinding: pin.AuthorityBinding, validUntil: lease}}}, signer: signer, opened: primitive.MCPAppOpenResult{ProviderIdentity: pin.ProviderIdentity, Resource: pin, ResourceURI: binding.ResourceURI, ReadResourceURI: readURI, AssetClosure: closure, RendererURL: binding.RendererOrigin + binding.RendererPathPrefix + "/" + closure.Fingerprint + "/owned_instance_1234567890/index.html", Sandbox: HostedAppSandbox}, result: &schema.ReadResourceResult{ResultType: schema.ResultTypeComplete, CacheScope: schema.ReadResourceResultCacheScopePrivate, Contents: []schema.ReadResourceResultContentsElem{{Uri: readURI, MimeType: &mime, Text: html, Meta: map[string]any{"resource": "must never be forwarded", "providerIdentity": "must never be forwarded"}}}}}
+			if scenario == "zero-metadata" || scenario == "zero-execution-expiry" {
+				client.items[pin.URI].validUntil = time.Time{}
+				client.opened.Resource.ValidUntil = lease // real owning app-instance TTL
+				client.proofUntil = &lease
+				if scenario == "zero-execution-expiry" {
+					zero := time.Time{}
+					client.proofUntil = &zero
+				}
+			}
+			if scenario == "expired-authenticated-actor" {
+				actor.ValidUntil = time.Now().Add(-time.Second)
+			}
 			options := &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: pin.ProviderIdentity}
 			var mgr *manager.Manager
 			if scenario == "provider-options-drift-after-read" {
@@ -155,11 +184,15 @@ func TestHostedAppSelectedClosureAndActorFences(t *testing.T) {
 			}
 			gateway := NewGateway(mgr, resolve, verify, "hosted-test")
 			defer gateway.Close()
-			reader, err := NewHostedAppReader([]HostedAppBinding{binding}, gateway, mgr, windows, resolve, verify, func(context.Context, identity.ResolvedResource) error { return nil })
+			reader, err := NewHostedAppReader([]HostedAppBinding{binding}, gateway, mgr, windows, resolve, verify)
 			require.NoError(t, err)
 			ctx := requestctx.WithWindowTarget(requestctx.WithResolvedResource(context.Background(), pin), target)
 			uri := binding.ResourceURI
 			switch scenario {
+			case "managing-open-denied":
+				client.managingOpenDenied = true
+			case "managing-html-denied":
+				client.managingReadDenied = true
 			case "missing-open-context":
 				ctx = context.Background()
 			case "unknown-uri":
@@ -206,10 +239,20 @@ func TestHostedAppSelectedClosureAndActorFences(t *testing.T) {
 				ctx = requestctx.WithResolvedResource(ctx, other)
 			}
 			got, err := reader.Read(ctx, uri)
-			if scenario != "accepted" {
+			if scenario != "accepted" && scenario != "zero-metadata" {
 				require.Error(t, err)
 				require.Nil(t, got)
-				if scenario == "missing-open-context" || scenario == "unknown-uri" || scenario == "cross-window" {
+				if scenario == "managing-open-denied" {
+					require.ErrorIs(t, err, identity.ErrResourceDenied)
+					require.Equal(t, 1, client.opens)
+					require.Zero(t, client.calls)
+				}
+				if scenario == "managing-html-denied" {
+					require.ErrorIs(t, err, identity.ErrResourceDenied)
+					require.Equal(t, 1, client.opens)
+					require.Equal(t, 1, client.calls)
+				}
+				if scenario == "missing-open-context" || scenario == "unknown-uri" || scenario == "cross-window" || scenario == "zero-execution-expiry" || scenario == "expired-authenticated-actor" {
 					require.Zero(t, client.opens)
 					require.Zero(t, client.calls)
 				}

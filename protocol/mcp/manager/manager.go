@@ -18,6 +18,7 @@ import (
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/mcp"
 	protoclient "github.com/viant/mcp-protocol/client"
+	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 	auth "github.com/viant/mcp/client/auth"
 	authcfg "github.com/viant/mcp/client/auth/config"
@@ -149,30 +150,34 @@ type Manager struct {
 	// bindings (workspace StateStore); explicit configuration always wins.
 	bindings *AuthBindingStore
 
-	mu       sync.Mutex
-	pool     map[string]map[string]*entry      // poolKey -> serverName -> entry
-	inflight map[string]map[string]*createCall // poolKey -> serverName -> in-flight client creation
-	epoch    map[string]uint64                 // poolKey -> invalidation generation
+	mu               sync.Mutex
+	definitionBindMu sync.Mutex
+	pool             map[string]map[string]*entry      // poolKey -> serverName -> entry
+	inflight         map[string]map[string]*createCall // poolKey -> serverName -> in-flight client creation
+	epoch            map[string]uint64                 // poolKey -> invalidation generation
 
 	poolSummaryEvery time.Duration
 	poolSummaryAt    time.Time
 }
 
 type entry struct {
-	client  mcpclient.Interface
-	managed *managedClient
-	usedAt  time.Time
-	active  int
-	evicted bool
-	closed  bool
-	epoch   uint64
+	aliases           map[string]bool
+	configFingerprint [32]byte
+	client            mcpclient.Interface
+	managed           *managedClient
+	usedAt            time.Time
+	active            int
+	evicted           bool
+	closed            bool
+	epoch             uint64
 }
 
 type createCall struct {
-	ready chan struct{}
-	entry *entry
-	err   error
-	epoch uint64
+	configFingerprint [32]byte
+	ready             chan struct{}
+	entry             *entry
+	err               error
+	epoch             uint64
 }
 
 // New creates a Manager with the given Provider and options.
@@ -219,6 +224,7 @@ func (m *Manager) PreflightCredential(ctx context.Context, serverName string) er
 	if err != nil || opts == nil || opts.ClientOptions == nil || opts.ClientOptions.Auth == nil {
 		return err
 	}
+	serverName = resolvedServiceName(opts, serverName)
 	if opts.ClientOptions.Auth.IsDelegated() {
 		m.applyLearnedBinding(ctx, serverName, opts.ClientOptions.Transport.URL, opts.ClientOptions.Auth)
 	}
@@ -345,6 +351,7 @@ func (m *Manager) Names(ctx context.Context) ([]string, error) {
 // When a UserIDExtractor is configured, the pool key includes the user ID to
 // prevent shared conversations from leaking MCP auth/tokens across users.
 func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
+	requestedName := serverName
 	if _, ok := m.localRegistration(serverName); ok {
 		if err := m.checkLocalCollision(ctx, serverName); err != nil {
 			return nil, err
@@ -356,8 +363,12 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 		}
 	}
 	configured, configErr := m.Options(ctx, serverName)
-	if configErr != nil {
-		return nil, configErr
+	if configErr != nil || configured == nil {
+		m.evictConfiguredClient(ctx, convID, serverName)
+		if configErr != nil {
+			return nil, configErr
+		}
+		return nil, errors.New("mcp manager: definition unavailable")
 	}
 	if configured != nil {
 		if err := configured.ValidateExecutionLocation(); err != nil {
@@ -370,6 +381,17 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 			return nil, ErrBrowserExecutionRequired
 		}
 	}
+	serviceName := resolvedServiceName(configured, serverName)
+	if serviceName != serverName {
+		if _, local := m.localRegistration(serviceName); local {
+			return nil, errors.New("mcp manager: resolved definition collides with local connection")
+		}
+	}
+	serverName = serviceName
+	fingerprint, err := effectiveConfigFingerprint(configured)
+	if err != nil {
+		return nil, err
+	}
 	key := m.poolKey(ctx, convID)
 	m.mu.Lock()
 	// Intentionally avoid `defer m.mu.Unlock()` here.
@@ -379,7 +401,21 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	if m.pool[key] == nil {
 		m.pool[key] = map[string]*entry{}
 	}
+	if e := m.pool[key][serverName]; e != nil && e.client != nil && e.configFingerprint != fingerprint {
+		stale := m.evictEntryLocked(key, serverName, e)
+		m.mu.Unlock()
+		closeClientBestEffort(stale)
+		m.mu.Lock()
+	}
+	if e := m.pool[key][serverName]; e != nil && e.client != nil && e.configFingerprint != fingerprint {
+		m.mu.Unlock()
+		return nil, errors.New("mcp manager: configuration changed during client replacement")
+	}
 	if e := m.pool[key][serverName]; e != nil && e.client != nil {
+		if e.aliases == nil {
+			e.aliases = map[string]bool{}
+		}
+		e.aliases[requestedName] = true
 		e.usedAt = time.Now()
 		client := m.ensureManagedLocked(key, serverName, e)
 		summary := m.poolSummaryLogLinesLocked(time.Now())
@@ -389,6 +425,10 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	}
 	if m.inflight[key] == nil {
 		m.inflight[key] = map[string]*createCall{}
+	}
+	if call := m.inflight[key][serverName]; call != nil && call.configFingerprint != fingerprint {
+		m.mu.Unlock()
+		return nil, errors.New("mcp manager: configuration changed during client creation")
 	}
 	if call := m.inflight[key][serverName]; call != nil {
 		m.mu.Unlock()
@@ -400,22 +440,49 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 				}
 				return nil, errors.New("mcp manager: client creation returned nil")
 			}
-			return call.entry.managed, nil
+			return m.Get(ctx, convID, requestedName)
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
 	}
-	call := &createCall{ready: make(chan struct{}), epoch: m.epoch[key]}
+	call := &createCall{ready: make(chan struct{}), epoch: m.epoch[key], configFingerprint: fingerprint}
 	m.inflight[key][serverName] = call
 	m.mu.Unlock()
 
-	newClient := m.newClient
+	newClient := func(ctx context.Context, conversation, server string) (mcpclient.Interface, error) {
+		return m.newClientWithOptions(ctx, conversation, server, configured)
+	}
 	if registration, ok := m.localRegistration(serverName); ok {
-		newClient = func(ctx context.Context, _, _ string) (mcpclient.Interface, error) { return registration.factory(ctx) }
+		newClient = func(ctx context.Context, _, _ string) (mcpclient.Interface, error) {
+			client, err := registration.factory(ctx)
+			if err == nil && client != nil {
+				m.installLocalNotifications(ctx, serverName, client)
+			}
+			return client, err
+		}
 	} else if m.newClientFn != nil {
-		newClient = m.newClientFn
+		newClient = func(ctx context.Context, conversation, server string) (mcpclient.Interface, error) {
+			client, err := m.newClientFn(ctx, conversation, server)
+			if err == nil && client != nil {
+				m.installLocalNotifications(ctx, server, client)
+			}
+			return client, err
+		}
 	}
 	client, err := newClient(ctx, convID, serverName)
+	if err == nil {
+		current, configErr := m.Options(ctx, requestedName)
+		currentFingerprint, fingerprintErr := effectiveConfigFingerprint(current)
+		if configErr != nil || fingerprintErr != nil || currentFingerprint != fingerprint {
+			closeClientBestEffort(client)
+			client = nil
+			if configErr != nil {
+				err = configErr
+			} else {
+				err = errors.New("mcp manager: configuration changed during client creation")
+			}
+		}
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -430,6 +497,11 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	}
 	if client == nil {
 		call.err = errors.New("mcp manager: nil client returned")
+		close(call.ready)
+		return nil, call.err
+	}
+	if subscribed, ok := client.(*sensitiveClient); ok && subscribed.subscriptionLost.Load() {
+		call.err = errors.New("mcp manager: resource subscription ended during client creation")
 		close(call.ready)
 		return nil, call.err
 	}
@@ -453,7 +525,7 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 		close(call.ready)
 		return managed, nil
 	}
-	e := &entry{client: client, usedAt: time.Now(), epoch: call.epoch}
+	e := &entry{client: client, usedAt: time.Now(), epoch: call.epoch, configFingerprint: fingerprint, aliases: map[string]bool{requestedName: true, serverName: true}}
 	e.managed = &managedClient{mgr: m, key: key, serverName: serverName, entry: e}
 	m.pool[key][serverName] = e
 	call.entry = e
@@ -474,6 +546,9 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 	if opts == nil {
 		return nil, errors.New("mcp manager: nil client options")
 	}
+	return m.newClientWithOptions(ctx, convID, resolvedServiceName(opts, serverName), opts)
+}
+func (m *Manager) newClientWithOptions(ctx context.Context, convID, serverName string, opts *mcpcfg.MCPClient) (mcpclient.Interface, error) {
 	if err := opts.ValidateExecutionLocation(); err != nil {
 		return nil, err
 	}
@@ -523,7 +598,7 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 		}
 		fence.BeginSensitivePayload() // session-owned: released only by session destruction
 	}
-	h = &changeHandler{Handler: h, manager: m, server: serverName, receiver: m.resourceReceiver(ctx), publicResources: m.IsToolsListPublic(ctx, serverName)}
+	h = &changeHandler{Handler: h, manager: m, server: serverName, receiver: m.resourceReceiver(ctx), publicResources: m.IsToolsListPublic(ctx, serverName), subscriptionAck: make(chan schema.SubscriptionsAcknowledgedNotificationParams, 1)}
 	// If handler supports setting conversation id, assign it.
 	if ca, ok := h.(interface{ SetConversationID(string) }); ok {
 		ca.SetConversationID(convID)
@@ -666,7 +741,14 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 		mcpclient.WithAuthInterceptor(authorizer)(cli)
 	}
 	fence, _ := h.(interface{ BeginSensitivePayload() func() })
-	return &sensitiveClient{Client: cli, callback: fence}, nil
+	wrapped := &sensitiveClient{Client: cli, callback: fence}
+	if handler, ok := h.(*changeHandler); ok {
+		if err := wrapped.startResourceSubscription(ctx, handler, convID); err != nil {
+			wrapped.Close()
+			return nil, err
+		}
+	}
+	return wrapped, nil
 }
 
 func closeClientBestEffort(client mcpclient.Interface) {

@@ -21,6 +21,8 @@ import (
 type NamespaceIdentity struct {
 	Namespace  string
 	ValidUntil time.Time
+	// SessionBound is trusted startup ownership, never caller wire input.
+	SessionBound bool `json:"-" yaml:"-"`
 }
 type NamespaceResolver func(context.Context) (NamespaceIdentity, error)
 
@@ -133,7 +135,7 @@ func (s *NamespaceService) Identity(ctx context.Context) (NamespaceIdentity, err
 		return NamespaceIdentity{}, fmt.Errorf("UI identity unavailable")
 	}
 	identity, err := s.Resolver(ctx)
-	if err != nil || strings.TrimSpace(identity.Namespace) == "" || identity.ValidUntil.IsZero() || !identity.ValidUntil.After(time.Now()) || ctx.Err() != nil {
+	if err != nil || strings.TrimSpace(identity.Namespace) == "" || !namespaceIdentityLive(identity, time.Now()) || ctx.Err() != nil {
 		return NamespaceIdentity{}, fmt.Errorf("UI identity unavailable")
 	}
 	return identity, nil
@@ -149,4 +151,11 @@ func (s *Service) UIIdentity(ctx context.Context) (NamespaceIdentity, error) {
 		return NamespaceIdentity{}, fmt.Errorf("UI identity unavailable")
 	}
 	return s.ns.Identity(ctx)
+}
+
+func namespaceIdentityLive(identity NamespaceIdentity, now time.Time) bool {
+	if identity.ValidUntil.IsZero() {
+		return identity.SessionBound
+	}
+	return identity.ValidUntil.After(now)
 }
