@@ -100,10 +100,11 @@ type ResourceState struct {
 	// DefinitionBytes is the lossless base64 JSON carrier for approved stored
 	// bytes. Definition is a convenient semantic projection; JSON transports
 	// may compact or reorder it and must never rehash it as the original pin.
-	DefinitionBytes    []byte       `json:"definitionBytes,omitempty"`
-	ContentFingerprint string       `json:"contentFingerprint,omitempty"`
-	Dependencies       []Dependency `json:"dependencies,omitempty"`
-	Replay             bool         `json:"replay,omitempty"`
+	DefinitionBytes    []byte          `json:"definitionBytes,omitempty"`
+	ContentFingerprint string          `json:"contentFingerprint,omitempty"`
+	Dependencies       []Dependency    `json:"dependencies,omitempty"`
+	Replay             bool            `json:"replay,omitempty"`
+	SourceManifest     json.RawMessage `json:"sourceManifest,omitempty"`
 }
 type Dependency struct {
 	ProviderIdentity   string `json:"providerIdentity,omitempty"`
