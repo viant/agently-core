@@ -76,7 +76,7 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 				results[i].err = ctx.Err()
 				return
 			}
-			results[i].caps, results[i].err = g.discover(ctx, actor, name)
+			results[i].caps, results[i].err = g.catalogCapability(ctx, actor, name)
 		}()
 	}
 	discoveryWG.Wait()
@@ -170,6 +170,43 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 	}
 	catalogSucceeded = true
 	return index, actor, nil
+}
+
+// catalogCapability reuses the existing capability entry after a scoped
+// credential/configuration and notification-generation check. It never caches
+// a resource Get or an authorization decision; selected reads still reach the
+// owning MCP and retain their original lease.
+func (g *Gateway) catalogCapability(ctx context.Context, actor identity.VerifiedActor, name string) (capabilities, error) {
+	probe := observe.Start(ctx, observe.Phase("catalog.capability.hint"), observe.Labels{})
+	if sequenceFromContext(ctx) != nil {
+		probe.End(observe.OK, observe.CacheBypass)
+		return g.discover(ctx, actor, name)
+	}
+	scope, cacheable, scopeErr := g.Manager.CatalogScopeForResources(ctx, "", []string{name}, []string{name})
+	if scopeErr != nil || !cacheable {
+		probe.End(observe.OutcomeFor(scopeErr), observe.CacheBypass)
+		return g.discover(ctx, actor, name)
+	}
+	hintKey := actorKey(actor, name, g.generation(name)) + ":" + scope
+	g.mu.Lock()
+	hint, found := g.capabilityHints[hintKey]
+	cached, present := g.cache[hint.cacheKey]
+	g.mu.Unlock()
+	if found && present && cached.connection.Name == name && cached.connection.Generation == g.generation(name) && cached.resourceVersion == g.Manager.ResourceCatalogGeneration(ctx, name) && identity.MetadataExpiryValid(discoveryCacheUntil(cached), g.now()) {
+		probe.End(observe.OK, observe.CacheHit)
+		return cached, nil
+	}
+	probe.End(observe.OK, observe.CacheMiss)
+	resolved, err := g.discover(ctx, actor, name)
+	if err == nil && resolved.cacheKey != "" {
+		g.mu.Lock()
+		if len(g.capabilityHints) >= 512 {
+			g.capabilityHints = map[string]capabilityHint{}
+		}
+		g.capabilityHints[hintKey] = capabilityHint{connection: name, cacheKey: resolved.cacheKey}
+		g.mu.Unlock()
+	}
+	return resolved, err
 }
 
 // ListPage queries one cached visible metadata snapshot. Legacy List and all

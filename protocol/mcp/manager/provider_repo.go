@@ -118,8 +118,12 @@ func (p *RepoProvider) loadDefinition(ctx context.Context, name string) (*mcpcfg
 	memo := namesMemoFromContext(ctx)
 	var memoKey definitionMemoEntry
 	if memo != nil && reader != nil {
-		if versioned, ok := reader.(interface{ DefinitionGeneration(context.Context) string }); ok {
+		if versioned, ok := reader.(interface{ DefinitionContentGeneration(context.Context) string }); ok {
+			memoKey = definitionMemoEntry{provider: p, name: name, scope: definitionMemoScope(ctx), generation: versioned.DefinitionContentGeneration(ctx)}
+		} else if versioned, ok := reader.(interface{ DefinitionGeneration(context.Context) string }); ok {
 			memoKey = definitionMemoEntry{provider: p, name: name, scope: definitionMemoScope(ctx), generation: versioned.DefinitionGeneration(ctx)}
+		}
+		if memoKey.provider != nil {
 			if held, found := memo.getDefinition(memoKey); found {
 				var detached mcpcfg.MCPClient
 				decoder := json.NewDecoder(bytes.NewReader(held.raw))
