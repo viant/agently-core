@@ -12,7 +12,7 @@ require (
 	github.com/viant/agently-core/service/reportdefinition/materializer v0.0.0-20261008231612-4e2d839e8f05
 	github.com/viant/agently-core/protocol/window v0.0.0-20261014061347-bbbdb0ee25d5
 	github.com/viant/agently-core/protocol/resource v0.0.0-20261014060740-664c53d5a109
-	github.com/viant/agently-core/protocol/primitive v0.0.0-20261014061041-1f9a58166259
+	github.com/viant/agently-core/protocol/primitive v0.0.0-20261014151640-9b6d9dcc11ce
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
