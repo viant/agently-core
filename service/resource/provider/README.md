@@ -13,7 +13,7 @@ handler in memory. Protection must derive identity from authenticated transport
 state. Arguments never supply actor, credentials, source paths or provider URLs.
 
 A menu is optional. Without an explicit menu binding the producer advertises no
-`menus/list`, `menus/get` or menu namespace capability. Adding a format-1 binding
+`navigations/list`, `navigations/get` or navigation namespace capability. Adding a format-1 binding
 requires `ValidateMenu` and a trusted `MenuActionVisibility` callback. The callback
 checks every authored action, including actions on groups; groups whose children
 are all denied disappear. Callback inputs are logical menu identity and current
@@ -30,7 +30,7 @@ fields are exactly `schemaVersion` and `applications`; nested groups preserve `c
 Providers decide which authored menus to publish; no server URL supplies a namespace,
 and authoring a menu does not automatically install or expose it.
 
-`menus/get` returns `primitive.GetResult`. Its `resource` has exact source metadata
+`navigations/get` returns `primitive.GetResult`. Its `resource` has exact source metadata
 and content fingerprint, but no source `definition` or `definitionBytes`.
 `resolvedResource` binds the source revision, provider, authority and original
 lease. `menuProjection` contains format version (`schemaVersion:1`), visible
@@ -49,7 +49,7 @@ provenance and the separate visible carrier and forces a fresh provider read.
 Generic `Gateway.Get` rejects menu projections. Host execution should reread the
 same menu source pin before acting, then use existing guarded window-open APIs.
 
-The runnable example is `examples/primitive-menu-mcp`. Set `MENU_EXAMPLE_TOKEN` to
+The runnable example is `examples/primitive-navigation-mcp`. Set `NAVIGATION_EXAMPLE_TOKEN` to
 an opaque secret of at least 16 characters, run the command, and connect an MCP
 client with `Authorization: Bearer <secret>` to its printed loopback endpoint.
 The example uses a configured identity for demonstration; production hosts inject

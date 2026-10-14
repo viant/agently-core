@@ -47,7 +47,7 @@ func (p *LocalProvider) configureCatalog(catalog LocalCatalog) error {
 			if primitive.Plural(support.Kind) == "" || p.validators[support.Kind] == nil || len(support.FormatVersions) == 0 || kinds[support.Kind] != nil {
 				return fmt.Errorf("invalid local catalog kind")
 			}
-			if support.Kind == "menu" && p.menuActionVisibility == nil && p.menuVisibilityProjection == nil {
+			if support.Kind == "navigation" && p.menuActionVisibility == nil && p.menuVisibilityProjection == nil {
 				return fmt.Errorf("menu catalog requires action visibility")
 			}
 			operations[support.Kind] = map[string]bool{}

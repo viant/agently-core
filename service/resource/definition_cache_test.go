@@ -30,12 +30,12 @@ func (p *definitionCacheProvider) CallTool(ctx context.Context, request *schema.
 	if err != nil || request.Name == "namespaces/list" || request.Name == "namespaces/get" {
 		return result, err
 	}
-	if request.Name == "windows/get" || request.Name == "menus/get" {
+	if request.Name == "windows/get" || request.Name == "navigations/get" {
 		uri, _ := request.Arguments["uri"].(string)
 		p.mu.Lock()
 		p.gets[uri]++
 		p.mu.Unlock()
-		if request.Name == "menus/get" {
+		if request.Name == "navigations/get" {
 			value := result.StructuredContent.(primitive.GetResult)
 			visible, _ := json.Marshal(map[string]any{"schemaVersion": 1, "applications": []any{map[string]any{"id": authctx.EffectiveUserID(ctx), "menus": []any{}}}})
 			value.Resource.Definition = nil
@@ -91,12 +91,12 @@ func TestGenericPrivateDefinitionCacheSeparatesAccountAndIdentityRevision(t *tes
 }
 
 func TestGenericDefinitionCachePublicWindowAndPrivateMenuInSameNamespace(t *testing.T) {
-	windowURI, menuURI := "window://shared/original", "menu://shared/layout"
+	windowURI, menuURI := "window://shared/original", "navigation://shared/layout"
 	item := func(raw string, version int64) *dependencyResource {
 		return &dependencyResource{raw: json.RawMessage(raw), formatVersion: version, revision: identity.WorkingCandidate, authorityBinding: "neutral-definition"}
 	}
 	source := &definitionCacheProvider{dependencyMCPProvider: &dependencyMCPProvider{owner: "original-provider", items: map[string]*dependencyResource{windowURI: item(`{"view":{"content":{"id":"original"}}}`, 2), menuURI: item(`{"schemaVersion":1,"applications":[]}`, 1)}}, gets: map[string]int{}}
-	options := fixtureOptions{"source": {PrimitiveProviderIdentity: source.owner, ResourceCacheScopes: map[string]string{"shared": cfg.ResourceCachePublic, "shared/menu": cfg.ResourceCacheUser}}}
+	options := fixtureOptions{"source": {PrimitiveProviderIdentity: source.owner, ResourceCacheScopes: map[string]string{"shared": cfg.ResourceCachePublic, "shared/navigation": cfg.ResourceCacheUser}}}
 	mgr, err := manager.New(options, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return source, nil }))
 	require.NoError(t, err)
 	defer mgr.CloseConversation("")

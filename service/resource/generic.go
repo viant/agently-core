@@ -39,7 +39,7 @@ func Get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 		poisonReadSequence(ctx, identity.ErrResource)
 		return nil, identity.ErrResource
 	}
-	if uri.Kind == "menu" {
+	if uri.Kind == "navigation" {
 		return get[T](ctx, g, connection, ref, pin, true, true, decoder...)
 	}
 	return get[T](ctx, g, connection, ref, pin, false, false, decoder...)

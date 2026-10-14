@@ -17,7 +17,7 @@ import (
 // with menu bindings and supply working/stamped candidates through the resolver.
 func LayoutMenuBinding(path, uri, providerIdentity string, policy LocalRevisionPolicyFactory) (LocalResourceBinding, error) {
 	parsed, err := identity.ParseResourceURI(uri)
-	if err != nil || parsed.Kind != "menu" || providerIdentity == "" || policy == nil || !filepath.IsAbs(path) {
+	if err != nil || parsed.Kind != "navigation" || providerIdentity == "" || policy == nil || !filepath.IsAbs(path) {
 		return LocalResourceBinding{}, identity.ErrResource
 	}
 	source := &layoutMenuSource{path: path, uri: uri}

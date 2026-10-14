@@ -885,7 +885,7 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 		return nil, identity.ErrResourceDenied
 	}
 	actual := result.ResolvedResource
-	if uri.Kind == "menu" && !c.sharedIndex {
+	if uri.Kind == "navigation" && !c.sharedIndex {
 		if !menuRead || result.MenuProjection == nil || result.MenuProjection.SchemaVersion != 1 || result.Resource.FormatVersion != 1 || result.Resource.Lifecycle != actual.Kind || !declaresMenuFormat(c, uri.Namespace) || len(result.Resource.Definition) != 0 || len(result.Resource.DefinitionBytes) != 0 || ValidateMenu(1, result.MenuProjection.DefinitionBytes) != nil || identity.ContentFingerprint(result.MenuProjection.DefinitionBytes) != result.MenuProjection.ContentFingerprint {
 			return nil, identity.ErrResourceDenied
 		}
@@ -905,7 +905,7 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 		}
 		result.Resource.Definition = append(json.RawMessage(nil), result.Resource.DefinitionBytes...)
 	}
-	if actual.ProviderIdentity != connection.ProviderIdentity || actual.URI != ref.URI || !actual.ResourceCandidate.Valid() || !identity.MetadataExpiryValid(actual.ValidUntil, g.now()) || (!c.sharedIndex && actual.AuthorityBinding == "") || result.Resource.URI != ref.URI || result.Resource.ContentFingerprint != actual.ContentFingerprint || (uri.Kind != "menu" && identity.ContentFingerprint(result.Resource.Definition) != actual.ContentFingerprint) {
+	if actual.ProviderIdentity != connection.ProviderIdentity || actual.URI != ref.URI || !actual.ResourceCandidate.Valid() || !identity.MetadataExpiryValid(actual.ValidUntil, g.now()) || (!c.sharedIndex && actual.AuthorityBinding == "") || result.Resource.URI != ref.URI || result.Resource.ContentFingerprint != actual.ContentFingerprint || (uri.Kind != "navigation" && identity.ContentFingerprint(result.Resource.Definition) != actual.ContentFingerprint) {
 		return nil, identity.ErrResourceDenied
 	}
 	if result.Resource.Kind != "" && result.Resource.Kind != uri.Kind || result.Resource.Namespace != "" && result.Resource.Namespace != uri.Namespace || result.Resource.Name != "" && result.Resource.Name != uri.Name || result.Resource.Revision != "" && result.Resource.Revision != actual.Selector() {

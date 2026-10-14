@@ -41,7 +41,7 @@ applications:
 	t.Cleanup(func() { ws.SetRoot(old) })
 	handler := NewMetadataHandler(nil, nil, "test")
 	handler.SetAuthorizationRuntimes(nil, &permittedview.Runtime{Resolver: layoutResolver{features: []string{"OPERATIONS_UI"}}})
-	def, err := resources.SnapshotLayoutMenuDefinition("ui/layout.yaml", "menu://team/layout")
+	def, err := resources.SnapshotLayoutMenuDefinition("ui/layout.yaml", "navigation://team/layout")
 	require.NoError(t, err)
 	uri, _ := identity.ParseResourceURI(def.URI)
 	var snapshot *resources.NativeAssetSnapshot

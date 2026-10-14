@@ -46,7 +46,7 @@ func NewGatewayLayoutMenuReader(gateway *resources.Gateway, sources []GatewayMen
 		revisions := make([]string, 0, len(configured))
 		for _, source := range configured {
 			uri, err := identity.ParseResourceURI(source.Resource.URI)
-			if err != nil || uri.Kind != "menu" || source.ProviderIdentity == "" {
+			if err != nil || uri.Kind != "navigation" || source.ProviderIdentity == "" {
 				return nil, identity.ErrResourceDenied
 			}
 			connection, err := gateway.ConnectionForResource(ctx, uri, source.ProviderIdentity)

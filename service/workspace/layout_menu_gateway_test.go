@@ -54,7 +54,7 @@ applications:
 	facts := &mutableLayoutFacts{features: []string{"OPERATIONS_UI"}}
 	runtime := &permittedview.Runtime{Resolver: facts}
 	handler.SetPermittedRuntime(runtime)
-	def, err := resources.SnapshotLayoutMenuDefinition("ui/layout.yaml", "menu://team/layout")
+	def, err := resources.SnapshotLayoutMenuDefinition("ui/layout.yaml", "navigation://team/layout")
 	require.NoError(t, err)
 	loads := 0
 	var snapshot *resources.NativeAssetSnapshot
@@ -87,13 +87,13 @@ applications:
 			return identity.ErrResourceDenied
 		}
 		return nil
-	}, Bindings: bindings, Validators: map[string]resources.LocalResourceValidator{"menu": resources.ValidateMenu}, MenuVisibilityProjection: func(ctx context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (json.RawMessage, error) {
+	}, Bindings: bindings, Validators: map[string]resources.LocalResourceValidator{"navigation": resources.ValidateMenu}, MenuVisibilityProjection: func(ctx context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (json.RawMessage, error) {
 		return project(ctx, raw)
 	}})
 	require.NoError(t, err)
 	mgr, err := manager.New(nil)
 	require.NoError(t, err)
-	require.NoError(t, mgr.RegisterLocal(ctx, "menu", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "menu-provider"}, func(context.Context) (mcpclient.Interface, error) { return resources.NewLocalMCPClient(provider) }))
+	require.NoError(t, mgr.RegisterLocal(ctx, "navigation", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "menu-provider"}, func(context.Context) (mcpclient.Interface, error) { return resources.NewLocalMCPClient(provider) }))
 	gw := resources.NewGateway(mgr, resolve, verify, "host")
 	defer gw.Close()
 	reader := NewGatewayLayoutMenuReader(gw, []GatewayMenuSource{{Resource: identity.ResourceRef{URI: def.URI}, ProviderIdentity: "menu-provider"}})

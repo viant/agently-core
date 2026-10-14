@@ -114,7 +114,7 @@ func filterMenuNodes(ctx context.Context, nodes []json.RawMessage, visible func(
 
 func (p *LocalProvider) projectMenu(ctx context.Context, actor identity.VerifiedActor, uri identity.ResourceURI, raw json.RawMessage) (timingValue json.RawMessage, timingErr error) {
 	if observe.Enabled(ctx) {
-		span := p.timing(ctx, observe.MenuVisibility, "menu", uri.Namespace)
+		span := p.timing(ctx, observe.MenuVisibility, "navigation", uri.Namespace)
 		defer func() { span.End(observe.OutcomeFor(timingErr), observe.CacheBypass) }()
 	}
 	if p.menuVisibilityProjection != nil {
@@ -188,7 +188,7 @@ func (p *LocalProvider) getMenuProjection(ctx context.Context, actor identity.Ve
 	}
 	pin.ValidUntil = identity.MinimumMetadataExpiry(pin.ValidUntil, fresh.ValidUntil)
 	fingerprint := identity.ContentFingerprint(projected)
-	return &primitive.GetResult{Resource: &primitive.ResourceState{Kind: "menu", Namespace: uri.Namespace, Name: uri.Name, URI: uri.String(), Title: binding.Title, Lifecycle: pin.Kind, Revision: pin.Selector(), FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint}, ResolvedResource: pin, MenuProjection: &primitive.MenuProjection{SchemaVersion: 1, DefinitionBytes: append([]byte(nil), projected...), ContentFingerprint: fingerprint}}, nil
+	return &primitive.GetResult{Resource: &primitive.ResourceState{Kind: "navigation", Namespace: uri.Namespace, Name: uri.Name, URI: uri.String(), Title: binding.Title, Lifecycle: pin.Kind, Revision: pin.Selector(), FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint}, ResolvedResource: pin, MenuProjection: &primitive.MenuProjection{SchemaVersion: 1, DefinitionBytes: append([]byte(nil), projected...), ContentFingerprint: fingerprint}}, nil
 }
 
 // menuProjectionSubset permits filtering only. A trusted projection still may

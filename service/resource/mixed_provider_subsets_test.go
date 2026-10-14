@@ -153,7 +153,7 @@ func TestMixedMCPProvidersSupportIndependentPrimitiveSubsets(t *testing.T) {
 	excluded, err := List[definition](ctx, gateway, "window", "excluded")
 	require.NoError(t, err)
 	require.Empty(t, excluded)
-	unsupported, err := List[definition](ctx, gateway, "menu", "team")
+	unsupported, err := List[definition](ctx, gateway, "navigation", "team")
 	require.NoError(t, err)
 	require.Empty(t, unsupported)
 	// The same manager continues to serve valid providers after an unsupported

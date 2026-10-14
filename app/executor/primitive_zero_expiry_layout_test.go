@@ -45,7 +45,7 @@ func TestDefaultZeroExpiryMetadataPreservesLayoutAndWindowLookup(t *testing.T) {
 	source := rt.NativeLayoutSource
 	require.NoError(t, handler.SetCapturedLayout(source.Root, source.Source, source.Raw, source.Check))
 	handler.SetWindowResourceCatalog(rt.UIBridge)
-	handler.SetLayoutMenuReader(workspaceui.NewGatewayLayoutMenuReader(rt.PrimitiveProviders, []workspaceui.GatewayMenuSource{{Resource: identity.ResourceRef{URI: "menu://workspace/layout"}, ProviderIdentity: resources.InternalProviderIdentity}}))
+	handler.SetLayoutMenuReader(workspaceui.NewGatewayLayoutMenuReader(rt.PrimitiveProviders, []workspaceui.GatewayMenuSource{{Resource: identity.ResourceRef{URI: "navigation://workspace/layout"}, ProviderIdentity: resources.InternalProviderIdentity}}))
 	mux := http.NewServeMux()
 	handler.Register(mux)
 	for i := 0; i < 2; i++ {

@@ -18,7 +18,7 @@ var ValidateMenu = producer.ValidateMenu
 // their separate visible bytes without treating them as the source definition.
 func (g *Gateway) GetMenu(ctx context.Context, connection Connection, ref identity.ResourceRef, pin *identity.ResolvedResource) (*primitive.GetResult, error) {
 	uri, err := identity.ParseResourceURI(ref.URI)
-	if err != nil || uri.Kind != "menu" {
+	if err != nil || uri.Kind != "navigation" {
 		return nil, identity.ErrResource
 	}
 	result, err := Get[json.RawMessage](ctx, g, connection, ref, pin)
@@ -34,7 +34,7 @@ func declaresMenuFormat(c capabilities, namespace string) bool {
 			continue
 		}
 		for _, kind := range ns.Kinds {
-			if kind.Kind != "menu" {
+			if kind.Kind != "navigation" {
 				continue
 			}
 			for _, version := range kind.FormatVersions {

@@ -16,12 +16,12 @@ func TestLayoutMenuBindingPreservesCurrentStewardDefinition(t *testing.T) {
 	original := []byte("version: 1\ntopbar: {actions: [{id: hidden, action: {type: window, windowKey: hiddenTopbar}}]}\napplications:\n  - id: steward\n    title: Workspace\n    icon: applications\n    className: steward-navigation\n    menus:\n      - id: advertisers\n        title: Advertisers\n        icon: office\n        className: steward-nav-advertisers\n        action: {type: window, windowKey: advertiserList, parameters: {page: 1}}\n      - id: campaigns\n        title: Campaigns\n        icon: timeline-events\n        className: steward-nav-campaigns\n        action: {type: window, windowKey: campaignList}\n")
 	require.NoError(t, os.WriteFile(path, original, 0600))
 	p, _, actor, _ := menuFixtureProvider(t)
-	binding, err := LayoutMenuBinding(path, "menu://team/navigation", p.ProviderIdentity(), func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) (identity.ResourceRevisionPolicy, error) {
+	binding, err := LayoutMenuBinding(path, "navigation://team/navigation", p.ProviderIdentity(), func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) (identity.ResourceRevisionPolicy, error) {
 		return localFixturePolicy{actor: *actor}, nil
 	})
 	require.NoError(t, err)
 	updateLocalProvider(t, p, func(config *LocalConfig) { config.Bindings = []LocalResourceBinding{binding} })
-	got, err := p.Get(context.Background(), "menu", primitive.GetRequest{URI: binding.URI})
+	got, err := p.Get(context.Background(), "navigation", primitive.GetRequest{URI: binding.URI})
 	require.NoError(t, err)
 	visible := string(got.MenuProjection.DefinitionBytes)
 	require.Contains(t, visible, "advertiserList")

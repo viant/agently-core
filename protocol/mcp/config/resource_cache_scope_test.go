@@ -3,8 +3,8 @@ package config
 import "testing"
 
 func TestResourceCacheScopeExactOverridesAndWildcardDefault(t *testing.T) {
-	config := &MCPClient{ResourceCacheScopes: map[string]string{"*": ResourceCacheConversation, "workspace": ResourceCachePublic, "workspace/menu": ResourceCacheUser}}
-	cases := []struct{ namespace, kind, want string }{{"unknown", "window", ResourceCacheConversation}, {"workspace", "window", ResourceCachePublic}, {"workspace", "menu", ResourceCacheUser}}
+	config := &MCPClient{ResourceCacheScopes: map[string]string{"*": ResourceCacheConversation, "workspace": ResourceCachePublic, "workspace/navigation": ResourceCacheUser}}
+	cases := []struct{ namespace, kind, want string }{{"unknown", "window", ResourceCacheConversation}, {"workspace", "window", ResourceCachePublic}, {"workspace", "navigation", ResourceCacheUser}}
 	for _, item := range cases {
 		got, err := config.ResourceCacheScope(item.namespace, item.kind)
 		if err != nil || got != item.want {
@@ -15,7 +15,7 @@ func TestResourceCacheScopeExactOverridesAndWildcardDefault(t *testing.T) {
 	if _, err := config.ResourceCacheScope("unknown", "window"); err == nil {
 		t.Fatal("invalid wildcard scope silently accepted")
 	}
-	if got, err := config.ResourceCacheScope("workspace", "menu"); err != nil || got != ResourceCacheUser {
+	if got, err := config.ResourceCacheScope("workspace", "navigation"); err != nil || got != ResourceCacheUser {
 		t.Fatal("exact kind override lost")
 	}
 	var absent *MCPClient

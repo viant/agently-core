@@ -33,7 +33,7 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 		provider := out.LocalPrimitiveProvider
 		var resourceScopes map[string]string
 		if out.publicPrimitiveDefault {
-			resourceScopes = map[string]string{"workspace": mcpcfg.ResourceCachePublic, "system": mcpcfg.ResourceCachePublic, "workspace/menu": mcpcfg.ResourceCacheUser, "workspace/mcp": mcpcfg.ResourceCacheUser, "system/menu": mcpcfg.ResourceCacheUser}
+			resourceScopes = map[string]string{"workspace": mcpcfg.ResourceCachePublic, "system": mcpcfg.ResourceCachePublic, "workspace/navigation": mcpcfg.ResourceCacheUser, "workspace/mcp": mcpcfg.ResourceCacheUser, "system/navigation": mcpcfg.ResourceCacheUser}
 			// Window availability can be projected through original application
 			// visibility rules. Such metadata belongs to the current user even
 			// though its authored bytes are immutable and grant no data access.

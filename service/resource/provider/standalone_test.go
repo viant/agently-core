@@ -28,7 +28,7 @@ func (p policy) SelectRevision(_ context.Context, _ identity.ResourceRef, c []id
 }
 func TestStandaloneProtectedHTTPMCPMenus(t *testing.T) {
 	var revoked, expired atomic.Bool
-	uri, _ := identity.ParseResourceURI("menu://tenant/navigation")
+	uri, _ := identity.ParseResourceURI("navigation://tenant/navigation")
 	source := &identity.LocalResource{URI: uri, Load: func(context.Context) (json.RawMessage, error) {
 		return json.RawMessage(`{"schemaVersion":1,"applications":[{"id":"workspace","title":"Workspace","menus":[{"id":"allowed","action":{"type":"window","windowKey":"advertiserList","parameters":{"page":1}}},{"id":"nested","menus":[{"id":"denied","action":{"type":"window","windowKey":"deniedTarget"}}]}]}]}`), nil
 	}}
@@ -50,7 +50,7 @@ func TestStandaloneProtectedHTTPMCPMenus(t *testing.T) {
 		return nil
 	}, Bindings: []producer.LocalResourceBinding{{URI: uri.String(), Title: "Workspace", FormatVersion: 1, Resolver: func(_ context.Context, a identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
 		return &identity.ResourceResolver{ProviderIdentity: "standalone", Source: source, Policy: policy{actor: a}}, nil
-	}}}, Validators: map[string]producer.LocalResourceValidator{"menu": producer.ValidateMenu}, MenuActionVisibility: func(_ context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (bool, error) {
+	}}}, Validators: map[string]producer.LocalResourceValidator{"navigation": producer.ValidateMenu}, MenuActionVisibility: func(_ context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (bool, error) {
 		return !strings.Contains(string(raw), "deniedTarget"), nil
 	}})
 	if err != nil {
@@ -83,7 +83,7 @@ func TestStandaloneProtectedHTTPMCPMenus(t *testing.T) {
 	for _, tool := range tools.Tools {
 		names[tool.Name] = true
 	}
-	for _, name := range []string{"menus/list", "menus/get", "namespaces/list", "namespaces/get"} {
+	for _, name := range []string{"navigations/list", "navigations/get", "namespaces/list", "namespaces/get"} {
 		if !names[name] {
 			t.Fatalf("missing ordinary tool %s", name)
 		}
@@ -102,7 +102,7 @@ func TestStandaloneProtectedHTTPMCPMenus(t *testing.T) {
 	for _, item := range []struct {
 		name string
 		args map[string]interface{}
-	}{{"namespaces/get", map[string]interface{}{"namespace": "tenant"}}, {"menus/list", map[string]interface{}{"namespace": "tenant"}}, {"menus/get", map[string]interface{}{"uri": uri.String()}}} {
+	}{{"namespaces/get", map[string]interface{}{"namespace": "tenant"}}, {"navigations/list", map[string]interface{}{"namespace": "tenant"}}, {"navigations/get", map[string]interface{}{"uri": uri.String()}}} {
 		r := call(item.name, item.args)
 		if r.IsError != nil && *r.IsError {
 			t.Fatalf("unexpected denial %s", item.name)
@@ -115,7 +115,7 @@ func TestStandaloneProtectedHTTPMCPMenus(t *testing.T) {
 			t.Fatal("denied target leaked")
 		}
 	}
-	r := call("menus/get", map[string]interface{}{"uri": uri.String()})
+	r := call("navigations/get", map[string]interface{}{"uri": uri.String()})
 	wire, _ := json.Marshal(r.StructuredContent)
 	var result struct {
 		Resource struct {
@@ -140,13 +140,13 @@ func TestStandaloneProtectedHTTPMCPMenus(t *testing.T) {
 		t.Fatal("invalid projection hash")
 	}
 	revoked.Store(true)
-	r = call("menus/get", map[string]interface{}{"uri": uri.String()})
+	r = call("navigations/get", map[string]interface{}{"uri": uri.String()})
 	if r.IsError == nil || !*r.IsError {
 		t.Fatal("revoked actor released menu")
 	}
 	revoked.Store(false)
 	expired.Store(true)
-	r = call("menus/get", map[string]interface{}{"uri": uri.String()})
+	r = call("navigations/get", map[string]interface{}{"uri": uri.String()})
 	if r.IsError == nil || !*r.IsError {
 		t.Fatal("expired actor released menu")
 	}

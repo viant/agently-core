@@ -80,7 +80,7 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	}
 	menuReader := opts.MenuReader
 	if menuReader == nil && opts.Runtime.NativeLayoutSource != nil && opts.NativeLayoutSource == nil {
-		menuReader = svcworkspace.NewGatewayLayoutMenuReader(opts.Runtime.PrimitiveProviders, []svcworkspace.GatewayMenuSource{{Resource: identity.ResourceRef{URI: "menu://workspace/layout"}, ProviderIdentity: resourcesvc.InternalProviderIdentity}})
+		menuReader = svcworkspace.NewGatewayLayoutMenuReader(opts.Runtime.PrimitiveProviders, []svcworkspace.GatewayMenuSource{{Resource: identity.ResourceRef{URI: "navigation://workspace/layout"}, ProviderIdentity: resourcesvc.InternalProviderIdentity}})
 	}
 	metadataHandler.SetLayoutMenuReader(menuReader)
 	var browserRegistry *browsermcp.Registry

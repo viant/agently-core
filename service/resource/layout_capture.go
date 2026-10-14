@@ -51,7 +51,7 @@ func CaptureNativeLayoutSource(ctx context.Context, root string, fallback []byte
 	if embedded && len(fallback) == 0 {
 		return nil, nil
 	}
-	uri, _ := identity.ParseResourceURI("menu://workspace/layout")
+	uri, _ := identity.ParseResourceURI("navigation://workspace/layout")
 	result := &CapturedLayoutSource{Root: root, Source: relative}
 	capture := func(raw []byte) error { result.Raw = append([]byte(nil), raw...); return nil }
 	var def NativeSnapshotDefinition
