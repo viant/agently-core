@@ -11,7 +11,7 @@ require (
 	github.com/dlclark/regexp2/v2 v2.8.1 // indirect
 	github.com/viant/agently-core/service/reportdefinition/materializer v0.0.0-20261008231612-4e2d839e8f05
 	github.com/viant/agently-core/protocol/window v0.0.0-20261008230757-163b77505d6a
-	github.com/viant/agently-core/protocol/resource v0.0.0-20261008223520-8ba096a165a0
+	github.com/viant/agently-core/protocol/resource v0.0.0-20261014060740-664c53d5a109
 	github.com/viant/agently-core/protocol/primitive v0.0.0-20261009053852-916a91954e26
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/aws/aws-sdk-go-v2 v1.47.3
