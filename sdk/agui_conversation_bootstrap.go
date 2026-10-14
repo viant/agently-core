@@ -140,6 +140,11 @@ func dispatchAGUIConversationBootstrap(ctx context.Context, client Client, store
 	} else {
 		return nil, fmt.Errorf("active protocol run discovery is unavailable")
 	}
+	failed, err := aguiBootstrapFailedContinuations(ctx, store, record, transcript)
+	if err != nil {
+		return nil, err
+	}
+	pending = append(pending, failed...)
 	terminalNativeTurns := map[string]bool{}
 	for _, turn := range transcript.Conversation.Turns {
 		if turn == nil {
@@ -176,6 +181,71 @@ func dispatchAGUIConversationBootstrap(ctx context.Context, client Client, store
 	}
 	if err := extensions.ValidateConversationResult(rawAGUI(result)); err != nil {
 		return nil, err
+	}
+	return result, nil
+}
+
+// A failed accepted child is not a pending run: its parent was already consumed.
+// Discover only the narrow pre-runtime restoration failure on a still-waiting
+// native turn. This read supplies no recovery/input authority; run.attach owns
+// the fresh lineage/native checks and conditional successor admission.
+func aguiBootstrapFailedContinuations(ctx context.Context, store aguistore.Store, record *aguistore.Run, transcript *ConversationStateResponse) ([]*aguistore.Run, error) {
+	lister, ok := store.(aguistore.TurnRunLister)
+	if !ok {
+		return nil, nil
+	}
+	var result []*aguistore.Run
+	for _, turn := range transcript.Conversation.Turns {
+		if turn == nil || turn.TurnID == "" || turn.Status != "waiting_for_user" && turn.Status != "blocked" {
+			continue
+		}
+		runs, err := lister.ListRunsByTurn(ctx, record.Principal, record.ThreadID, turn.TurnID)
+		if err != nil {
+			return nil, err
+		}
+		for _, run := range runs {
+			if run == nil || run.Status != aguistore.StatusError || run.ResumedByRunID != "" || run.PriorRunID == "" || run.LastSequence != 2 {
+				continue
+			}
+			if run.Principal != record.Principal || run.ThreadID != record.ThreadID || run.ConversationID != record.ConversationID || run.TurnID != turn.TurnID {
+				return nil, fmt.Errorf("failed protocol run discovery scope mismatch")
+			}
+			journal, err := aguiRecoveryJournal(ctx, store, run)
+			if err != nil {
+				return nil, err
+			}
+			if !aguistore.FailedContinuationRestoration(run, journal) {
+				continue
+			}
+			if _, err = aguistore.FailedContinuationRecoveryInput(run); err != nil {
+				continue
+			}
+			prior, err := store.GetRun(ctx, record.Principal, record.ThreadID, run.PriorRunID)
+			if err != nil {
+				return nil, err
+			}
+			if prior == nil || prior.Principal != record.Principal || prior.ThreadID != record.ThreadID || prior.ConversationID != record.ConversationID || prior.TurnID != turn.TurnID || prior.Status != aguistore.StatusInterrupted || prior.ResumedByRunID != run.RunID {
+				continue
+			}
+			var pending aguiPending
+			var accepted agui.RunAgentInput
+			if json.Unmarshal(prior.Pending, &pending) != nil || json.Unmarshal(run.Input, &accepted) != nil || len(pending.ClientTools) == 0 || len(pending.Interrupts) != 0 || len(pending.Dependencies) != 0 || len(accepted.Resume) != 0 {
+				continue
+			}
+			answers := map[string]bool{}
+			for _, message := range accepted.Messages {
+				if message.Role == "tool" {
+					answers[message.ToolCallID] = true
+				}
+			}
+			complete := true
+			for _, call := range pending.ClientTools {
+				complete = complete && call.ConversationID == record.ConversationID && call.TurnID == turn.TurnID && answers[aguiPendingCallID(call)]
+			}
+			if complete {
+				result = append(result, run)
+			}
+		}
 	}
 	return result, nil
 }

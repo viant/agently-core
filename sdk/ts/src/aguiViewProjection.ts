@@ -114,9 +114,16 @@ export class AgUiViewProjection {
             },
             onRunErrorEvent: ({ event }) => {
                 this.options.onOutcome?.({ ...this.outcomeBase(),phase:'error',error:new Error(event.message) });
-                this.emit({type:'turn_failed',status:'failed',error:event.message});
+                // A failed continuation transport does not establish native request failure.
+                // Keep its outcome diagnostic; validated native activity owns lifecycle.
+                if (this.options.profile === 'standard') this.emit({type:'turn_failed',status:'failed',error:event.message});
+                else if (this.inputUserId) this.emit({type:'turn_failed',turnId:undefined,clientRequestId:this.inputUserId,status:'failed',error:event.message});
             },
-            onRunFailed: ({error})=>{this.options.onOutcome?.({...this.outcomeBase(),phase:'error',error});this.emit({type:'turn_failed',status:'failed',error:error.message});},
+            onRunFailed: ({error})=>{
+                this.options.onOutcome?.({...this.outcomeBase(),phase:'error',error});
+                if (this.options.profile === 'standard') this.emit({type:'turn_failed',status:'failed',error:error.message});
+                else if (this.inputUserId) this.emit({type:'turn_failed',turnId:undefined,clientRequestId:this.inputUserId,status:'failed',error:error.message});
+            },
         };
     }
 

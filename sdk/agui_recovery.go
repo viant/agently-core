@@ -606,6 +606,9 @@ func aguiRecoverClientContinuation(ctx context.Context, client Client, runtime a
 	if err != nil {
 		return false, err
 	}
+	if err = restoreAGUIContinuationControls(ctx, writer.store, record, query); err != nil {
+		return false, err
+	}
 	session, err := aguiClientToolSession(&input)
 	if err != nil {
 		return false, err

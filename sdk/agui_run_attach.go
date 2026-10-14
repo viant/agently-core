@@ -2,9 +2,11 @@ package sdk
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 
 	aguistore "github.com/viant/agently-core/app/store/agui"
@@ -44,6 +46,18 @@ func serveAGUIAttachment(w http.ResponseWriter, r *http.Request, input *agui.Run
 	if err != nil {
 		http.Error(w, "run lookup failed", http.StatusInternalServerError)
 		return
+	}
+	if successor, recoverErr := prepareFailedAGUIContinuationRecovery(r.Context(), client, runtime, runtime.aguiStore(), record); recoverErr != nil {
+		http.Error(w, "accepted continuation recovery unavailable", http.StatusConflict)
+		return
+	} else if successor != nil {
+		// Keep this attachment's original wire identity. run.get exposes the
+		// existing successor link, which a caller may attach under its exact ID.
+		go func() {
+			if err := runFailedAGUIContinuationRecovery(context.WithoutCancel(r.Context()), client, runtime, runtime.aguiStore(), successor); err != nil && !errors.Is(err, aguistore.ErrConflict) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				log.Printf("AG-UI recovery stage=acceptedContinuationRecovery run=%s code=observerFailure", successor.RunID)
+			}
+		}()
 	}
 	var original agui.RunAgentInput
 	var originalProps struct {

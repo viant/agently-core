@@ -5,7 +5,7 @@ import type { Message, State } from '@ag-ui/core';
 import { AgUiCommands, type AgUiConversationBootstrapResult, type AgUiConversationBootstrapInput } from './aguiCommands';
 import { readAgentlyPresentation, readAgentlyPresentationActivity } from './aguiPresentation';
 import type { AgUiViewOutcome, AgUiViewDescriptor } from './aguiViewProjection';
-import type { AgUiSession } from './aguiSession';
+import { AgUiRunError, type AgUiSession } from './aguiSession';
 import type { AgentlyClient } from './client';
 import type { Conversation, QueryInput, QueryOutput, SSEEvent, TranscriptOutput } from './types';
 import { transcriptDTO } from './wireDTO';
@@ -266,7 +266,7 @@ export class AgUiConversationTransport {
 
     private async continueBrowserTools(entry: Entry, initial: RunSlot, session: AgUiSession, tools: ClientTool[]) {
         let current = initial;
-        const completedCalls = new Set<string>();
+        const completedCalls = new Set(session.getSnapshot().messages.flatMap(message => message.role === 'tool' ? [message.toolCallId] : []));
         try {
             // The backend owns the logical turn's execution budget. Ending a
             // frontend batch after resume can strand its newly admitted call.
@@ -415,11 +415,62 @@ export class AgUiConversationTransport {
         return slot;
     }
 
-    private attach(entry: Entry, runId: string, messages: readonly Message[]) {
+    private attach(entry: Entry, runId: string, messages: readonly Message[], recovered = false) {
         const session = this.host.createAgUiSession({ threadId: entry.protocolThreadId ?? entry.id, connectionId: 'agently', profile: 'agently', durableReplay: true });
         const slot = this.track(entry, runId, session, messages);
-        slot.completion = session.attach(runId, crypto.randomUUID()).catch(error => {
-            if (session.getSnapshot().phase !== 'detached') this.error(entry, error);
+        let attached = false;
+        slot.completion = session.attach(runId, crypto.randomUUID()).then(async () => {
+            attached = true;
+            if (!this.browserMCP || !this.current(entry)) return;
+            const snapshot = session.getSnapshot();
+            if (snapshot.phase === 'detached' || snapshot.phase === 'cancelled'
+                || slot.nativeTurnId && entry.terminalTurns.has(slot.nativeTurnId)) return;
+            const clientInterrupts = snapshot.interrupts.length > 0 && snapshot.interrupts.every(interrupt => {
+                const marker = (interrupt.metadata as any)?.agently;
+                return interrupt.reason === 'agently.client_tool' && marker?.version === '1' && marker?.kind === 'client-tool';
+            });
+            const ids = snapshot.pendingToolCallIds.length ? snapshot.pendingToolCallIds
+                : clientInterrupts ? snapshot.interrupts.map(interrupt => interrupt.toolCallId ?? interrupt.id) : [];
+            const answered = new Set(snapshot.messages.flatMap(message => message.role === 'tool' ? [message.toolCallId] : []));
+            if (!ids.length || ids.every(id => answered.has(id))) return;
+            if (ids.some(id => answered.has(id))) throw new Error('Browser MCP continuation repeated an original pending call');
+            const pending = snapshot.messages.flatMap(message => message.role === 'assistant' ? message.toolCalls ?? [] : [])
+                .filter(call => ids.includes(call.id));
+            if (!pending.length) return;
+            // An attachment carries no executable catalog. Discover current
+            // authority only when a restored run actually needs client tools.
+            const tools = await this.browserMCP.tools(entry.id, entry.protocolThreadId ?? entry.id);
+            const restored = session.getSnapshot();
+            if (!this.current(entry) || restored.phase === 'detached' || restored.phase === 'cancelled'
+                || slot.nativeTurnId && entry.terminalTurns.has(slot.nativeTurnId)) return;
+            const names = new Set(tools.map(item => item.tool.name));
+            if (!clientInterrupts && !pending.every(call => names.has(call.function.name))) return;
+            slot.hasBrowserTools = true;
+            slot.browserToolNames = names;
+            await this.continueBrowserTools(entry, slot, session, tools);
+        }).catch(async error => {
+            if (session.getSnapshot().phase === 'detached' || !this.current(entry)) return;
+            // Only the original attachment's pre-runtime control failure can
+            // follow its server-owned successor, once. Never redirect a handler
+            // error or repost the failed run's input.
+            const controlFailure = error instanceof AgUiRunError && (
+                error.code === 'CONTINUATION_CONTROL_RESTORE_FAILED' && error.message === 'Continuation controls could not be restored before runtime.'
+                || error.code === 'EXECUTION_FAILED' && error.message === 'continuation lineage is cyclic or exceeds its bound');
+            if (!attached && !recovered && controlFailure && !(slot.nativeTurnId && entry.terminalTurns.has(slot.nativeTurnId))) {
+                try {
+                    const commandId = crypto.randomUUID();
+                    const failed = await new AgUiCommands(this.host.agUiTransport()).execute('run.get', { runId },
+                        { threadId: entry.protocolThreadId ?? entry.id, runId: commandId, requestId: commandId });
+                    if (!this.current(entry)) return;
+                    const successor = failed?.resumedByRunId;
+                    if (failed?.version === '1' && failed.runId === runId && failed.threadId === (entry.protocolThreadId ?? entry.id) && failed.status === 'error'
+                        && typeof successor === 'string' && successor.length > 0 && successor !== runId && successor !== commandId) {
+                        if (!entry.runs.has(successor)) this.attach(entry, successor, session.getSnapshot().messages, true);
+                        return;
+                    }
+                } catch { if (!this.current(entry)) return; }
+            }
+            this.error(entry, error);
         }).finally(() => this.settled(entry, slot));
     }
 
