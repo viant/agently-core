@@ -160,38 +160,69 @@ func TestGetDefinition_UsesStableBackgroundScopeWithoutConversationID(t *testing
 	}
 }
 
-func TestListServerTools_IsolatesMissingConversationID(t *testing.T) {
+func TestListServerTools_ReusesMissingConversationScopeOnlyForSamePrincipalAndCredential(t *testing.T) {
 	stub := &discoveryManagerStub{
 		getFunc: func(convID, server string) (mcpclient.Interface, error) {
 			if convID == "" {
 				return nil, errors.New("empty discovery scope")
 			}
-			if !strings.HasPrefix(convID, "mcp-discovery:helper:") {
-				return nil, fmt.Errorf("unexpected synthetic scope %q", convID)
+			if !strings.HasPrefix(convID, "mcp-discovery:helper:principal:") {
+				return nil, fmt.Errorf("unexpected principal scope %q", convID)
 			}
 			return &discoveryListClient{tools: []mcpschema.Tool{{Name: convID}}}, nil
 		},
 	}
 	reg := &Registry{mgr: stub}
 
-	first, err := reg.listServerTools(discoveryUserContext(), "helper")
+	principal := authctx.WithBearer(discoveryUserContext(), "credential-A")
+	first, err := reg.listServerTools(principal, "helper")
 	if err != nil {
 		t.Fatalf("first listServerTools() error: %v", err)
 	}
-	second, err := reg.listServerTools(discoveryUserContext(), "helper")
+	second, err := reg.listServerTools(principal, "helper")
 	if err != nil {
 		t.Fatalf("second listServerTools() error: %v", err)
 	}
+	rotated, err := reg.listServerTools(authctx.WithBearer(discoveryUserContext(), "credential-B"), "helper")
+	if err != nil {
+		t.Fatalf("rotated credential listServerTools() error: %v", err)
+	}
+	other := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "other-user"})
+	foreign, err := reg.listServerTools(authctx.WithBearer(other, "credential-A"), "helper")
+	if err != nil {
+		t.Fatalf("other principal listServerTools() error: %v", err)
+	}
 
 	getCalls := stub.getCallsSnapshot()
-	if len(getCalls) != 2 {
-		t.Fatalf("expected two scoped manager Get calls, got %d", len(getCalls))
+	if len(getCalls) != 4 {
+		t.Fatalf("expected four scoped manager Get calls, got %d", len(getCalls))
 	}
-	if getCalls[0].convID == "" {
-		t.Fatalf("expected synthetic discovery scopes, got %+v", getCalls)
+	if getCalls[0].convID == "" || getCalls[0].convID != getCalls[1].convID || getCalls[0].convID == getCalls[2].convID || getCalls[0].convID == getCalls[3].convID {
+		t.Fatalf("principal/credential discovery scope isolation failed: %+v", getCalls)
 	}
-	if first[0].Name != getCalls[0].convID || second[0].Name != getCalls[1].convID {
-		t.Fatalf("unexpected tool mapping for synthetic scopes: tools1=%+v tools2=%+v calls=%+v", first, second, getCalls)
+	for index, tools := range [][]mcpschema.Tool{first, second, rotated, foreign} {
+		if len(tools) != 1 || tools[0].Name != getCalls[index].convID {
+			t.Fatalf("unexpected tool mapping at %d: tools=%+v calls=%+v", index, tools, getCalls)
+		}
+	}
+}
+
+func TestListServerTools_PublicCatalogWithoutConversationUsesStableScope(t *testing.T) {
+	stub := &discoveryManagerStub{
+		options: &config.MCPClient{ToolsListVisibility: config.ToolsListVisibilityPublic},
+		getFunc: func(scope, _ string) (mcpclient.Interface, error) {
+			if scope != "mcp-discovery:helper:public" {
+				return nil, fmt.Errorf("unexpected public scope %q", scope)
+			}
+			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "public-tool"}}}, nil
+		},
+	}
+	reg := &Registry{mgr: stub}
+	for range 3 {
+		tools, err := reg.listServerTools(context.Background(), "helper")
+		if err != nil || len(tools) != 1 || tools[0].Name != "public-tool" {
+			t.Fatalf("public discovery = %+v, %v", tools, err)
+		}
 	}
 }
 

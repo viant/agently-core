@@ -945,6 +945,12 @@ func poolScopeType(poolKey, server string) string {
 		if suffix == "background" {
 			return "background"
 		}
+		if suffix == "public" {
+			return "public"
+		}
+		if strings.HasPrefix(suffix, "principal:") {
+			return "principal"
+		}
 		if suffix != "" {
 			return "synthetic_seq"
 		}
