@@ -26,6 +26,7 @@ import (
 	internalAuth "github.com/viant/agently-core/internal/auth"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	windowprotocol "github.com/viant/agently-core/protocol/window"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -181,6 +182,8 @@ type FetchOptions struct {
 // caller's identity is read from ctx by the configured IdentityFunc; auth to
 // the upstream MCP server is already attached to ctx by the tool registry.
 func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interface{}, opts FetchOptions) (result *dsproto.FetchResult, resultErr error) {
+	total := observe.Start(ctx, observe.Phase("datasource.service.fetch"), observe.Labels{Kind: "datasource"})
+	defer func() { total.End(observe.OutcomeFor(resultErr), observe.CacheUnknown) }()
 	if s == nil {
 		return nil, fmt.Errorf("datasource service: nil receiver")
 	}
@@ -418,7 +421,9 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 
 	// The managing MCP owns dataset authorization after dispatch. An upstream
 	// denial must not trigger a second artifact read or a host permission check.
+	backend := observe.Start(ctx, observe.Phase("datasource.service.backend"), observe.Labels{Kind: "datasource"})
 	raw, err := s.runBackend(ctx, ds, mergedArgs)
+	backend.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		if errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) {
 			return nil, err

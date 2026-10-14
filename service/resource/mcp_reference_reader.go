@@ -64,6 +64,22 @@ func (r *MCPReferenceReader) ReserveLocalNames(names []string) error {
 func (r *MCPReferenceReader) internalRoot() Connection {
 	return Connection{Name: r.internal.ConnectionName, ProviderIdentity: r.internal.ProviderIdentity}
 }
+
+// DefinitionGeneration fences request-local MCP definition reuse against
+// owning-provider resource notifications and connection replacement.
+func (r *MCPReferenceReader) DefinitionGeneration(ctx context.Context) string {
+	names := []string{r.internal.ConnectionName}
+	for _, ref := range r.catalogs {
+		uri, _ := identity.ParseResourceURI(ref.URI)
+		names = append(names, uri.Name)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, fmt.Sprintf("%s:%d:%v", name, r.gateway.generation(name), r.gateway.Manager.ResourceCatalogGeneration(ctx, name)))
+	}
+	return strings.Join(parts, "|")
+}
 func (r *MCPReferenceReader) rows(ctx context.Context, root Connection, namespace string) ([]Located[json.RawMessage], error) {
 	var rows []Located[json.RawMessage]
 	query := CatalogQuery{Namespace: namespace, Limit: 1000}

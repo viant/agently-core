@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	dsproto "github.com/viant/agently-core/protocol/datasource"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	"github.com/viant/agently-core/service/datasource"
 	"github.com/viant/forge/backend/types"
 )
@@ -148,6 +150,34 @@ func TestFetch_Miss_RunsBackendAndProjects(t *testing.T) {
 	}
 	if name, _ := res.Rows[0]["name"].(string); name != "Acme Corp" {
 		t.Fatalf("projection broken: got %v", res.Rows[0])
+	}
+}
+
+func TestFetchTimingSeparatesBackendFromCachedRead(t *testing.T) {
+	svc, _, _ := setup(t)
+	var events []observe.Event
+	ctx := observe.WithObserver(aliceCtx(), observe.ObserverFunc(func(event observe.Event) {
+		events = append(events, event)
+	}))
+	for range 2 {
+		_, err := svc.Fetch(ctx, "account", map[string]interface{}{"q": "sensitive-query"}, datasource.FetchOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	counts := map[observe.Phase]int{}
+	for _, event := range events {
+		counts[event.Phase]++
+		if event.Outcome != observe.OK || event.Kind != "datasource" {
+			t.Fatalf("unexpected timing event: %+v", event)
+		}
+	}
+	if counts[observe.Phase("datasource.service.fetch")] != 2 || counts[observe.Phase("datasource.service.backend")] != 1 {
+		t.Fatalf("timing phases = %+v", counts)
+	}
+	raw, err := json.Marshal(events)
+	if err != nil || strings.Contains(string(raw), "sensitive-query") {
+		t.Fatalf("timings exposed inputs or could not encode: %v", err)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	callbackhttp "github.com/viant/agently-core/adapter/http/callback"
+	"github.com/viant/agently-core/protocol/mcp/manager"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/scheduler"
@@ -165,6 +166,10 @@ func NewHandlerWithContext(ctx context.Context, client Backend, opts ...HandlerO
 
 	var handler http.Handler = mux
 	handler = withDebugHeaders(handler)
+	next := handler
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(manager.WithNamesMemo(r.Context())))
+	})
 	if cfg.authCfg != nil && cfg.authCfg.Enabled && cfg.authSessions != nil {
 		handler = svcauth.Protect(cfg.authCfg, cfg.authSessions)(handler)
 	}
