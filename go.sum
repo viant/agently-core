@@ -2323,3 +2323,5 @@ github.com/viant/sqlx v0.26.1-0.20261013010041-718390a26adf h1:r5RB+A3BhNCQ4cz7h
 github.com/viant/sqlx v0.26.1-0.20261013010041-718390a26adf/go.mod h1:/qyxibjy9VpDiYZwHVwSNHnPXI4476LqYtDty8V0Rg4=
 github.com/viant/xdatly v1.0.1-0.20261013192427-164ca1782574 h1:3YoJRRyGgZx2invf/5/4+lK3shNV4cr1u6J/13Nsh7s=
 github.com/viant/xdatly v1.0.1-0.20261013192427-164ca1782574/go.mod h1:t085YqeJeRWQzuzio1Th4Jkfcb6E35n/XSw3ltCAkrI=
+github.com/viant/mcp v0.24.1-0.20261014040242-8f88e1cc31d0 h1:xSsM2qp1hntt7VpRg/RC8PfR24IKeeF9zw2WQUnmck8=
+github.com/viant/mcp v0.24.1-0.20261014040242-8f88e1cc31d0/go.mod h1:mai8mGglqTpL+h/efOg+FNjG+Um4ngOykXpdYi01bwQ=
