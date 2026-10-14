@@ -110,7 +110,6 @@ type Runtime struct {
 	DatasourceReadSequence         func(context.Context) (context.Context, func() error, error)
 	DatasourceReadFactsScope       resourcesvc.ReadFactsScope
 	DatasourceDefinitionAuthorizer dssvc.DefinitionAuthorizer
-	DatasourceDenialRootRead       dssvc.DefinitionAuthorizer
 	DatasourceDefinitionResolver   dssvc.ResourceDefinitionResolver
 	DatasourceProviderExecutor     dssvc.ProviderExecutor
 	DatasourceDisableCache         bool
@@ -205,7 +204,6 @@ type Builder struct {
 	pinnedDatasourceRevalidator    dssvc.ResourceRevalidator
 	pinnedDatasourceResolver       dssvc.ResourceDefinitionResolver
 	pinnedDatasourceAuthorizer     dssvc.DefinitionAuthorizer
-	pinnedDatasourceDenialRootRead dssvc.DefinitionAuthorizer
 	primitiveTargetProof           forgetypes.WindowTargetProof
 	primitiveReportDependencyProof forgetypes.WindowTargetProof
 	localPrimitiveProvider         *resourcesvc.LocalProvider
@@ -284,13 +282,6 @@ func (b *Builder) WithCapabilityMappingV2(ref string, mapping permittedview.Capa
 // This callback is optional, never serialized, and never invoked at startup.
 func (b *Builder) WithNewDatasourceDeliveryPreparer(preparer dssvc.NewDeliveryPreparer) *Builder {
 	b.newDatasourceDeliveryPreparer = preparer
-	return b
-}
-
-// WithDatasourceDenialRootRead opts into fresh root admission after numeric
-// upstream MCP403. Missing callbacks retain global fail-closed behavior.
-func (b *Builder) WithDatasourceDenialRootRead(check dssvc.DefinitionAuthorizer) *Builder {
-	b.pinnedDatasourceDenialRootRead = check
 	return b
 }
 
@@ -546,7 +537,6 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		DatasourceResourceRevalidator:  b.pinnedDatasourceRevalidator,
 		DatasourceDefinitionResolver:   b.pinnedDatasourceResolver,
 		DatasourceDefinitionAuthorizer: b.pinnedDatasourceAuthorizer,
-		DatasourceDenialRootRead:       b.pinnedDatasourceDenialRootRead,
 		LocalPrimitiveProvider:         b.localPrimitiveProvider,
 		Defaults:                       b.defaults,
 		ComponentDispatcher:            b.componentDispatcher,

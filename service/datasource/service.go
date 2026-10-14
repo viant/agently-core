@@ -73,7 +73,6 @@ type Service struct {
 	providerExecute     ProviderExecutor
 	resolveResource     ResourceRevalidator
 	authorizeDefinition DefinitionAuthorizer
-	denialRootRead      DefinitionAuthorizer
 	resolveDefinition   ResourceDefinitionResolver
 	store               Store
 	executor            ToolExecutor
@@ -123,13 +122,11 @@ type Options struct {
 	ComponentDispatcher windowprotocol.ComponentDispatcher
 	ResolveResource     ResourceRevalidator
 	AuthorizeDefinition DefinitionAuthorizer
-	// DenialRootRead is host-owned, optional, and never selected by a request.
-	DenialRootRead DefinitionAuthorizer
-	Store          Store
-	Executor       ToolExecutor
-	Identity       IdentityFunc // if nil, uses defaultIdentity (reads generic ctx keys)
-	FeedRef        FeedRefResolver
-	Now            func() time.Time // for tests; defaults to time.Now
+	Store               Store
+	Executor            ToolExecutor
+	Identity            IdentityFunc // if nil, uses defaultIdentity (reads generic ctx keys)
+	FeedRef             FeedRefResolver
+	Now                 func() time.Time // for tests; defaults to time.Now
 	// Authorize is checked on every fetch, including cache hits. The host
 	// resolves datasource identity and exact inputs from trusted mappings.
 	Authorize func(context.Context, string, map[string]interface{}) error
@@ -149,7 +146,7 @@ func New(opts Options) *Service {
 	if nowFn == nil {
 		nowFn = time.Now
 	}
-	return &Service{newDeliveryPreparer: opts.NewDeliveryPreparer, beginReadSequence: opts.ReadSequence, readContext: opts.ReadContext, resourceReader: opts.ResourceReader, providerExecute: opts.ProviderExecute, executionContext: opts.ExecutionContext, permissions: opts.PermissionResolver, components: opts.ComponentDispatcher, resolveResource: opts.ResolveResource, authorizeDefinition: opts.AuthorizeDefinition, denialRootRead: opts.DenialRootRead, resolveDefinition: opts.ResolveDefinition,
+	return &Service{newDeliveryPreparer: opts.NewDeliveryPreparer, beginReadSequence: opts.ReadSequence, readContext: opts.ReadContext, resourceReader: opts.ResourceReader, providerExecute: opts.ProviderExecute, executionContext: opts.ExecutionContext, permissions: opts.PermissionResolver, components: opts.ComponentDispatcher, resolveResource: opts.ResolveResource, authorizeDefinition: opts.AuthorizeDefinition, resolveDefinition: opts.ResolveDefinition,
 		store:        opts.Store,
 		executor:     opts.Executor,
 		identity:     id,
@@ -419,84 +416,15 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		}
 	}
 
-	// Miss — execute backend.
-	var frozenInputs map[string]interface{}
-	var denialDescriptor []byte
-	freezeInvalid := false
-	var frozenParameters map[string]any
-	if s.denialRootRead != nil {
-		var e error
-		denialDescriptor, e = json.Marshal(ds)
-		if e != nil {
-			freezeInvalid = true
-		}
-		frozenInputs, e = freezeDenialValues(inputs)
-		if e != nil {
-			freezeInvalid = true
-		}
-		frozenParameters, e = freezeDenialValues(runtimerequestctx.WindowParametersFromContext(ctx))
-		if e != nil {
-			freezeInvalid = true
-		}
-	}
+	// The managing MCP owns dataset authorization after dispatch. An upstream
+	// denial must not trigger a second artifact read or a host permission check.
 	raw, err := s.runBackend(ctx, ds, mergedArgs)
 	if err != nil {
+		if errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) {
+			return nil, err
+		}
 		var upstream *dsproto.UpstreamAuthorizationError
-		if errors.As(err, &upstream) && upstream.Status == 403 && s.denialRootRead != nil {
-			if freezeInvalid || frozenInputs == nil && inputs != nil {
-				return nil, identity.ErrResourceDenied
-			}
-			pin, ok := runtimerequestctx.ResolvedResourceFromContext(ctx)
-			target, present := runtimerequestctx.WindowTargetFromContext(ctx)
-			if !ok || !present || target == nil || s.resolveResource == nil || s.resolveDefinition == nil || s.authorizeDefinition == nil {
-				return nil, identity.ErrResourceDenied
-			}
-			approved := denialDescriptor
-			var e error
-			check := func() error {
-				if ctx.Err() != nil || !identity.MetadataExpiryValid(pin.ValidUntil, s.now()) {
-					return identity.ErrResourceDenied
-				}
-				fresh, e := s.resolveResource(ctx, *pin)
-				if e != nil {
-					return e
-				}
-				if fresh == nil || *fresh != *pin || !identity.MetadataExpiryValid(fresh.ValidUntil, s.now()) {
-					return identity.ErrResourceDenied
-				}
-				definition, e := s.resolveDefinition(ctx, *pin, target, id)
-				if e != nil {
-					return e
-				}
-				current, e := json.Marshal(definition)
-				if e != nil || !bytes.Equal(approved, current) {
-					return identity.ErrResourceDenied
-				}
-				if e = s.validateComponentSource(ctx, definition); e != nil {
-					return e
-				}
-				if e = s.authorizeDefinition(ctx, definition, frozenInputs); e != nil {
-					return e
-				}
-				if s.authorize != nil {
-					return s.authorize(ctx, id, frozenInputs)
-				}
-				return nil
-			}
-			ctx = runtimerequestctx.WithWindowParameters(ctx, frozenParameters)
-			if e = check(); e != nil {
-				return nil, e
-			}
-			var immutable dsproto.DataSource
-			if json.Unmarshal(approved, &immutable) != nil {
-				return nil, identity.ErrResourceDenied
-			}
-			if e = s.denialRootRead(ctx, &immutable, frozenInputs); e != nil {
-				return nil, e
-			}
-			if e = check(); e != nil {
-				return nil, e
-			}
+		if errors.As(err, &upstream) && upstream.Status == 403 {
 			return nil, dsproto.ErrDatasourceDenied
 		}
 		return nil, err
@@ -529,22 +457,6 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		}
 	}
 	return result, nil
-}
-
-// freezeDenialValues detaches untrusted selectors without rounding their JSON
-// numeric identities before the fresh host authorization checks.
-func freezeDenialValues(values map[string]any) (map[string]any, error) {
-	raw, err := json.Marshal(values)
-	if err != nil {
-		return nil, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var frozen map[string]any
-	if err = decoder.Decode(&frozen); err != nil {
-		return nil, err
-	}
-	return frozen, nil
 }
 
 // InvalidateCache drops all entries for a datasource in the caller's scope.

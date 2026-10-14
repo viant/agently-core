@@ -57,7 +57,7 @@ func TestPinnedDatasourceBuilderRetainsHostCallbacks(t *testing.T) {
 		calls++
 		return identity.ErrResourceDenied
 	}
-	runtime, err := executor.NewBuilder().WithAgentFinder(stubAgentFinder{}).WithModelFinder(stubModelFinder{}).WithPinnedDatasourceDefinitions(revalidate, resolve, authorize).WithDatasourceDenialRootRead(authorize).Build(context.Background())
+	runtime, err := executor.NewBuilder().WithAgentFinder(stubAgentFinder{}).WithModelFinder(stubModelFinder{}).WithPinnedDatasourceDefinitions(revalidate, resolve, authorize).Build(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,10 +74,10 @@ func TestPinnedDatasourceBuilderRetainsHostCallbacks(t *testing.T) {
 	if err != nil || definition == nil || definition.ID != "records" {
 		t.Fatal("host definition boundary lost", err)
 	}
-	if runtime.DatasourceDefinitionAuthorizer(context.Background(), definition, nil) != identity.ErrResourceDenied || runtime.DatasourceDenialRootRead(context.Background(), definition, nil) != identity.ErrResourceDenied {
-		t.Fatal("host execution/root denial was replaced")
+	if runtime.DatasourceDefinitionAuthorizer(context.Background(), definition, nil) != identity.ErrResourceDenied {
+		t.Fatal("host execution authorization was replaced")
 	}
-	if calls != 4 {
+	if calls != 3 {
 		t.Fatal("unexpected callback execution count", calls)
 	}
 }

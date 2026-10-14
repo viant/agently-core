@@ -138,12 +138,12 @@ func TestProviderComponentMetadataPinsAllowZeroButProofMustExpire(t *testing.T) 
 func TestTimelessMetadataKeepsManagingFetchDenialDatasetScoped(t *testing.T) {
 	pin := identity.ResolvedResource{ProviderIdentity: "owner", URI: "window://team/view", ResourceCandidate: identity.ResourceCandidate{Kind: identity.WorkingCandidate, ContentFingerprint: identity.ContentFingerprint([]byte(`{}`))}, AuthorityBinding: "original"}
 	descriptor := &dsproto.DataSource{ID: "rows", Backend: &dsproto.Backend{Kind: dsproto.BackendMCPTool, Service: "managing", Method: "read"}}
-	calls, checks := 0, 0
+	calls := 0
 	service := New(Options{DisableCache: true, ResolveResource: func(_ context.Context, in identity.ResolvedResource) (*identity.ResolvedResource, error) {
 		return &in, nil
 	}, ResolveDefinition: func(context.Context, identity.ResolvedResource, *types.WindowTarget, string) (*dsproto.DataSource, error) {
 		return descriptor, nil
-	}, AuthorizeDefinition: func(context.Context, *dsproto.DataSource, map[string]any) error { return nil }, DenialRootRead: func(context.Context, *dsproto.DataSource, map[string]any) error { checks++; return nil }, Executor: deliveryExecutor(func(_ context.Context, method string, args map[string]any) (string, error) {
+	}, AuthorizeDefinition: func(context.Context, *dsproto.DataSource, map[string]any) error { return nil }, Executor: deliveryExecutor(func(_ context.Context, method string, args map[string]any) (string, error) {
 		require.Equal(t, "managing:read", method)
 		require.Equal(t, "owned-opaque", args["id"])
 		calls++
@@ -153,5 +153,4 @@ func TestTimelessMetadataKeepsManagingFetchDenialDatasetScoped(t *testing.T) {
 	require.Nil(t, rows)
 	require.True(t, errors.Is(err, dsproto.ErrDatasourceDenied))
 	require.Equal(t, 1, calls, "managing denial is not retried")
-	require.Equal(t, 1, checks, "metadata integrity scope can validate timeless pin")
 }
