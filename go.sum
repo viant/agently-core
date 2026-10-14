@@ -1372,6 +1372,8 @@ github.com/viant/sqlx v0.26.1-0.20261012000356-69034efb5257 h1:TxC7y7RkzT+jNpA7d
 github.com/viant/sqlx v0.26.1-0.20261012000356-69034efb5257/go.mod h1:/qyxibjy9VpDiYZwHVwSNHnPXI4476LqYtDty8V0Rg4=
 github.com/viant/structology v0.10.1-0.20261005184011-cdaab8ea7dab h1:2wVCxyM5mb8K6Z7K6aaKicB8Twq2mmKxU4PDDO6QpYg=
 github.com/viant/structology v0.10.1-0.20261005184011-cdaab8ea7dab/go.mod h1:sNNuCH9Zt+QUNeV1slf/QKBdOdUIj0AVdhDFR09+8Ig=
+github.com/viant/structology v0.10.1-0.20261014122805-e37281ec0f50 h1:BlcLBwxvvGnlyWIJhQ9guw7owpEoJXKGzPXG9xe2HlA=
+github.com/viant/structology v0.10.1-0.20261014122805-e37281ec0f50/go.mod h1:sNNuCH9Zt+QUNeV1slf/QKBdOdUIj0AVdhDFR09+8Ig=
 github.com/viant/structology v0.10.1-0.20261010052450-67e71257a7da h1:0tmsPkYOF8rdQkN6vMfmhpqcOO40pWuIDb95gcTTYqM=
 github.com/viant/structology v0.10.1-0.20261010052450-67e71257a7da/go.mod h1:sNNuCH9Zt+QUNeV1slf/QKBdOdUIj0AVdhDFR09+8Ig=
 github.com/viant/structql v0.5.5-0.20261008164328-d0b837beaa3a h1:op4JW0fS/TDcF5GqsjNcVVKlw1xsjYRz2tS3jMm2WaM=
@@ -2333,6 +2335,8 @@ rsc.io/quote/v3 v3.1.0/go.mod h1:yEA65RcK8LyAZtP9Kv3t0HmxON59tX3rD+tICJqUlj0=
 rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
 sourcegraph.com/sourcegraph/go-diff v0.5.0/go.mod h1:kuch7UrkMzY0X+p9CRK03kfuPQ2zzQcaEFbx8wA8rck=
 sourcegraph.com/sqs/pbtypes v0.0.0-20180604144634-d3ebe8f20ae4/go.mod h1:ketZ/q3QxT9HOBeFhu6RdvsftgpsbFHBF5Cas6cDKZ0=
+github.com/viant/datly v1.1.1-0.20261014171954-a220d43fa66b h1:+NnwpMgfQbvsSEyFdFawrrOlhaqNyDBieZj4ih7xe1Y=
+github.com/viant/datly v1.1.1-0.20261014171954-a220d43fa66b/go.mod h1:c7ekdqfcz59rimD9uOiF894Ldj7vdRcBALUMCozlrSk=
 github.com/viant/datly v1.1.1-0.20261014035505-59523a9a6c21 h1:LOoHHcGrV3kZ77k8X+VaAspPKjypB9JjjkLMFY4bqvg=
 github.com/viant/datly v1.1.1-0.20261014035505-59523a9a6c21/go.mod h1:c11e73XwmQyFd+GjjX3mcHtu2TUdaoWbNJfx6rmZbqk=
 github.com/viant/mcp-protocol v0.19.1-0.20261014173008-af92f34f304b h1:0VPbrlB8gbHLc1zrwbFW+f3IowORM5MmqpldnWm0+eY=

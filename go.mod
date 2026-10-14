@@ -36,7 +36,7 @@ require (
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e
-	github.com/viant/datly v1.1.1-0.20261014035505-59523a9a6c21
+	github.com/viant/datly v1.1.1-0.20261014171954-a220d43fa66b
 	github.com/viant/embedius v0.5.6
 	github.com/viant/forge v0.3.45-0.20261014165144-904778e4df12
 	github.com/viant/gds v0.6.0
@@ -159,7 +159,7 @@ require (
 	github.com/viant/sqlite-vec v0.3.0 // indirect
 	github.com/viant/sqlparser v0.13.1-0.20261012001419-edea4bd5d9c1 // indirect
 	github.com/viant/sqlx v0.26.1-0.20261013010041-718390a26adf
-	github.com/viant/structology v0.10.1-0.20261010052450-67e71257a7da
+	github.com/viant/structology v0.10.1-0.20261014122805-e37281ec0f50
 	github.com/viant/structql v0.5.5-0.20261012183420-6a47e96ff5b5 // indirect
 	github.com/viant/tagly v0.4.1-0.20261007173811-969600917520 // indirect
 	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
