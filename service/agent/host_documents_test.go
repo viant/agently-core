@@ -53,6 +53,7 @@ func TestProfilelessBundlesAndPlaybooksUseNativeDocumentDelivery(t *testing.T) {
 	loaded, err = service.loadBundles(withSelectedPromptProfile(context.Background(), own))
 	require.NoError(t, err)
 	require.Equal(t, "owning-intent-read", loaded["common"].Match[0].Name)
-	_, err = service.loadBundles(context.Background())
-	require.Error(t, err, "profile-less consumer must not fall back to changed filesystem")
+	captured, err := service.loadBundles(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "original-read", captured["common"].Match[0].Name, "profile-less consumer must retain the captured host generation")
 }

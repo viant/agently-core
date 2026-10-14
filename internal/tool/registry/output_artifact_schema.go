@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
 )
@@ -18,6 +19,18 @@ func artifactOutputSchema() map[string]interface{} {
 func (r *Registry) projectOutputArtifactDefinition(ctx context.Context, definition *llm.ToolDefinition) *llm.ToolDefinition {
 	if definition == nil || r.mgr == nil {
 		return definition
+	}
+	// Most tools have no output-artifact policy. Check the configured candidate
+	// before resolving its advertised identity; that resolution may refresh a
+	// private tools/list catalog and must not run for every ordinary definition.
+	if strings.Count(definition.Name, "/") <= 1 || strings.Contains(definition.Name, ":") {
+		if candidate, method := splitToolName(definition.Name); candidate != "" && method != "" {
+			if options, err := r.mgr.Options(ctx, candidate); err == nil && options != nil {
+				if _, configured := options.OutputArtifacts[method]; !configured {
+					return definition
+				}
+			}
+		}
 	}
 	server, method, found, err := r.discoveredMCPIdentity(ctx, definition.Name)
 	if err != nil || !found || r.isInternalServer(server) {
