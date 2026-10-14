@@ -90,10 +90,10 @@ func (g *Gateway) discoverStandardResources(ctx context.Context, actor identity.
 		cursor = listed.NextCursor
 	}
 	if minTTL == 0 {
-		result.expires = g.now()
+		result.cacheUntil = g.now()
 	} else if minTTL != int(^uint(0)>>1) {
 		until := g.now().Add(time.Duration(minTTL) * time.Millisecond)
-		result.expires = identity.MinimumMetadataExpiry(result.expires, until)
+		result.cacheUntil = identity.MinimumMetadataExpiry(result.expires, until)
 	}
 	result.publicResourceMetadata = allPublic
 	kinds := map[string]map[string]bool{}
