@@ -55,6 +55,24 @@ func TestResourceNotificationsScopeSnapshotsWithoutToolOrConnectionChanges(t *te
 	require.EqualValues(t, 1, m.ToolCatalogGeneration("one"))
 }
 
+func TestURIResourceNotificationUsesEntryInvalidationWhileListChangeIsCoarse(t *testing.T) {
+	mgr, err := New(nil)
+	require.NoError(t, err)
+	ctx := authctx.WithCanonicalUserID(context.Background(), "alice")
+	h := &changeHandler{manager: mgr, server: "provider", receiver: mgr.resourceReceiver(ctx)}
+	var updated []string
+	stop := mgr.OnResourceUpdated(func(_, uri string) { updated = append(updated, uri) })
+	defer stop()
+	h.OnNotification(context.Background(), &jsonrpc.Notification{Method: "notifications/resources/updated", Params: json.RawMessage(`{"uri":"window://team/a"}`)})
+	require.Equal(t, []string{"window://team/a"}, updated)
+	require.Equal(t, [2]uint64{0, 1}, mgr.ResourceContentGeneration(ctx, "provider"))
+	require.Equal(t, [2]uint64{}, mgr.ResourceCatalogGeneration(ctx, "provider"))
+	h.OnNotification(context.Background(), &jsonrpc.Notification{Method: "notifications/resources/list_changed"})
+	require.Equal(t, [2]uint64{0, 1}, mgr.ResourceCatalogGeneration(ctx, "provider"))
+	h.OnNotification(context.Background(), &jsonrpc.Notification{Method: "notifications/resources/updated", Params: json.RawMessage(`{}`)})
+	require.Equal(t, [2]uint64{0, 2}, mgr.ResourceCatalogGeneration(ctx, "provider"), "malformed URI event must fall back to coarse invalidation")
+}
+
 func TestResourceNotificationFencesBeforePendingInsertionAndDuringPopulation(t *testing.T) {
 	m, err := New(nil)
 	require.NoError(t, err)

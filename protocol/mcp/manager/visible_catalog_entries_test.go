@@ -93,6 +93,58 @@ func TestVisibleCatalogKeyedEntryUsesExistingSingleflightAndLateInvalidation(t *
 	require.ErrorIs(t, err, primitive.ErrCatalogCursor)
 }
 
+func TestResourceUpdatedEvictsOnlyNamedDefinitionAndFencesPendingLoad(t *testing.T) {
+	mgr, err := New(nil)
+	require.NoError(t, err)
+	ctx := context.Background()
+	partition := mgr.WithCatalogSources(ctx, mgr.PublicCatalogPartition("window"), []string{"provider"})
+	uriA, uriB := "window://team/a", "window://team/b"
+	loads := map[string]int{}
+	get := func(uri string) (json.RawMessage, error) {
+		return mgr.VisibleCatalogEntryInPartition(ctx, "provider/windows", partition, uri+"\x00working", func(context.Context) (json.RawMessage, time.Time, error) {
+			loads[uri]++
+			raw, err := json.Marshal(map[string]int{"load": loads[uri]})
+			return raw, time.Time{}, err
+		})
+	}
+	_, err = get(uriA)
+	require.NoError(t, err)
+	_, err = get(uriB)
+	require.NoError(t, err)
+	var updated []string
+	stop := mgr.OnResourceUpdated(func(server, uri string) { updated = append(updated, server+" "+uri) })
+	defer stop()
+	mgr.notifyResourceUpdated("provider", [32]byte{}, true, uriA)
+	require.Equal(t, []string{"provider " + uriA}, updated)
+	require.Equal(t, [2]uint64{}, mgr.ResourceCatalogGeneration(ctx, "provider"), "content update must retain the list snapshot")
+	require.Equal(t, [2]uint64{1, 0}, mgr.ResourceContentGeneration(ctx, "provider"))
+	_, err = get(uriB)
+	require.NoError(t, err)
+	require.Equal(t, 1, loads[uriB])
+	raw, err := get(uriA)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"load":2}`, string(raw))
+
+	started, release := make(chan struct{}), make(chan struct{})
+	uriPending := "window://team/pending"
+	done := make(chan error, 1)
+	go func() {
+		_, loadErr := mgr.VisibleCatalogEntryInPartition(ctx, "provider/windows", partition, uriPending+"\x00working", func(context.Context) (json.RawMessage, time.Time, error) {
+			close(started)
+			<-release
+			return json.RawMessage(`{"stale":true}`), time.Time{}, nil
+		})
+		done <- loadErr
+	}()
+	<-started
+	mgr.notifyResourceUpdated("provider", [32]byte{}, true, uriPending)
+	close(release)
+	require.ErrorIs(t, <-done, primitive.ErrCatalogCursor)
+	_, err = get(uriB)
+	require.NoError(t, err)
+	require.Equal(t, 1, loads[uriB], "another entry must survive an in-flight update")
+}
+
 func TestVisibleCatalogPrivateEntryNotificationsRetainOtherUser(t *testing.T) {
 	mgr, err := New(nil)
 	require.NoError(t, err)
