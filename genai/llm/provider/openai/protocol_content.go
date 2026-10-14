@@ -17,18 +17,21 @@ func (c *Client) protocolContent(item llm.ContentItem) (ContentItem, bool, error
 			return ContentItem{}, true, fmt.Errorf("OpenAI cannot resolve %s provider file handle", item.Provider)
 		}
 		kind := "file"
+		var detail string
 		if item.Type == llm.ContentTypeImage {
 			if !supportsUploadedImageResponses(c) {
 				return ContentItem{}, true, fmt.Errorf("OpenAI image file handles require a Responses-capable endpoint")
 			}
 			kind = "image_file"
+			detail, _ = item.Metadata["detail"].(string)
 		}
-		return ContentItem{Type: kind, File: &File{FileID: item.Data}}, true, nil
+		return ContentItem{Type: kind, File: &File{FileID: item.Data}, ImageDetail: detail}, true, nil
 	}
 	switch item.Type {
 	case llm.ContentTypeImage:
 		if item.Source == llm.SourceBase64 {
-			return ContentItem{Type: "image_url", ImageURL: &ImageURL{URL: dataURLForBase64(item.MimeType, item.Data)}}, true, nil
+			detail, _ := item.Metadata["detail"].(string)
+			return ContentItem{Type: "image_url", ImageURL: &ImageURL{URL: dataURLForBase64(item.MimeType, item.Data), Detail: detail}}, true, nil
 		}
 	case llm.ContentTypePDF:
 		if item.Source == llm.SourceURL {
