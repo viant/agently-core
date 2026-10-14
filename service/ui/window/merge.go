@@ -74,6 +74,32 @@ func mergeWorkspaceForgeAssetsWithOptionsAt(ctx context.Context, workspaceRoot s
 	if err := resolver.attach(); err != nil {
 		return err
 	}
+	if options.SourceFileSelected != nil {
+		selected := map[string]bool{}
+		for id := range resolver.dataSources {
+			selected[catalog.dataSourcePaths[id]] = true
+		}
+		for id := range resolver.dialogs {
+			selected[catalog.dialogs[id].path] = true
+		}
+		for name := range resolver.models {
+			if entry, ok := catalog.models[name]; ok {
+				selected[catalog.registries[entry.registry].path] = true
+			}
+		}
+		for name := range resolver.schemas {
+			if entry, ok := catalog.schemas[name]; ok {
+				selected[catalog.registries[entry.registry].path] = true
+			}
+		}
+		for file := range selected {
+			if file != "" {
+				if err := options.SourceFileSelected(ctx, file); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	if enricher != nil {
 		if err := enricher(ctx, window); err != nil {
 			return err

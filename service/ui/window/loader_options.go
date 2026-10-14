@@ -10,7 +10,9 @@ import (
 // when legacy branch probing or optional-asset loading suppresses an error.
 type LoaderOptions struct {
 	// StaticAssets is optional and exists only inside one source compilation.
-	StaticAssets *StaticAssetCompilation
+	StaticAssets       *StaticAssetCompilation
+	SourceCatalog      func(bool)
+	SourceFileSelected func(context.Context, string) error
 	// SharedDefault permits a shared/main native root when no main/singleton alias exists.
 	SharedDefault    bool
 	FS               afs.Service

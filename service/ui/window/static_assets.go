@@ -56,6 +56,10 @@ func cloneStaticValue[T any](value T) (T, error) {
 	return clone, err
 }
 func (o LoaderOptions) catalog(ctx context.Context, root string, svc *wsmeta.Service) (*workspaceCatalog, error) {
+	if o.SourceCatalog != nil {
+		o.SourceCatalog(true)
+		defer o.SourceCatalog(false)
+	}
 	if o.StaticAssets == nil {
 		return loadWorkspaceCatalog(ctx, svc)
 	}

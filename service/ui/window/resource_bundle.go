@@ -104,6 +104,9 @@ func (s *WorkspaceResourceSource) loadBundleWithBase(ctx context.Context, uri id
 	svc := wsmeta.New(options.filesystem(), s.root)
 	var paths map[string]string
 	var err error
+	if options.SourceCatalog != nil {
+		options.SourceCatalog(true)
+	}
 	if options.StaticAssets != nil {
 		var parsed *workspaceCatalog
 		parsed, err = options.StaticAssets.load(ctx, s.root, svc)
@@ -112,6 +115,9 @@ func (s *WorkspaceResourceSource) loadBundleWithBase(ctx context.Context, uri id
 		}
 	} else {
 		_, paths, err = loadWorkspaceDataSources(ctx, svc)
+	}
+	if options.SourceCatalog != nil {
+		options.SourceCatalog(false)
 	}
 	if err != nil {
 		return nil, err
