@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 )
 
@@ -34,12 +35,17 @@ func ResolveDefinition[T any](ctx context.Context, g *Gateway, kind, key string,
 	return ResolveDefinitionIn[T](ctx, g, kind, key, definitionScope(ctx), alias, decoder...)
 }
 func ResolveDefinitionIn[T any](ctx context.Context, g *Gateway, kind, key string, scope DefinitionScope, alias func(T) string, decoder ...DefinitionDecoder[T]) (*Result[T], error) {
-	query := CatalogQuery{Limit: 100}
+	// Alias matching must inspect the full visible catalog for collisions. Read
+	// its largest bounded in-memory page to avoid rebuilding provider discovery
+	// for every 100 candidates; the owning Get below remains fresh.
+	query := CatalogQuery{Limit: primitive.MaxCatalogPageSize}
 	var selected *Located[json.RawMessage]
 	parsed, parseErr := identity.ParseResourceURI(key)
 	exactURI := parseErr == nil && parsed.Kind == kind
 	for {
+		pageTiming := observe.Start(ctx, observe.Phase("definition.resolve.page"), observe.Labels{Kind: kind})
 		page, err := ListPage[json.RawMessage](ctx, g, kind, query, true)
+		pageTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 		if err != nil {
 			return nil, err
 		}

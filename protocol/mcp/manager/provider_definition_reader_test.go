@@ -146,6 +146,36 @@ func TestManagerDefinitionReaderBindingReservesLocalWithoutRecursiveInventory(t 
 	require.False(t, bound, "custom provider ownership must not silently reset")
 }
 
+func TestManagerNamesMemoIsRequestAndCredentialScoped(t *testing.T) {
+	reader := &definitionReaderFixture{definitions: map[string]*cfg.MCPClient{"first": {ClientOptions: &mcp.ClientOptions{}}}}
+	mgr, err := New(NewRepoProvider(WithRepoDefinitionReader(reader)))
+	require.NoError(t, err)
+	defer mgr.CloseConversation("")
+	alice := WithNamesMemo(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"}))
+	first, err := mgr.Names(alice)
+	require.NoError(t, err)
+	require.Equal(t, []string{"first"}, first)
+	first[0] = "mutated-caller-copy"
+	again, err := mgr.Names(alice)
+	require.NoError(t, err)
+	require.Equal(t, []string{"first"}, again)
+	require.Equal(t, 1, reader.lists)
+
+	reader.set("second", &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}})
+	sameRequest, err := mgr.Names(alice)
+	require.NoError(t, err)
+	require.Equal(t, []string{"first"}, sameRequest, "one operation retains its original inventory")
+	fresh, err := mgr.Names(WithNamesMemo(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})))
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"first", "second"}, fresh)
+	require.Equal(t, 2, reader.lists, "a new operation fetches the owning catalog")
+	_, err = mgr.Names(authctx.WithUserInfo(alice, &authctx.UserInfo{Subject: "bob"}))
+	require.NoError(t, err)
+	_, err = mgr.Names(authctx.WithBearer(alice, "rotated-token"))
+	require.NoError(t, err)
+	require.Equal(t, 4, reader.lists, "user and credential changes cannot reuse another scope")
+}
+
 func TestLegacyRepoAliasNeverRewritesCanonicalURI(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("AGENTLY_WORKSPACE", root)

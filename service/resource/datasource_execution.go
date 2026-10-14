@@ -9,6 +9,7 @@ import (
 
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	windowprotocol "github.com/viant/agently-core/protocol/window"
 	"github.com/viant/agently-core/runtime/requestctx"
@@ -93,7 +94,13 @@ func (g *Gateway) ResolveDatasource(ctx context.Context, pin identity.ResolvedRe
 // FetchDatasource executes one provider-owned standalone datasource through
 // the advertised owning connection. Pinned reads, descriptor/component checks
 // and original leases run before and after dispatch; no generic fallback exists.
-func (g *Gateway) FetchDatasource(ctx context.Context, pin identity.ResolvedResource, proof *primitive.ExecutionProof, expected *dsproto.DataSource, inputs map[string]interface{}) (json.RawMessage, error) {
+func (g *Gateway) FetchDatasource(ctx context.Context, pin identity.ResolvedResource, proof *primitive.ExecutionProof, expected *dsproto.DataSource, inputs map[string]interface{}) (output json.RawMessage, failure error) {
+	labels := observe.Labels{Kind: "datasource"}
+	if observe.Enabled(ctx) {
+		labels.Provider = pin.ProviderIdentity
+	}
+	total := observe.Start(ctx, observe.Phase("datasource.fetch"), labels)
+	defer func() { total.End(observe.OutcomeFor(failure), observe.CacheUnknown) }()
 	if proof != nil {
 		copy := *proof
 		proof = &copy
@@ -171,7 +178,9 @@ func (g *Gateway) FetchDatasource(ctx context.Context, pin identity.ResolvedReso
 		_ = finishDispatch()
 		return nil, contextErr
 	}
+	dispatch := observe.Start(ctx, observe.Phase("datasource.mcp.call"), labels)
 	result, callErr := client.CallTool(dispatchCtx, &schema.CallToolRequestParams{Name: method, Arguments: args}, mcpclient.WithNoRetry())
+	dispatch.End(observe.OutcomeFor(callErr), observe.CacheUnknown)
 	finishErr := finishDispatch()
 	if callErr != nil {
 		return nil, callErr

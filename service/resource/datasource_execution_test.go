@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	windowprotocol "github.com/viant/agently-core/protocol/window"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -127,6 +129,29 @@ func TestStandaloneProviderDatasourceAliasAndOriginalLease(t *testing.T) {
 	body, err = gateway.FetchDatasource(context.Background(), pin, proof, descriptor, nil)
 	require.Error(t, err)
 	require.Nil(t, body)
+}
+
+func TestStandaloneDatasourceTimingSeparatesDispatchWithoutPayloads(t *testing.T) {
+	gateway, provider, pin, proof, descriptor := standaloneStack(t)
+	provider.delay = 10 * time.Millisecond
+	var events []observe.Event
+	ctx := observe.WithObserver(context.Background(), observe.ObserverFunc(func(event observe.Event) {
+		events = append(events, event)
+	}))
+	_, err := gateway.FetchDatasource(ctx, pin, proof, descriptor, map[string]interface{}{"token": "sensitive-input"})
+	require.NoError(t, err)
+	phases := map[observe.Phase]observe.Event{}
+	for _, event := range events {
+		phases[event.Phase] = event
+	}
+	require.Contains(t, phases, observe.Phase("datasource.fetch"))
+	require.Contains(t, phases, observe.Phase("datasource.mcp.call"))
+	require.GreaterOrEqual(t, phases[observe.Phase("datasource.fetch")].Duration, phases[observe.Phase("datasource.mcp.call")].Duration)
+	require.Equal(t, observe.OK, phases[observe.Phase("datasource.mcp.call")].Outcome)
+	raw, err := json.Marshal(events)
+	require.NoError(t, err)
+	require.False(t, strings.Contains(string(raw), "sensitive-input"))
+	require.False(t, strings.Contains(string(raw), pin.URI))
 }
 func TestStandaloneProviderDatasourceCancelsDispatchAtOriginalDeadline(t *testing.T) {
 	gateway, provider, pin, proof, descriptor := standaloneStack(t)

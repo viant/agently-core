@@ -312,6 +312,31 @@ func (m *Manager) Names(ctx context.Context) ([]string, error) {
 	if m == nil {
 		return nil, errors.New("mcp manager: provider not configured")
 	}
+	if memo := namesMemoFromContext(ctx); memo != nil {
+		scope, _, err := m.CatalogScopeForResources(ctx, "", nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		generation := ""
+		if provider, ok := m.prov.(*RepoProvider); ok {
+			generation = provider.definitionGeneration(ctx)
+		}
+		if names, ok := memo.get(m, scope, generation); ok {
+			return names, nil
+		}
+		names, err := m.names(ctx)
+		if err == nil {
+			memo.put(m, scope, generation, names)
+		}
+		return names, err
+	}
+	return m.names(ctx)
+}
+
+func (m *Manager) names(ctx context.Context) ([]string, error) {
+	if m == nil {
+		return nil, errors.New("mcp manager: provider not configured")
+	}
 	var names []string
 	if lister, ok := m.prov.(providerLister); ok {
 		var err error

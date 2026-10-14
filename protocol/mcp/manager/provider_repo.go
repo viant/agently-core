@@ -95,6 +95,16 @@ func (p *RepoProvider) definitionReaderBound() bool {
 	defer p.sourceMu.RUnlock()
 	return p.bound
 }
+
+func (p *RepoProvider) definitionGeneration(ctx context.Context) string {
+	p.sourceMu.RLock()
+	reader := p.reader
+	p.sourceMu.RUnlock()
+	if versioned, ok := reader.(interface{ DefinitionGeneration(context.Context) string }); ok {
+		return versioned.DefinitionGeneration(ctx)
+	}
+	return ""
+}
 func (p *RepoProvider) reservedLocalName(name string) bool {
 	p.sourceMu.RLock()
 	defer p.sourceMu.RUnlock()
@@ -105,6 +115,23 @@ func (p *RepoProvider) loadDefinition(ctx context.Context, name string) (*mcpcfg
 	p.sourceMu.RLock()
 	reader := p.reader
 	p.sourceMu.RUnlock()
+	memo := namesMemoFromContext(ctx)
+	var memoKey definitionMemoEntry
+	if memo != nil && reader != nil {
+		if versioned, ok := reader.(interface{ DefinitionGeneration(context.Context) string }); ok {
+			memoKey = definitionMemoEntry{provider: p, name: name, scope: definitionMemoScope(ctx), generation: versioned.DefinitionGeneration(ctx)}
+			if held, found := memo.getDefinition(memoKey); found {
+				var detached mcpcfg.MCPClient
+				decoder := json.NewDecoder(bytes.NewReader(held.raw))
+				decoder.UseNumber()
+				if err := decoder.Decode(&detached); err != nil {
+					return nil, err
+				}
+				detached.ResolvedIdentity = held.identity
+				return &detached, nil
+			}
+		}
+	}
 	var cfg *mcpcfg.MCPClient
 	resolvedName := name
 	var err error
@@ -127,6 +154,14 @@ func (p *RepoProvider) loadDefinition(ctx context.Context, name string) (*mcpcfg
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
+	}
+	if memoKey.provider != nil {
+		value := definitionMemoValue{raw: raw}
+		if cfg.ResolvedIdentity != nil {
+			copy := *cfg.ResolvedIdentity
+			value.identity = &copy
+		}
+		memo.putDefinition(memoKey, value)
 	}
 	var detached mcpcfg.MCPClient
 	decoder := json.NewDecoder(bytes.NewReader(raw))

@@ -21,6 +21,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
@@ -251,8 +252,24 @@ func TestSDKDatasourceGatewayUsesFreshActorDefinitionsAndManagingMCP(t *testing.
 	require.ErrorIs(t, err, resource.ErrCollision)
 	input := &api.FetchDatasourceInput{ID: "owned-alice", Inputs: map[string]any{"account": "alice", "entityId": "different-opaque-id", "parent": "other-parent", "filters": map[string]any{"number": json.Number("9007199254740993"), "term": "unchanged"}}, Cache: &api.DatasourceCacheHints{BypassCache: true}}
 	before, _ := json.Marshal(input)
-	rows, err := client.FetchDatasource(alice, input)
+	var timingMu sync.Mutex
+	var timingEvents []observe.Event
+	observedAlice := observe.WithObserver(alice, observe.ObserverFunc(func(event observe.Event) {
+		timingMu.Lock()
+		timingEvents = append(timingEvents, event)
+		timingMu.Unlock()
+	}))
+	rows, err := client.FetchDatasource(observedAlice, input)
 	require.NoError(t, err)
+	timingMu.Lock()
+	timingPhases := map[observe.Phase]bool{}
+	for _, event := range timingEvents {
+		timingPhases[event.Phase] = true
+	}
+	timingMu.Unlock()
+	require.True(t, timingPhases[observe.Phase("datasource.client.fetch")])
+	require.True(t, timingPhases[observe.Phase("datasource.client.resolve")])
+	require.True(t, timingPhases[observe.Phase("datasource.service.fetch")])
 	require.Len(t, rows.Rows, 1)
 	require.Equal(t, "row-alice", rows.Rows[0]["id"])
 	after, _ := json.Marshal(input)

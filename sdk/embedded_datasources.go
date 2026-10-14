@@ -10,6 +10,7 @@ import (
 
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	loproto "github.com/viant/agently-core/protocol/lookup/overlay"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
@@ -115,7 +116,9 @@ func (c *backendClient) InlineReportWorkspaceDataSources(ctx context.Context) ([
 func (c *backendClient) OverlaySvc() *oversvc.Service { return c.overlaySvc }
 
 // FetchDatasource implements DatasourceBackend.
-func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
+func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDatasourceInput) (output *api.FetchDatasourceOutput, failure error) {
+	total := observe.Start(ctx, observe.Phase("datasource.client.fetch"), observe.Labels{Kind: "datasource"})
+	defer func() { total.End(observe.OutcomeFor(failure), observe.CacheUnknown) }()
 	if c.datasourceSvc == nil {
 		return nil, ErrDatasourceStackNotConfigured
 	}
@@ -135,7 +138,9 @@ func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDataso
 		if e != nil || uri.Kind != "datasource" || request.ProviderIdentity == "" {
 			return nil, identity.ErrResource
 		}
+		resolution := observe.Start(ctx, observe.Phase("datasource.client.resolve"), observe.Labels{Kind: "datasource"})
 		got, e := c.primitiveProviders.GetForProvider(ctx, request.ProviderIdentity, *request.Reference, nil)
+		resolution.End(observe.OutcomeFor(e), observe.CacheUnknown)
 		if e != nil {
 			return nil, e
 		}
@@ -148,7 +153,9 @@ func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDataso
 		request.ResourceProof = got.ExecutionProof
 	}
 	if request.Resource == nil && c.primitiveProviders != nil {
+		resolution := observe.Start(ctx, observe.Phase("datasource.client.resolve"), observe.Labels{Kind: "datasource"})
 		resolved, err := resourcesvc.ResolveDefinition[*dsproto.DataSource](ctx, c.primitiveProviders, "datasource", request.ID, func(ds *dsproto.DataSource) string { return ds.ID }, resourcesvc.DecodeDatasourceDefinition)
+		resolution.End(observe.OutcomeFor(err), observe.CacheUnknown)
 		if err != nil {
 			return nil, err
 		}

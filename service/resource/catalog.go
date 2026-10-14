@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 )
 
@@ -19,6 +21,21 @@ type CatalogQuery = primitive.CatalogQuery
 type NamespacePage = primitive.CatalogPage[DiscoveredNamespace]
 
 func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error), sourceLease ...func() time.Time) (*primitive.Catalog[json.RawMessage], identity.VerifiedActor, error) {
+	catalogPhase := observe.Phase("catalog.snapshot")
+	discoveryPhase := observe.Phase("catalog.discovery")
+	if identity.ValidResourceKind(category) {
+		catalogPhase = observe.Phase("catalog." + category + ".snapshot")
+		discoveryPhase = observe.Phase("catalog." + category + ".discovery")
+	}
+	catalogTiming := observe.Start(ctx, catalogPhase, observe.Labels{})
+	catalogSucceeded := false
+	defer func() {
+		if catalogSucceeded {
+			catalogTiming.End(observe.OK, observe.CacheUnknown)
+		} else {
+			catalogTiming.End(observe.Error, observe.CacheUnknown)
+		}
+	}()
 	actor, err := g.actor(ctx)
 	if err != nil {
 		return nil, actor, err
@@ -38,12 +55,38 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 	if category != "" {
 		dependencies = nil
 	}
-	for _, name := range names {
-		caps, discoverErr := g.discover(ctx, actor, name)
+	discoveryTiming := observe.Start(ctx, discoveryPhase, observe.Labels{})
+	// Provider capability reads are independent. Bound cold fan-out, then apply
+	// results in sorted connection order so collision/error handling is stable.
+	type discovered struct {
+		caps capabilities
+		err  error
+	}
+	results := make([]discovered, len(names))
+	semaphore := make(chan struct{}, 4)
+	var discoveryWG sync.WaitGroup
+	for i, name := range names {
+		discoveryWG.Add(1)
+		go func() {
+			defer discoveryWG.Done()
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-ctx.Done():
+				results[i].err = ctx.Err()
+				return
+			}
+			results[i].caps, results[i].err = g.discover(ctx, actor, name)
+		}()
+	}
+	discoveryWG.Wait()
+	for i, name := range names {
+		caps, discoverErr := results[i].caps, results[i].err
 		if aggregateLinkRequired(discoverErr) {
 			continue
 		}
 		if discoverErr != nil && !errors.Is(discoverErr, ErrUnavailable) {
+			discoveryTiming.End(observe.OutcomeFor(discoverErr), observe.CacheUnknown)
 			return nil, actor, discoverErr
 		}
 		if category == "" {
@@ -65,6 +108,7 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 			standardLease = discoveryCacheUntil(caps)
 		}
 	}
+	discoveryTiming.End(observe.OK, observe.CacheUnknown)
 	// Unlinked connectors do not participate in transport initialization. Their
 	// configured definitions still fence this catalog and its original cursor.
 	configuredScope := func() (string, error) {
@@ -104,7 +148,9 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 	generation := g.catalogGeneration(scopeNames)
 	key := fmt.Sprintf("primitive:%p:%s:%s:%s:%x", g, actorKey(actor, "", 0), scope+":"+configuration, kind, generation)
 
+	indexTiming := observe.Start(ctx, observe.Phase("catalog.index"), observe.Labels{})
 	index, err := g.Manager.VisibleCatalogInPartition(ctx, key, partition, until, load, sourceLease...)
+	indexTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, actor, err
 	}
@@ -122,6 +168,7 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 	if err = g.final(ctx, actor); err != nil {
 		return nil, actor, err
 	}
+	catalogSucceeded = true
 	return index, actor, nil
 }
 
