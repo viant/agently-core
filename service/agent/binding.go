@@ -20,6 +20,7 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
+	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -29,6 +30,7 @@ import (
 )
 
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding.Binding, error) {
+	ctx = mcpmgr.WithToolCatalogReadSnapshot(ctx)
 	ctx = s.withBindingPayloadReads(ctx)
 	defer closeBindingPayloadReads(ctx)
 	if input != nil {

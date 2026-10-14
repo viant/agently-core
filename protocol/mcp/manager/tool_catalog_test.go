@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	authctx "github.com/viant/agently-core/internal/auth"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/jsonrpc"
@@ -18,6 +19,7 @@ import (
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 	authcfg "github.com/viant/mcp/client/auth/config"
+	authtransport "github.com/viant/mcp/client/auth/transport"
 )
 
 type catalogProvider struct{ cfg *mcpcfg.MCPClient }
@@ -28,13 +30,18 @@ func (p *catalogProvider) Options(context.Context, string) (*mcpcfg.MCPClient, e
 
 type catalogClient struct {
 	stubClient
-	calls atomic.Int32
+	calls   atomic.Int32
+	zeroTTL bool
 }
 
 func (c *catalogClient) ListTools(ctx context.Context, cursor *string, _ ...mcpclient.RequestOption) (*schema.ListToolsResult, error) {
 	c.calls.Add(1)
 	name := "generic/tool"
 	result := &schema.ListToolsResult{Tools: []schema.Tool{{Name: name, Meta: map[string]interface{}{"custom": map[string]interface{}{"nested": "original"}}}}}
+	if c.zeroTTL {
+		result.CacheScope = schema.ListToolsResultCacheScopePrivate
+		result.TtlMs = 0
+	}
 	if cursor == nil {
 		next := "page2"
 		result.NextCursor = &next
@@ -42,6 +49,37 @@ func (c *catalogClient) ListTools(ctx context.Context, cursor *string, _ ...mcpc
 		result.Tools[0].Name = *cursor
 	}
 	return result, nil
+}
+
+func TestToolCatalogZeroTTLReusesOnlyOneReadSnapshot(t *testing.T) {
+	m, provider, client, a, _ := catalogSetup(t, false)
+	bff := true
+	provider.cfg.Auth = &mcp.ClientAuth{BackendForFrontend: &bff}
+	rt, err := authtransport.New()
+	require.NoError(t, err)
+	m.authRT = rt
+	client.zeroTTL = true
+	user := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	firstRead := WithToolCatalogReadSnapshot(user)
+	first, err := a.ListTools(firstRead, nil)
+	require.NoError(t, err)
+	first.Tools[0].Meta["custom"].(map[string]interface{})["nested"] = "changed"
+	second, err := a.ListTools(firstRead, nil)
+	require.NoError(t, err)
+	require.Equal(t, "original", second.Tools[0].Meta["custom"].(map[string]interface{})["nested"])
+	require.EqualValues(t, 1, client.calls.Load())
+	_, err = a.ListTools(WithToolCatalogReadSnapshot(user), nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, client.calls.Load(), "ttlMs=0 cannot cross independent reads")
+	_, err = a.ListTools(authctx.WithBearer(firstRead, "changed-token"), nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, client.calls.Load(), "authorization context must partition a read snapshot")
+	m.mu.Lock()
+	m.invalidateToolCatalogLocked("server")
+	m.mu.Unlock()
+	_, err = a.ListTools(firstRead, nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 4, client.calls.Load(), "tool generation must fence a read snapshot")
 }
 func catalogSetup(t *testing.T, public bool) (*Manager, *catalogProvider, *catalogClient, *managedClient, *managedClient) {
 	t.Helper()

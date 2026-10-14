@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	authctx "github.com/viant/agently-core/internal/auth"
@@ -24,6 +25,22 @@ type toolCatalogPage struct {
 	expires  time.Time
 	revision [16]byte
 	names    []string
+}
+
+type toolCatalogReadSnapshotKey struct{}
+type toolCatalogReadSnapshot struct{ pages sync.Map }
+
+// WithToolCatalogReadSnapshot reuses one authenticated tools/list generation
+// while assembling a single tool surface. Explicit ttlMs=0 still prevents
+// reuse by later independent requests.
+func WithToolCatalogReadSnapshot(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if existing, _ := ctx.Value(toolCatalogReadSnapshotKey{}).(*toolCatalogReadSnapshot); existing != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, toolCatalogReadSnapshotKey{}, &toolCatalogReadSnapshot{})
 }
 
 func (m *Manager) invalidateToolCatalogLocked(server string) {
@@ -56,6 +73,7 @@ func (c *managedClient) listTools(ctx context.Context, client mcpclient.Interfac
 	if !cacheable {
 		return client.ListTools(ctx, cursor, options...)
 	}
+	readSnapshot, _ := ctx.Value(toolCatalogReadSnapshotKey{}).(*toolCatalogReadSnapshot)
 	pageCursor := "first"
 	if cursor != nil {
 		pageCursor = "cursor:" + *cursor
@@ -67,6 +85,22 @@ func (c *managedClient) listTools(ctx context.Context, client mcpclient.Interfac
 		m.mu.Lock()
 		generation := m.toolCatalogGeneration[c.serverName]
 		key := fmt.Sprintf("%s:%s:%x:%d:%s", c.serverName, scope, sha256.Sum256(raw), generation, pageCursor)
+		if readSnapshot != nil {
+			if cached, found := readSnapshot.pages.Load(key); found {
+				m.mu.Unlock()
+				type plain mcpschema.ListToolsResult
+				var result plain
+				wire := struct {
+					*plain
+					CacheScope string `json:"cacheScope"`
+				}{plain: &result}
+				if err := json.Unmarshal(cached.([]byte), &wire); err != nil {
+					return nil, err
+				}
+				result.CacheScope = mcpschema.ListToolsResultCacheScope(wire.CacheScope)
+				return (*mcpschema.ListToolsResult)(&result), nil
+			}
+		}
 		if m.toolCatalog == nil {
 			m.toolCatalog = map[string]*toolCatalogPage{}
 		}
@@ -150,6 +184,9 @@ func (c *managedClient) listTools(ctx context.Context, client mcpclient.Interfac
 				delete(m.toolCatalog, key)
 			}
 		}
+		if readSnapshot != nil && validCredential && cacheErr == nil && err == nil && result != nil && ctx.Err() == nil && generation == m.toolCatalogGeneration[c.serverName] {
+			readSnapshot.pages.Store(key, bytes)
+		}
 		close(pending.ready)
 		pending.ready = nil
 		m.mu.Unlock()
@@ -186,11 +223,14 @@ func (c *managedClient) toolCatalogScope(ctx context.Context, options ...mcpclie
 	if err != nil {
 		return ctx, nil, "", nil, "", false, err
 	}
-	// In-process handlers can inspect arbitrary context authority. Cookie jars,
-	// custom auth transports can change credentials
-	// without a visible token; these calls cannot safely reuse metadata.
-	if cfg == nil || cfg.ClientOptions == nil || m.IsLocalClient(c.serverName) || cfg.CookieJar != nil || m.cookieJar != nil || m.jarProvider != nil || (!cfg.IsDelegatedAuth() && (m.authRT != nil || m.authRTProvider != nil)) {
+	// In-process handlers can inspect arbitrary context authority. Cookie jars
+	// without a stable witness cannot safely reuse metadata.
+	if cfg == nil || cfg.ClientOptions == nil || m.IsLocalClient(c.serverName) || cfg.CookieJar != nil || m.cookieJar != nil || m.jarProvider != nil {
 		return ctx, nil, "", nil, "", false, nil
+	}
+	transportScope, transportCacheable, err := m.catalogTransportCredentialScope(ctx, c.serverName, cfg)
+	if err != nil || !transportCacheable {
+		return ctx, nil, "", nil, "", false, err
 	}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
@@ -227,7 +267,7 @@ func (c *managedClient) toolCatalogScope(ctx context.Context, options ...mcpclie
 	if m.userIDFn != nil {
 		principal = m.userIDFn(ctx)
 	}
-	credential, _ := json.Marshal([]string{principal, delegatedToken, token, request.StringToken, authctx.MCPAuthToken(ctx, false), authctx.MCPAuthToken(ctx, true), authctx.Provider(ctx), authctx.EffectiveUserID(ctx)})
+	credential, _ := json.Marshal([]string{principal, delegatedToken, token, request.StringToken, authctx.MCPAuthToken(ctx, false), authctx.MCPAuthToken(ctx, true), authctx.Provider(ctx), authctx.EffectiveUserID(ctx), transportScope})
 	scope := fmt.Sprintf("private:%p:%x", c.entry, sha256.Sum256(credential))
 	// Explicit public visibility is necessary. Any configured authentication
 	// or request credential keeps the page within its connection/principal.

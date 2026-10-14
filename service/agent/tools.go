@@ -10,6 +10,7 @@ import (
 	"github.com/viant/agently-core/internal/auth/mcpauth"
 	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	toolctx "github.com/viant/agently-core/protocol/tool"
@@ -400,6 +401,7 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 	if s == nil || s.registry == nil {
 		return &resolvedToolSurface{}, nil
 	}
+	ctx = mcpmgr.WithToolCatalogReadSnapshot(ctx)
 	bundles, err := s.loadBundlesFor(ctx, bundleIDs)
 	if err != nil {
 		return nil, err
