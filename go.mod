@@ -10,7 +10,7 @@ require (
 	github.com/dop251/goja v0.0.0-20261007200356-e2ea74d3d210 // indirect
 	github.com/dlclark/regexp2/v2 v2.8.1 // indirect
 	github.com/viant/agently-core/service/reportdefinition/materializer v0.0.0-20261008231612-4e2d839e8f05
-	github.com/viant/agently-core/protocol/window v0.0.0-20261008230757-163b77505d6a
+	github.com/viant/agently-core/protocol/window v0.0.0-20261014061347-bbbdb0ee25d5
 	github.com/viant/agently-core/protocol/resource v0.0.0-20261014060740-664c53d5a109
 	github.com/viant/agently-core/protocol/primitive v0.0.0-20261014061041-1f9a58166259
 	github.com/jessevdk/go-flags v1.6.1
@@ -151,7 +151,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
-	github.com/viant/authz v0.0.0-20261008202630-c983c9e64ee5
+	github.com/viant/authz v0.0.0-20261012005207-7814ee919e44
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
 	github.com/viant/govalidator v0.3.4-0.20260913213120-027a9dd54d73 // indirect
