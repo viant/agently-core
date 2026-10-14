@@ -1,7 +1,7 @@
 package resource
 
 import (
-	"context"
+	producer "github.com/viant/agently-core/service/resource/provider"
 	mcpclient "github.com/viant/mcp/client"
 )
 
@@ -13,9 +13,9 @@ func NewLocalMCPClient(provider *LocalProvider) (mcpclient.Interface, error) {
 	if provider == nil {
 		return nil, ErrUnavailable
 	}
-	server, err := newLocalMCPServer(provider, true)
+	neutral, err := provider.neutral()
 	if err != nil {
 		return nil, err
 	}
-	return server.AsClient(context.Background()), nil
+	return producer.NewLocalMCPClient(neutral)
 }

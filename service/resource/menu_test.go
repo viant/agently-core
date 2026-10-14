@@ -8,7 +8,6 @@ import (
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/mcp"
-	"github.com/viant/mcp-protocol/schema"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,6 +23,7 @@ func menuFixtureProvider(t *testing.T) (*LocalProvider, *localFixtureSource, *id
 	source.raw = json.RawMessage(menuFixture)
 	b := localProviderBinding(p, "window://team/sales")
 	b.URI = "menu://team/navigation"
+	b.Changes = source
 	b.FormatVersion = 1
 	b.Title = "Navigation"
 	updateLocalProvider(t, p, func(config *LocalConfig) {
@@ -86,7 +86,7 @@ func TestMenuProducerDeniesRevocationDriftAndExpiry(t *testing.T) {
 	}
 }
 func TestMenuGatewayOverOrdinaryProtectedMCP(t *testing.T) {
-	p, _, actor, _ := menuFixtureProvider(t)
+	p, source, actor, _ := menuFixtureProvider(t)
 	var hideAll atomic.Bool
 	visibility := localProviderConfig(p).MenuActionVisibility
 	updateLocalProvider(t, p, func(config *LocalConfig) {
@@ -101,7 +101,7 @@ func TestMenuGatewayOverOrdinaryProtectedMCP(t *testing.T) {
 	require.NoError(t, err)
 	server := httptest.NewServer(handler)
 	defer server.Close()
-	options := fixtureOptions{"producer": {ClientOptions: &mcp.ClientOptions{Name: "producer", Version: "1", ProtocolVersion: schema.LatestProtocolVersion, Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: server.URL + "/mcp"}}}}}
+	options := fixtureOptions{"producer": {ClientOptions: &mcp.ClientOptions{Name: "producer", Version: "1", ProtocolVersion: "2025-11-25", Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: server.URL + "/mcp"}}}}}
 	mgr, err := manager.New(options)
 	require.NoError(t, err)
 	defer mgr.CloseConversation("")
@@ -118,6 +118,9 @@ func TestMenuGatewayOverOrdinaryProtectedMCP(t *testing.T) {
 	_, err = gateway.Get(context.Background(), rows[0].Connection, identity.ResourceRef{URI: rows[0].Resource.URI}, nil)
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	hideAll.Store(true)
+	before := mgr.ResourceCatalogGeneration(context.Background(), "producer")
+	source.Publish(context.Background())
+	require.Eventually(t, func() bool { return mgr.ResourceCatalogGeneration(context.Background(), "producer") != before }, time.Second, time.Millisecond)
 	fresh, err := gateway.GetMenu(context.Background(), rows[0].Connection, identity.ResourceRef{URI: rows[0].Resource.URI}, got.ResolvedResource)
 	require.NoError(t, err)
 	require.NotContains(t, string(fresh.MenuProjection.DefinitionBytes), "advertiserList")

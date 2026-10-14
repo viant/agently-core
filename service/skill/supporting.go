@@ -48,20 +48,30 @@ func (s *Service) readSupporting(ctx context.Context, item *proto.Skill, relativ
 	if expected == nil {
 		return "", "", "", fmt.Errorf("file is not in held skill manifest")
 	}
-	cfg, err := s.mcpSource.Options(ctx, item.ServerID)
-	if err != nil {
-		return "", "", "", err
+	var result *schema.ReadResourceResult
+	var err error
+	handled := false
+	if delivery, ok := s.delivery.(interface {
+		ReadRemoteResource(context.Context, *proto.Skill, string) (*schema.ReadResourceResult, bool, error)
+	}); ok {
+		result, handled, err = delivery.ReadRemoteResource(ctx, item, target)
 	}
-	if cfg == nil || cfg.SkillDiscovery == nil || !cfg.SkillDiscovery.Enabled {
-		return "", "", "", fmt.Errorf("skill not available")
+	if !handled {
+		cfg, err := s.mcpSource.Options(ctx, item.ServerID)
+		if err != nil {
+			return "", "", "", err
+		}
+		if cfg == nil || cfg.SkillDiscovery == nil || !cfg.SkillDiscovery.Enabled {
+			return "", "", "", fmt.Errorf("skill not available")
+		}
+		ctx, cancel := context.WithTimeout(ctx, time.Duration(positive(cfg.SkillDiscovery.TimeoutSec, 10))*time.Second)
+		defer cancel()
+		ctx, cli, opts, err := s.remoteClient(ctx, item.ServerID, cfg)
+		if err != nil {
+			return "", "", "", err
+		}
+		result, err = cli.ReadResource(ctx, &schema.ReadResourceRequestParams{Uri: target}, opts...)
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(positive(cfg.SkillDiscovery.TimeoutSec, 10))*time.Second)
-	defer cancel()
-	ctx, cli, opts, err := s.remoteClient(ctx, item.ServerID, cfg)
-	if err != nil {
-		return "", "", "", err
-	}
-	result, err := cli.ReadResource(ctx, &schema.ReadResourceRequestParams{Uri: target}, opts...)
 	if err != nil || result == nil || len(result.Contents) != 1 {
 		return "", "", "", fmt.Errorf("skill file unavailable")
 	}

@@ -88,7 +88,7 @@ func TestScopedPlainWindowRoutesExactVisibleMetadataWithoutLocalShadow(t *testin
 	require.Zero(t, local.gets)
 	require.Zero(t, local.lists)
 	require.Equal(t, 1, p.calls["windows/list"], "contextual routing reuses the shared visible snapshot")
-	require.Equal(t, 2, p.calls["windows/get"], "intermediate single-read path calls provider once per request")
+	require.Equal(t, 1, p.calls["windows/get"], "repeated requests reuse one cached owning definition")
 	_, err := c.Get(ctx, &service.WindowDefinitionGetInput{WindowID: "nested/sales"})
 	require.NoError(t, err)
 	require.Equal(t, 1, local.gets)
@@ -103,7 +103,7 @@ func TestScopedPlainWindowRoutesExactVisibleMetadataWithoutLocalShadow(t *testin
 	local.deny = true
 	_, err = c.Get(ctx, &service.WindowDefinitionGetInput{WindowID: "nested/sales"})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
-	require.Equal(t, 2, p.calls["windows/get"])
+	require.Equal(t, 1, p.calls["windows/get"])
 }
 func TestScopedPlainWindowRejectsMissingAndAmbiguousAliases(t *testing.T) {
 	c, p, _ := routingFixture(t)
@@ -137,11 +137,8 @@ func (p *routingHTTPProvider) WindowDefinitionGet(ctx context.Context, in *servi
 	p.inputs = append(p.inputs, in)
 	return p.catalog.Get(ctx, in)
 }
-func (p *routingHTTPProvider) AdmitWindowOpenDecision(ctx context.Context, w *types.Window, parameters map[string]any) (*service.WindowOpenDecision, error) {
+func (p *routingHTTPProvider) EmitWindowSelection(ctx context.Context, w *types.Window, parameters map[string]any) (*types.Window, error) {
 	p.parameters = parameters
-	return &service.WindowOpenDecision{Window: w, ValidUntil: w.Resource.ValidUntil}, nil
-}
-func (p *routingHTTPProvider) EmitWindowSelection(ctx context.Context, w *types.Window, _ map[string]any) (*types.Window, error) {
 	ref, err := p.catalog.ResourceReference(ctx, w.WindowKey)
 	if err != nil {
 		return nil, err

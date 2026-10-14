@@ -30,6 +30,7 @@ type dependencyResource struct {
 }
 
 type dependencyMCPProvider struct {
+	fixtureNotificationPort
 	mcpclient.Interface
 	owner    string
 	items    map[string]*dependencyResource
@@ -171,16 +172,17 @@ func dependencyState(owner, uri string, item *dependencyResource, includeDefinit
 }
 
 type dependencyStack struct {
-	parentURI string
-	childURI  string
-	parent    *dependencyResource
-	child     *dependencyResource
-	provider  *dependencyMCPProvider
-	manager   *manager.Manager
-	gateway   *Gateway
-	catalog   *WindowCatalog
-	actor     identity.VerifiedActor
-	opened    *forgeMCP.WindowDefinitionGetOutput
+	parentURI      string
+	childURI       string
+	parent         *dependencyResource
+	child          *dependencyResource
+	provider       *dependencyMCPProvider
+	parentProvider *dependencyMCPProvider
+	manager        *manager.Manager
+	gateway        *Gateway
+	catalog        *WindowCatalog
+	actor          identity.VerifiedActor
+	opened         *forgeMCP.WindowDefinitionGetOutput
 }
 
 func newDependencyStack(t *testing.T, childLease time.Time) *dependencyStack {
@@ -240,7 +242,7 @@ func newDependencyStack(t *testing.T, childLease time.Time) *dependencyStack {
 	require.NoError(t, err)
 	require.Equal(t, "parent-provider", opened.Definition.Resource.ProviderIdentity)
 	require.Equal(t, "orders-root", opened.Definition.View.Content.ID)
-	return &dependencyStack{parentURI: parentURI, childURI: childURI, parent: parent, child: child, provider: childProvider, manager: mgr, gateway: gateway, catalog: catalog, actor: actor, opened: opened}
+	return &dependencyStack{parentURI: parentURI, childURI: childURI, parent: parent, child: child, provider: childProvider, parentProvider: provider, manager: mgr, gateway: gateway, catalog: catalog, actor: actor, opened: opened}
 }
 
 func dependencyOpenInput(stack *dependencyStack) *forgeMCP.WindowDefinitionGetInput {
@@ -301,7 +303,7 @@ func TestWindowReferencesOpenCapturesChildPinsCapsLeaseAndSignsPins(t *testing.T
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 }
 
-func TestWindowReferencesRequireOriginalChildAuthorityAtEveryRead(t *testing.T) {
+func TestWindowReferencesRequireOriginalChildAuthorityAfterResourceChange(t *testing.T) {
 	mutations := []struct {
 		name   string
 		mutate func(*dependencyResource)
@@ -318,6 +320,7 @@ func TestWindowReferencesRequireOriginalChildAuthorityAtEveryRead(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			stack := newDependencyStack(t, time.Now().UTC().Add(time.Minute))
 			tc.mutate(stack.child)
+			stack.provider.resourceChanged()
 			result, err := stack.catalog.Get(context.Background(), dependencyOpenInput(stack))
 			require.Nil(t, result)
 			require.Error(t, err)
@@ -348,8 +351,11 @@ func TestWindowReferencesRejectsMissingOrChangedDependencyPins(t *testing.T) {
 	envelope.Targets[0].Variant = newFingerprint
 	stack.parent.raw, err = json.Marshal(envelope)
 	require.NoError(t, err)
+	stack.parentChanged()
 	stack.provider.items[stack.childURI].revision = identity.WorkingCandidate
 	result, err = stack.catalog.Get(context.Background(), &forgeMCP.WindowDefinitionGetInput{WindowID: stack.parentURI})
 	require.Nil(t, result)
 	require.Error(t, err)
 }
+
+func (s *dependencyStack) parentChanged() { s.parentProvider.resourceChanged() }

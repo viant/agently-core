@@ -173,6 +173,29 @@ body`
 	}
 }
 
+func TestParse_AcceptsTopLevelModelPreferencesExtension(t *testing.T) {
+	content := `---
+name: code-review
+description: Review code thoroughly.
+metadata:
+  agently-context: inline
+model-preferences:
+  hints:
+    - name: openai_gpt-5.4
+  intelligencePriority: 0.9
+---
+
+body`
+	s, diags, err := Parse("/tmp/SKILL.md", "/tmp/code-review", "workspace", content)
+	if err != nil || len(diags) != 0 {
+		t.Fatalf("parse portable extension: skill=%+v diagnostics=%+v err=%v", s, diags, err)
+	}
+	prefs := s.Frontmatter.ModelPreferencesValue()
+	if prefs == nil || len(prefs.Hints) != 1 || prefs.Hints[0] != "openai_gpt-5.4" || prefs.IntelligencePriority != 0.9 {
+		t.Fatalf("top-level model preferences lost: %+v", prefs)
+	}
+}
+
 func TestParse_AcceptsRemainingMetadataAgentlyOverrides(t *testing.T) {
 	content := `---
 name: specialist

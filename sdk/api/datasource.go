@@ -10,6 +10,8 @@ import (
 
 // FetchDatasourceInput is the wire request for POST /v1/api/datasources/{id}/fetch.
 type FetchDatasourceInput struct {
+	Reference        *identity.ResourceRef `json:"reference,omitempty"`
+	ProviderIdentity string                `json:"providerIdentity,omitempty"`
 	// SelectionBinding is original provenance for optional server NEW delivery preparation.
 	SelectionBinding *identity.SelectionBinding `json:"selectionBinding,omitempty"`
 	// WindowParameters select entities; the server independently authorizes them.
@@ -62,17 +64,20 @@ type ListLookupRegistryInput struct {
 // LookupRegistryEntry describes a single named-token binding available in a
 // render context.
 type LookupRegistryEntry struct {
-	Name       string            `json:"name"`
-	Title      string            `json:"title,omitempty"`
-	DataSource string            `json:"dataSource"`
-	DialogId   string            `json:"dialogId,omitempty"`
-	WindowId   string            `json:"windowId,omitempty"`
-	Trigger    string            `json:"trigger,omitempty"`
-	Required   bool              `json:"required,omitempty"`
-	Display    string            `json:"display,omitempty"`
-	Token      *TokenFormat      `json:"token,omitempty"`
-	Inputs     []LookupParameter `json:"inputs,omitempty"`
-	Outputs    []LookupParameter `json:"outputs,omitempty"`
+	DataSourceResource *identity.ResourceRef `json:"dataSourceResource,omitempty"`
+	PickerResource     *identity.ResourceRef `json:"pickerResource,omitempty"`
+	ProviderIdentity   string                `json:"providerIdentity,omitempty"`
+	Name               string                `json:"name"`
+	Title              string                `json:"title,omitempty"`
+	DataSource         string                `json:"dataSource"`
+	DialogId           string                `json:"dialogId,omitempty"`
+	WindowId           string                `json:"windowId,omitempty"`
+	Trigger            string                `json:"trigger,omitempty"`
+	Required           bool                  `json:"required,omitempty"`
+	Display            string                `json:"display,omitempty"`
+	Token              *TokenFormat          `json:"token,omitempty"`
+	Inputs             []LookupParameter     `json:"inputs,omitempty"`
+	Outputs            []LookupParameter     `json:"outputs,omitempty"`
 }
 
 // TokenFormat is the client-facing token template set.

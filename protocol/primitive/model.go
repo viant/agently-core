@@ -80,6 +80,7 @@ type Locator struct {
 	Resource         identity.ResourceRef `json:"resource"`
 }
 type ResourceState struct {
+	MimeType      string          `json:"mimeType,omitempty"`
 	Description   string          `json:"description,omitempty"`
 	Stamp         int64           `json:"stamp,omitempty"`
 	Kind          string          `json:"kind"`

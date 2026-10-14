@@ -12,11 +12,11 @@ import (
 	"github.com/viant/afs"
 	httpui "github.com/viant/agently-core/adapter/http/ui"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/datasource"
 	"github.com/viant/agently-core/service/policy"
-	"github.com/viant/authz"
 	forge "github.com/viant/agently-core/service/primitiveprovider"
-	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/authz"
 	"github.com/viant/forge/backend/service/meta"
 	"github.com/viant/forge/backend/types"
 )
@@ -79,15 +79,14 @@ func TestHTTPWindowTargetExecutesApprovedDescriptorWithoutCurrentStoreFallback(t
 	resolver := &identity.ResourceResolver{Source: source, Policy: targetPipelinePolicy{source}}
 	resource := authz.Resource{Kind: "window", ID: "window://example/sales", Version: "working", Tenant: "tenant"}
 	facts := authz.Facts{Subject: "user", Issuer: "issuer", Tenant: "tenant", Roles: []string{"reader"}, ValidUntil: time.Now().Add(time.Hour)}
+	businessPolicyCalls := 0
 	prepared, err := PrepareStaticAuthorization(StaticAuthorizationRegistration{ProviderRef: "fixture", CapabilityMappingRef: "fixture", PolicyVersion: "1", Service: &authz.Service{Provider: staticAuthFacts{facts}, Store: staticAuthStore{authz.Document{Resource: resource, Revision: 1, Policies: map[string]authz.Policy{"execute": {Mode: "protected", Rule: &authz.Rule{Kind: "role", Value: "reader"}}}}}}, Account: func(context.Context, authz.Facts) (string, error) { return "account", nil }, AuthorityRevision: func(context.Context, authz.Facts, string) (string, time.Time, error) {
 		return "identity", facts.ValidUntil, nil
 	}, GateEvaluator: staticGateBridge(func(context.Context, authz.Resource, string, []authz.Entity) (bool, string, time.Time, string, string, string, string, error) {
 		return true, "gate", facts.ValidUntil, "user", "issuer", "tenant", "account", nil
 	}), BackendMapper: func(_ context.Context, operation, id string, _ map[string]interface{}) (authz.Resource, string, []authz.Entity, string, error) {
-		if operation != "datasource.fetch" || id != resource.ID+"#rows" {
-			return authz.Resource{}, "", nil, "", policy.ErrDenied
-		}
-		return resource, "execute", nil, "", nil
+		businessPolicyCalls++
+		return authz.Resource{}, "", nil, "", policy.ErrDenied
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -127,9 +126,19 @@ func TestHTTPWindowTargetExecutesApprovedDescriptorWithoutCurrentStoreFallback(t
 	store.Put(&dsproto.DataSource{ID: "rows", Backend: &dsproto.Backend{Kind: dsproto.BackendMCPTool, Service: "forbidden", Method: "current"}})
 	svc := datasource.New(datasource.Options{Store: store, Executor: executor, DisableCache: true, ResolveResource: prepared.provider.DatasourceResourceRevalidator, ResolveDefinition: prepared.provider.DatasourceDefinitionResolver, AuthorizeDefinition: prepared.provider.DatasourceDefinitionAuthorize, Authorize: prepared.provider.DatasourceAuthorize})
 	opts := datasource.FetchOptions{Resource: result.Data.Resource, Target: result.Data.ResourceTarget}
-	rows, err := svc.Fetch(context.Background(), "rows", nil, opts)
+	inputs := map[string]interface{}{"id": "different-owned", "parent": "different-owned-parent", "filter": "unchanged"}
+	rows, err := svc.Fetch(context.Background(), "rows", inputs, opts)
 	if err != nil || rows == nil || len(rows.Rows) != 1 || executor.seen["targetDefault"] != "phone" || executor.calls != 1 {
 		t.Fatalf("approved target pipeline: rows=%+v err=%v calls=%d args=%v", rows, err, executor.calls, executor.seen)
+	}
+	if businessPolicyCalls != 0 {
+		t.Fatal("consumer evaluated resource/entity business policy")
+	}
+	if executor.seen["id"] != inputs["id"] || executor.seen["parent"] != inputs["parent"] || executor.seen["filter"] != inputs["filter"] {
+		t.Fatal("consumer changed managing MCP operation arguments")
+	}
+	if prepared.provider.DatasourceAuthorize != nil {
+		t.Fatal("consumer datasource business callback still installed")
 	}
 	changed := *opts.Target
 	changed.FormFactor = "tablet"

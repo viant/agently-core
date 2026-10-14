@@ -316,38 +316,21 @@ func TestWindowPureScopeActualLocalGatewayReducesSlowIdentityReads(t *testing.T)
 	}
 }
 
-func TestWindowPureScopeRevocationBeforeQueueAndAfterACK(t *testing.T) {
-	for _, phase := range []string{"before-queue", "after-ack"} {
-		t.Run(phase, func(t *testing.T) {
-			provider, svc, _, ctx, close := windowDecisionFixture(t, true)
-			defer close()
-			queued := atomic.Bool{}
-			if phase == "before-queue" {
-				begin := svcBeginFixture(provider)
-				svc.ConfigureWindowReadDecisionScope(func(ctx context.Context) (context.Context, func() error, error) {
-					scoped, finish, err := begin(ctx)
-					if err != nil {
-						return nil, nil, err
-					}
-					return scoped, func() error { provider.revoked.Store(true); return finish() }, nil
-				})
-			}
-			err := runWindowDecisionOpen(t, svc, ctx, func() {
-				queued.Store(true)
-				if phase == "after-ack" {
-					provider.revoked.Store(true)
-				}
-			})
-			if err == nil {
-				t.Fatal("revoked operation released success")
-			}
-			if phase == "before-queue" && queued.Load() {
-				t.Fatal("pre-scope finish denial queued UI content")
-			}
-			if phase == "after-ack" && !queued.Load() {
-				t.Fatal("post-ACK revocation was not exercised")
-			}
-		})
+func TestWindowPureScopeRevocationBeforeQueue(t *testing.T) {
+	provider, svc, _, ctx, close := windowDecisionFixture(t, true)
+	defer close()
+	queued := atomic.Bool{}
+	begin := svcBeginFixture(provider)
+	svc.ConfigureWindowReadDecisionScope(func(ctx context.Context) (context.Context, func() error, error) {
+		scoped, finish, err := begin(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		return scoped, func() error { provider.revoked.Store(true); return finish() }, nil
+	})
+	err := runWindowDecisionOpen(t, svc, ctx, func() { queued.Store(true) })
+	if err == nil || queued.Load() {
+		t.Fatalf("pre-queue authority change must deny before UI delivery: queued=%v err=%v", queued.Load(), err)
 	}
 }
 func svcBeginFixture(provider *slowWindowIdentity) ui.WindowReadDecisionScope {

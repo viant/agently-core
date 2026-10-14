@@ -66,7 +66,7 @@ func SelectionParametersDigest(parameters map[string]any) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 func (s *SelectionHMAC) mac(ctx context.Context, pin ResolvedResource, target json.RawMessage, b SelectionBinding) ([]byte, error) {
-	if s == nil || len(s.key) < 32 || ctx == nil || ctx.Err() != nil || pin.ProviderIdentity == "" || !pin.ResourceCandidate.Valid() || pin.AuthorityBinding == "" || pin.ValidUntil.IsZero() || len(b.InstanceID) > 256 || b.InstanceID == "" || len(b.ParametersDigest) != 64 || !json.Valid(target) {
+	if s == nil || len(s.key) < 32 || ctx == nil || ctx.Err() != nil || pin.ProviderIdentity == "" || !pin.ResourceCandidate.Valid() || pin.AuthorityBinding == "" || len(b.InstanceID) > 256 || b.InstanceID == "" || len(b.ParametersDigest) != 64 || !json.Valid(target) {
 		return nil, ErrResourceDenied
 	}
 	if _, err := ParseResourceURI(pin.URI); err != nil {
@@ -104,7 +104,7 @@ func (s *SelectionHMAC) mac(ctx context.Context, pin ResolvedResource, target js
 
 // Bind is called only after original artifact and selection admission.
 func (s *SelectionHMAC) Bind(ctx context.Context, pin ResolvedResource, target json.RawMessage, actor VerifiedActor, instanceID string, parameters map[string]any) (*SelectionBinding, error) {
-	if s == nil || !actor.Valid(s.now()) || !pin.ValidUntil.After(s.now()) {
+	if s == nil || !actor.Valid(s.now()) || !MetadataExpiryValid(pin.ValidUntil, s.now()) {
 		return nil, ErrResourceDenied
 	}
 	digest, err := SelectionParametersDigest(parameters)
@@ -122,7 +122,7 @@ func (s *SelectionHMAC) Bind(ctx context.Context, pin ResolvedResource, target j
 
 // Verify preserves ordinary artifact expiry checks.
 func (s *SelectionHMAC) Verify(ctx context.Context, pin ResolvedResource, target json.RawMessage, b SelectionBinding, parameters map[string]any, current VerifiedActor) error {
-	if s == nil || !pin.ValidUntil.After(s.now()) {
+	if s == nil || !MetadataExpiryValid(pin.ValidUntil, s.now()) {
 		return ErrResourceDenied
 	}
 	return s.VerifyOriginalForNewDelivery(ctx, pin, target, b, parameters, current)

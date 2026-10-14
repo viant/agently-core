@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
+	producer "github.com/viant/agently-core/service/resource/provider"
 	workspacewindow "github.com/viant/agently-core/service/ui/window"
 	"github.com/viant/agently-core/workspace"
 	forgeTypes "github.com/viant/forge/backend/types"
@@ -25,6 +26,7 @@ import (
 )
 
 type localFixtureSource struct {
+	producer.ResourceChanges
 	mu     sync.Mutex
 	raw    json.RawMessage
 	onRead func()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	windowprotocol "github.com/viant/agently-core/protocol/window"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"strings"
 	"sync"
@@ -168,15 +169,15 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 			}
 			parameters, _ := params["parameters"].(map[string]any)
 			approved := resolved.Definition
-			admitted, err := s.admitWindowOpen(ctx, approved, parameters)
+			admitted, err := s.ProjectWindowWithInput(ctx, &windowprotocol.PresentationInput{Window: approved, WindowForm: parameters})
 			if err != nil || admitted == nil {
 				if err == nil {
 					err = identity.ErrResourceDenied
 				}
 				return nil, windowVerificationFailure(err, "window admission is not available")
 			}
-			openedDefinition, openedParameters, openedLease = approved, parameters, admitted.ValidUntil
-			resolved.Definition = admitted.Window
+			openedDefinition, openedParameters, openedLease = admitted, parameters, approved.Resource.ValidUntil
+			resolved.Definition = admitted
 			options, _ := params["options"].(map[string]any)
 			if options == nil {
 				options = map[string]any{}
@@ -202,23 +203,6 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 		}); ok {
 			if err := authorizer.Authorize(ctx, windowKey); err != nil {
 				return nil, err
-			}
-			// The provider owns entity admission even for a legacy delivery key.
-			// A protected entity window without an exact source pin cannot open.
-			definition, err := s.windowDefinitionForOpen(ctx, &WindowDefinitionGetInput{WindowID: windowKey})
-			if err != nil || definition == nil || definition.Definition == nil {
-				return nil, identity.ErrResourceDenied
-			}
-			if definition.Definition.Authorization != nil {
-				raw, _ := json.Marshal(in.Params)
-				var params map[string]any
-				if decodeSelectionJSON(raw, &params) != nil {
-					return nil, identity.ErrResourceDenied
-				}
-				parameters, _ := params["parameters"].(map[string]any)
-				if _, err := s.admitWindowOpen(ctx, definition.Definition, parameters); err != nil {
-					return nil, err
-				}
 			}
 		} else if _, err := s.windowDefinitionForOpen(ctx, &WindowDefinitionGetInput{WindowID: windowKey}); err != nil {
 			return nil, errors.New("window definition is not available")
@@ -281,11 +265,7 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 		}
 		ctx = baseCtx
 		if openedPin != nil {
-			terminalCtx, stop := context.WithDeadline(ctx, openedLease)
-			if openedLease.IsZero() {
-				stop()
-				terminalCtx, stop = context.WithDeadline(ctx, openedPin.ValidUntil)
-			}
+			terminalCtx, stop := identity.WithMetadataExpiry(ctx, identity.MinimumMetadataExpiry(openedLease, openedPin.ValidUntil))
 			err := s.checkWindowContentCurrent(terminalCtx, windowResourcePin{WindowKey: openedKey, Resource: *openedPin, Target: openedTarget})
 			stop()
 			if err != nil {
@@ -314,10 +294,7 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 		if callCtx.Err() != nil {
 			return nil, sanitizedSelectionError(callCtx.Err())
 		}
-		admitted, err := s.AdmitWindowOpen(callCtx, openedDefinition, openedParameters)
-		if err != nil {
-			return nil, err
-		}
+		admitted := openedDefinition
 		if err := s.checkWindowContentCurrent(callCtx, windowResourcePin{WindowKey: openedKey, Resource: *openedPin, Target: openedTarget}); err != nil {
 			return nil, err
 		}
@@ -349,7 +326,7 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 				return
 			}
 			if openedPin != nil {
-				terminalCtx, stop := context.WithDeadline(baseCtx, openedPin.ValidUntil)
+				terminalCtx, stop := identity.WithMetadataExpiry(baseCtx, openedPin.ValidUntil)
 				defer stop()
 				if !openedLease.IsZero() {
 					var stopLease context.CancelFunc
@@ -366,9 +343,6 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 	if openedPin != nil {
 		if !openedLease.IsZero() && !openedLease.After(time.Now()) {
 			return nil, identity.ErrResourceDenied
-		}
-		if _, err := s.AdmitWindowOpen(ctx, openedDefinition, openedParameters); err != nil {
-			return nil, err
 		}
 		if _, err := s.revalidateWindowPin(ctx, windowResourcePin{WindowKey: openedKey, Resource: *openedPin, Target: openedTarget}); err != nil {
 			return nil, windowVerificationFailure(err, "window access changed")

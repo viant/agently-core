@@ -9,7 +9,6 @@ import (
 	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
 	preset "github.com/viant/agently-core/service/elicitation/refiner"
-	overlays "github.com/viant/agently-core/service/lookup/overlay"
 	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/mcp-protocol/schema"
 )
@@ -19,7 +18,7 @@ func (c *backendClient) lookupOwner(ctx context.Context, in *api.ListLookupRegis
 		return nil, nil
 	}
 	uri, err := identity.ParseResourceURI(in.Owner.URI)
-	if err != nil || (uri.Kind != "window" && uri.Kind != "template" && uri.Kind != "intent") {
+	if err != nil || (uri.Kind != "window" && uri.Kind != "template" && uri.Kind != "intent" && uri.Kind != "lookup") {
 		return nil, identity.ErrResourceDenied
 	}
 	connection, err := c.primitiveProviders.ConnectionForResource(ctx, uri, strings.TrimSpace(in.ProviderIdentity))
@@ -39,7 +38,7 @@ func (c *backendClient) configureLookupRefiner() {
 	}
 	c.elicSvc.ConfigureContextRefiner(func(ctx context.Context, rs *schema.ElicitRequestParamsRequestedSchema) error {
 		if owner, ok := requestctx.ResolvedResourceFromContext(ctx); ok {
-			service, err := overlays.ReadAttachments(ctx, c.primitiveProviders, *owner)
+			service, err := c.primitiveLookupService(ctx, owner, "")
 			if err != nil {
 				return err
 			}
@@ -50,14 +49,11 @@ func (c *backendClient) configureLookupRefiner() {
 			preset.RefineWithHook(rs, service.NewElicitationHook(uri.Kind, uri.Name))
 			return nil
 		}
-		// Unowned legacy schemas retain the instance's public local presentation
-		// overlays while callers migrate to an explicit owning primitive context.
-		// This branch never discovers or guesses a private gateway resource.
-		var hook preset.OverlayHook
-		if c.overlaySvc != nil {
-			hook = c.overlaySvc.NewWildcardHook()
+		service, err := c.primitiveLookupService(ctx, nil, "")
+		if err != nil {
+			return err
 		}
-		preset.RefineWithHook(rs, hook)
+		preset.RefineWithHook(rs, service.NewWildcardHook())
 		return nil
 	})
 }

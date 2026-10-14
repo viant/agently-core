@@ -179,18 +179,14 @@ func (p *LocalProvider) getMenuProjection(ctx context.Context, actor identity.Ve
 	if current.ResourceCandidate != pin.ResourceCandidate || current.AuthorityBinding != pin.AuthorityBinding {
 		return nil, identity.ErrResourceStale
 	}
-	if current.ValidUntil.Before(fresh.ValidUntil) {
-		fresh.ValidUntil = current.ValidUntil
-	}
+	fresh.ValidUntil = identity.MinimumMetadataExpiry(fresh.ValidUntil, current.ValidUntil)
 	if err = p.finishActor(ctx, actor); err != nil {
 		return nil, err
 	}
-	if !pin.ValidUntil.After(p.nowTime()) || !fresh.ValidUntil.After(p.nowTime()) {
+	if !identity.MetadataExpiryValid(pin.ValidUntil, p.nowTime()) || !identity.MetadataExpiryValid(fresh.ValidUntil, p.nowTime()) {
 		return nil, identity.ErrResourceDenied
 	}
-	if fresh.ValidUntil.Before(pin.ValidUntil) {
-		pin.ValidUntil = fresh.ValidUntil
-	}
+	pin.ValidUntil = identity.MinimumMetadataExpiry(pin.ValidUntil, fresh.ValidUntil)
 	fingerprint := identity.ContentFingerprint(projected)
 	return &primitive.GetResult{Resource: &primitive.ResourceState{Kind: "menu", Namespace: uri.Namespace, Name: uri.Name, URI: uri.String(), Title: binding.Title, Lifecycle: pin.Kind, Revision: pin.Selector(), FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint}, ResolvedResource: pin, MenuProjection: &primitive.MenuProjection{SchemaVersion: 1, DefinitionBytes: append([]byte(nil), projected...), ContentFingerprint: fingerprint}}, nil
 }

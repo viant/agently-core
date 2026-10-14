@@ -12,7 +12,7 @@ import (
 	mcpclient "github.com/viant/mcp/client"
 )
 
-func TestOwnerBoundGetPerformsOneFreshDiscoveryAndRetainsTerminalChecks(t *testing.T) {
+func TestOwnerBoundGetCachesDefinitionsAndRetainsTerminalChecks(t *testing.T) {
 	for _, failure := range []string{"none", "content", "revocation", "identity", "generation", "expiry", "owner", "collision"} {
 		t.Run(failure, func(t *testing.T) {
 			p := provider("owned")
@@ -63,13 +63,16 @@ func TestOwnerBoundGetPerformsOneFreshDiscoveryAndRetainsTerminalChecks(t *testi
 			case "collision":
 				options["duplicate"] = &cfg.MCPClient{PrimitiveProviderIdentity: "owned"}
 			}
+			if failure != "none" && failure != "expiry" && failure != "collision" {
+				p.resourceChanged()
+			}
 			got, err := g.GetForProvider(context.Background(), "owned", ref, &pin)
 			if failure == "none" {
 				require.NoError(t, err)
 				require.NotNil(t, got)
 				require.Equal(t, 1, p.calls["namespaces/list"], "unchanged namespace metadata must not repeat authority roundtrips")
 				require.Equal(t, 1, p.calls["namespaces/get"])
-				require.Equal(t, 2, p.calls["windows/get"], "both initial and pinned reads must reach the managing endpoint")
+				require.Equal(t, 1, p.calls["windows/get"], "initial and pinned reads share the owning metadata definition until notification")
 			} else {
 				require.Error(t, err)
 				require.Nil(t, got)

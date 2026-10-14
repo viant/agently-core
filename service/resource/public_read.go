@@ -13,7 +13,7 @@ func PublicReadActors() (ActorResolver, ActorVerifier) {
 		if ctx == nil || ctx.Err() != nil {
 			return identity.VerifiedActor{}, identity.ErrResourceDenied
 		}
-		return identity.VerifiedActor{PublicRead: true, ValidUntil: time.Now().Add(time.Minute)}, nil
+		return identity.VerifiedActor{PublicRead: true}, nil
 	}
 	verify := func(ctx context.Context, held identity.VerifiedActor) error {
 		if ctx == nil || ctx.Err() != nil || !held.PublicRead || !held.ReadValid(time.Now()) {

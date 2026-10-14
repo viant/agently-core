@@ -248,10 +248,10 @@ func (c *CompositeWindowCatalog) VerifyWindowTarget(ctx context.Context, pin ide
 }
 
 func (c *CompositeWindowCatalog) CheckWindowContent(ctx context.Context, key string, pin identity.ResolvedResource, target *types.WindowTarget) error {
-	if c == nil || !c.AuthzReady() || ctx == nil || ctx.Err() != nil || !pin.ValidUntil.After(time.Now()) {
+	if c == nil || !c.AuthzReady() || ctx == nil || ctx.Err() != nil || !identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) {
 		return identity.ErrResourceDenied
 	}
-	ctx, cancel := context.WithDeadline(ctx, pin.ValidUntil)
+	ctx, cancel := identity.WithMetadataExpiry(ctx, pin.ValidUntil)
 	defer cancel()
 	if c.Local != nil && pin.ProviderIdentity == c.LocalProviderIdentity {
 		check, ok := c.Local.(interface {
@@ -265,7 +265,7 @@ func (c *CompositeWindowCatalog) CheckWindowContent(ctx context.Context, key str
 		if err != nil {
 			return err
 		}
-		if current == nil || current.URI != pin.URI || current.ProviderIdentity != pin.ProviderIdentity || current.ResourceCandidate != pin.ResourceCandidate || current.AuthorityBinding != pin.AuthorityBinding || current.ValidUntil.After(pin.ValidUntil) || !current.ValidUntil.After(time.Now()) || !pin.ValidUntil.After(time.Now()) || ctx.Err() != nil {
+		if current == nil || current.URI != pin.URI || current.ProviderIdentity != pin.ProviderIdentity || current.ResourceCandidate != pin.ResourceCandidate || current.AuthorityBinding != pin.AuthorityBinding || identity.MetadataExpiryExtends(current.ValidUntil, pin.ValidUntil) || !identity.MetadataExpiryValid(current.ValidUntil, time.Now()) || !identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) || ctx.Err() != nil {
 			return identity.ErrResourceDenied
 		}
 		return nil

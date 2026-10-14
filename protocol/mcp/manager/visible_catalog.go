@@ -70,6 +70,7 @@ type visibleCatalog struct {
 	index       *primitive.Catalog[json.RawMessage]
 	until       time.Time
 	sourceUntil time.Time
+	entries     []*visibleCatalogEntry
 }
 
 // CatalogScope keeps visible metadata private, regardless of tools/list's
@@ -94,9 +95,6 @@ func (m *Manager) CatalogScopeForResources(ctx context.Context, conversation str
 	sort.Strings(names)
 	cacheable = true
 	for _, name := range names {
-		if !m.IsLocalClient(name) && (m.cookieJar != nil || m.jarProvider != nil || m.authRT != nil || m.authRTProvider != nil) {
-			cacheable = false
-		}
 		cfg, err := m.Options(ctx, name)
 		if err != nil {
 			return "", false, err
@@ -113,12 +111,15 @@ func (m *Manager) CatalogScopeForResources(ctx context.Context, conversation str
 		if err != nil {
 			return "", false, err
 		}
+		transportScope, transportCacheable, err := m.catalogTransportCredentialScope(effective, name, cfg)
+		if err != nil {
+			return "", false, err
+		}
+		cacheable = cacheable && transportCacheable
+		scope = append(scope, transportScope)
 		transportToken, _ := effective.Value(authtransport.ContextAuthTokenKey).(string)
 		credential := ""
 		if cfg != nil && cfg.ClientOptions != nil {
-			if cfg.CookieJar != nil {
-				cacheable = false
-			}
 			if cfg.IsDelegatedAuth() {
 				if m.credResolver == nil {
 					return "", false, fmt.Errorf("catalog credential resolver unavailable")
@@ -208,7 +209,7 @@ func (m *Manager) VisibleCatalogInPartition(ctx context.Context, key string, par
 					return nil, ctx.Err()
 				}
 			}
-			if sameCatalogPartition(held.partition, partition) && held.until.After(now) {
+			if sameCatalogPartition(held.partition, partition) && (held.until.IsZero() || held.until.After(now)) {
 				index := held.index
 				m.mu.Unlock()
 				lookup.End(observe.OK, observe.CacheHit)
@@ -217,7 +218,7 @@ func (m *Manager) VisibleCatalogInPartition(ctx context.Context, key string, par
 			delete(m.visibleCatalogs, key)
 		}
 		for k, v := range m.visibleCatalogs {
-			if v.ready == nil && !v.until.After(now) {
+			if v.ready == nil && !v.until.IsZero() && !v.until.After(now) {
 				delete(m.visibleCatalogs, k)
 			}
 		}

@@ -16,8 +16,9 @@ const (
 )
 
 type phaseTotal struct {
-	duration        time.Duration
-	calls, failures uint64
+	duration               time.Duration
+	calls, failures        uint64
+	hits, misses, bypasses uint64
 }
 
 // Collector retains bounded phase totals only. Resource labels, request data,
@@ -43,6 +44,14 @@ func (c *Collector) Observe(event Event) {
 	if event.Outcome != OK {
 		value.failures++
 	}
+	switch event.Cache {
+	case CacheHit:
+		value.hits++
+	case CacheMiss:
+		value.misses++
+	case CacheBypass:
+		value.bypasses++
+	}
 	c.phases[event.Phase] = value
 }
 
@@ -57,6 +66,15 @@ func (c *Collector) Totals() map[string]float64 {
 		result[key+".calls"] = float64(value.calls)
 		if value.failures > 0 {
 			result[key+".errors"] = float64(value.failures)
+		}
+		if value.hits > 0 {
+			result[key+".cache.hit"] = float64(value.hits)
+		}
+		if value.misses > 0 {
+			result[key+".cache.miss"] = float64(value.misses)
+		}
+		if value.bypasses > 0 {
+			result[key+".cache.bypass"] = float64(value.bypasses)
 		}
 	}
 	return result

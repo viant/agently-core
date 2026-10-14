@@ -412,26 +412,11 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	ordinary.mu.Lock()
 	baselineCalls := len(ordinary.calls)
 	ordinary.mu.Unlock()
-	priorAuthorizer := built.ReportAuthorizer
-	built.ReportAuthorizer = func(ctx context.Context, operation, uri string) error {
-		if operation == "report.execute" {
-			return identity.ErrResourceDenied
-		}
-		if priorAuthorizer != nil {
-			return priorAuthorizer(ctx, operation, uri)
-		}
-		return nil
-	}
-	visibility, err := built.Reporting.ListReports(ctx, &reportingsvc.ListReportsInput{Namespace: "steward"})
-	require.NoError(t, err)
-	require.Len(t, visibility.Reports, 1)
-	require.False(t, visibility.Reports[0].Capabilities.Run, "local controls may hide Run")
 	_, managingRunErr := built.Reporting.ExecuteResource(ctx, &reportingsvc.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: reportURI}})
 	require.NoError(t, managingRunErr, "the managing MCP owns resource execution authorization")
 	ordinary.mu.Lock()
-	require.Greater(t, len(ordinary.calls), baselineCalls, "control visibility cannot block managing datasource dispatch")
+	require.Greater(t, len(ordinary.calls), baselineCalls, "actual operation reaches managing datasource")
 	ordinary.mu.Unlock()
-	built.ReportAuthorizer = priorAuthorizer
 
 	// A foreign own-account filter is rejected by the managing MCP endpoint itself.
 	ordinary.mu.Lock()
@@ -449,7 +434,8 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	require.Equal(t, beforeForeignFilter+1, len(ordinary.calls), "the backend receives one rejected request, with no replay")
 	ordinary.mu.Unlock()
 
-	// Changed source bytes cannot execute through the original parent pin.
+	// Silent producer edits remain outside the captured catalog until the
+	// managing MCP connection is refreshed. The old parent pin is then stale.
 	reportBodyMu.Lock()
 	originalReportBody := append(json.RawMessage(nil), reportBody...)
 	reportBody = append(append(json.RawMessage(nil), reportBody...), ' ')
@@ -457,14 +443,24 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	ordinary.mu.Lock()
 	beforeDrift := len(ordinary.calls)
 	ordinary.mu.Unlock()
+	_, silentErr := built.Reporting.ExecuteResource(ctx, &reportingsvc.ExecuteResourceRequest{ResolvedResource: run.Resource, DependencyPins: run.DependencyPins, DependencyToken: run.DependencyToken})
+	require.NoError(t, silentErr, "the captured revision stays usable before a provider change event or reconnect")
+	ordinary.mu.Lock()
+	require.Greater(t, len(ordinary.calls), beforeDrift)
+	beforeDrift = len(ordinary.calls)
+	ordinary.mu.Unlock()
+	_, err = mgr.Reconnect(mgr.WithAuthTokenContext(ctx, "primitive-source"), "", "primitive-source")
+	require.NoError(t, err)
 	_, driftErr := built.Reporting.ExecuteResource(ctx, &reportingsvc.ExecuteResourceRequest{ResolvedResource: run.Resource, DependencyPins: run.DependencyPins, DependencyToken: run.DependencyToken})
 	require.Error(t, driftErr)
 	ordinary.mu.Lock()
-	require.Equal(t, beforeDrift, len(ordinary.calls), "source drift must fail before datasource dispatch")
+	require.Equal(t, beforeDrift, len(ordinary.calls), "refreshed source drift must fail before datasource dispatch")
 	ordinary.mu.Unlock()
 	reportBodyMu.Lock()
 	reportBody = originalReportBody
 	reportBodyMu.Unlock()
+	_, err = mgr.Reconnect(mgr.WithAuthTokenContext(ctx, "primitive-source"), "", "primitive-source")
+	require.NoError(t, err, "restored producer generation must be rediscovered before later exports")
 	ordinary.mu.Lock()
 	calls := len(ordinary.calls)
 	authSeen := append([]string(nil), ordinary.authSeen...)

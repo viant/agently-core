@@ -121,7 +121,7 @@ func (s *Service) prepareNewDelivery(ctx context.Context, opts FetchOptions) (co
 	if err != nil {
 		return nil, opts, nil, err
 	}
-	if ctx.Err() != nil || freshCtx == nil || freshCtx.Err() != nil || freshCtx.Value(newDeliveryContextKey{}) != marker || deliveryInProgress(freshCtx) || fresh == nil || !sameDeliveryArtifact(original.Resource, fresh.Resource) || !sameDeliveryTarget(original.Target, fresh.Target) || !fresh.Resource.ValidUntil.After(s.now()) || fresh.Resource.AuthorityBinding == "" {
+	if ctx.Err() != nil || freshCtx == nil || freshCtx.Err() != nil || freshCtx.Value(newDeliveryContextKey{}) != marker || deliveryInProgress(freshCtx) || fresh == nil || !sameDeliveryArtifact(original.Resource, fresh.Resource) || !sameDeliveryTarget(original.Target, fresh.Target) || !identity.MetadataExpiryValid(fresh.Resource.ValidUntil, s.now()) || fresh.Resource.AuthorityBinding == "" {
 		return nil, opts, nil, identity.ErrResourceDenied
 	}
 	// The preparer may renew leases and signatures but cannot introduce a new
@@ -143,7 +143,7 @@ func (s *Service) prepareNewDelivery(ctx context.Context, opts FetchOptions) (co
 	}
 	if fresh.Target != nil {
 		for _, pin := range fresh.Target.DependencyPins {
-			if !pin.ValidUntil.After(s.now()) || pin.AuthorityBinding == "" {
+			if !identity.MetadataExpiryValid(pin.ValidUntil, s.now()) || pin.AuthorityBinding == "" {
 				return nil, opts, nil, identity.ErrResourceDenied
 			}
 		}

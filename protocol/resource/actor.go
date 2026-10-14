@@ -27,5 +27,5 @@ func (a VerifiedActor) ReadValid(now time.Time) bool {
 	if !a.PublicRead {
 		return a.Valid(now)
 	}
-	return a.Subject == "" && a.Issuer == "" && a.TenantID == "" && a.AccountID == "" && a.IdentityRevision == "" && a.ValidUntil.After(now)
+	return a.Subject == "" && a.Issuer == "" && a.TenantID == "" && a.AccountID == "" && a.IdentityRevision == "" && MetadataExpiryValid(a.ValidUntil, now)
 }

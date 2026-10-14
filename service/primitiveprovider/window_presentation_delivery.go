@@ -12,7 +12,7 @@ import (
 // lease held by the current negotiated UI transport client. It grants no data or
 // business permission and never refreshes datasource/report/private pins.
 func (s *Service) PrepareNativePresentationRead(ctx context.Context, resource *identity.ResolvedResource, target *types.WindowTarget) (*identity.ResolvedResource, *types.WindowTarget, error) {
-	if resource == nil || resource.ValidUntil.After(time.Now()) {
+	if resource == nil || identity.MetadataExpiryValid(resource.ValidUntil, time.Now()) {
 		return resource, target, nil
 	}
 	original := windowResourcePin{Resource: *resource, Target: target}
@@ -32,8 +32,8 @@ func (s *Service) PrepareNativePresentationRead(ctx context.Context, resource *i
 		if key.Namespace != session.ns || key.ClientID != session.clientID || (requestedWindow != "" && key.WindowID != requestedWindow) {
 			continue
 		}
-		same := pin.Resource == *resource && types.SameWindowTarget(pin.Target, target)
-		if pin.PresentedResource != nil && *pin.PresentedResource == *resource && types.SameWindowTarget(pin.PresentedTarget, target) {
+		same := identity.SameResolvedResource(pin.Resource, *resource) && types.SameWindowTarget(pin.Target, target)
+		if pin.PresentedResource != nil && identity.SameResolvedResource(*pin.PresentedResource, *resource) && types.SameWindowTarget(pin.PresentedTarget, target) {
 			same = true
 		}
 		if same {
@@ -62,7 +62,7 @@ func (s *Service) PrepareNativePresentationRead(ctx context.Context, resource *i
 	if _, err = s.revalidateWindowPin(ctx, fresh); err != nil {
 		return nil, nil, identity.ErrResourceDenied
 	}
-	if bridge.sessionInfoByID(sessionID) != session || ctx.Err() != nil || !fresh.Resource.ValidUntil.After(time.Now()) {
+	if bridge.sessionInfoByID(sessionID) != session || ctx.Err() != nil || !identity.MetadataExpiryValid(fresh.Resource.ValidUntil, time.Now()) {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	return &fresh.Resource, fresh.Target, nil
@@ -70,7 +70,7 @@ func (s *Service) PrepareNativePresentationRead(ctx context.Context, resource *i
 
 func (s *Service) nativePresentationSession(ctx context.Context) (*httpRPCBridge, *httpSessionInfo, error) {
 	owner, err := s.ns.Identity(ctx)
-	if err != nil || owner.Namespace == "" || !owner.ValidUntil.After(time.Now()) {
+	if err != nil || owner.Namespace == "" || !namespaceIdentityLive(owner, time.Now()) {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	sessionID := requestctx.UIBridgeSessionIDFromContext(ctx)

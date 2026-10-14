@@ -24,8 +24,9 @@ func TestWindowTerminalContentCallbackAndAuthoritativeFallback(t *testing.T) {
 	pin := *opened.Definition.Resource
 	before := p.calls["windows/get"]
 	require.NoError(t, catalog.CheckWindowContent(context.Background(), "window://example/sales", pin, opened.Definition.ResourceTarget))
-	require.Greater(t, p.calls["windows/get"], before)
+	require.Equal(t, before, p.calls["windows/get"], "terminal metadata validation reuses the owning definition")
 	p.definition = append(p.definition, byte(32))
+	p.resourceChanged()
 	require.Error(t, catalog.CheckWindowContent(context.Background(), "window://example/sales", pin, opened.Definition.ResourceTarget))
 	callbackCalls := 0
 	catalog.ContentCurrent = map[string]WindowContentCheck{"studio-a": func(context.Context, identity.ResolvedResource) error {

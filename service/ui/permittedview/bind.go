@@ -15,8 +15,8 @@ func Bind(window *forgetypes.Window, windowID, conversationID string, parameters
 	return BindResource(window, windowID, conversationID, parameters, nil)
 }
 
-// BindResource resolves the generic authorization resource from data already
-// returned by an ACL-protected bootstrap datasource.
+// BindResource extracts the requested resource identifier. Caller input is not
+// permission evidence; Runtime.Apply obtains and validates the resolver snapshot.
 func BindResource(window *forgetypes.Window, windowID, conversationID string, parameters, resource map[string]any) (*BoundView, error) {
 	if window == nil {
 		return nil, fmt.Errorf("permitted view: window is required")

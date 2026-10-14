@@ -5,6 +5,8 @@
 // an overlay file — only the already-refined schema.
 package overlay
 
+import identity "github.com/viant/agently-core/protocol/resource"
+
 // Mode controls how a single overlay resolves against a schema. It is a
 // per-overlay property: two overlays targeting the same schema can have
 // different modes and compose without interference.
@@ -27,6 +29,7 @@ const (
 
 // Overlay is a single extension/forge/lookups/*.yaml file.
 type Overlay struct {
+	Resource *identity.ResolvedResource `json:"-" yaml:"-"`
 	// ID uniquely identifies the overlay. Used for tie-break in
 	// composition and for operator visibility.
 	ID string `json:"id" yaml:"id"`
@@ -106,6 +109,9 @@ type Match struct {
 
 // Lookup carries forge Item.Lookup fields plus the datasource id to resolve.
 type Lookup struct {
+	DataSourceResource *identity.ResourceRef `json:"dataSourceResource,omitempty" yaml:"-"`
+	PickerResource     *identity.ResourceRef `json:"pickerResource,omitempty" yaml:"-"`
+	ProviderIdentity   string                `json:"providerIdentity,omitempty" yaml:"-"`
 	// DataSource is the id of an extension/forge/datasources/*.yaml entry.
 	DataSource string `json:"dataSource,omitempty" yaml:"dataSource,omitempty"`
 
@@ -183,18 +189,21 @@ type NamedToken struct {
 // The registry is composed server-side from overlays whose Named bindings match
 // the current context.
 type RegistryEntry struct {
-	Name       string            `json:"name"`
-	Title      string            `json:"title,omitempty"`
-	DataSource string            `json:"dataSource"`
-	DialogId   string            `json:"dialogId,omitempty"`
-	WindowId   string            `json:"windowId,omitempty"`
-	Trigger    string            `json:"trigger,omitempty"`
-	Required   bool              `json:"required,omitempty"`
-	Display    string            `json:"display,omitempty"`
-	Token      *TokenFormat      `json:"token,omitempty"`
-	Inputs     []Parameter       `json:"inputs,omitempty"`
-	Outputs    []Parameter       `json:"outputs,omitempty"`
-	Extra      map[string]string `json:"extra,omitempty"`
+	DataSourceResource *identity.ResourceRef `json:"dataSourceResource,omitempty"`
+	PickerResource     *identity.ResourceRef `json:"pickerResource,omitempty"`
+	ProviderIdentity   string                `json:"providerIdentity,omitempty"`
+	Name               string                `json:"name"`
+	Title              string                `json:"title,omitempty"`
+	DataSource         string                `json:"dataSource"`
+	DialogId           string                `json:"dialogId,omitempty"`
+	WindowId           string                `json:"windowId,omitempty"`
+	Trigger            string                `json:"trigger,omitempty"`
+	Required           bool                  `json:"required,omitempty"`
+	Display            string                `json:"display,omitempty"`
+	Token              *TokenFormat          `json:"token,omitempty"`
+	Inputs             []Parameter           `json:"inputs,omitempty"`
+	Outputs            []Parameter           `json:"outputs,omitempty"`
+	Extra              map[string]string     `json:"extra,omitempty"`
 }
 
 // TokenFormat duplicates NamedToken's three template fields so the HTTP

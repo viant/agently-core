@@ -37,12 +37,12 @@ func (f *selectionHTTPFixture) WindowDefinitionGet(context.Context, *service.Win
 	}
 	return &service.WindowDefinitionGetOutput{WindowID: "view", Definition: f.window}, nil
 }
-func (f *selectionHTTPFixture) AdmitWindowOpenDecision(_ context.Context, w *types.Window, _ map[string]any) (*service.WindowOpenDecision, error) {
+func (f *selectionHTTPFixture) ProjectWindowWithInput(_ context.Context, input *permittedview.BoundView) (*types.Window, error) {
 	f.admits++
 	if f.failAdmit == f.admits {
 		return nil, permittedview.ErrUnavailable
 	}
-	return &service.WindowOpenDecision{Window: w, ValidUntil: w.Resource.ValidUntil}, nil
+	return input.Window, nil
 }
 func (f *selectionHTTPFixture) EmitWindowSelection(ctx context.Context, w *types.Window, p map[string]any) (*types.Window, error) {
 	return f.bridge.EmitWindowSelection(ctx, w, p)
@@ -62,7 +62,7 @@ func selectionHTTP(t *testing.T) *selectionHTTPFixture {
 	}})
 	return f
 }
-func TestCanonicalHTTPOpenEmitsOnlyAfterAdmissionAndFinalChecks(t *testing.T) {
+func TestCanonicalHTTPOpenProjectsOnceAndEmitsExactSelection(t *testing.T) {
 	f := selectionHTTP(t)
 	handler := NewEmbeddedHandlerWithAuthorization(t.TempDir(), nil, nil, nil, WithWindowResourceProvider(f))
 	raw := httptest.NewRecorder()
@@ -74,7 +74,7 @@ func TestCanonicalHTTPOpenEmitsOnlyAfterAdmissionAndFinalChecks(t *testing.T) {
 	parameters := `{"ids":[9007199254740993,"opaque"],"parents":{"account":"selected-parent"}}`
 	opened := httptest.NewRecorder()
 	handler.ServeHTTP(opened, httptest.NewRequest(http.MethodGet, "/window/view?applyPermission=true&windowParams="+url.QueryEscape(parameters), nil))
-	if opened.Code != 200 || f.signs != 1 || f.admits != 2 || f.gets != 1 || !strings.Contains(opened.Body.String(), "host-signed") {
+	if opened.Code != 200 || f.signs != 1 || f.admits != 1 || f.gets != 1 || !strings.Contains(opened.Body.String(), "host-signed") {
 		t.Fatalf("authnil canonical OPEN checks/emission lost: %d %s signs=%d admits=%d gets=%d", opened.Code, opened.Body.String(), f.signs, f.admits, f.gets)
 	}
 	if f.parameters["ids"].([]any)[0].(json.Number).String() != "9007199254740993" || f.parameters["parents"].(map[string]any)["account"] != "selected-parent" {
@@ -88,7 +88,7 @@ func TestCanonicalHTTPOpenDenialAndAvailabilityNeverLeakBindings(t *testing.T) {
 		emitter       error
 		status, signs int
 	}{
-		{"initial stale", 1, 0, nil, 404, 0}, {"final admission unavailable", 0, 2, nil, 503, 0},
+		{"initial stale", 1, 0, nil, 404, 0}, {"presentation unavailable", 0, 1, nil, 503, 0},
 		{"emitter denied", 0, 0, errors.New("private detail"), 403, 1},
 		{"emitter unavailable", 0, 0, fmt.Errorf("private detail: %w", service.ErrWindowSelectionUnavailable), 503, 1},
 		{"emitter timeout", 0, 0, fmt.Errorf("private detail: %w", context.DeadlineExceeded), 504, 1},

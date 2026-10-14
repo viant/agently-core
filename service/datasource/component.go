@@ -31,7 +31,7 @@ func (s *Service) validateComponentSource(ctx context.Context, ds *dsproto.DataS
 		}
 		if strings.HasPrefix(pin.URI, "datasource://") {
 			proof, ok := requestctx.ResourceExecutionProofFromContext(ctx)
-			if !ok || proof.Resource.ProviderIdentity != pin.ProviderIdentity || proof.Resource.URI != pin.URI || proof.Resource.ResourceCandidate != pin.ResourceCandidate || proof.Resource.AuthorityBinding != pin.AuthorityBinding || pin.ValidUntil.After(proof.Resource.ValidUntil) || proof.Binding == "" || proof.Token == "" || !proof.Resource.ValidUntil.After(time.Now()) || !pin.ValidUntil.After(time.Now()) {
+			if !ok || proof.Resource.ProviderIdentity != pin.ProviderIdentity || proof.Resource.URI != pin.URI || proof.Resource.ResourceCandidate != pin.ResourceCandidate || proof.Resource.AuthorityBinding != pin.AuthorityBinding || pin.ValidUntil.After(proof.Resource.ValidUntil) || proof.Binding == "" || proof.Token == "" || !proof.Resource.ValidUntil.After(time.Now()) || !identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) {
 				return identity.ErrResourceDenied
 			}
 		} else if strings.HasPrefix(pin.URI, "window://") {
@@ -41,7 +41,7 @@ func (s *Service) validateComponentSource(ctx context.Context, ds *dsproto.DataS
 			child, hasChild := target.DependencyPins[ds.ID]
 			if hasChild {
 				uri, err := identity.ParseResourceURI(child.URI)
-				if err != nil || uri.Kind != "datasource" || !child.ValidUntil.After(time.Now()) {
+				if err != nil || uri.Kind != "datasource" || !identity.MetadataExpiryValid(child.ValidUntil, time.Now()) {
 					return identity.ErrResourceDenied
 				}
 			} else if target.ExecutionProof == nil {
@@ -53,7 +53,7 @@ func (s *Service) validateComponentSource(ctx context.Context, ds *dsproto.DataS
 				return identity.ErrResourceDenied
 			}
 			uri, err := identity.ParseResourceURI(child.URI)
-			if err != nil || uri.Kind != "datasource" || !child.ValidUntil.After(time.Now()) {
+			if err != nil || uri.Kind != "datasource" || !identity.MetadataExpiryValid(child.ValidUntil, time.Now()) {
 				return identity.ErrResourceDenied
 			}
 		} else {

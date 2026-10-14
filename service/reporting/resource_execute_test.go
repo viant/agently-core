@@ -59,12 +59,7 @@ func TestAuthoredResourceExecutesRealDatasourcePipeline(t *testing.T) {
 		}
 		return identity.ResourceDecision{Candidate: c[0], AuthorityBinding: binding, ValidUntil: expiry}, nil
 	})}
-	service := New(Options{Store: NewMemoryStore(), Compiler: NewReportSpecCompiler(time.Now), Exporter: NewForgeExporter(nil), ActionAuthorize: func(_ context.Context, operation, _ string) error {
-		if operation == "report.execute" {
-			t.Fatal("resource consumer must not apply a local report execution policy")
-		}
-		return nil
-	}, ResourceResolver: func(context.Context, string) (*identity.ResourceResolver, error) { return resolver, nil }})
+	service := New(Options{Store: NewMemoryStore(), Compiler: NewReportSpecCompiler(time.Now), Exporter: NewForgeExporter(nil), ResourceResolver: func(context.Context, string) (*identity.ResourceResolver, error) { return resolver, nil }})
 	calls := 0
 	during := func() {}
 	service.SetResourceDatasetExecutor(NewResourceDatasetExecutor(reportFixtureTransport(func(ctx context.Context, name string, args map[string]interface{}) (string, error) {

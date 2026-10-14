@@ -28,7 +28,7 @@ func (s *resourceReadSequence) reportRead(connection Connection, pin *identity.R
 	if !ok {
 		return primitive.GetResult{}, false, nil
 	}
-	if held.key != key || !held.pin.ValidUntil.After(s.gateway.now()) {
+	if held.key != key || !identity.MetadataExpiryValid(held.pin.ValidUntil, s.gateway.now()) {
 		return primitive.GetResult{}, false, identity.ErrResourceDenied
 	}
 	value, err := detachedGet(&held.result)
@@ -92,7 +92,7 @@ func (s *resourceReadSequence) refreshReportReads(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if !sameSelectedContent(held.result, fresh.GetResult) || fresh.ResolvedResource.ValidUntil.Before(held.pin.ValidUntil) {
+		if !sameSelectedContent(held.result, fresh.GetResult) || identity.MinimumMetadataExpiry(fresh.ResolvedResource.ValidUntil, held.pin.ValidUntil).Before(held.pin.ValidUntil) {
 			return identity.ErrResourceStale
 		}
 	}
@@ -109,7 +109,7 @@ func (g *Gateway) recordReportDependencies(ctx context.Context, parent identity.
 	s.mu.Lock()
 	bound := false
 	for _, held := range s.reportReads {
-		if held.pin.URI == parent.URI && held.pin.ProviderIdentity == parent.ProviderIdentity && held.pin.ResourceCandidate == parent.ResourceCandidate && held.pin.AuthorityBinding == parent.AuthorityBinding && !parent.ValidUntil.After(held.pin.ValidUntil) {
+		if held.pin.URI == parent.URI && held.pin.ProviderIdentity == parent.ProviderIdentity && held.pin.ResourceCandidate == parent.ResourceCandidate && held.pin.AuthorityBinding == parent.AuthorityBinding && !identity.MetadataExpiryExtends(parent.ValidUntil, held.pin.ValidUntil) {
 			bound = true
 			break
 		}

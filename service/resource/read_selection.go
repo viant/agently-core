@@ -109,7 +109,7 @@ func (s *resourceReadSequence) selectedRead(ctx context.Context, connection Conn
 	if !found {
 		return primitive.GetResult{}, false, nil
 	}
-	if bindingKey != read.key || !read.pin.ValidUntil.After(s.gateway.now()) || read.result.ResolvedResource != nil && !read.result.ResolvedResource.ValidUntil.After(s.gateway.now()) || read.result.ExecutionProof != nil && !read.result.ExecutionProof.Resource.ValidUntil.After(s.gateway.now()) {
+	if bindingKey != read.key || !identity.MetadataExpiryValid(read.pin.ValidUntil, s.gateway.now()) || read.result.ResolvedResource != nil && !identity.MetadataExpiryValid(read.result.ResolvedResource.ValidUntil, s.gateway.now()) || read.result.ExecutionProof != nil && !read.result.ExecutionProof.Resource.ValidUntil.After(s.gateway.now()) {
 		err := identity.ErrResourceDenied
 		s.mu.Lock()
 		s.failed = err
@@ -153,9 +153,7 @@ func (s *resourceReadSequence) recordSelectedRead(ctx context.Context, connectio
 	}
 	prior := original.resources[id].result
 	detached.ExecutionProof = prior.ExecutionProof
-	if detached.ResolvedResource.ValidUntil.After(prior.ResolvedResource.ValidUntil) {
-		detached.ResolvedResource.ValidUntil = prior.ResolvedResource.ValidUntil
-	}
+	detached.ResolvedResource.ValidUntil = identity.MinimumMetadataExpiry(detached.ResolvedResource.ValidUntil, prior.ResolvedResource.ValidUntil)
 	held.result = detached
 	// The first fresh POST result must retain the original proof too, rather
 	// than exposing a newly issued proof while only the memo keeps provenance.
@@ -281,9 +279,7 @@ func (c *WindowCatalog) registerSelectedDatasource(ctx context.Context, parent i
 			}
 			// Opaque original provenance and its lease cannot renew in a later phase.
 			read.result.ExecutionProof = held.result.ExecutionProof
-			if read.result.ResolvedResource.ValidUntil.After(held.result.ResolvedResource.ValidUntil) {
-				read.result.ResolvedResource.ValidUntil = held.result.ResolvedResource.ValidUntil
-			}
+			read.result.ResolvedResource.ValidUntil = identity.MinimumMetadataExpiry(read.result.ResolvedResource.ValidUntil, held.result.ResolvedResource.ValidUntil)
 			bundle.resources[id] = read
 		}
 		bundle.admissions = original.admissions

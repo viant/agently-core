@@ -58,7 +58,7 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	legacy := legacyCompiler.IntentDirectory("workspace")
 	legacy.FallbackDirectory = workspace.KindIntent
 	defer authored.Release()
-	declared := []resources.ExtensionDirectory{resources.ToolfeedDirectory("workspace", "feeds"), resources.DatasourceDirectory("workspace", workspace.KindForgeDataSource), authored.TemplateDirectory("workspace"), intents.IntentDirectory("workspace"), legacy}
+	declared := []resources.ExtensionDirectory{resources.ToolfeedDirectory("workspace", "feeds"), resources.LookupDirectory("workspace", workspace.KindForgeLookup), resources.DatasourceDirectory("workspace", workspace.KindForgeDataSource), authored.TemplateDirectory("workspace"), intents.IntentDirectory("workspace"), legacy}
 	var directories []resources.ExtensionDirectory
 	for _, directory := range declared {
 		_, err := os.Stat(filepath.Join(root, directory.Directory))
@@ -131,6 +131,11 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	for i := range windowDefs {
 		windowDefs[i].Title = titles[windowDefs[i].URI]
 	}
+	pickerDefs, err := resources.NativeLookupPickerDefinitions(context.Background(), root, defs, windowDefs, enrich)
+	if err != nil {
+		return err
+	}
+	windowDefs = append(windowDefs, pickerDefs...)
 	b.nativeWindowAliases = make(map[string]string, len(b.nativeWindowDefaults))
 	for _, entry := range b.nativeWindowDefaults {
 		if workspaceKeys[entry.Resource.WindowKey] && entry.Resource.URI == "window://workspace/"+entry.Resource.WindowKey {
@@ -140,6 +145,10 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 			b.nativeWindowAliases[entry.Resource.WindowKey] = entry.Resource.URI
 		}
 		windowDefs = append(windowDefs, resources.NativeSnapshotDefinition{URI: entry.Resource.URI, Title: entry.Resource.WindowKey, FormatVersion: 2, File: "embedded/window", Load: resources.NativeComposedWindowLoader(entry.Resource, entry.Load, enrich)})
+	}
+	b.nativeHTTPWindowURIs = make([]string, 0, len(windowDefs))
+	for _, definition := range windowDefs {
+		b.nativeHTTPWindowURIs = append(b.nativeHTTPWindowURIs, definition.URI)
 	}
 	defs = append(defs, windowDefs...)
 	defs = append(defs, reportDefs...)
@@ -284,7 +293,7 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		}
 		out.LocalPrimitiveProvider, err = resources.NewLocalProvider(resources.LocalConfig{ProviderIdentity: resources.InternalProviderIdentity, Actor: actor, Verify: verify, Authorize: authorize, Bindings: bindings, WindowIndex: snapshot.WindowIndex, MenuVisibilityProjection: func(ctx context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (json.RawMessage, error) {
 			return projection(ctx, raw)
-		}, Validators: map[string]resources.LocalResourceValidator{primitive.ToolfeedKind: resources.ValidateToolfeedDefinition, "datasource": resources.ValidateDatasourceDefinition, "template": resources.ValidateTemplateDefinition, "intent": resources.ValidateIntentDefinition, "menu": resources.ValidateMenu, "window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope}})
+		}, Validators: map[string]resources.LocalResourceValidator{primitive.ToolfeedKind: resources.ValidateToolfeedDefinition, "datasource": resources.ValidateDatasourceDefinition, "template": resources.ValidateTemplateDefinition, "intent": resources.ValidateIntentDefinition, "menu": resources.ValidateMenu, "window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope, "mcp": resources.ValidateMCPDefinition, "lookup": resources.ValidateLookupDefinition}})
 		if err != nil {
 			return err
 		}
@@ -305,7 +314,7 @@ func publicDefinitionRead(ctx context.Context, a identity.VerifiedActor, uri ide
 			return nil
 		}
 	case "resource.list", "resource.get":
-		if uri.Kind == primitive.ToolfeedKind || uri.Kind == "datasource" || uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "menu" || uri.Kind == "window" || uri.Kind == "report" {
+		if uri.Kind == primitive.ToolfeedKind || uri.Kind == "datasource" || uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "menu" || uri.Kind == "window" || uri.Kind == "report" || uri.Kind == "mcp" || uri.Kind == "lookup" {
 			return nil
 		}
 	}

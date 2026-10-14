@@ -191,9 +191,7 @@ func (s *resourceReadSequence) checkActor(actor identity.VerifiedActor) error {
 func (s *resourceReadSequence) constrainLease(lease time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.lease.IsZero() || lease.Before(s.lease) {
-		s.lease = lease
-	}
+	s.lease = identity.MinimumMetadataExpiry(s.lease, lease)
 }
 
 func credentialDigest(ctx context.Context) [32]byte {
@@ -273,7 +271,7 @@ func (s *resourceReadSequence) lookup(name, key string) (capabilities, bool, err
 	if !found {
 		return capabilities{}, false, nil
 	}
-	if held.key != key || !held.cap.expires.After(s.gateway.now()) || s.gateway.generation(name) != held.cap.connection.Generation {
+	if held.key != key || !identity.MetadataExpiryValid(held.cap.expires, s.gateway.now()) || s.gateway.generation(name) != held.cap.connection.Generation {
 		s.failed = identity.ErrResourceDenied
 		return capabilities{}, false, identity.ErrResourceDenied
 	}
@@ -351,7 +349,7 @@ func (s *resourceReadSequence) endPhase(ctx context.Context) (err error) {
 		if err != nil {
 			return err
 		}
-		if binding.key != held.key || s.gateway.generation(name) != held.cap.connection.Generation || !held.cap.expires.After(s.gateway.now()) {
+		if binding.key != held.key || s.gateway.generation(name) != held.cap.connection.Generation || !identity.MetadataExpiryValid(held.cap.expires, s.gateway.now()) {
 			return identity.ErrResourceDenied
 		}
 		if err := s.gateway.checkReadBinding(ctx, actor, binding); err != nil {
@@ -469,7 +467,7 @@ func (s *resourceReadSequence) finish(ctx context.Context) error {
 	if err == nil && s.failed != nil {
 		err = s.failed
 	}
-	if err == nil && (s.dispatchDepth > 0 || ctx.Err() != nil || !s.lease.After(s.gateway.now())) {
+	if err == nil && (s.dispatchDepth > 0 || ctx.Err() != nil || !identity.MetadataExpiryValid(s.lease, s.gateway.now())) {
 		err = identity.ErrResourceDenied
 	}
 	return err

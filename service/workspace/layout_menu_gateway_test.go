@@ -14,8 +14,10 @@ import (
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	identity "github.com/viant/agently-core/protocol/resource"
 	resources "github.com/viant/agently-core/service/resource"
+	producer "github.com/viant/agently-core/service/resource/provider"
 	"github.com/viant/agently-core/service/ui/layoutgate"
 	"github.com/viant/agently-core/service/ui/permittedview"
+	"github.com/viant/jsonrpc/transport"
 	"github.com/viant/mcp"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -75,6 +77,10 @@ applications:
 		return capturedMenuPolicy{a}, nil
 	})
 	require.NoError(t, err)
+	changes := &menuProjectionChanges{snapshot: snapshot}
+	for i := range bindings {
+		bindings[i].Changes = changes
+	}
 	project := layoutgate.MenuProjection(runtime, nil)
 	provider, err := resources.NewLocalProvider(resources.LocalConfig{ProviderIdentity: "menu-provider", Actor: resolve, Verify: verify, Authorize: func(_ context.Context, a identity.VerifiedActor, u identity.ResourceURI, _ string) error {
 		if a.Subject != "owner" || u.Namespace != "team" {
@@ -103,7 +109,11 @@ applications:
 	held, err := reader(ctx)
 	require.NoError(t, err)
 	facts.features = nil
-	require.Error(t, held.Revalidate(ctx), "changed current visibility cannot release a stale projection")
+	require.NoError(t, held.Revalidate(ctx), "unnotified owning projection stays in the private metadata cache")
+	held, err = reader(ctx)
+	require.NoError(t, err)
+	changes.projections.Publish(ctx)
+	require.Error(t, held.Revalidate(ctx), "owning visibility notification cannot release the prior projection")
 	require.NoError(t, held.Close())
 	got, err := handler.Layout(ctx, &LayoutRequest{})
 	require.NoError(t, err)
@@ -130,4 +140,17 @@ type mutableLayoutFacts struct{ features []string }
 
 func (r *mutableLayoutFacts) Resolve(context.Context, *permittedview.Request) (*permittedview.Snapshot, error) {
 	return &permittedview.Snapshot{AuthorizationVersion: "original", ExpiresAt: time.Now().Add(time.Minute), Principal: map[string]any{"features": r.features}}, nil
+}
+
+// Menu projection facts and immutable authored source changes use the same
+// standard owning MCP resource notification channel.
+type menuProjectionChanges struct {
+	snapshot    *resources.NativeAssetSnapshot
+	projections producer.ResourceChanges
+}
+
+func (s *menuProjectionChanges) SubscribeResources(sink transport.Notifier) func() {
+	stopSource := s.snapshot.SubscribeResources(sink)
+	stopProjection := s.projections.SubscribeResources(sink)
+	return func() { stopSource(); stopProjection() }
 }

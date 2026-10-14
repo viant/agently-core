@@ -28,7 +28,10 @@ type skillMCPFixture struct {
 }
 
 func (f *skillMCPFixture) Initialize(context.Context, ...client.RequestOption) (*schema.InitializeResult, error) {
-	return &schema.InitializeResult{}, nil
+	if f.noExtension {
+		return &schema.InitializeResult{}, nil
+	}
+	return &schema.InitializeResult{Capabilities: schema.ServerCapabilities{Resources: &schema.ServerCapabilitiesResources{}, Extensions: map[string]map[string]interface{}{schema.SkillsExtension: {}}}}, nil
 }
 func (f *skillMCPFixture) ListTools(context.Context, *string, ...client.RequestOption) (*schema.ListToolsResult, error) {
 	return &schema.ListToolsResult{}, nil
@@ -80,7 +83,7 @@ func TestMCPDirectGetAndPinnedManifest(t *testing.T) {
 	require.ErrorContains(t, err, "changed")
 	f.noExtension = true
 	_, err = s.GetVisible(ctx, a, ref)
-	require.ErrorContains(t, err, "extension not declared")
+	require.ErrorContains(t, err, "extension not advertised")
 }
 func (f *skillMCPFixture) ReadResource(ctx context.Context, in *schema.ReadResourceRequestParams, _ ...client.RequestOption) (*schema.ReadResourceResult, error) {
 	f.readCalls++

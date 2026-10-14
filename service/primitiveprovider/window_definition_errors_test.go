@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	windowprotocol "github.com/viant/agently-core/protocol/window"
 	"strings"
 	"testing"
 	"time"
@@ -160,7 +161,7 @@ func TestCanonicalMCPUnknownAdmissionFailureRemainsTypedDenied(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			emissions := 0
 			catalog := &verificationFailureCatalog{window: verificationWindow()}
-			bridge := NewService(&Config{WindowDefinitions: catalog, WindowOpenAdmission: func(context.Context, identity.ResolvedResource, *types.Window, map[string]any) (*WindowOpenDecision, error) {
+			bridge := NewService(&Config{WindowDefinitions: catalog, WindowUIProjection: func(context.Context, *windowprotocol.PresentationInput) (*types.Window, error) {
 				return nil, fmt.Errorf("private admission detail: %w", test.failure)
 			}, WindowSelectionEmitter: func(context.Context, *types.Window, map[string]any) (*identity.SelectionBinding, error) {
 				emissions++

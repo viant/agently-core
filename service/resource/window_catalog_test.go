@@ -48,6 +48,7 @@ func TestDelegatedWindowCatalogUsesExactProviderAndTarget(t *testing.T) {
 	require.Error(t, e)
 	input.Target = opened.Definition.ResourceTarget
 	p.definition = json.RawMessage(`{"view":{"content":{"id":"changed"}}}`)
+	p.resourceChanged() // Owning MCP announces source invalidation.
 	_, e = catalog.Get(context.Background(), input)
 	require.Error(t, e)
 }
@@ -69,9 +70,10 @@ func TestDelegatedWindowCatalogDiscardsOwningServerDenial(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result.Definition, "one request retains its admitted provider frame")
 	require.Equal(t, 1, upstream.gets)
+	p.resourceChanged()
 	result, err = catalog.Get(context.Background(), &service.WindowDefinitionGetInput{WindowID: rows.Windows[0].WindowID})
 	require.Error(t, err)
-	require.Nil(t, result, "next request must receive managing-provider denial")
+	require.Nil(t, result, "after notification the next request must receive managing-provider denial")
 	require.Equal(t, 2, upstream.gets)
 }
 

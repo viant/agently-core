@@ -1,12 +1,16 @@
 package manager
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/viant/afs"
 	authctx "github.com/viant/agently-core/internal/auth"
@@ -18,7 +22,19 @@ import (
 )
 
 // RepoProvider loads MCP client options from the Agently workspace repo ($AGENTLY_WORKSPACE/mcp).
+// DefinitionReader supplies authored definitions through the same catalog path.
+type DefinitionReader interface {
+	List(context.Context) ([]string, error)
+	Load(context.Context, string) (*mcpcfg.MCPClient, error)
+}
+
+type localNameReservationReader interface{ ReserveLocalNames([]string) error }
+
 type RepoProvider struct {
+	sourceMu   sync.RWMutex
+	reader     DefinitionReader
+	reserved   map[string]bool
+	bound      bool
 	repo       *mcprepo.Repository
 	stateStore workspace.StateStore
 }
@@ -41,24 +57,107 @@ func NewRepoProvider(opts ...RepoProviderOption) *RepoProvider {
 	return p
 }
 
-func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPClient, error) {
-	cfg, err := p.repo.Load(ctx, name)
-	// MCP tool/runtime names can be canonicalized to slash form (for example
-	// "mcp/say/hello/auth") while workspace configs commonly use flat
-	// underscore filenames ("mcp_say_hello_auth.yaml"). Fall back to that flat
-	// alias so production-style flat MCP configs still resolve correctly.
-	if (err != nil || cfg == nil || cfg.ClientOptions == nil) && strings.Contains(strings.TrimSpace(name), "/") {
-		alias := strings.ReplaceAll(strings.TrimSpace(name), "/", "_")
-		if alias != "" && alias != name {
-			cfg, err = p.repo.Load(ctx, alias)
+// WithRepoDefinitionReader selects one reader; supplied-reader errors never fall
+// back to the legacy repository. Manager binding reserves local names first.
+func WithRepoDefinitionReader(reader DefinitionReader) RepoProviderOption {
+	return func(p *RepoProvider) { p.reader = reader; p.bound = reader != nil }
+}
+
+func (p *RepoProvider) bindDefinitionReader(reader DefinitionReader, names []string) error {
+	p.sourceMu.Lock()
+	defer p.sourceMu.Unlock()
+	if p.bound {
+		return fmt.Errorf("MCP definition reader already bound")
+	}
+	if reader == nil {
+		return fmt.Errorf("MCP definition reader unavailable")
+	}
+	reserved := map[string]bool{}
+	for _, name := range names {
+		reserved[name] = true
+	}
+	if len(names) > 0 {
+		reservation, ok := reader.(localNameReservationReader)
+		if !ok {
+			return fmt.Errorf("MCP definition reader cannot reserve local connections")
+		}
+		if err := reservation.ReserveLocalNames(append([]string(nil), names...)); err != nil {
+			return err
 		}
 	}
+	p.reader = reader
+	p.reserved = reserved
+	p.bound = true
+	return nil
+}
+func (p *RepoProvider) definitionReaderBound() bool {
+	p.sourceMu.RLock()
+	defer p.sourceMu.RUnlock()
+	return p.bound
+}
+func (p *RepoProvider) reservedLocalName(name string) bool {
+	p.sourceMu.RLock()
+	defer p.sourceMu.RUnlock()
+	return p.bound && p.reserved[name]
+}
+
+func (p *RepoProvider) loadDefinition(ctx context.Context, name string) (*mcpcfg.MCPClient, error) {
+	p.sourceMu.RLock()
+	reader := p.reader
+	p.sourceMu.RUnlock()
+	var cfg *mcpcfg.MCPClient
+	resolvedName := name
+	var err error
+	if reader != nil {
+		cfg, err = reader.Load(ctx, name)
+	} else {
+		cfg, err = p.repo.Load(ctx, name)
+		// Flat aliases apply to legacy repository names, never canonical references.
+		if (err != nil || cfg == nil || cfg.ClientOptions == nil) && !strings.Contains(name, "://") && strings.Contains(strings.TrimSpace(name), "/") {
+			alias := strings.ReplaceAll(strings.TrimSpace(name), "/", "_")
+			if alias != "" && alias != name {
+				cfg, err = p.repo.Load(ctx, alias)
+				resolvedName = alias
+			}
+		}
+	}
+	if err != nil || cfg == nil {
+		return cfg, err
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var detached mcpcfg.MCPClient
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err = decoder.Decode(&detached); err != nil {
+		return nil, err
+	}
+	if reader == nil {
+		detached.ResolvedIdentity = &mcpcfg.ResolvedServiceIdentity{ServiceName: resolvedName}
+	} else if cfg.ResolvedIdentity != nil {
+		identity := *cfg.ResolvedIdentity
+		detached.ResolvedIdentity = &identity
+	}
+	return &detached, nil
+}
+
+func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPClient, error) {
+	return p.preparedOptions(ctx, name, false)
+}
+
+func (p *RepoProvider) preparedOptions(ctx context.Context, name string, routingOnly bool) (*mcpcfg.MCPClient, error) {
+	cfg, err := p.loadDefinition(ctx, name)
 	if err == nil && cfg != nil {
 		if e := cfg.ValidateExecutionLocation(); e != nil {
 			return nil, e
 		}
 		if cfg.IsBrowserExecution() {
-			canonical := strings.ReplaceAll(strings.TrimSpace(name), "/", "_")
+			canonical := strings.TrimSpace(name)
+			if !strings.Contains(canonical, "://") {
+				canonical = strings.ReplaceAll(canonical, "/", "_")
+			}
 			if _, e := cfg.BrowserDescriptor(canonical); e != nil {
 				return nil, e
 			}
@@ -78,6 +177,9 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 		}
 	}
 	expandEnvTemplates(cfg)
+	if routingOnly {
+		return cfg, nil
+	}
 	if cfg.IsDelegatedAuth() {
 		// Delegated OAuth credentials live in the encrypted canonical token
 		// store owned by the credential resolver; never attach a per-user
@@ -87,6 +189,10 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 		}
 		return cfg, nil
 	}
+	storageName := name
+	if cfg.ResolvedIdentity != nil && cfg.ResolvedIdentity.ServiceName != "" {
+		storageName = cfg.ResolvedIdentity.ServiceName
+	}
 	// Derive per-user state dir for tokens/cookies
 	userID := authctx.EffectiveUserID(ctx)
 	if userID == "" {
@@ -95,9 +201,9 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 	safe := sanitize(userID)
 	var stateDir string
 	if p.stateStore != nil {
-		stateDir, _ = p.stateStore.StatePath(ctx, filepath.Join("mcp", name, safe))
+		stateDir, _ = p.stateStore.StatePath(ctx, filepath.Join("mcp", storageName, safe))
 	} else {
-		stateDir = filepath.Join(workspace.StateRoot(), "mcp", name, safe)
+		stateDir = filepath.Join(workspace.StateRoot(), "mcp", storageName, safe)
 		_ = os.MkdirAll(stateDir, 0o700)
 	}
 
@@ -117,7 +223,16 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 
 // Names lists configured MCP server definitions without performing discovery.
 func (p *RepoProvider) Names(ctx context.Context) ([]string, error) {
-	if p == nil || p.repo == nil {
+	if p == nil {
+		return nil, nil
+	}
+	p.sourceMu.RLock()
+	reader := p.reader
+	p.sourceMu.RUnlock()
+	if reader != nil {
+		return reader.List(ctx)
+	}
+	if p.repo == nil {
 		return nil, nil
 	}
 	return p.repo.List(ctx)
@@ -178,5 +293,5 @@ func expandEnvString(value string) string {
 // BrowserOptions reads public execution routing before token/cookie state or
 // environment/resource providers are attached by ordinary server Options.
 func (p *RepoProvider) BrowserOptions(ctx context.Context, name string) (*mcpcfg.MCPClient, error) {
-	return p.repo.Load(ctx, name)
+	return p.preparedOptions(ctx, name, true)
 }

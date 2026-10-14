@@ -150,7 +150,7 @@ func PrepareStaticAuthorization(registration StaticAuthorizationRegistration) (*
 		projection = permittedview.NumericAccountProjection
 	}
 	window := checker.WindowCallback(whole)
-	provider := AuthorizationProvider{AuthoritySnapshot: registration.AuthoritySnapshot, ComponentAuthoritySnapshot: registration.ComponentAuthoritySnapshot, Service: registration.Service, Account: registration.Account, AuthorityRevision: registration.AuthorityRevision, AccountProjection: projection, GateEvaluator: registration.GateEvaluator, EntityPermission: entityPermission, EntityPermissionWithLease: entityPermissionWithLease, EntityRoles: registration.EntityRoles, PolicyVersion: registration.PolicyVersion, PolicyResource: whole, WindowAuthorize: window, DatasourceAuthorize: checker.DatasourceCallback(backend), ReportAuthorize: checker.ReportCallback(backend)}
+	provider := AuthorizationProvider{AuthoritySnapshot: registration.AuthoritySnapshot, ComponentAuthoritySnapshot: registration.ComponentAuthoritySnapshot, Service: registration.Service, Account: registration.Account, AuthorityRevision: registration.AuthorityRevision, AccountProjection: projection, GateEvaluator: registration.GateEvaluator, EntityPermission: entityPermission, EntityPermissionWithLease: entityPermissionWithLease, EntityRoles: registration.EntityRoles, PolicyVersion: registration.PolicyVersion, PolicyResource: whole, WindowAuthorize: window}
 	provider.ExecutionContext = registration.ExecutionContext
 	provider.DatasourceReadFactsScope = registration.DatasourceReadFactsScope
 	if registration.DecisionScope != nil {
@@ -289,15 +289,7 @@ func (p *PreparedAuthorization) WithWindowResourceResolver(resolve func(context.
 		if err != nil || variant.Window.ResourceDependencies[ds.ID] == "" || fingerprint != variant.Window.ResourceDependencies[ds.ID] {
 			return policy.ErrDenied
 		}
-		resource, action, selected, permission, err := p.backend(ctx, "datasource.fetch", pin.URI+"#"+ds.ID, inputs)
-		if err != nil {
-			return err
-		}
-		uri, err := identity.ParseResourceURI(pin.URI)
-		if err != nil || resource.Kind != uri.Kind || resource.ID != pin.URI || resource.Version != pin.Selector() {
-			return policy.ErrDenied
-		}
-		return p.checker.AuthorizeMany(ctx, resource, action, selected, permission)
+		return nil
 	}
 	p.provider.DatasourceDefinitionResolver = func(ctx context.Context, pin identity.ResolvedResource, target *forgetypes.WindowTarget, id string) (*dsproto.DataSource, error) {
 		if target == nil || p.windowTargetVerifier == nil {
@@ -335,14 +327,6 @@ func (p *PreparedAuthorization) WithWindowResourceResolver(resolve func(context.
 			return nil, policy.ErrDenied
 		}
 		return &ds, nil
-	}
-	// Canonical datasource guard above performs the exact version-bound action
-	// check; the legacy datasource-ID mapper cannot choose a second authority.
-	p.provider.DatasourceAuthorize = func(ctx context.Context, _ string, _ map[string]interface{}) error {
-		if _, ok := requestctx.ResolvedResourceFromContext(ctx); !ok {
-			return policy.ErrDenied
-		}
-		return nil
 	}
 
 	return nil

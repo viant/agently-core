@@ -144,10 +144,10 @@ func (s *Service) executeResourceUnscoped(ctx context.Context, request *ExecuteR
 		if e != nil {
 			return e
 		}
-		if fresh == nil || fresh.URI != original.URI || fresh.ProviderIdentity != original.ProviderIdentity || fresh.ResourceCandidate != original.ResourceCandidate || fresh.AuthorityBinding != original.AuthorityBinding || fresh.ValidUntil.After(original.ValidUntil) {
+		if fresh == nil || fresh.URI != original.URI || fresh.ProviderIdentity != original.ProviderIdentity || fresh.ResourceCandidate != original.ResourceCandidate || fresh.AuthorityBinding != original.AuthorityBinding || identity.MetadataExpiryExtends(fresh.ValidUntil, original.ValidUntil) {
 			return identity.ErrResourceDenied
 		}
-		if fresh.ValidUntil.Before(original.ValidUntil) {
+		if !fresh.ValidUntil.Equal(original.ValidUntil) {
 			compiled.DependencyPins, compiled.DependencyToken, e = s.bindOperationDependencies(ctx, original, fresh, envelope, compiled.DependencyPins, compiled.DependencyToken)
 			if e != nil {
 				return e
@@ -159,7 +159,7 @@ func (s *Service) executeResourceUnscoped(ctx context.Context, request *ExecuteR
 		return s.verifyDependencies(ctx, *pin, envelope, compiled.DependencyPins, compiled.DependencyToken)
 	}
 	check := func() error {
-		if ctx.Err() != nil || !pin.ValidUntil.After(s.now()) {
+		if ctx.Err() != nil || !identity.MetadataExpiryValid(pin.ValidUntil, s.now()) {
 			return identity.ErrResourceDenied
 		}
 		// Page dispatch uses the already admitted immutable definition and original
@@ -397,7 +397,7 @@ func (s *Service) AuthorizeResourceDataset(ctx context.Context, descriptor *dspr
 	if !ok || descriptor == nil || !s.hasResourceReader() {
 		return identity.ErrResourceDenied
 	}
-	if ctx.Err() != nil || !pin.ValidUntil.After(s.now()) {
+	if ctx.Err() != nil || !identity.MetadataExpiryValid(pin.ValidUntil, s.now()) {
 		return identity.ErrResourceDenied
 	}
 	var e registry.ReportEnvelope
@@ -421,7 +421,7 @@ func (s *Service) AuthorizeResourceDataset(ctx context.Context, descriptor *dspr
 		// This error-only callback cannot hand the caller a narrower replacement
 		// pin. Abort this fetch when a shorter grant is observed; a later regrant
 		// must not restore the previous lease and release this operation's rows.
-		if fresh == nil || fresh.ValidUntil.Before(pin.ValidUntil) || fresh.ValidUntil.After(pin.ValidUntil) {
+		if fresh == nil || !fresh.ValidUntil.Equal(pin.ValidUntil) {
 			return identity.ErrResourceDenied
 		}
 		if json.Unmarshal(raw, &e) != nil {

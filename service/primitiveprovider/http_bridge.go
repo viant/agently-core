@@ -145,10 +145,14 @@ func (h *uiRPCHandler) handle(ctx context.Context, method string, params json.Ra
 		trustedNS = identity.Namespace
 		if err == nil {
 			var cancel context.CancelFunc
-			ctx, cancel = context.WithDeadline(ctx, identity.ValidUntil)
+			if identity.ValidUntil.IsZero() {
+				cancel = func() {}
+			} else {
+				ctx, cancel = context.WithDeadline(ctx, identity.ValidUntil)
+			}
 			defer cancel()
 			defer func() {
-				if !identity.ValidUntil.After(time.Now()) || ctx.Err() != nil {
+				if !namespaceIdentityLive(identity, time.Now()) || ctx.Err() != nil {
 					result = nil
 					jerr = jsonrpc.NewInvalidParamsError("UI identity unavailable", nil)
 				}

@@ -51,7 +51,7 @@ func (s *Service) primitiveMetadata(ctx context.Context, agent *agentmdl.Agent) 
 	}
 	var out []proto.Metadata
 	for _, row := range rows {
-		if visibleRemote(agent, proto.Ref{ServerID: row.ServerID, Name: row.Name}) {
+		if visibleRemoteResource(agent, proto.Ref{ServerID: row.ServerID, Name: row.Name}, row.URI) {
 			out = append(out, row)
 		}
 	}
@@ -79,7 +79,7 @@ func (s *Service) getPrimitive(ctx context.Context, agent *agentmdl.Agent, key s
 	if err != nil || !handled {
 		return nil, handled, err
 	}
-	if !visibleRemote(agent, proto.Ref{ServerID: item.ServerID, Name: item.Frontmatter.Name}) {
+	if !visibleRemoteResource(agent, proto.Ref{ServerID: item.ServerID, Name: item.Frontmatter.Name}, item.CatalogURI) {
 		return nil, true, fmt.Errorf("skill not available")
 	}
 	if item.Source != "mcp" {

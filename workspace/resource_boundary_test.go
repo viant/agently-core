@@ -9,7 +9,7 @@ import (
 func TestRawResourceBoundaryKindsPathsAndAliases(t *testing.T) {
 	root := t.TempDir()
 	guard := NewRawResourceBoundary(root)
-	for _, relative := range []string{"windows/private.yaml", "extension/forge/windows/private.yaml", "extension/forge/reporting/presets/private.yaml", "intents/private.yaml", "skills/private/SKILL.md", "prompts/private.yaml"} {
+	for _, relative := range []string{"lookup/private.yaml", "lookups/private.yaml", "extension/forge/lookups/private.yaml", "extension/forge/dialogs/private.yaml", "extension/forge/datasources/private.yaml", "extension/forge/models/private.yaml", "windows/private.yaml", "extension/forge/windows/private.yaml", "extension/forge/reporting/presets/private.yaml", "intents/private.yaml", "skills/private/SKILL.md", "prompts/private.yaml"} {
 		if err := guard.CheckURI(filepath.Join(root, relative), false); err == nil {
 			t.Fatalf("protected path allowed: %s", relative)
 		}

@@ -174,7 +174,7 @@ func TestFeedGatewayNativeTwentyDefinitionsWarmCountsAndActorIsolation(t *testin
 	require.Equal(t, "toolfeed://user-alice/feed-00", feedIdentity(selected))
 	require.Contains(t, fmt.Sprint(selected.UI), "9007199254740993")
 	warmGets, _ := transport.counts()
-	require.Equal(t, coldGets+1, warmGets)
+	require.Equal(t, coldGets, warmGets, "selected Get should reuse the captured definition")
 	_, err = c.ListFeedSpecsContext(alice)
 	require.NoError(t, err)
 	afterList, _ := transport.counts()
@@ -205,7 +205,7 @@ func TestFeedGatewayNativeTwentyDefinitionsWarmCountsAndActorIsolation(t *testin
 	require.Error(t, err)
 	t.Logf("20-feed coldGet=%d warmSelectedGetDelta=%d warmListGetDelta=%d", coldGets, warmGets-coldGets, afterList-warmGets)
 }
-func TestFeedGatewayOrdinaryPartialProviderFreshDriftAndNativeCompletedExtraction(t *testing.T) {
+func TestFeedGatewayOrdinaryPartialProviderRetainsCapturedDefinitionAndNativeCompletedExtraction(t *testing.T) {
 	c, transport, _, _, root, _ := feedGatewayFixture(t, 1, true)
 	ctx := requestctx.WithConversationID(feedActorContext("alice"), "owned-conversation")
 	spec, err := c.GetFeedSpecContext(ctx, "feed-00")
@@ -231,13 +231,15 @@ func TestFeedGatewayOrdinaryPartialProviderFreshDriftAndNativeCompletedExtractio
 		t.Fatal("native feed event missing")
 	}
 	after, _ := transport.counts()
-	require.Equal(t, 1, after-before)
+	require.Equal(t, 0, after-before, "notification matching should reuse the captured definition")
 	file := filepath.Join(root, "feeds/alice/feed-00.yaml")
 	body, err := os.ReadFile(file)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(file, append(body, []byte("presentation: {icon: changed}\n")...), 0600))
-	_, err = c.GetFeedSpecContext(ctx, "feed-00")
-	require.ErrorIs(t, err, identity.ErrResourceStale)
+	unchanged, err := c.GetFeedSpecContext(ctx, "feed-00")
+	require.NoError(t, err)
+	require.Equal(t, spec.DefinitionFingerprint, unchanged.DefinitionFingerprint)
+	require.NotContains(t, fmt.Sprint(unchanged.UI), "icon:changed", "filesystem edits are not visible before an explicit provider reload")
 }
 func TestFeedGatewayHydratedSourceLeaseExpiresAndCancellation(t *testing.T) {
 	c, transport, _, lease, _, _ := feedGatewayFixture(t, 1, false)

@@ -252,18 +252,19 @@ func TestStandaloneProviderDatasourceRejectsSubstitutionAndPostDispatchDrift(t *
 			case "expired":
 				pin.ValidUntil = time.Now().Add(-time.Second)
 			case "source-after":
-				provider.after = func() { item.raw = append(item.raw, byte(' ')) }
+				provider.after = func() { item.raw = append(item.raw, byte(' ')); provider.resourceChanged() }
 			case "component-after":
 				provider.after = func() {
 					var e map[string]any
 					json.Unmarshal(item.raw, &e)
 					e["dataSource"].(map[string]any)["backend"].(map[string]any)["component"].(map[string]any)["revision"] = "other"
 					item.raw, _ = json.Marshal(e)
+					provider.resourceChanged()
 				}
 			case "authority-after":
-				provider.after = func() { item.authorityBinding = "revoked" }
+				provider.after = func() { item.authorityBinding = "revoked"; provider.resourceChanged() }
 			case "lease-after":
-				provider.after = func() { item.validUntil = time.Now().Add(5 * time.Millisecond) }
+				provider.after = func() { item.validUntil = time.Now().Add(5 * time.Millisecond); provider.resourceChanged() }
 			}
 			body, err := gateway.FetchDatasource(context.Background(), pin, proof, descriptor, nil)
 			require.Error(t, err)

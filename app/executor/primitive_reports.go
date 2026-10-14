@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"errors"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	provider "github.com/viant/agently-core/service/resource/provider"
 	userprovider "github.com/viant/agently-core/service/resource/provider/user"
@@ -10,12 +9,9 @@ import (
 	mcpclient "github.com/viant/mcp/client"
 
 	identity "github.com/viant/agently-core/protocol/resource"
-	requestctx "github.com/viant/agently-core/runtime/requestctx"
-	"github.com/viant/agently-core/service/policy"
 	reporting "github.com/viant/agently-core/service/reporting"
 	reportcatalog "github.com/viant/agently-core/service/reporting/catalog"
 	resources "github.com/viant/agently-core/service/resource"
-	"github.com/viant/authz"
 )
 
 // Report delivery is assembled independently of local report storage. The
@@ -48,15 +44,7 @@ func (b *Builder) configurePrimitiveReports(out *Runtime) error {
 			operation string
 			allowed   *bool
 		}{{"report.retrieve", &result.Open}, {"report.execute", &result.Run}, {"report.export", &result.Export}} {
-			if out.ReportAuthorizer != nil {
-				err := out.ReportAuthorizer(requestctx.WithResolvedResource(ctx, pin), check.operation, pin.URI)
-				if err != nil {
-					if errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, authz.ErrDenied) || errors.Is(err, policy.ErrDenied) {
-						continue
-					}
-					return reportcatalog.ReportCapabilities{}, err
-				}
-			}
+
 			*check.allowed = true
 		}
 		return result, nil

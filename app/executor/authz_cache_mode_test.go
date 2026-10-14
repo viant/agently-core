@@ -40,7 +40,7 @@ func (authzReadyCatalog) Get(context.Context, *forgesvc.WindowDefinitionGetInput
 	return nil, authz.ErrDenied
 }
 
-func TestWholeWindowAuthzWithLegacyCapabilityUIStillDisablesResultCache(t *testing.T) {
+func TestUIOnlyWindowPolicyDoesNotInstallResourceGateOrDisableMetadataCache(t *testing.T) {
 	config := &forgesvc.Config{WindowDefinitions: authzReadyCatalog{}}
 	field := reflect.ValueOf(config).Elem().FieldByName("DynamicWindowAuthorizer")
 	if !field.IsValid() {
@@ -67,8 +67,8 @@ func TestWholeWindowAuthzWithLegacyCapabilityUIStillDisablesResultCache(t *testi
 		t.Fatal(err)
 	}
 	defer rt.Close(context.Background())
-	if !rt.DatasourceDisableCache || rt.WindowAuthorizer == nil || rt.PermittedResolver != nil {
-		t.Fatalf("mixed authz/legacy runtime: disableCache=%v window=%v permitted=%T", rt.DatasourceDisableCache, rt.WindowAuthorizer != nil, rt.PermittedResolver)
+	if rt.DatasourceDisableCache || rt.PermittedResolver != nil {
+		t.Fatalf("mixed authz/legacy runtime: disableCache=%v window=%v permitted=%T", rt.DatasourceDisableCache, false, rt.PermittedResolver)
 	}
 }
 
@@ -128,16 +128,16 @@ func TestPrincipalOnlyUIAuthzBuildsWithoutEntityPermissionProvider(t *testing.T)
 		t.Fatalf("principal-only authz build: %v", err)
 	}
 	defer rt.Close(context.Background())
-	if rt.PermittedResolver == nil || rt.DatasourceAuthorizer == nil {
-		t.Fatal("principal-only authz services were not installed")
+	if rt.PermittedResolver == nil || rt.DatasourceAuthorizer != nil {
+		t.Fatal("principal facts must drive UI controls without a consumer datasource gate")
 	}
-	snapshot, err := rt.PermittedResolver.Resolve(context.Background(), &permittedview.Request{ResourceType: "window", RequestedGlobalCapabilities: []string{"open"}, IncludePrincipal: true})
-	if err != nil || snapshot == nil || !snapshot.GlobalCapabilities["open"] || snapshot.Principal["subject"] != "alice" {
+	snapshot, err := rt.PermittedResolver.Resolve(context.Background(), &permittedview.Request{IncludePrincipal: true})
+	if err != nil || snapshot == nil || snapshot.Principal["subject"] != "alice" {
 		t.Fatalf("principal-only snapshot=%+v err=%v", snapshot, err)
 	}
 	service.Provider = authzCacheFacts{authz.Facts{Subject: "alice", Issuer: "issuer", Tenant: "tenant", Roles: []string{"unprivileged"}, ValidUntil: time.Now().Add(time.Hour)}}
-	denied, err := rt.PermittedResolver.Resolve(context.Background(), &permittedview.Request{ResourceType: "window", RequestedGlobalCapabilities: []string{"open"}, IncludePrincipal: true})
-	if err != nil || denied == nil || denied.GlobalCapabilities["open"] {
-		t.Fatalf("principal-only ACL denial was not retained: snapshot=%+v err=%v", denied, err)
+	changed, err := rt.PermittedResolver.Resolve(context.Background(), &permittedview.Request{IncludePrincipal: true})
+	if err != nil || changed == nil || reflect.DeepEqual(snapshot.Principal["roles"], changed.Principal["roles"]) {
+		t.Fatalf("principal-only role change was not reflected: snapshot=%+v err=%v", changed, err)
 	}
 }

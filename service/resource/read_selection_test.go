@@ -18,6 +18,7 @@ import (
 	dssvc "github.com/viant/agently-core/service/datasource"
 	forgeMCP "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
+	protoclient "github.com/viant/mcp-protocol/client"
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -83,10 +84,13 @@ func TestSelectedDatasourceSequenceStopsDriftBeforeDispatchAndCannotRecover(t *t
 			switch change {
 			case "parent-content":
 				stack.parent.raw = append(stack.parent.raw, ' ')
+				stack.parentChanged()
 			case "child-content":
 				stack.child.raw = append(stack.child.raw, ' ')
+				stack.provider.resourceChanged()
 			case "revocation":
 				stack.child.denied = true
+				stack.provider.resourceChanged()
 			case "target":
 				target.SelectionToken = "invalid-original-target"
 			case "alias":
@@ -135,6 +139,7 @@ func TestSelectedDatasourceSequencePostDriftAndCacheReleaseUseFreshChecks(t *tes
 			_, err = stack.catalog.ResolveDatasource(ctx, parent, target, "orders")
 			require.NoError(t, err)
 			stack.child.denied = true
+			stack.provider.resourceChanged()
 			require.Error(t, finish(), "changed POST resource authority prevents data release")
 		})
 	}
@@ -149,7 +154,11 @@ func TestSelectedDatasourceHostCallbackContentMutationCannotPassBarrier(t *testi
 	require.NoError(t, err)
 	fp, err := types.WindowDescriptorFingerprint(raw)
 	require.NoError(t, err)
-	require.NoError(t, RegisterDatasourceSelectionAdmission(ctx, parent, target, "orders", fp, func(context.Context) error { stack.child.raw = append(stack.child.raw, ' '); return nil }))
+	require.NoError(t, RegisterDatasourceSelectionAdmission(ctx, parent, target, "orders", fp, func(context.Context) error {
+		stack.child.raw = append(stack.child.raw, ' ')
+		stack.provider.resourceChanged()
+		return nil
+	}))
 	_, err = requestctx.BeginResourceReadDispatch(ctx)
 	require.Error(t, err, "fresh resources must be checked after host callbacks and before effects")
 	require.Zero(t, sequenceFromContext(ctx).dispatchDepth)
@@ -226,6 +235,8 @@ func selectedToolCacheStack(t *testing.T) *dependencyStack {
 	raw, err = json.Marshal(envelope)
 	require.NoError(t, err)
 	stack.parent.raw = raw
+	stack.parentChanged()
+	stack.provider.resourceChanged()
 	stack.opened, err = stack.catalog.Get(context.Background(), &forgeMCP.WindowDefinitionGetInput{WindowID: stack.parentURI})
 	require.NoError(t, err)
 	return stack
@@ -283,8 +294,10 @@ func TestSelectedDatasourceCachedRowsRequireFreshReleaseWithoutToolDispatch(t *t
 				switch change {
 				case "source":
 					stack.parent.raw = append(stack.parent.raw, ' ')
+					stack.parentChanged()
 				case "revocation":
 					stack.child.denied = true
+					stack.provider.resourceChanged()
 				case "host-admission":
 					denied = true
 				case "expiry":
@@ -362,6 +375,9 @@ type selectedRPCSpy struct {
 	calls map[string]int
 }
 
+func (s *selectedRPCSpy) SetNotificationHandler(h protoclient.Handler) {
+	s.Interface.(interface{ SetNotificationHandler(protoclient.Handler) }).SetNotificationHandler(h)
+}
 func (s *selectedRPCSpy) CallTool(ctx context.Context, in *schema.CallToolRequestParams, opts ...mcpclient.RequestOption) (*schema.CallToolResult, error) {
 	s.mu.Lock()
 	s.calls[in.Name]++
@@ -401,21 +417,21 @@ func TestSelectedDatasourcePostFirstReadsFillOnlyOriginalResourceSlots(t *testin
 	end, err := requestctx.BeginResourceReadDispatch(ctx)
 	require.NoError(t, err)
 	require.NoError(t, end())
-	require.Equal(t, 2, parentSpy.count("windows/get"))
-	require.Equal(t, 2, childSpy.count("datasources/get"))
+	require.Equal(t, 1, parentSpy.count("windows/get"))
+	require.Equal(t, 1, childSpy.count("datasources/get"))
 	child := target.DependencyPins["orders"]
 	for i := 0; i < 3; i++ {
 		_, _, err = stack.gateway.ResolveDatasource(ctx, child)
 		require.NoError(t, err)
 	}
-	require.Equal(t, 3, childSpy.count("datasources/get"), "the first exact child POST read is fresh; repeats reuse only its detached POST body")
+	require.Equal(t, 1, childSpy.count("datasources/get"), "POST reads reuse the owning definition until resource notification")
 	_, err = stack.catalog.ResolveDatasource(ctx, parent, target, "orders")
 	require.NoError(t, err)
-	require.Equal(t, 3, parentSpy.count("windows/get"))
-	require.Equal(t, 3, childSpy.count("datasources/get"))
+	require.Equal(t, 1, parentSpy.count("windows/get"))
+	require.Equal(t, 1, childSpy.count("datasources/get"))
 	require.NoError(t, finish())
-	require.Equal(t, 4, parentSpy.count("windows/get"))
-	require.Equal(t, 4, childSpy.count("datasources/get"), "final release force-refreshes both resources")
+	require.Equal(t, 1, parentSpy.count("windows/get"))
+	require.Equal(t, 1, childSpy.count("datasources/get"), "final release validates existing scope and pins without rereading definitions")
 }
 func TestSelectedDatasourcePostFirstReadCannotAdoptMutationOrRevocation(t *testing.T) {
 	for _, change := range []string{"content", "revocation"} {
@@ -430,8 +446,10 @@ func TestSelectedDatasourcePostFirstReadCannotAdoptMutationOrRevocation(t *testi
 			require.NoError(t, end())
 			if change == "content" {
 				stack.child.raw = append(stack.child.raw, ' ')
+				stack.provider.resourceChanged()
 			} else {
 				stack.child.denied = true
+				stack.provider.resourceChanged()
 			}
 			child := target.DependencyPins["orders"]
 			descriptor, _, err := stack.gateway.ResolveDatasource(ctx, child)
@@ -456,8 +474,10 @@ func TestSelectedDatasourceFailedPostReadCannotRecoverAfterRegrant(t *testing.T)
 			original := append([]byte(nil), stack.child.raw...)
 			if change == "content" {
 				stack.child.raw = append(stack.child.raw, ' ')
+				stack.provider.resourceChanged()
 			} else {
 				stack.child.denied = true
+				stack.provider.resourceChanged()
 			}
 			_, _, err = stack.gateway.ResolveDatasource(ctx, target.DependencyPins["orders"])
 			require.Error(t, err)

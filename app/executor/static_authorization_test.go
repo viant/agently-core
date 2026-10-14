@@ -72,9 +72,7 @@ func TestPreparedAuthorizationRegistersExactHostMappings(t *testing.T) {
 	if builder.authorizationProviders["shared"].Gate == nil || builder.authorizationProviders["shared"].ToolAuthorize == nil || builder.authorizationProviders["shared"].WindowAuthorize == nil || builder.authorizationProviders["shared"].EntityRoles == nil || builder.authorizationProviders["shared"].AuthorityRevision == nil || builder.capabilityMappings["windows"] == nil || builder.capabilityMappingsV2["windows"] == nil {
 		t.Fatal("trusted registration was incomplete")
 	}
-	if err := builder.authorizationProviders["shared"].ReportAuthorize(context.Background(), "report.retrieve", "report-run://created"); err != nil {
-		t.Fatalf("host dynamic report mapper was not registered: %v", err)
-	}
+
 }
 
 func TestPreparedAuthorizationAllowsPrincipalOnlyMappingsWithoutEntityProvider(t *testing.T) {

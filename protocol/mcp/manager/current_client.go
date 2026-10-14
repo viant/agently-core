@@ -17,7 +17,7 @@ func (m *Manager) IsCurrentClient(ctx context.Context, conversation, name string
 		return false
 	}
 	held, ok := client.(*managedClient)
-	if !ok || held == nil || held.mgr != m || held.serverName != name {
+	if !ok || held == nil || held.entry == nil || held.mgr != m {
 		return false
 	}
 	key := m.poolKey(ctx, conversation)
@@ -26,6 +26,9 @@ func (m *Manager) IsCurrentClient(ctx context.Context, conversation, name string
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	current := m.pool[key][name]
+	if held.serverName != name && !held.entry.aliases[name] {
+		return false
+	}
+	current := m.pool[key][held.serverName]
 	return current != nil && current == held.entry && current.managed == held && current.client != nil && !current.evicted && !current.closed
 }

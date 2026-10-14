@@ -65,7 +65,7 @@ func TestFrameworkChatAnchorNeedsTrustedExactInstanceHandoff(t *testing.T) {
 	if pin, err := svc.WindowResource(ctx, "owned-namespace", "owned-client", "chat/new", "chat/new"); err == nil || pin != nil {
 		t.Fatal("definition GET implicitly bound browser instance")
 	}
-	admitted, err := svc.AdmitWindowOpen(ctx, definition.Definition, nil)
+	admitted, err := svc.ProjectWindow(ctx, definition.Definition)
 	if err != nil {
 		t.Fatal(err)
 	}

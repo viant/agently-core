@@ -10,7 +10,7 @@ import (
 	"github.com/viant/authz"
 )
 
-func TestStaticAuthorizationForwardsLeasedOnlyEntityProvider(t *testing.T) {
+func TestStaticAuthorizationForwardsLeasedOnlyEntityProviderForUIFacts(t *testing.T) {
 	resource := authz.Resource{Kind: "dataSource", ID: "rows", Version: "1", Tenant: "tenant"}
 	facts := authz.Facts{Subject: "alice", Issuer: "issuer", Tenant: "tenant", Roles: []string{"reader"}, ValidUntil: time.Now().Add(time.Hour)}
 	service := &authz.Service{Provider: staticAuthFacts{facts}, Store: staticAuthStore{authz.Document{Resource: resource, Revision: 1, Policies: map[string]authz.Policy{"retrieve": {Mode: "protected", Rule: &authz.Rule{Kind: "role", Value: "reader"}}}}}}
@@ -39,7 +39,7 @@ func TestStaticAuthorizationForwardsLeasedOnlyEntityProvider(t *testing.T) {
 	if err != nil || !allow || !returned.Equal(lease) {
 		t.Fatalf("permission lease not forwarded %v %v %v", allow, returned, err)
 	}
-	if err = provider.DatasourceAuthorize(context.Background(), "rows", map[string]interface{}{"advertiserId": "1"}); err != nil || calls != 2 {
-		t.Fatalf("backend did not use leased provider: calls=%d err=%v", calls, err)
+	if provider.DatasourceAuthorize != nil || calls != 1 {
+		t.Fatalf("consumer datasource gate must remain absent: calls=%d gate=%v", calls, provider.DatasourceAuthorize != nil)
 	}
 }

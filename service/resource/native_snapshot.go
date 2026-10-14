@@ -13,8 +13,10 @@ import (
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
+	producer "github.com/viant/agently-core/service/resource/provider"
 	workspacewindow "github.com/viant/agently-core/service/ui/window"
 	"github.com/viant/forge/backend/types"
+	"github.com/viant/jsonrpc/transport"
 )
 
 // NativeSnapshotDefinition declares a deterministic authored-content loader.
@@ -51,6 +53,7 @@ type nativeSnapshotValue struct {
 // captured map until explicit Reload or restart; no filesystem polling or asset
 // manifest is maintained. Actors, policies, grants and leases remain fresh.
 type NativeAssetSnapshot struct {
+	changes      producer.ResourceChanges
 	root         string
 	anchor       os.FileInfo
 	definitions  []NativeSnapshotDefinition
@@ -89,7 +92,7 @@ func NewNativeAssetSnapshot(ctx context.Context, root string, definitions []Nati
 		if definition.RawDocument && (err != nil || uri.Kind != "agently-runtime" || definition.FormatVersion != 0) {
 			return nil, fmt.Errorf("invalid native raw document")
 		}
-		if err != nil || definition.Load == nil || !extensionPath(definition.File) || seen[definition.URI] || !(definition.RawDocument && definition.FormatVersion == 0 || uri.Kind == "window" && (definition.FormatVersion == 2 || definition.FormatVersion == 3) || uri.Kind == "report" && definition.FormatVersion == 1 || uri.Kind == primitive.ToolfeedKind && definition.FormatVersion == primitive.ToolfeedFormatVersion || uri.Kind == "datasource" && definition.FormatVersion == 1 || (uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "menu" || uri.Kind == "skill") && definition.FormatVersion == 1) {
+		if err != nil || definition.Load == nil || !extensionPath(definition.File) || seen[definition.URI] || !(definition.RawDocument && definition.FormatVersion == 0 || uri.Kind == "window" && (definition.FormatVersion == 2 || definition.FormatVersion == 3) || uri.Kind == "report" && definition.FormatVersion == 1 || uri.Kind == primitive.ToolfeedKind && definition.FormatVersion == primitive.ToolfeedFormatVersion || uri.Kind == "datasource" && definition.FormatVersion == 1 || (uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "menu" || uri.Kind == "skill" || uri.Kind == "mcp" || uri.Kind == "lookup") && definition.FormatVersion == 1) {
 			return nil, fmt.Errorf("unsupported or duplicate native snapshot definition")
 		}
 		seen[definition.URI] = true
@@ -108,7 +111,7 @@ func (s *NativeAssetSnapshot) CompileCount() uint64 {
 
 // Reload compiles off the read path and publishes one complete validated
 // generation atomically. Failed or canceled reloads retain the prior bytes.
-// The owning host/provider emits its resource-change event after success.
+// A standard resource-change notification follows successful publication.
 func (s *NativeAssetSnapshot) Reload(ctx context.Context) error {
 	if s == nil || ctx == nil || ctx.Err() != nil {
 		return identity.ErrResourceDenied
@@ -168,6 +171,10 @@ func (s *NativeAssetSnapshot) Reload(ctx context.Context) error {
 			validator = ValidateIntentDefinition
 		} else if uri.Kind == "menu" {
 			validator = ValidateMenu
+		} else if uri.Kind == "lookup" {
+			validator = ValidateLookupDefinition
+		} else if uri.Kind == "mcp" {
+			validator = ValidateMCPDefinition
 		} else if uri.Kind == "skill" {
 			validator = ValidateNativeSkillDefinition
 		}
@@ -183,15 +190,17 @@ func (s *NativeAssetSnapshot) Reload(ctx context.Context) error {
 		return err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := requestCtx.Err(); err != nil {
+		s.mu.Unlock()
 		return err
 	}
 	if err := ctx.Err(); err != nil {
+		s.mu.Unlock()
 		return err
 	}
 	s.values = values
-
+	s.mu.Unlock()
+	s.changes.Publish(context.Background())
 	return nil
 }
 func (s *NativeAssetSnapshot) value(ctx context.Context, uri identity.ResourceURI) (nativeSnapshotValue, error) {
@@ -278,7 +287,7 @@ func (s *NativeAssetSnapshot) Bindings(provider string, policy LocalRevisionPoli
 			continue
 		}
 		uri, _ := identity.ParseResourceURI(definition.URI)
-		result = append(result, LocalResourceBinding{URI: definition.URI, Title: definition.Title, FormatVersion: definition.FormatVersion, Resolver: func(ctx context.Context, actor identity.VerifiedActor, action string) (*identity.ResourceResolver, error) {
+		result = append(result, LocalResourceBinding{Changes: s, URI: definition.URI, Title: definition.Title, FormatVersion: definition.FormatVersion, Resolver: func(ctx context.Context, actor identity.VerifiedActor, action string) (*identity.ResourceResolver, error) {
 			p, err := policy(ctx, actor, uri, action)
 			if err != nil {
 				return nil, err
@@ -344,7 +353,7 @@ func pureLocalValidator(kind string, validator LocalResourceValidator) bool {
 		return false
 	}
 	pointer := reflect.ValueOf(validator).Pointer()
-	return kind == "skill" && pointer == reflect.ValueOf(ValidateNativeSkillDefinition).Pointer() || kind == "window" && pointer == reflect.ValueOf(ValidateWindowBundle).Pointer() || kind == "report" && pointer == reflect.ValueOf(ValidateReportEnvelope).Pointer()
+	return kind == "lookup" && pointer == reflect.ValueOf(ValidateLookupDefinition).Pointer() || kind == "mcp" && pointer == reflect.ValueOf(ValidateMCPDefinition).Pointer() || kind == "skill" && pointer == reflect.ValueOf(ValidateNativeSkillDefinition).Pointer() || kind == "window" && pointer == reflect.ValueOf(ValidateWindowBundle).Pointer() || kind == "report" && pointer == reflect.ValueOf(ValidateReportEnvelope).Pointer()
 }
 
 // CheckCandidate compares captured validated content against an exact original
@@ -354,4 +363,8 @@ func (s *NativeAssetSnapshot) CheckCandidate(ctx context.Context, uri identity.R
 		return identity.ErrResourceStale
 	}
 	return s.localDefinitionCurrent(ctx, uri, candidate)
+}
+
+func (s *NativeAssetSnapshot) SubscribeResources(sink transport.Notifier) func() {
+	return s.changes.SubscribeResources(sink)
 }

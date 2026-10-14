@@ -11,7 +11,7 @@ import (
 // RenewDefaultPresentation freshly admits the same native public definition.
 // This changes only an expired presentation read lease, not a business pin.
 func (c *WindowCatalog) RenewDefaultPresentation(ctx context.Context, key string, pin identity.ResolvedResource, target *types.WindowTarget) (*service.WindowDefinitionGetOutput, error) {
-	if c.DefaultNamespace != "workspace" || pin.ProviderIdentity != InternalProviderIdentity || pin.ValidUntil.After(time.Now()) || target == nil || len(target.DependencyPins) > 0 || target.ExecutionProof != nil {
+	if c.DefaultNamespace != "workspace" || pin.ProviderIdentity != InternalProviderIdentity || identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) || target == nil || len(target.DependencyPins) > 0 || target.ExecutionProof != nil {
 		return nil, identity.ErrResourceDenied
 	}
 	actor, err := c.Gateway.actor(ctx)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	windowprotocol "github.com/viant/agently-core/protocol/window"
 	"strconv"
 	"time"
 
@@ -80,17 +81,7 @@ func (r *Resource) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-type BoundView struct {
-	WindowID         string
-	ConversationID   string
-	Window           *forgetypes.Window
-	WindowForm       map[string]any
-	ResourceData     map[string]any
-	ResourceType     string
-	ResourceID       int
-	ResourceIDString string
-	SchemaVersion    int
-}
+type BoundView = windowprotocol.PresentationInput
 
 type Result struct {
 	Window         *forgetypes.Window

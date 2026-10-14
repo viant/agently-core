@@ -22,8 +22,14 @@ func (b *Builder) configureNativeHostDocuments(out *Runtime) error {
 		return err
 	}
 	reader := &resources.HostDocuments{Root: root, Files: files, Connection: "internal"}
+	docs, err := resources.MCPResourceDocuments(out.LocalPrimitiveProvider)
+	if err != nil {
+		return err
+	}
 	if snapshot != nil {
-		docs := snapshot.NativeResourceDocuments()
+		docs = append(docs, snapshot.NativeResourceDocuments()...)
+	}
+	if len(docs) > 0 {
 		if out.LocalPrimitiveProvider != nil {
 			if err = out.LocalPrimitiveProvider.ConfigureNativeResources(docs); err != nil {
 				return err

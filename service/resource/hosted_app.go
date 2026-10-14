@@ -12,6 +12,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -41,17 +42,16 @@ type HostedAppReader struct {
 	Windows  primitiveprovider.WindowDefinitionCatalog
 	Actor    ActorResolver
 	Verify   ActorVerifier
-	Admit    func(context.Context, identity.ResolvedResource) error
 }
 
-func NewHostedAppReader(bindings []HostedAppBinding, gateway *Gateway, mgr *manager.Manager, windows primitiveprovider.WindowDefinitionCatalog, actor ActorResolver, verify ActorVerifier, admit func(context.Context, identity.ResolvedResource) error) (*HostedAppReader, error) {
-	if gateway == nil || mgr == nil || windows == nil || actor == nil || verify == nil || admit == nil {
+func NewHostedAppReader(bindings []HostedAppBinding, gateway *Gateway, mgr *manager.Manager, windows primitiveprovider.WindowDefinitionCatalog, actor ActorResolver, verify ActorVerifier) (*HostedAppReader, error) {
+	if gateway == nil || mgr == nil || windows == nil || actor == nil || verify == nil {
 		return nil, fmt.Errorf("hosted apps require installed resource authority")
 	}
 	if err := ValidateHostedAppBindings(bindings); err != nil {
 		return nil, err
 	}
-	r := &HostedAppReader{bindings: map[string]HostedAppBinding{}, Gateway: gateway, Manager: mgr, Windows: windows, Actor: actor, Verify: verify, Admit: admit}
+	r := &HostedAppReader{bindings: map[string]HostedAppBinding{}, Gateway: gateway, Manager: mgr, Windows: windows, Actor: actor, Verify: verify}
 	for _, b := range bindings {
 		r.bindings[b.ResourceURI] = b
 	}
@@ -100,11 +100,8 @@ func (r *HostedAppReader) bindContext(ctx context.Context, uri string, pin *iden
 		return nil, identity.ErrResourceDenied
 	}
 	fresh, err := checker.RevalidateWindowResource(ctx, b.WindowURI, *pin, target)
-	if err != nil || fresh == nil || !sameHostedPin(*fresh, *pin) || !fresh.ValidUntil.After(r.Gateway.now()) {
+	if err != nil || fresh == nil || !sameHostedPin(*fresh, *pin) || !identity.MetadataExpiryValid(fresh.ValidUntil, r.Gateway.now()) {
 		return nil, identity.ErrResourceDenied
-	}
-	if err = r.Admit(ctx, *fresh); err != nil {
-		return nil, err
 	}
 	opened, err := r.Windows.Get(ctx, &primitiveprovider.WindowDefinitionGetInput{WindowID: b.WindowURI, ResolvedResource: pin, Target: target})
 	if err != nil || opened == nil || !hostedWindowMatches(opened.Definition, b) || !sameHostedPin(*opened.Definition.Resource, *pin) || closure != nil && *opened.Definition.View.Content.MCPApp.AssetClosure != *closure {
@@ -163,12 +160,12 @@ func (r *HostedAppReader) Read(ctx context.Context, uri string) (*schema.ReadRes
 	if err != nil {
 		return nil, err
 	}
-	if !actor.Valid(r.Gateway.now()) || !pin.ValidUntil.After(r.Gateway.now()) {
+	if !actor.Valid(r.Gateway.now()) || !identity.MetadataExpiryValid(pin.ValidUntil, r.Gateway.now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	ctx, cancel := context.WithDeadline(ctx, actor.ValidUntil)
 	defer cancel()
-	ctx, pinCancel := context.WithDeadline(ctx, pin.ValidUntil)
+	ctx, pinCancel := identity.WithMetadataExpiry(ctx, pin.ValidUntil)
 	defer pinCancel()
 	if err = r.Verify(ctx, actor); err != nil {
 		return nil, err
@@ -181,9 +178,6 @@ func (r *HostedAppReader) Read(ctx context.Context, uri string) (*schema.ReadRes
 	if closure.EntryPath != "index.html" || !hostedSHA256(closure.Fingerprint) || !hostedSHA256(closure.EntrySHA256) {
 		return nil, identity.ErrResourceDenied
 	}
-	if err = r.Admit(ctx, pin); err != nil {
-		return nil, err
-	}
 	connection, err := r.Gateway.ConnectionForProvider(ctx, b.ProviderIdentity)
 	if err != nil {
 		return nil, err
@@ -194,11 +188,14 @@ func (r *HostedAppReader) Read(ctx context.Context, uri string) (*schema.ReadRes
 	}
 	// The fresh provider proof is for the explicit held candidate, never default/latest.
 	current, err := Get[json.RawMessage](ctx, r.Gateway, connection, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
-	if err != nil || current == nil || current.ExecutionProof == nil || current.ResolvedResource == nil || !sameHostedPin(*current.ResolvedResource, pin) {
+	if err != nil || current == nil || current.ExecutionProof == nil || current.ResolvedResource == nil || !current.ExecutionProof.Resource.ValidUntil.After(time.Now()) || !sameHostedPin(*current.ResolvedResource, pin) {
 		return nil, identity.ErrResourceDenied
 	}
-	ctx, currentCancel := context.WithDeadline(ctx, current.ResolvedResource.ValidUntil)
+	ctx, currentCancel := identity.WithMetadataExpiry(ctx, current.ResolvedResource.ValidUntil)
 	defer currentCancel()
+	// Definition metadata can be event-bound; the owning execution proof cannot.
+	ctx, proofCancel := context.WithDeadline(ctx, current.ExecutionProof.Resource.ValidUntil)
+	defer proofCancel()
 	client := held.client
 	if err = r.Gateway.checkReadBinding(ctx, actor, held); err != nil {
 		return nil, err

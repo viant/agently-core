@@ -17,10 +17,18 @@ type Group[T any] struct {
 }
 
 // MCPClient augments mcp.ClientOptions with optional discovery descriptions and metadata.
+// ResolvedServiceIdentity is trusted reader provenance, never authored/wire data.
+type ResolvedServiceIdentity struct {
+	ServiceName      string
+	ResourceURI      string
+	ProviderIdentity string
+}
+
 type MCPClient struct {
-	ExecutionLocation string            `json:"executionLocation,omitempty" yaml:"executionLocation,omitempty"`
-	BrowserTransport  *BrowserTransport `json:"browserTransport,omitempty" yaml:"browserTransport,omitempty"`
-	BrowserTools      []string          `json:"browserTools,omitempty" yaml:"browserTools,omitempty"`
+	ResolvedIdentity  *ResolvedServiceIdentity `json:"-" yaml:"-"`
+	ExecutionLocation string                   `json:"executionLocation,omitempty" yaml:"executionLocation,omitempty"`
+	BrowserTransport  *BrowserTransport        `json:"browserTransport,omitempty" yaml:"browserTransport,omitempty"`
+	BrowserTools      []string                 `json:"browserTools,omitempty" yaml:"browserTools,omitempty"`
 	// PrimitiveNamespaces optionally narrows discovered provider namespaces.
 	// An empty list accepts the namespaces authorized by the provider.
 	PrimitiveNamespaces []string `yaml:"primitiveNamespaces,omitempty" json:"primitiveNamespaces,omitempty"`
@@ -57,6 +65,9 @@ type MCPClient struct {
 	// reused from the shared registry; private catalogs are discovered lazily
 	// and cached under the authenticated principal identity.
 	ToolsListVisibility string `yaml:"toolsListVisibility,omitempty" json:"toolsListVisibility,omitempty"`
+	// ResourceCacheScopes is explicit managing metadata classification by namespace.
+	// Omitted namespaces remain user/credential/conversation scoped.
+	ResourceCacheScopes map[string]string `yaml:"resourceCacheScopes,omitempty" json:"resourceCacheScopes,omitempty"`
 	// ProtectedResourceMetadataURL pins a path-specific RFC 9728 document
 	// when the origin-wide document describes a different MCP resource.
 	ProtectedResourceMetadataURL string `yaml:"protectedResourceMetadataURL,omitempty" json:"protectedResourceMetadataURL,omitempty"`
@@ -103,4 +114,28 @@ func (c *MCPClient) NormalizeDelegatedAuth() error {
 		return fmt.Errorf("mcp auth: useIdToken=true conflicts with tokenType %q; drop useIdToken or set tokenType=%q", auth.TokenType, authcfg.TokenTypeIDToken)
 	}
 	return nil
+}
+
+const ResourceCachePublic = "public"
+const ResourceCacheUser = "user"
+const ResourceCacheConversation = "conversation"
+
+func (c *MCPClient) ResourceCacheScope(namespace string, kind ...string) (string, error) {
+	if c == nil {
+		return ResourceCacheUser, nil
+	}
+	scope := c.ResourceCacheScopes[namespace]
+	if len(kind) > 0 && c.ResourceCacheScopes[namespace+"/"+kind[0]] != "" {
+		scope = c.ResourceCacheScopes[namespace+"/"+kind[0]]
+	}
+	if scope == "" {
+		scope = c.ResourceCacheScopes["*"]
+	}
+	if scope == "" {
+		return ResourceCacheUser, nil
+	}
+	if scope != ResourceCachePublic && scope != ResourceCacheUser && scope != ResourceCacheConversation {
+		return "", fmt.Errorf("invalid resource metadata cache scope for namespace %q", namespace)
+	}
+	return scope, nil
 }

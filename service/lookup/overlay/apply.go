@@ -144,6 +144,15 @@ func attachLookup(schemaProps map[string]interface{}, propName string, lk loprot
 	}
 	prop["x-ui-widget"] = "lookup"
 	attachment := map[string]interface{}{}
+	if lk.DataSourceResource != nil {
+		attachment["dataSourceResource"] = lk.DataSourceResource
+	}
+	if lk.PickerResource != nil {
+		attachment["pickerResource"] = lk.PickerResource
+	}
+	if lk.ProviderIdentity != "" {
+		attachment["providerIdentity"] = lk.ProviderIdentity
+	}
 	if lk.DataSource != "" {
 		attachment["dataSource"] = lk.DataSource
 	}

@@ -190,7 +190,7 @@ func (p *LocalProvider) mergeAuthoringMetadata(ctx context.Context, actor identi
 	if err = p.finishActor(ctx, actor); err != nil {
 		return err
 	}
-	if !result.ResolvedResource.ValidUntil.After(p.nowTime()) {
+	if !identity.MetadataExpiryValid(result.ResolvedResource.ValidUntil, p.nowTime()) {
 		return identity.ErrResourceDenied
 	}
 	return nil
