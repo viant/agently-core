@@ -5,7 +5,7 @@ go 1.25.8
 require (
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/google/pprof v0.0.0-20250403155104-27863c87afa6 // indirect
+	github.com/google/pprof v0.0.0-20260802141513-ef3492d7dac3 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/dop251/goja v0.0.0-20261007200356-e2ea74d3d210 // indirect
 	github.com/dlclark/regexp2/v2 v2.8.1 // indirect
@@ -36,7 +36,7 @@ require (
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e
-	github.com/viant/datly v1.1.1-0.20261012194200-cff45ee940be
+	github.com/viant/datly v1.1.1-0.20261014035505-59523a9a6c21
 	github.com/viant/embedius v0.5.6
 	github.com/viant/forge v0.3.45-0.20261012192952-36079cd69f06
 	github.com/viant/gds v0.6.0
@@ -44,14 +44,14 @@ require (
 	github.com/viant/jsonrpc v0.25.1-0.20261010000858-1444533d5a7e
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.24.1-0.20261009143306-aaed6cdc2d48
-	github.com/viant/mcp-protocol v0.19.1-0.20261008202502-046707df5ed9
+	github.com/viant/mcp-protocol v0.19.1-0.20261014011736-cc52f4b7738c
 	github.com/viant/mcp-tasks v0.0.0-20261008153829-762637b5ea3a
 	github.com/viant/mcp-ui v0.2.1-0.20261011073152-8f30de0c7bc3
 	github.com/viant/parsly v0.3.3
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
 	github.com/viant/toolbox v0.39.0
 	github.com/viant/velty v0.4.1-0.20260915052314-fca47c0595f8
-	github.com/viant/xdatly v1.0.1-0.20261011023101-d5ce35689c9c
+	github.com/viant/xdatly v1.0.1-0.20261013192427-164ca1782574
 	github.com/xeipuuv/gojsonschema v1.2.0
 	github.com/xuri/excelize/v2 v2.11.0
 	golang.org/x/crypto v0.55.0
@@ -158,7 +158,7 @@ require (
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/sqlite-vec v0.3.0 // indirect
 	github.com/viant/sqlparser v0.13.1-0.20261012001419-edea4bd5d9c1 // indirect
-	github.com/viant/sqlx v0.26.1-0.20261012000356-69034efb5257
+	github.com/viant/sqlx v0.26.1-0.20261013010041-718390a26adf
 	github.com/viant/structology v0.10.1-0.20261010052450-67e71257a7da
 	github.com/viant/structql v0.5.5-0.20261012183420-6a47e96ff5b5 // indirect
 	github.com/viant/tagly v0.4.1-0.20261007173811-969600917520 // indirect
