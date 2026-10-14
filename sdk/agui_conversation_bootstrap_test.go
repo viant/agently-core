@@ -18,6 +18,7 @@ import (
 	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/agui/extensions"
 	"github.com/viant/agently-core/runtime/aguistate"
+	"github.com/viant/agently-core/runtime/clienttool"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 )
@@ -28,6 +29,149 @@ type bootstrapDatlyClient struct {
 	live    atomic.Int32
 	input   *GetTranscriptInput
 	options transcriptOptions
+}
+
+func bootstrapFailedControlFixture(t *testing.T, c *bootstrapDatlyClient, snapshot bool, noResult bool) (*aguistore.Run, *aguistore.Run) {
+	t.Helper()
+	ctx := recoveryContext()
+	require.NoError(t, nativeTestTurn(ctx, c.datlyObservedClient, "waiting-turn", "waiting_for_user"))
+	root, _, err := c.store.Admit(ctx, aguistore.Admission{Principal: "owner", ThreadID: "thread", RunID: "control-parent", TurnID: "waiting-turn", Input: json.RawMessage(`{"threadId":"thread","runId":"control-parent","messages":[{"id":"user","role":"user","content":"generic fixture"}]}`)})
+	require.NoError(t, err)
+	call := clienttool.PendingCall{ID: "accepted-call", Name: "browser", ConversationID: "thread", TurnID: "waiting-turn", ToolMessageID: "native-tool", AssistantMessageID: "assistant", Arguments: map[string]interface{}{}}
+	root, err = c.store.Append(ctx, "owner", "thread", root.RunID, root.Revision, []json.RawMessage{rawAGUI(map[string]any{"type": "RUN_STARTED", "threadId": "thread", "runId": root.RunID}), rawAGUI(map[string]any{"type": "RUN_FINISHED", "threadId": "thread", "runId": root.RunID, "outcome": map[string]any{"type": "success", "pendingToolCallIds": []string{aguiPendingCallID(call)}}})}, &aguistore.Change{Pending: rawAGUI(aguiPending{ClientTools: []clienttool.PendingCall{call}})})
+	require.NoError(t, err)
+	messages := []any{}
+	if !noResult {
+		messages = append(messages, map[string]any{"id": "accepted-message", "role": "tool", "toolCallId": aguiPendingCallID(call), "content": "already executed result"})
+	}
+	input := rawAGUI(map[string]any{"threadId": "thread", "runId": "control-failed", "parentRunId": root.RunID, "messages": messages})
+	failed, _, err := c.store.Admit(ctx, aguistore.Admission{Principal: "owner", ThreadID: "thread", RunID: "control-failed", ParentRunID: root.RunID, PriorRunID: root.RunID, ExpectedPriorRevision: root.Revision, TurnID: root.TurnID, Input: input})
+	require.NoError(t, err)
+	events := []json.RawMessage{rawAGUI(map[string]any{"type": "RUN_STARTED", "threadId": "thread", "runId": failed.RunID})}
+	if snapshot {
+		events = append(events, rawAGUI(map[string]any{"type": "STATE_SNAPSHOT", "snapshot": map[string]any{}}))
+	}
+	events = append(events, rawAGUI(map[string]any{"type": "RUN_ERROR", "code": "EXECUTION_FAILED", "message": "continuation lineage is cyclic or exceeds its bound"}))
+	failed, err = c.store.Append(ctx, "owner", "thread", failed.RunID, failed.Revision, events, nil)
+	require.NoError(t, err)
+	root, err = c.store.GetRun(ctx, "owner", "thread", root.RunID)
+	require.NoError(t, err)
+	return root, failed
+}
+
+func TestAGUIBootstrapDiscoversFailedAcceptedControlWithoutRecoveringOrExposingInput(t *testing.T) {
+	c, _ := newBootstrapDatlyServer(t)
+	prior, failed := bootstrapFailedControlFixture(t, c, false, false)
+	ctx := recoveryContext()
+	before, err := aguiRecoveryJournal(ctx, c.store, failed)
+	require.NoError(t, err)
+	thread, err := c.store.GetThread(ctx, "owner", "thread")
+	require.NoError(t, err)
+	result, err := dispatchAGUIConversationBootstrap(ctx, c, c.store, &aguistore.Run{Principal: "owner", ThreadID: "thread", ConversationID: "thread", RunID: "read-only-bootstrap"}, json.RawMessage(`{"mode":"live"}`))
+	require.NoError(t, err)
+	require.Len(t, result.Runs, 1)
+	require.Equal(t, failed.RunID, result.Runs[0].RunID)
+	require.Equal(t, "error", result.Runs[0].Status)
+	current, err := c.store.GetRun(ctx, "owner", "thread", failed.RunID)
+	require.NoError(t, err)
+	require.Equal(t, failed, current)
+	after, err := aguiRecoveryJournal(ctx, c.store, current)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	currentThread, err := c.store.GetThread(ctx, "owner", "thread")
+	require.NoError(t, err)
+	require.Equal(t, thread.Revision, currentThread.Revision)
+	original, err := c.store.GetRun(ctx, "owner", "thread", prior.RunID)
+	require.NoError(t, err)
+	require.Equal(t, failed.RunID, original.ResumedByRunID)
+	public := string(rawAGUI(result.Runs))
+	require.NotContains(t, public, "already executed result")
+	require.NotContains(t, public, "principal")
+	require.NotContains(t, public, "input")
+	require.NotContains(t, public, "lease")
+	require.Zero(t, c.queries.Load())
+	require.Zero(t, c.resumes.Load())
+	require.Zero(t, c.completions.Load())
+}
+
+func TestAGUIBootstrapFailedControlDiscoveryExcludesSettledOrUnqualifiedChildren(t *testing.T) {
+	for _, mode := range []string{"nativeTerminal", "consumed", "runtimeSnapshot", "noResult"} {
+		t.Run(mode, func(t *testing.T) {
+			c, _ := newBootstrapDatlyServer(t)
+			prior, failed := bootstrapFailedControlFixture(t, c, mode == "runtimeSnapshot", mode == "noResult")
+			ctx := recoveryContext()
+			if mode == "nativeTerminal" {
+				require.NoError(t, nativeTestTurn(ctx, c.datlyObservedClient, "waiting-turn", "succeeded"))
+			}
+			if mode == "consumed" {
+				body, err := aguistore.FailedContinuationRecoveryInput(failed)
+				require.NoError(t, err)
+				_, _, err = c.store.Admit(ctx, aguistore.Admission{Principal: "owner", ThreadID: "thread", RunID: aguistore.FailedContinuationRecoveryID(failed), ParentRunID: failed.RunID, PriorRunID: prior.RunID, ExpectedPriorRevision: prior.Revision, ExpectedFailedRevision: failed.Revision, TurnID: failed.TurnID, Input: body})
+				require.NoError(t, err)
+			}
+			result, err := dispatchAGUIConversationBootstrap(ctx, c, c.store, &aguistore.Run{Principal: "owner", ThreadID: "thread", ConversationID: "thread", RunID: "read-only-bootstrap"}, json.RawMessage(`{"mode":"live"}`))
+			require.NoError(t, err)
+			for _, run := range result.Runs {
+				require.NotEqual(t, failed.RunID, run.RunID)
+			}
+			require.Zero(t, c.queries.Load())
+			require.Zero(t, c.resumes.Load())
+			require.Zero(t, c.completions.Load())
+		})
+	}
+}
+
+type bootstrapAlteredFailedStore struct {
+	aguistore.Store
+	mode string
+}
+
+func (s bootstrapAlteredFailedStore) ListRunsByTurn(ctx context.Context, principal, thread, turn string) ([]*aguistore.Run, error) {
+	runs, err := s.Store.(aguistore.TurnRunLister).ListRunsByTurn(ctx, principal, thread, turn)
+	for index, run := range runs {
+		if run.Status == aguistore.StatusError && s.mode == "foreign" {
+			copy := *run
+			copy.Principal = "foreign"
+			runs[index] = &copy
+		}
+	}
+	return runs, err
+}
+
+func (s bootstrapAlteredFailedStore) Replay(ctx context.Context, principal, thread, run string, after int64, limit int) ([]aguistore.JournalEvent, error) {
+	journal, err := s.Store.Replay(ctx, principal, thread, run, after, limit)
+	if run == "control-failed" && s.mode == "unrelatedError" {
+		for index, event := range journal {
+			if event.Sequence == 2 {
+				journal[index].Event = rawAGUI(map[string]any{"type": "RUN_ERROR", "code": "EXECUTION_FAILED", "message": "unrelated model failure"})
+			}
+		}
+	}
+	return journal, err
+}
+
+func TestAGUIBootstrapFailedControlDiscoveryRejectsForeignOrUnrelatedFailure(t *testing.T) {
+	for _, mode := range []string{"foreign", "unrelatedError"} {
+		t.Run(mode, func(t *testing.T) {
+			c, _ := newBootstrapDatlyServer(t)
+			_, failed := bootstrapFailedControlFixture(t, c, false, false)
+			ctx := recoveryContext()
+			transcript, err := c.native.GetLiveState(ctx, "thread", WithIncludeToolCalls())
+			require.NoError(t, err)
+			runs, err := aguiBootstrapFailedContinuations(ctx, bootstrapAlteredFailedStore{Store: c.store, mode: mode}, &aguistore.Run{Principal: "owner", ThreadID: "thread", ConversationID: "thread"}, transcript)
+			if mode == "foreign" {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Empty(t, runs)
+			}
+			current, err := c.store.GetRun(ctx, "owner", "thread", failed.RunID)
+			require.NoError(t, err)
+			require.Equal(t, failed, current)
+			require.Zero(t, c.resumes.Load())
+			require.Zero(t, c.completions.Load())
+		})
+	}
 }
 
 func (c *bootstrapDatlyClient) GetConversation(ctx context.Context, id string) (*conversation.Conversation, error) {

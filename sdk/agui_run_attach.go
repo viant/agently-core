@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -44,6 +45,16 @@ func serveAGUIAttachment(w http.ResponseWriter, r *http.Request, input *agui.Run
 	if err != nil {
 		http.Error(w, "run lookup failed", http.StatusInternalServerError)
 		return
+	}
+	if successor, recoverErr := prepareFailedAGUIContinuationRecovery(r.Context(), client, runtime, runtime.aguiStore(), record); recoverErr != nil {
+		http.Error(w, "accepted continuation recovery unavailable", http.StatusConflict)
+		return
+	} else if successor != nil {
+		// Keep this attachment's original wire identity. run.get exposes the
+		// existing successor link, which a caller may attach under its exact ID.
+		go func() {
+			_ = runFailedAGUIContinuationRecovery(context.WithoutCancel(r.Context()), client, runtime, runtime.aguiStore(), successor)
+		}()
 	}
 	var original agui.RunAgentInput
 	var originalProps struct {

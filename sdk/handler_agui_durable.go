@@ -856,7 +856,12 @@ func (w *aguiJournalWriter) fail(err error) error {
 		}
 		events = append(events, rawAGUI(event))
 	}
-	events = append(events, rawAGUI(map[string]any{"type": "RUN_ERROR", "message": err.Error(), "code": "EXECUTION_FAILED"}))
+	code := "EXECUTION_FAILED"
+	var controls *aguiContinuationControlRestorationFailure
+	if errors.As(err, &controls) {
+		code = aguistore.ContinuationControlRestoreFailedCode
+	}
+	events = append(events, rawAGUI(map[string]any{"type": "RUN_ERROR", "message": err.Error(), "code": code}))
 	return w.write(events, nil)
 }
 func encodeAGUIEvents(events []agui.Event) []json.RawMessage {
@@ -993,7 +998,7 @@ func runAGUIDurable(ctx context.Context, client Client, runtime aguiRuntime, sto
 	}()
 	if prior != nil {
 		if err = restoreAGUIContinuationControls(ctx, store, record, query); err != nil {
-			return err
+			return &aguiContinuationControlRestorationFailure{cause: err}
 		}
 	}
 	state := projection.State

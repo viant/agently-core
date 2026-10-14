@@ -455,20 +455,29 @@ func (t *operation) admit(input *store.Request, output *store.Response) error {
 		if prior == nil {
 			return store.ErrNotFound
 		}
-		if str(prior.Status) != store.StatusInterrupted || str(prior.ResumedByRunId) != "" || prior.Revision != a.ExpectedPriorRevision {
+		if str(prior.Status) != store.StatusInterrupted || prior.Revision != a.ExpectedPriorRevision {
 			return store.ErrConflict
 		}
 		if turnID != "" && turnID != str(prior.TurnId) {
 			return store.ErrConflict
 		}
 		turnID = str(prior.TurnId)
+		claimed := prior
+		if a.ExpectedFailedRevision != 0 {
+			claimed, err = t.failedContinuationClaim(a, prior)
+			if err != nil {
+				return err
+			}
+		} else if str(prior.ResumedByRunId) != "" {
+			return store.ErrConflict
+		}
 		claim := &runwrite.Run{}
-		claim.SetId(prior.Id)
-		claim.SetRunKey(prior.RunKey)
+		claim.SetId(claimed.Id)
+		claim.SetRunKey(claimed.RunKey)
 		claim.SetPrincipal(ptr(t.principal))
-		claim.SetRevision(prior.Revision)
+		claim.SetRevision(claimed.Revision)
 		claim.SetResumedByRunId(a.RunID)
-		if err := t.writeRun(claim, "update", prior.Revision+1); err != nil {
+		if err := t.writeRun(claim, "update", claimed.Revision+1); err != nil {
 			return err
 		}
 	}
