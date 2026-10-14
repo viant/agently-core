@@ -20,7 +20,7 @@ func TestSelectedReadIdentityNormalizesOnlyDeadlineTimezone(t *testing.T) {
 	require.NotEqual(t, selectionResourceID(conn, pin), selectionResourceID(conn, utc))
 }
 func TestDetachedGetPreservesBytesFlagsAndIsolatesAllMutableCarriers(t *testing.T) {
-	original := primitive.GetResult{Resource: &primitive.ResourceState{Definition: json.RawMessage("{ \"number\": 123 }"), DefinitionBytes: []byte("exact"), Dependencies: []primitive.Dependency{{URI: "datasource://test/a"}}, Replay: true}, ResolvedResource: &identity.ResolvedResource{AuthorityBinding: "original"}, ExecutionProof: &primitive.ExecutionProof{Token: "proof", Resource: identity.ResolvedResource{AuthorityBinding: "proof-original"}}, MenuProjection: &primitive.MenuProjection{DefinitionBytes: []byte("menu")}}
+	original := primitive.GetResult{Resource: &primitive.ResourceState{Definition: json.RawMessage("{ \"number\": 123 }"), DefinitionBytes: []byte("exact"), Dependencies: []primitive.Dependency{{URI: "datasource://test/a"}}, Replay: true}, ResolvedResource: &identity.ResolvedResource{AuthorityBinding: "original"}, ExecutionProof: &primitive.ExecutionProof{Token: "proof", Resource: identity.ResolvedResource{AuthorityBinding: "proof-original"}}, MenuProjection: &primitive.MenuProjection{DefinitionBytes: []byte("navigation")}}
 	copy, err := detachedGet(&original)
 	require.NoError(t, err)
 	require.Equal(t, original, copy)
@@ -37,5 +37,5 @@ func TestDetachedGetPreservesBytesFlagsAndIsolatesAllMutableCarriers(t *testing.
 	require.True(t, original.Resource.Replay)
 	require.Equal(t, "original", original.ResolvedResource.AuthorityBinding)
 	require.Equal(t, "proof-original", original.ExecutionProof.Resource.AuthorityBinding)
-	require.Equal(t, "menu", string(original.MenuProjection.DefinitionBytes))
+	require.Equal(t, "navigation", string(original.MenuProjection.DefinitionBytes))
 }

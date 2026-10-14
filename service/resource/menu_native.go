@@ -20,7 +20,7 @@ type CapturedLayoutSource struct {
 // canonical menu. It does not enumerate other UI files or infer a namespace.
 func SnapshotLayoutMenuDefinition(file, uri string) (NativeSnapshotDefinition, error) {
 	parsed, err := identity.ParseResourceURI(uri)
-	if err != nil || parsed.Kind != "menu" || parsed.String() != uri || !extensionPath(file) {
+	if err != nil || parsed.Kind != "navigation" || parsed.String() != uri || !extensionPath(file) {
 		return NativeSnapshotDefinition{}, identity.ErrResource
 	}
 	return NativeSnapshotDefinition{URI: uri, Title: "Navigation", FormatVersion: 1, File: file, Load: NativeLayoutMenuLoader}, nil

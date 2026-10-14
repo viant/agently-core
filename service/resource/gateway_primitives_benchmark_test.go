@@ -32,7 +32,7 @@ import (
 	mcpserver "github.com/viant/mcp/server"
 )
 
-var primitiveBenchKinds = []string{"window", "report", "datasource", "intent", "skill", "template", "prompt", "eval", "menu", "toolfeed"}
+var primitiveBenchKinds = []string{"window", "report", "datasource", "intent", "skill", "template", "prompt", "eval", "navigation", "toolfeed"}
 
 type primitiveBenchActorKey struct{}
 type primitiveBenchPolicy struct{ actor identity.VerifiedActor }
@@ -159,7 +159,7 @@ func primitiveBenchDefinition(t *testing.T, kind, id string) (json.RawMessage, i
 		value = map[string]any{"schemaVersion": 1, "id": id, "text": "Synthetic prompt", "kind": "prompt"}
 	case "eval":
 		value = map[string]any{"schemaVersion": 1, "id": id, "kind": "eval", "cases": []any{map[string]any{"input": "synthetic", "expected": "synthetic"}}}
-	case "menu":
+	case "navigation":
 		value = map[string]any{"schemaVersion": 1, "applications": []any{map[string]any{"id": id, "title": id, "menus": []any{map[string]any{"id": "open", "action": map[string]any{"type": "window", "windowKey": "synthetic-window"}}}}}}
 		validator = producer.ValidateMenu
 	case "toolfeed":

@@ -22,13 +22,13 @@ func menuFixtureProvider(t *testing.T) (*LocalProvider, *localFixtureSource, *id
 	p, source, actor, revoked := localFixture(t)
 	source.raw = json.RawMessage(menuFixture)
 	b := localProviderBinding(p, "window://team/sales")
-	b.URI = "menu://team/navigation"
+	b.URI = "navigation://team/navigation"
 	b.Changes = source
 	b.FormatVersion = 1
 	b.Title = "Navigation"
 	updateLocalProvider(t, p, func(config *LocalConfig) {
 		config.Bindings = []LocalResourceBinding{b}
-		config.Validators = map[string]LocalResourceValidator{"menu": ValidateMenu}
+		config.Validators = map[string]LocalResourceValidator{"navigation": ValidateMenu}
 		config.MenuActionVisibility = func(_ context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (bool, error) {
 			return !strings.Contains(string(raw), "secretWindow"), nil
 		}
@@ -37,7 +37,7 @@ func menuFixtureProvider(t *testing.T) (*LocalProvider, *localFixtureSource, *id
 }
 func TestMenuProjectionNeverExposesSourceAndPreservesActions(t *testing.T) {
 	p, source, _, _ := menuFixtureProvider(t)
-	result, err := p.Get(context.Background(), "menu", primitive.GetRequest{URI: "menu://team/navigation"})
+	result, err := p.Get(context.Background(), "navigation", primitive.GetRequest{URI: "navigation://team/navigation"})
 	require.NoError(t, err)
 	require.Empty(t, result.Resource.Definition)
 	require.Empty(t, result.Resource.DefinitionBytes)
@@ -79,7 +79,7 @@ func TestMenuProducerDeniesRevocationDriftAndExpiry(t *testing.T) {
 					return !strings.Contains(string(raw), "secretWindow"), nil
 				}
 			})
-			got, err := p.Get(context.Background(), "menu", primitive.GetRequest{URI: "menu://team/navigation"})
+			got, err := p.Get(context.Background(), "navigation", primitive.GetRequest{URI: "navigation://team/navigation"})
 			require.Error(t, err)
 			require.Nil(t, got)
 		})
@@ -107,7 +107,7 @@ func TestMenuGatewayOverOrdinaryProtectedMCP(t *testing.T) {
 	defer mgr.CloseConversation("")
 	gateway := NewGateway(mgr, func(context.Context) (identity.VerifiedActor, error) { return *actor, nil }, func(context.Context, identity.VerifiedActor) error { return nil }, "consumer")
 	defer gateway.Close()
-	rows, err := gateway.List(context.Background(), "menu", "team")
+	rows, err := gateway.List(context.Background(), "navigation", "team")
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	got, err := gateway.GetMenu(context.Background(), rows[0].Connection, identity.ResourceRef{URI: rows[0].Resource.URI}, nil)
@@ -147,19 +147,19 @@ func (p stampMenuPolicy) SelectRevision(_ context.Context, ref identity.Resource
 }
 func TestMenuGenericAuthoredSourceSelectsExactStamp(t *testing.T) {
 	p, _, actor, _ := menuFixtureProvider(t)
-	b := localProviderBinding(p, "menu://team/navigation")
+	b := localProviderBinding(p, "navigation://team/navigation")
 	source := &stampedMenuSource{raw: json.RawMessage(menuFixture)}
 	b.Resolver = func(context.Context, identity.VerifiedActor, string) (*identity.ResourceResolver, error) {
 		return &identity.ResourceResolver{ProviderIdentity: p.ProviderIdentity(), Source: source, Policy: stampMenuPolicy{until: actor.ValidUntil}}, nil
 	}
 	updateLocalProvider(t, p, func(config *LocalConfig) { setLocalConfigBinding(config, b) })
 	for _, revision := range []string{"", "release-7"} {
-		got, err := p.Get(context.Background(), "menu", primitive.GetRequest{URI: b.URI, Revision: revision})
+		got, err := p.Get(context.Background(), "navigation", primitive.GetRequest{URI: b.URI, Revision: revision})
 		require.NoError(t, err)
 		require.Equal(t, "release-7", got.Resource.Revision)
 		require.Equal(t, identity.StampedCandidate, got.Resource.Lifecycle)
 		require.Equal(t, "release-7", got.ResolvedResource.Revision)
 	}
-	_, err := p.Get(context.Background(), "menu", primitive.GetRequest{URI: b.URI, Revision: "release-8"})
+	_, err := p.Get(context.Background(), "navigation", primitive.GetRequest{URI: b.URI, Revision: "release-8"})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 }

@@ -100,8 +100,8 @@ func TestVisibleCatalogPrivateEntryNotificationsRetainOtherUser(t *testing.T) {
 	bob := authctx.WithCanonicalUserID(context.Background(), "bob")
 	loads := map[string]int{}
 	get := func(ctx context.Context, name string) {
-		partition := mgr.WithCatalogSources(ctx, mgr.CatalogPartition(ctx, "verified", "menu"), []string{"source"})
-		_, err := mgr.VisibleCatalogEntryInPartition(ctx, name, partition, "menu://shared/layout", func(context.Context) (json.RawMessage, time.Time, error) {
+		partition := mgr.WithCatalogSources(ctx, mgr.CatalogPartition(ctx, "verified", "navigation"), []string{"source"})
+		_, err := mgr.VisibleCatalogEntryInPartition(ctx, name, partition, "navigation://shared/layout", func(context.Context) (json.RawMessage, time.Time, error) {
 			loads[name]++
 			return json.RawMessage(`{"private":true}`), time.Time{}, nil
 		})

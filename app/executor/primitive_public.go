@@ -170,7 +170,7 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	if err != nil {
 		return err
 	}
-	const menuURI = "menu://workspace/layout"
+	const menuURI = "navigation://workspace/layout"
 	capture := func(raw []byte) error {
 		out.NativeLayoutSource = &resources.CapturedLayoutSource{Root: root, Source: layoutRef, Raw: append([]byte(nil), raw...)}
 		return nil
@@ -217,7 +217,7 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		if err := publicDefinitionRead(ctx, a, checked, action); err != nil {
 			return err
 		}
-		if uri.Kind == "menu" {
+		if uri.Kind == "navigation" {
 			return checkLayoutSource(ctx)
 		}
 		if uri.Kind == "window" && out.NativeLayoutSource != nil {
@@ -293,7 +293,7 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		}
 		out.LocalPrimitiveProvider, err = resources.NewLocalProvider(resources.LocalConfig{ProviderIdentity: resources.InternalProviderIdentity, Actor: actor, Verify: verify, Authorize: authorize, Bindings: bindings, WindowIndex: snapshot.WindowIndex, MenuVisibilityProjection: func(ctx context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (json.RawMessage, error) {
 			return projection(ctx, raw)
-		}, Validators: map[string]resources.LocalResourceValidator{primitive.ToolfeedKind: resources.ValidateToolfeedDefinition, "datasource": resources.ValidateDatasourceDefinition, "template": resources.ValidateTemplateDefinition, "intent": resources.ValidateIntentDefinition, "menu": resources.ValidateMenu, "window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope, "mcp": resources.ValidateMCPDefinition, "lookup": resources.ValidateLookupDefinition}})
+		}, Validators: map[string]resources.LocalResourceValidator{primitive.ToolfeedKind: resources.ValidateToolfeedDefinition, "datasource": resources.ValidateDatasourceDefinition, "template": resources.ValidateTemplateDefinition, "intent": resources.ValidateIntentDefinition, "navigation": resources.ValidateMenu, "window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope, "mcp": resources.ValidateMCPDefinition, "lookup": resources.ValidateLookupDefinition}})
 		if err != nil {
 			return err
 		}
@@ -314,7 +314,7 @@ func publicDefinitionRead(ctx context.Context, a identity.VerifiedActor, uri ide
 			return nil
 		}
 	case "resource.list", "resource.get":
-		if uri.Kind == primitive.ToolfeedKind || uri.Kind == "datasource" || uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "menu" || uri.Kind == "window" || uri.Kind == "report" || uri.Kind == "mcp" || uri.Kind == "lookup" {
+		if uri.Kind == primitive.ToolfeedKind || uri.Kind == "datasource" || uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "navigation" || uri.Kind == "window" || uri.Kind == "report" || uri.Kind == "mcp" || uri.Kind == "lookup" {
 			return nil
 		}
 	}

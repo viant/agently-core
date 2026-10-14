@@ -92,7 +92,7 @@ func NewNativeAssetSnapshot(ctx context.Context, root string, definitions []Nati
 		if definition.RawDocument && (err != nil || uri.Kind != "agently-runtime" || definition.FormatVersion != 0) {
 			return nil, fmt.Errorf("invalid native raw document")
 		}
-		if err != nil || definition.Load == nil || !extensionPath(definition.File) || seen[definition.URI] || !(definition.RawDocument && definition.FormatVersion == 0 || uri.Kind == "window" && (definition.FormatVersion == 2 || definition.FormatVersion == 3) || uri.Kind == "report" && definition.FormatVersion == 1 || uri.Kind == primitive.ToolfeedKind && definition.FormatVersion == primitive.ToolfeedFormatVersion || uri.Kind == "datasource" && definition.FormatVersion == 1 || (uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "menu" || uri.Kind == "skill" || uri.Kind == "mcp" || uri.Kind == "lookup") && definition.FormatVersion == 1) {
+		if err != nil || definition.Load == nil || !extensionPath(definition.File) || seen[definition.URI] || !(definition.RawDocument && definition.FormatVersion == 0 || uri.Kind == "window" && (definition.FormatVersion == 2 || definition.FormatVersion == 3) || uri.Kind == "report" && definition.FormatVersion == 1 || uri.Kind == primitive.ToolfeedKind && definition.FormatVersion == primitive.ToolfeedFormatVersion || uri.Kind == "datasource" && definition.FormatVersion == 1 || (uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "navigation" || uri.Kind == "skill" || uri.Kind == "mcp" || uri.Kind == "lookup") && definition.FormatVersion == 1) {
 			return nil, fmt.Errorf("unsupported or duplicate native snapshot definition")
 		}
 		seen[definition.URI] = true
@@ -169,7 +169,7 @@ func (s *NativeAssetSnapshot) Reload(ctx context.Context) error {
 			validator = ValidateTemplateDefinition
 		} else if uri.Kind == "intent" {
 			validator = ValidateIntentDefinition
-		} else if uri.Kind == "menu" {
+		} else if uri.Kind == "navigation" {
 			validator = ValidateMenu
 		} else if uri.Kind == "lookup" {
 			validator = ValidateLookupDefinition

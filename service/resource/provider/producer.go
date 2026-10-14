@@ -140,7 +140,7 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 		if err != nil || primitive.Plural(uri.Kind) == "" || binding.Resolver == nil || binding.FormatVersion < 1 || p.validators[uri.Kind] == nil {
 			return nil, fmt.Errorf("local resource binding requires an explicit resolver, format version, and kind validator")
 		}
-		if uri.Kind == "menu" && config.MenuActionVisibility == nil && config.MenuVisibilityProjection == nil {
+		if uri.Kind == "navigation" && config.MenuActionVisibility == nil && config.MenuVisibilityProjection == nil {
 			return nil, fmt.Errorf("menu binding requires action visibility")
 		}
 		if _, exists := p.bindings[binding.URI]; exists {
@@ -268,7 +268,7 @@ func (p *LocalProvider) checkedRead(ctx context.Context, actor identity.Verified
 	if resolver == nil || resolver.ProviderIdentity != p.identity {
 		return nil, nil, identity.ErrResourceDenied
 	}
-	if uri.Kind != "menu" && requested != "" && requested != identity.WorkingCandidate {
+	if uri.Kind != "navigation" && requested != "" && requested != identity.WorkingCandidate {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	// Preserve omission so host policy can honor an authorized main/exposure
@@ -279,7 +279,7 @@ func (p *LocalProvider) checkedRead(ctx context.Context, actor identity.Verified
 	if err != nil {
 		return nil, nil, err
 	}
-	if pin == nil || pin.ProviderIdentity != p.identity || pin.URI != uri.String() || !pin.ResourceCandidate.Valid() || (uri.Kind != "menu" && (pin.Kind != identity.WorkingCandidate || pin.Revision != "")) || !identity.MetadataExpiryValid(pin.ValidUntil, p.nowTime()) {
+	if pin == nil || pin.ProviderIdentity != p.identity || pin.URI != uri.String() || !pin.ResourceCandidate.Valid() || (uri.Kind != "navigation" && (pin.Kind != identity.WorkingCandidate || pin.Revision != "")) || !identity.MetadataExpiryValid(pin.ValidUntil, p.nowTime()) {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	readSpan := p.timing(ctx, observe.RevisionRead, uri.Kind, uri.Namespace)
@@ -454,7 +454,7 @@ func (p *LocalProvider) List(ctx context.Context, kind string, input primitive.L
 		binding := bindings[value]
 		uri, _ := identity.ParseResourceURI(value)
 		selector := identity.WorkingCandidate
-		if kind == "menu" {
+		if kind == "navigation" {
 			selector = ""
 		}
 		raw, pin, e := p.checkedRead(ctx, actor, binding, uri, "resource.list", selector)
@@ -464,7 +464,7 @@ func (p *LocalProvider) List(ctx context.Context, kind string, input primitive.L
 			}
 			return nil, e
 		}
-		if kind == "menu" {
+		if kind == "navigation" {
 			projection, err := p.getMenuProjection(ctx, actor, binding, uri, raw, pin)
 			if err != nil {
 				if errors.Is(err, identity.ErrResourceDenied) {
@@ -682,7 +682,7 @@ func (p *LocalProvider) Get(ctx context.Context, kind string, input primitive.Ge
 	if err != nil {
 		return nil, err
 	}
-	if kind == "menu" {
+	if kind == "navigation" {
 		return p.getMenuProjection(ctx, actor, binding, uri, raw, pin)
 	}
 	result := &primitive.GetResult{Resource: &primitive.ResourceState{OwnerID: binding.OwnerID, Description: binding.Description, Kind: kind, Namespace: uri.Namespace, Name: uri.Name, URI: input.URI, Title: binding.Title, Lifecycle: "working", Revision: identity.WorkingCandidate, FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint, Definition: raw, DefinitionBytes: append([]byte(nil), raw...)}, ResolvedResource: pin}

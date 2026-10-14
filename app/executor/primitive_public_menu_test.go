@@ -35,7 +35,7 @@ func TestPublicNativeMenuStartupPrecedenceAndProtectedGate(t *testing.T) {
 			defer rt.PrimitiveProviders.Close()
 			require.NotNil(t, rt.NativeLayoutSource)
 			require.NoError(t, rt.NativeLayoutSource.Check(context.Background()))
-			uri, _ := identity.ParseResourceURI("menu://workspace/layout")
+			uri, _ := identity.ParseResourceURI("navigation://workspace/layout")
 			connection, err := rt.PrimitiveProviders.ConnectionForResource(context.Background(), uri, resources.InternalProviderIdentity)
 			require.NoError(t, err)
 			got, err := resources.Get[json.RawMessage](context.Background(), rt.PrimitiveProviders, connection, identity.ResourceRef{URI: uri.String()}, nil)

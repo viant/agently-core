@@ -12,7 +12,7 @@ func Plural(kind string) string {
 		return "lookups"
 	case "mcp":
 		return "mcps"
-	case "menu":
+	case "navigation":
 		return "menus"
 	case "toolfeed":
 		return "toolfeeds"
@@ -36,7 +36,7 @@ func Plural(kind string) string {
 	return ""
 }
 func Kind(plural string) string {
-	for _, kind := range []string{"menu", "toolfeed", "window", "report", "intent", "template", "datasource", "skill", "eval", "prompt", "mcp", "lookup"} {
+	for _, kind := range []string{"navigation", "toolfeed", "window", "report", "intent", "template", "datasource", "skill", "eval", "prompt", "mcp", "lookup"} {
 		if Plural(kind) == plural {
 			return kind
 		}

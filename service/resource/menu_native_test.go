@@ -24,7 +24,7 @@ func TestNativeMenuSharesSnapshotAndRetainsLiveVisibility(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0700))
 	original := []byte("version: 1\nid: original\ntopbar: {actions: [{id: header, title: Header, action: {type: window, windowKey: headerOnly}}]}\napplications:\n  - id: original\n    title: Original\n    menus:\n      - id: advertisers\n        title: Advertisers\n        action: {type: window, windowKey: advertiserList, parameters: {opaque: 9007199254740993}}\n      - id: campaigns\n        title: Campaigns\n        action: {type: window, windowKey: campaignList}\n")
 	require.NoError(t, os.WriteFile(file, original, 0600))
-	def, err := SnapshotLayoutMenuDefinition("ui/layout.yaml", "menu://team/layout")
+	def, err := SnapshotLayoutMenuDefinition("ui/layout.yaml", "navigation://team/layout")
 	require.NoError(t, err)
 	reads := 0
 	native := def.Load

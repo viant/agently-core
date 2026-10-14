@@ -1,5 +1,5 @@
-// Command primitive-menu-mcp is a standalone protected MCP menu producer.
-// Run: MENU_EXAMPLE_TOKEN=<opaque secret> go run ./examples/primitive-menu-mcp
+// Command primitive-navigation-mcp is a standalone protected MCP menu producer.
+// Run: NAVIGATION_EXAMPLE_TOKEN=<opaque secret> go run ./examples/primitive-navigation-mcp
 // Production hosts inject their IdP verification and resource revision policy.
 package main
 
@@ -25,11 +25,11 @@ func (p policy) SelectRevision(_ context.Context, _ identity.ResourceRef, candid
 	return identity.ResourceDecision{Candidate: candidates[0], AuthorityBinding: "example-configured-account", ValidUntil: p.actor.ValidUntil}, nil
 }
 func main() {
-	token := os.Getenv("MENU_EXAMPLE_TOKEN")
+	token := os.Getenv("NAVIGATION_EXAMPLE_TOKEN")
 	if len(token) < 16 {
-		log.Fatal("set MENU_EXAMPLE_TOKEN to an opaque secret of at least 16 characters")
+		log.Fatal("set NAVIGATION_EXAMPLE_TOKEN to an opaque secret of at least 16 characters")
 	}
-	uri, _ := identity.ParseResourceURI("menu://platform/navigation")
+	uri, _ := identity.ParseResourceURI("navigation://platform/navigation")
 	source := &identity.LocalResource{URI: uri, Load: func(context.Context) (json.RawMessage, error) {
 		return json.RawMessage(`{"schemaVersion":1,"applications":[{"id":"platform","title":"Platform","menus":[{"id":"windows","title":"Windows","action":{"type":"window","windowKey":"windows"}},{"id":"datasources","title":"Data sources","action":{"type":"window","windowKey":"datasources"}},{"id":"reports","title":"Reports","action":{"type":"window","windowKey":"reports"}}]}]}`), nil
 	}}
@@ -51,7 +51,7 @@ func main() {
 		return nil
 	}, Bindings: []producer.LocalResourceBinding{{URI: uri.String(), Title: "Platform", FormatVersion: 1, Resolver: func(_ context.Context, a identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
 		return &identity.ResourceResolver{ProviderIdentity: "standalone-example", Source: source, Policy: policy{actor: a}}, nil
-	}}}, Validators: map[string]producer.LocalResourceValidator{"menu": producer.ValidateMenu}, MenuActionVisibility: func(_ context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (bool, error) {
+	}}}, Validators: map[string]producer.LocalResourceValidator{"navigation": producer.ValidateMenu}, MenuActionVisibility: func(_ context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (bool, error) {
 		var action struct {
 			Type      string `json:"type"`
 			WindowKey string `json:"windowKey"`
@@ -77,6 +77,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Print("standalone menu MCP listening at http://127.0.0.1:29395/mcp")
+	log.Print("standalone navigation MCP listening at http://127.0.0.1:29395/mcp")
 	log.Fatal((&http.Server{Addr: "127.0.0.1:29395", Handler: handler, ReadHeaderTimeout: 5 * time.Second}).ListenAndServe())
 }
