@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/elicitation"
@@ -34,6 +35,10 @@ func handleCancelTurn(client Client) http.HandlerFunc {
 }
 
 func handleSteerTurn(client Client) http.HandlerFunc {
+	return handleSteerTurnWithTimeout(client, 15*time.Second)
+}
+
+func handleSteerTurnWithTimeout(client Client, timeout time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conversationID, turnID, err := conversationAndTurnIDs(r)
 		if err != nil {
@@ -47,8 +52,16 @@ func handleSteerTurn(client Client) http.HandlerFunc {
 		}
 		input.ConversationID = conversationID
 		input.TurnID = turnID
-		out, err := client.SteerTurn(context.WithoutCancel(r.Context()), &input)
+		// Keep an accepted steer alive across a browser disconnect, but never
+		// let a synchronous acceptance request wait for the whole agent turn.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), timeout)
+		defer cancel()
+		out, err := client.SteerTurn(ctx, &input)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				httpError(w, http.StatusGatewayTimeout, fmt.Errorf("steering was not accepted in time: %w", context.DeadlineExceeded))
+				return
+			}
 			if isConflictError(err) {
 				httpError(w, http.StatusConflict, err)
 				return
