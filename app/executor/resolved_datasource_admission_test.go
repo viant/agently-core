@@ -96,9 +96,7 @@ func TestBuilderRemoteDatasourceForwardsWithoutHostBusinessAdmission(t *testing.
 	require.Equal(t, string(before), string(after))
 	denied := map[string]any{"Object": "foreign", "Parent": "owned-parent", "accountId": "account"}
 	_, err = svc.Fetch(ctx, "records", denied, opts)
-	var upstream *dsproto.UpstreamAuthorizationError
-	require.ErrorAs(t, err, &upstream)
-	require.Equal(t, 403, upstream.Status)
+	require.ErrorIs(t, err, dsproto.ErrDatasourceDenied)
 	require.Equal(t, 2, managing.calls)
 	require.Equal(t, 1, managing.executions)
 	revoked = true

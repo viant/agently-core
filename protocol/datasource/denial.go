@@ -21,6 +21,6 @@ func (datasourceDenied) Error() string {
 }
 func (datasourceDenied) DatasetScopedDenial() bool { return true }
 
-// ErrDatasourceDenied is issued only after an opted-in host rechecks current
-// root access and the original resource/target/descriptor boundary.
+// ErrDatasourceDenied represents a trusted managing-MCP dataset denial after
+// datasource dispatch. Artifact admission is a separate, earlier concern.
 var ErrDatasourceDenied error = datasourceDenied{}
