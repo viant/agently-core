@@ -43,7 +43,7 @@ require (
 	github.com/viant/gosh v0.3.1-0.20261007222529-b829eaaf687b
 	github.com/viant/jsonrpc v0.25.1-0.20261010000858-1444533d5a7e
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.24.1-0.20261009143306-aaed6cdc2d48
+	github.com/viant/mcp v0.24.1-0.20261014040242-8f88e1cc31d0
 	github.com/viant/mcp-protocol v0.19.1-0.20261014011736-cc52f4b7738c
 	github.com/viant/mcp-tasks v0.0.0-20261008153829-762637b5ea3a
 	github.com/viant/mcp-ui v0.2.1-0.20261011073152-8f30de0c7bc3
