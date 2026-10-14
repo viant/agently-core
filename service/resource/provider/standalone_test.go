@@ -75,6 +75,18 @@ func TestStandaloneProtectedHTTPMCPMenus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	initialized, err := c.Initialize(context.Background())
+	if err != nil || initialized.Capabilities.Resources == nil {
+		t.Fatalf("standard resources capability unavailable: %v", err)
+	}
+	listed, err := c.ListResources(context.Background(), nil)
+	if err != nil || len(listed.Resources) != 1 || listed.Resources[0].Uri != uri.String() {
+		t.Fatalf("standard resources/list failed: %+v %v", listed, err)
+	}
+	read, err := c.ReadResource(context.Background(), &schema.ReadResourceRequestParams{Uri: uri.String()})
+	if err != nil || len(read.Contents) != 1 || !strings.Contains(read.Contents[0].Text, "advertiserList") || strings.Contains(read.Contents[0].Text, "deniedTarget") {
+		t.Fatalf("standard resources/read leaked or failed: %+v %v", read, err)
+	}
 	tools, err := c.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -140,6 +152,9 @@ func TestStandaloneProtectedHTTPMCPMenus(t *testing.T) {
 		t.Fatal("invalid projection hash")
 	}
 	revoked.Store(true)
+	if _, err = c.ReadResource(context.Background(), &schema.ReadResourceRequestParams{Uri: uri.String()}, mcpclient.WithNoRetry()); err == nil {
+		t.Fatal("revoked standard resource read succeeded")
+	}
 	r = call("navigations/get", map[string]interface{}{"uri": uri.String()})
 	if r.IsError == nil || !*r.IsError {
 		t.Fatal("revoked actor released menu")

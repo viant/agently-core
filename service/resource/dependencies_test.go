@@ -15,6 +15,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	forgeMCP "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
+	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -35,6 +36,10 @@ type dependencyMCPProvider struct {
 	owner    string
 	items    map[string]*dependencyResource
 	listName string
+}
+
+func (p *dependencyMCPProvider) ListResources(context.Context, *string, ...mcpclient.RequestOption) (*schema.ListResourcesResult, error) {
+	return nil, jsonrpc.NewMethodNotFound("resources unavailable", nil)
 }
 
 func (p *dependencyMCPProvider) ListTools(context.Context, *string, ...mcpclient.RequestOption) (*schema.ListToolsResult, error) {

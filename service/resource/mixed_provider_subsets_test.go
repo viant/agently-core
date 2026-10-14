@@ -74,6 +74,10 @@ type ordinarySubsetSkills struct {
 	forbidden []string
 }
 
+func (p *ordinarySubsetSkills) ListResources(context.Context, *string, ...mcpclient.RequestOption) (*schema.ListResourcesResult, error) {
+	return &schema.ListResourcesResult{Resources: []schema.Resource{{Uri: p.entry.Uri, Name: p.entry.Uri}}}, nil
+}
+
 func (p *ordinarySubsetSkills) Initialize(context.Context, ...mcpclient.RequestOption) (*schema.InitializeResult, error) {
 	return &schema.InitializeResult{ProtocolVersion: "2025-11-25", Capabilities: schema.ServerCapabilities{Resources: &schema.ServerCapabilitiesResources{}, Extensions: map[string]map[string]interface{}{schema.SkillsExtension: {}}}}, nil
 }

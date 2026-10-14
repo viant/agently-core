@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 
+	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/jsonrpc"
 	namespaces "github.com/viant/mcp-protocol/extension/namespaces"
@@ -119,6 +120,19 @@ func (h *localMCPHandler) ReadResource(ctx context.Context, request *jsonrpc.Typ
 	}
 	skill := h.provider.nativeSkill(request.Request.Params.Uri, true)
 	if skill == nil {
+		if uri, err := identity.ParseResourceURI(request.Request.Params.Uri); err == nil && h.provider.ownsStandardResource(uri) {
+			if _, registered := h.ResourceRegistry.Get(uri.String()); registered {
+				if _, err := h.provider.Get(ctx, uri.Kind, primitive.GetRequest{URI: uri.String()}); err != nil {
+					return nil, jsonrpc.NewInvalidParamsError("resource unavailable", nil)
+				}
+				return h.DefaultHandler.ReadResource(ctx, request)
+			}
+			result, err := h.provider.readStandardResource(ctx, uri)
+			if err != nil {
+				return nil, jsonrpc.NewInvalidParamsError("resource unavailable", nil)
+			}
+			return result, nil
+		}
 		return h.DefaultHandler.ReadResource(ctx, request)
 	}
 	actor, err := h.provider.currentActor(ctx)
@@ -232,14 +246,18 @@ func (h *localMCPHandler) nativeSkillIndexCall(ctx context.Context, name string,
 }
 
 func (h *localMCPHandler) ListResources(ctx context.Context, request *jsonrpc.TypedRequest[*schema.ListResourcesRequest]) (*schema.ListResourcesResult, *jsonrpc.Error) {
-	if h.provider.nativeSkills == nil {
-		return h.DefaultHandler.ListResources(ctx, request)
-	}
 	actor, err := h.provider.currentActor(ctx)
 	if err != nil {
 		return nil, jsonrpc.NewInvalidParamsError("resources unavailable", nil)
 	}
-	resources := []schema.Resource{}
+	resources, err := h.provider.listStandardResources(ctx)
+	if err != nil {
+		return nil, jsonrpc.NewInvalidParamsError("resources unavailable", nil)
+	}
+	seen := map[string]int{}
+	for index, resource := range resources {
+		seen[resource.Uri] = index
+	}
 	for _, registered := range h.ResourceRegistry.Values() {
 		if skill := h.provider.nativeSkill(registered.Metadata.Uri, true); skill != nil {
 			uri, _ := identity.ParseResourceURI(skill.Metadata().Uri)
@@ -250,6 +268,15 @@ func (h *localMCPHandler) ListResources(ctx context.Context, request *jsonrpc.Ty
 				return nil, jsonrpc.NewInvalidParamsError("resources unavailable", nil)
 			}
 		}
+		if index, duplicate := seen[registered.Metadata.Uri]; duplicate {
+			uri, parseErr := identity.ParseResourceURI(registered.Metadata.Uri)
+			if parseErr != nil || !h.provider.ownsStandardResource(uri) {
+				return nil, jsonrpc.NewInvalidParamsError("resource collision", nil)
+			}
+			resources[index] = registered.Metadata
+			continue
+		}
+		seen[registered.Metadata.Uri] = len(resources)
 		resources = append(resources, registered.Metadata)
 	}
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Uri < resources[j].Uri })
@@ -264,5 +291,5 @@ func (h *localMCPHandler) ListResources(ctx context.Context, request *jsonrpc.Ty
 	if h.provider.finishActor(ctx, actor) != nil {
 		return nil, jsonrpc.NewInvalidParamsError("resources unavailable", nil)
 	}
-	return &schema.ListResourcesResult{Resources: page, NextCursor: next}, nil
+	return &schema.ListResourcesResult{ResultType: schema.ResultTypeComplete, CacheScope: schema.ListResourcesResultCacheScopePrivate, Resources: page, NextCursor: next}, nil
 }

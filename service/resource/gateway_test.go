@@ -108,6 +108,10 @@ type fixtureProvider struct {
 	after      func(string)
 }
 
+func (p *fixtureProvider) ListResources(context.Context, *string, ...mcpclient.RequestOption) (*schema.ListResourcesResult, error) {
+	return nil, jsonrpc.NewMethodNotFound("resources unavailable", nil)
+}
+
 func (p *fixtureProvider) ListTools(context.Context, *string, ...mcpclient.RequestOption) (*schema.ListToolsResult, error) {
 	meta := map[string]any{primitive.AuthoringExtension: map[string]any{"version": 1, "providerIdentity": p.owner, "transport": "tools/call"}}
 	return &schema.ListToolsResult{Tools: []schema.Tool{{Name: "namespaces/list", Meta: meta}, {Name: "namespaces/get", Meta: meta}, {Name: "windows/list", Meta: meta}, {Name: "windows/get", Meta: meta}}}, nil

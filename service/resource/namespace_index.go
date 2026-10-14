@@ -11,6 +11,7 @@ import (
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	namespaces "github.com/viant/mcp-protocol/extension/namespaces"
+	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
 
@@ -42,8 +43,9 @@ func decodeNamespaceIndex[T any](raw json.RawMessage, required string) (T, error
 	return result, nil
 }
 
-func (g *Gateway) discoverNamespaceIndex(ctx context.Context, c mcpclient.Interface, first json.RawMessage, result capabilities, allowed map[string]bool) (capabilities, error) {
+func (g *Gateway) discoverNamespaceIndex(ctx context.Context, c mcpclient.Interface, first json.RawMessage, result capabilities, allowed map[string]bool, standardRead bool) (capabilities, error) {
 	result.sharedIndex = true
+	result.standardResources = standardRead
 	result.indexedResources = map[string]primitive.ResourceState{}
 	if !result.installed[namespaces.ListToolName] || !result.installed[namespaces.GetToolName] {
 		return result, ErrUnavailable
@@ -108,7 +110,10 @@ func (g *Gateway) discoverNamespaceIndex(ctx context.Context, c mcpclient.Interf
 		for _, kind := range sorted {
 			operations := []string{"list"}
 			methods := map[string]string{"list": namespaces.GetToolName}
-			if result.installed[namespaces.ResourceGetToolName] {
+			if standardRead {
+				operations = append(operations, "get")
+				methods["get"] = schema.MethodResourcesRead
+			} else if result.installed[namespaces.ResourceGetToolName] {
 				operations = append(operations, "get")
 				methods["get"] = namespaces.ResourceGetToolName
 			}
