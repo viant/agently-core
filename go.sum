@@ -1334,6 +1334,8 @@ github.com/viant/jsonrpc v0.25.1-0.20261010000858-1444533d5a7e h1:l2ofm6Spia6+AI
 github.com/viant/jsonrpc v0.25.1-0.20261010000858-1444533d5a7e/go.mod h1:b214Lo4zBwLqbu6Tf2bRlgQkFfPMBW5ap4qS+I3zcJ8=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 h1:OWMFweaKPIdh1tkbxgb0vJ6YPHoUlZR4yWf9CTntHB4=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99/go.mod h1:7ovJ5fzlXnVcadUr9RjJVwVl2l3wbNvm5i4tSOj+VbE=
+github.com/viant/mcp v0.24.1-0.20261014183435-4ede589f52da h1:23UH4uXo4QN77mapxHRKV8YsoCooSKfuNSNAgJSWgus=
+github.com/viant/mcp v0.24.1-0.20261014183435-4ede589f52da/go.mod h1:FugrWHC2uxjpRh+7X77taoLiGTywmDg6pkwFdlJuHt4=
 github.com/viant/mcp v0.24.1-0.20261008165059-494f36529f6e h1:hILoyfX/JiD0HucE48QE4S4muvJUrQa8OF23RmaqM+U=
 github.com/viant/mcp v0.24.1-0.20261008165059-494f36529f6e/go.mod h1:YykhVWLSjgj0MMDmyGnHFSmKo6kPY4H+4C9wSVtitbQ=
 github.com/viant/mcp v0.24.1-0.20261009012849-6a1945fe2baf h1:YgFPylcJWGJC2lx6p/cjvKcCdYMYGfLB6vymKMh+4bQ=
