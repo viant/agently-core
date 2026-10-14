@@ -19,6 +19,9 @@ type resourceReadBinding struct {
 	options *cfg.MCPClient
 	client  mcpclient.Interface
 	key     string
+	// catalogKey excludes a target association only for remote transports.
+	// The full key above still fences one selected read and its release.
+	catalogKey string
 }
 
 func (g *Gateway) resolveReadBinding(ctx context.Context, actor identity.VerifiedActor, name string) (*resourceReadBinding, error) {
@@ -55,11 +58,27 @@ func (g *Gateway) resolveReadBinding(ctx context.Context, actor identity.Verifie
 	if decoder.Decode(detached) != nil {
 		return nil, identity.ErrResourceDenied
 	}
-	key, err := g.namespaceReadKey(ctx, actor, name, detached, client)
+	effective := g.Manager.WithAuthTokenContext(ctx, name)
+	authHash := credentialDigest(effective)
+	key, err := g.namespaceReadKeyForCredential(ctx, actor, name, detached, client, authHash)
 	if err != nil {
 		return nil, err
 	}
-	return &resourceReadBinding{manager: g.Manager, name: name, options: detached, client: client, key: key}, nil
+	catalogKey := key
+	if !g.Manager.IsLocalClient(name) {
+		catalogKey, err = g.namespaceReadKeyForCredential(ctx, actor, name, detached, client, authHash, [32]byte{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &resourceReadBinding{manager: g.Manager, name: name, options: detached, client: client, key: key, catalogKey: catalogKey}, nil
+}
+
+func (b *resourceReadBinding) capabilityKey() string {
+	if b.catalogKey != "" {
+		return b.catalogKey
+	}
+	return b.key
 }
 
 func (g *Gateway) checkReadBinding(ctx context.Context, actor identity.VerifiedActor, held *resourceReadBinding) error {

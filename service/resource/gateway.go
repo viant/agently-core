@@ -73,14 +73,20 @@ type Gateway struct {
 	mu                      sync.Mutex
 	generations             map[string]uint64
 	cache                   map[string]capabilities
+	discoveryInflight       map[string]*discoveryCall
 	stopChanges             func()
 	stopResourceChanges     func()
 	closed                  bool
 	observedOwners          map[string]string
 }
 
+type discoveryCall struct {
+	ready chan struct{}
+	err   error
+}
+
 func NewGateway(m *manager.Manager, a ActorResolver, v ActorVerifier, localIdentity string) *Gateway {
-	g := &Gateway{Manager: m, Actor: a, Verify: v, GatewayProviderIdentity: localIdentity, generations: map[string]uint64{}, cache: map[string]capabilities{}, observedOwners: map[string]string{}}
+	g := &Gateway{Manager: m, Actor: a, Verify: v, GatewayProviderIdentity: localIdentity, generations: map[string]uint64{}, cache: map[string]capabilities{}, discoveryInflight: map[string]*discoveryCall{}, observedOwners: map[string]string{}}
 	if m != nil {
 		g.stopChanges = m.OnCatalogChange(g.Invalidate)
 		g.stopResourceChanges = m.OnResourceCatalogChange(func(name string) {
@@ -275,7 +281,7 @@ func (g *Gateway) discover(ctx context.Context, a identity.VerifiedActor, name s
 	return g.discoverMode(ctx, a, name, false, binding...)
 }
 
-func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, name string, force bool, bindings ...*resourceReadBinding) (capabilities, error) {
+func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, name string, force bool, bindings ...*resourceReadBinding) (resolved capabilities, retErr error) {
 	var scopeErr error
 	ctx, scopeErr = ReadContext(ctx)
 	if scopeErr != nil {
@@ -305,7 +311,8 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 	restrictionKey, _ := json.Marshal(restrictions)
 	generation := g.generation(name)
 	resourceVersion := g.Manager.ResourceCatalogGeneration(ctx, name)
-	key := actorKey(a, name, generation) + string(restrictionKey) + options.PrimitiveProviderIdentity + binding.key
+	catalogKey := binding.capabilityKey()
+	key := actorKey(a, name, generation) + string(restrictionKey) + options.PrimitiveProviderIdentity + catalogKey
 	g.mu.Lock()
 	cached, ok := g.cache[key]
 	g.mu.Unlock()
@@ -330,7 +337,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 			return read, nil
 		}
 	}
-	if !force && ok && identity.MetadataExpiryValid(discoveryCacheUntil(cached), g.now()) && cached.bindingKey == binding.key && cached.resourceVersion == resourceVersion {
+	if !force && ok && identity.MetadataExpiryValid(discoveryCacheUntil(cached), g.now()) && cached.bindingKey == catalogKey && cached.resourceVersion == resourceVersion {
 		if e = g.checkReadBinding(ctx, a, binding); e != nil {
 			return capabilities{}, e
 		}
@@ -343,6 +350,43 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 			}
 		}
 		return cached, nil
+	}
+	if !force {
+		g.mu.Lock()
+		if current, found := g.cache[key]; found && identity.MetadataExpiryValid(discoveryCacheUntil(current), g.now()) && current.bindingKey == catalogKey && current.resourceVersion == resourceVersion {
+			g.mu.Unlock()
+			return g.discoverMode(ctx, a, name, false, binding)
+		}
+		if g.discoveryInflight == nil {
+			g.discoveryInflight = map[string]*discoveryCall{}
+		}
+		if pending := g.discoveryInflight[key]; pending != nil {
+			g.mu.Unlock()
+			select {
+			case <-pending.ready:
+				if pending.err != nil {
+					if (errors.Is(pending.err, context.Canceled) || errors.Is(pending.err, context.DeadlineExceeded)) && ctx.Err() == nil {
+						return g.discoverMode(ctx, a, name, false, binding)
+					}
+					return capabilities{}, pending.err
+				}
+				return g.discoverMode(ctx, a, name, false, binding)
+			case <-ctx.Done():
+				return capabilities{}, ctx.Err()
+			}
+		}
+		pending := &discoveryCall{ready: make(chan struct{})}
+		g.discoveryInflight[key] = pending
+		g.mu.Unlock()
+		defer func() {
+			g.mu.Lock()
+			pending.err = retErr
+			if g.discoveryInflight[key] == pending {
+				delete(g.discoveryInflight, key)
+			}
+			close(pending.ready)
+			g.mu.Unlock()
+		}()
 	}
 	installed := map[string]bool{}
 	sharedContract := false
@@ -484,7 +528,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 		for _, namespace := range options.PrimitiveNamespaces {
 			allowed[namespace] = true
 		}
-		result = capabilities{actor: a, connection: Connection{Name: name, ProviderIdentity: owner, Generation: generation}, expires: a.ValidUntil, installed: installed, bindingKey: binding.key, resourceVersion: resourceVersion}
+		result = capabilities{actor: a, connection: Connection{Name: name, ProviderIdentity: owner, Generation: generation}, expires: a.ValidUntil, installed: installed, bindingKey: catalogKey, resourceVersion: resourceVersion}
 		for _, scope := range options.ResourceCacheScopes {
 			if scope == cfg.ResourceCachePublic {
 				result.publicResourceMetadata = true
@@ -522,7 +566,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 		for _, ns := range options.PrimitiveNamespaces {
 			allowed[ns] = true
 		}
-		result = capabilities{actor: a, connection: Connection{Name: name, ProviderIdentity: owner, Generation: generation}, expires: a.ValidUntil, installed: installed, bindingKey: binding.key, resourceVersion: resourceVersion}
+		result = capabilities{actor: a, connection: Connection{Name: name, ProviderIdentity: owner, Generation: generation}, expires: a.ValidUntil, installed: installed, bindingKey: catalogKey, resourceVersion: resourceVersion}
 		for _, scope := range options.ResourceCacheScopes {
 			if scope == cfg.ResourceCachePublic {
 				result.publicResourceMetadata = true

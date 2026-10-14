@@ -209,7 +209,7 @@ func (g *Gateway) namespaceReadKey(ctx context.Context, actor identity.VerifiedA
 }
 
 // The caller may share the effective credential only within one binding check.
-func (g *Gateway) namespaceReadKeyForCredential(ctx context.Context, actor identity.VerifiedActor, name string, options *cfg.MCPClient, client mcpclient.Interface, authHash [32]byte) (string, error) {
+func (g *Gateway) namespaceReadKeyForCredential(ctx context.Context, actor identity.VerifiedActor, name string, options *cfg.MCPClient, client mcpclient.Interface, authHash [32]byte, associationOverride ...[32]byte) (string, error) {
 	if wrapped, ok := client.(*gatewayAuthClient); ok {
 		client = wrapped.Interface
 	}
@@ -222,7 +222,11 @@ func (g *Gateway) namespaceReadKeyForCredential(ctx context.Context, actor ident
 		return "", identity.ErrResourceDenied
 	}
 	optionsHash := sha256.Sum256(encoded)
-	return fmt.Sprintf("%s:%x:%x:%x:%T:%x", actorKey(actor, name, g.generation(name)), optionsHash, authHash, requestctx.ResourceReadAssociation(ctx), client, value.Pointer()), nil
+	association := requestctx.ResourceReadAssociation(ctx)
+	if len(associationOverride) > 0 {
+		association = associationOverride[0]
+	}
+	return fmt.Sprintf("%s:%x:%x:%x:%T:%x", actorKey(actor, name, g.generation(name)), optionsHash, authHash, association, client, value.Pointer()), nil
 }
 
 func cloneCapabilities(c capabilities) capabilities {
