@@ -23,14 +23,15 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 	if err != nil {
 		return nil, actor, err
 	}
-	names, err := g.Manager.Names(ctx)
+	names, err := g.catalogConnectionNames(ctx)
 	if err != nil {
 		return nil, actor, err
 	}
 	sort.Strings(names)
-	// Only contributors to this kind depend on resource notifications. Keep all
-	// configured names in the transport/tool scope so configuration and schema
-	// changes still fence enumeration, including newly supporting providers.
+	// A kind's snapshot depends on providers that currently expose that kind.
+	// Discover every configured provider on each call so a newly supporting
+	// provider changes the dependency set without coupling this snapshot to
+	// unrelated servers' connection and tool-list churn.
 	dependencies := names
 	scopeNames := make([]string, 0, len(names))
 	if category != "" {
@@ -44,11 +45,14 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 		if discoverErr != nil && !errors.Is(discoverErr, ErrUnavailable) {
 			return nil, actor, discoverErr
 		}
-		scopeNames = append(scopeNames, name)
+		if category == "" {
+			scopeNames = append(scopeNames, name)
+		}
 		if category != "" && discoverErr == nil {
 			for _, namespace := range caps.namespaces {
 				if supports(caps, namespace.Namespace, category, "list") {
 					dependencies = append(dependencies, name)
+					scopeNames = append(scopeNames, name)
 					break
 				}
 			}
@@ -83,14 +87,11 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 	if err != nil {
 		return nil, actor, err
 	}
-	until := g.now().Add(30 * time.Second)
-	if actor.ValidUntil.Before(until) {
-		until = actor.ValidUntil
-	}
+	until := actor.ValidUntil
 	if !cacheable {
 		until = g.now()
 	}
-	generation := g.catalogGeneration(names)
+	generation := g.catalogGeneration(scopeNames)
 	key := fmt.Sprintf("primitive:%p:%s:%s:%s:%x", g, actorKey(actor, "", 0), scope+":"+configuration, kind, generation)
 
 	index, err := g.Manager.VisibleCatalogInPartition(ctx, key, partition, until, load, sourceLease...)
@@ -105,7 +106,7 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 	if configErr != nil {
 		return nil, actor, configErr
 	}
-	if current != scope || currentConfiguration != configuration || generation != g.catalogGeneration(names) {
+	if current != scope || currentConfiguration != configuration || generation != g.catalogGeneration(scopeNames) {
 		return nil, actor, primitive.ErrCatalogCursor
 	}
 	if err = g.final(ctx, actor); err != nil {

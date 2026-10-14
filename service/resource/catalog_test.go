@@ -144,3 +144,40 @@ func TestGatewayCatalogPagesAcrossPartialProvidersPrivateScopesAndFreshGet(t *te
 	_, err = gateway.ListPage(alice, "window", query)
 	require.ErrorIs(t, err, primitive.ErrCatalogCursor)
 }
+
+func TestGatewayCatalogDiscoversNewlySupportingProviderAfterItsToolChange(t *testing.T) {
+	resource := func() *dependencyResource {
+		return &dependencyResource{raw: json.RawMessage(`{"title":"visible"}`), formatVersion: 1, revision: identity.WorkingCandidate, authorityBinding: "owner", validUntil: time.Now().Add(time.Minute)}
+	}
+	windows := &dependencyMCPProvider{owner: "windows", items: map[string]*dependencyResource{
+		"window://team/alpha": resource(),
+		"window://team/beta":  resource(),
+	}}
+	partial := &dependencyMCPProvider{owner: "partial", items: map[string]*dependencyResource{
+		"datasource://team/rows": resource(),
+	}}
+	mgr, err := manager.New(fixtureOptions{"windows": &cfg.MCPClient{}, "partial": &cfg.MCPClient{}}, manager.WithClientFactory(func(_ context.Context, _, name string) (mcpclient.Interface, error) {
+		if name == "partial" {
+			return partial, nil
+		}
+		return windows, nil
+	}))
+	require.NoError(t, err)
+	defer mgr.CloseConversation("")
+	actor := identity.VerifiedActor{Issuer: "fixture", Subject: "alice", TenantID: "team", AccountID: "account", IdentityRevision: "one", ValidUntil: time.Now().Add(time.Minute)}
+	g := NewGateway(mgr, func(context.Context) (identity.VerifiedActor, error) { return actor, nil }, func(context.Context, identity.VerifiedActor) error { return nil }, "gateway")
+	defer g.Close()
+	ctx := context.Background()
+	first, err := ListPage[json.RawMessage](ctx, g, "window", CatalogQuery{Limit: 1})
+	require.NoError(t, err)
+	require.Equal(t, 2, first.Total)
+	require.NotEmpty(t, first.NextCursor)
+
+	partial.items["window://team/new"] = resource()
+	g.Invalidate("partial") // Manager's tools/list notification refreshes discovery.
+	current, err := ListPage[json.RawMessage](ctx, g, "window", CatalogQuery{Limit: 10})
+	require.NoError(t, err)
+	require.Equal(t, 3, current.Total)
+	_, err = ListPage[json.RawMessage](ctx, g, "window", CatalogQuery{Limit: 1, Cursor: first.NextCursor})
+	require.ErrorIs(t, err, primitive.ErrCatalogCursor)
+}
