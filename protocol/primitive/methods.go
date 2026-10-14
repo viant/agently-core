@@ -13,7 +13,7 @@ func Plural(kind string) string {
 	case "mcp":
 		return "mcps"
 	case "navigation":
-		return "menus"
+		return "navigations"
 	case "toolfeed":
 		return "toolfeeds"
 	case "window":
