@@ -15,18 +15,34 @@ import (
 // native turn. This internal origin plus the principal-scoped causal parent is
 // the durable proof used to resume a detached linked conversation.
 func aguiDetachedResumeContext(ctx context.Context, store aguistore.Store, record *aguistore.Run) (context.Context, error) {
+	if record == nil || store == nil {
+		return nil, fmt.Errorf("continuation origin scope is required")
+	}
 	original := record
-	seen := map[string]bool{}
-	for depth := 0; original.PriorRunID != ""; depth++ {
-		if depth >= 64 || seen[original.RunID] {
-			return nil, fmt.Errorf("invalid continuation ancestry")
+	seen := map[string]bool{record.RunID: true}
+	for original.PriorRunID != "" {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		seen[original.RunID] = true
-		var err error
-		original, err = store.GetRun(ctx, record.Principal, record.ThreadID, original.PriorRunID)
+		expected := original.PriorRunID
+		if seen[expected] {
+			return nil, fmt.Errorf("continuation origin lineage is cyclic")
+		}
+		loaded, err := store.GetRun(ctx, record.Principal, record.ThreadID, expected)
 		if err != nil {
 			return nil, err
 		}
+		if err = ctx.Err(); err != nil {
+			return nil, err
+		}
+		if loaded == nil || loaded.RunID != expected || loaded.Principal != record.Principal || loaded.ThreadID != record.ThreadID || loaded.ConversationID != record.ConversationID || loaded.TurnID != record.TurnID {
+			return nil, fmt.Errorf("continuation origin ancestor identity mismatch")
+		}
+		seen[expected] = true
+		original = loaded
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if original.ParentRunID == "" || original.TurnID == "" || original.ClientMessageID != "" {
 		return ctx, nil
@@ -55,7 +71,10 @@ func aguiDetachedResumeContext(ctx context.Context, store aguistore.Store, recor
 	if err != nil {
 		return nil, err
 	}
-	if parent.Principal != record.Principal || parent.TurnID != inv.ParentTurnID || parent.ConversationID != inv.ParentConversationID {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	if parent == nil || parent.RunID != original.ParentRunID || parent.Principal != record.Principal || parent.ThreadID != parentThread || parent.TurnID != inv.ParentTurnID || parent.ConversationID != inv.ParentConversationID {
 		return nil, fmt.Errorf("detached parent protocol scope mismatch")
 	}
 	return clienttool.WithDetachedContinuation(ctx, clienttool.DetachedContinuation{ChildConversationID: original.ConversationID, ChildTurnID: original.TurnID, ParentConversationID: parent.ConversationID, ParentTurnID: parent.TurnID, ParentProtocolRunID: parent.RunID, ExecutionMode: "detach"}), nil
