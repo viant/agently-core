@@ -6,6 +6,7 @@ import (
 	"github.com/viant/jsonrpc"
 	protoclient "github.com/viant/mcp-protocol/client"
 	"github.com/viant/mcp-protocol/schema"
+	"strings"
 	"sync/atomic"
 )
 
@@ -65,8 +66,15 @@ func (h *changeHandler) OnNotification(ctx context.Context, n *jsonrpc.Notificat
 					}
 				}
 			}
-		case "notifications/resources/list_changed", "notifications/resources/updated":
+		case "notifications/resources/list_changed":
 			h.manager.notifyResourceCatalogChange(h.server, h.receiver, h.publicResources)
+		case "notifications/resources/updated":
+			var updated schema.ResourceUpdatedNotificationParams
+			if err := json.Unmarshal(n.Params, &updated); err != nil || strings.TrimSpace(updated.Uri) == "" {
+				h.manager.notifyResourceCatalogChange(h.server, h.receiver, h.publicResources)
+			} else {
+				h.manager.notifyResourceUpdated(h.server, h.receiver, h.publicResources, updated.Uri)
+			}
 		case "notifications/tools/list_changed", "notifications/prompts/list_changed", "notifications/skills/list_changed":
 			h.manager.notifyCatalogChange(h.server)
 		}

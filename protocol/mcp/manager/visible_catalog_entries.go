@@ -17,6 +17,7 @@ import (
 type visibleCatalogEntry struct {
 	key             string
 	ready           chan struct{}
+	invalidated     bool
 	value           json.RawMessage
 	until           time.Time
 	representations map[string]*visibleCatalogRepresentation
@@ -104,6 +105,9 @@ func (m *Manager) VisibleCatalogEntryInPartition(ctx context.Context, key string
 		m.mu.Lock()
 		current := m.visibleCatalogs[key]
 		if current != slot && err == nil {
+			err = primitive.ErrCatalogCursor
+		}
+		if entry.invalidated && err == nil {
 			err = primitive.ErrCatalogCursor
 		}
 		if err == nil && partition.sourceVersions != nil {

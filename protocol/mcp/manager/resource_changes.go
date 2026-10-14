@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"strings"
 )
 
 type resourceCatalogScope struct {
@@ -47,6 +48,22 @@ func (m *Manager) resourceCatalogGenerationLocked(server string, receiver [32]by
 	return [2]uint64{broadcast, m.resourceCatalogGeneration[resourceCatalogScope{server: server, receiver: receiver}]}
 }
 
+// ResourceContentGeneration fences request-local definition reuse without
+// invalidating the provider's resource-list snapshot.
+func (m *Manager) ResourceContentGeneration(ctx context.Context, server string) [2]uint64 {
+	receiver := m.resourceReceiver(ctx)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.resourceContentGenerationLocked(server, receiver)
+}
+func (m *Manager) resourceContentGenerationLocked(server string, receiver [32]byte) [2]uint64 {
+	broadcast := m.resourceContentGeneration[resourceCatalogScope{server: server}]
+	if receiver == ([32]byte{}) {
+		return [2]uint64{broadcast, 0}
+	}
+	return [2]uint64{broadcast, m.resourceContentGeneration[resourceCatalogScope{server: server, receiver: receiver}]}
+}
+
 // OnResourceCatalogChange reports immediate native resource invalidation.
 // Listeners run outside the mutex and must not perform network I/O. Refresh is
 // lazy: bursts share the existing VisibleCatalog population singleflight.
@@ -63,6 +80,63 @@ func (m *Manager) OnResourceCatalogChange(listener func(string)) func() {
 	m.resourceChangeListeners[id] = listener
 	m.mu.Unlock()
 	return func() { m.mu.Lock(); delete(m.resourceChangeListeners, id); m.mu.Unlock() }
+}
+
+// OnResourceUpdated observes a URI-bearing content update. List membership is
+// unchanged; listeners must not perform network I/O on the notification thread.
+func (m *Manager) OnResourceUpdated(listener func(string, string)) func() {
+	if listener == nil {
+		return func() {}
+	}
+	m.mu.Lock()
+	if m.resourceUpdatedListeners == nil {
+		m.resourceUpdatedListeners = map[uint64]func(string, string){}
+	}
+	m.changeListenerID++
+	id := m.changeListenerID
+	m.resourceUpdatedListeners[id] = listener
+	m.mu.Unlock()
+	return func() { m.mu.Lock(); delete(m.resourceUpdatedListeners, id); m.mu.Unlock() }
+}
+
+// notifyResourceUpdated evicts only the named definition and its revision
+// aliases. A pending load is fenced so it cannot republish after the event.
+func (m *Manager) notifyResourceUpdated(server string, receiver [32]byte, public bool, uri string) {
+	if uri == "" {
+		m.notifyResourceCatalogChange(server, receiver, public)
+		return
+	}
+	if public {
+		receiver = [32]byte{}
+	}
+	m.mu.Lock()
+	if m.resourceContentGeneration == nil {
+		m.resourceContentGeneration = map[resourceCatalogScope]uint64{}
+	}
+	m.resourceContentGeneration[resourceCatalogScope{server: server, receiver: receiver}]++
+	prefix := uri + "\x00"
+	for _, held := range m.visibleCatalogs {
+		if held.sources != nil && !held.sources[server] || receiver != ([32]byte{}) && held.receiver != receiver && held.receiver != ([32]byte{}) {
+			continue
+		}
+		kept := held.entries[:0]
+		for _, entry := range held.entries {
+			if strings.HasPrefix(entry.key, prefix) {
+				entry.invalidated = true
+				continue
+			}
+			kept = append(kept, entry)
+		}
+		held.entries = kept
+	}
+	listeners := make([]func(string, string), 0, len(m.resourceUpdatedListeners))
+	for _, listener := range m.resourceUpdatedListeners {
+		listeners = append(listeners, listener)
+	}
+	m.mu.Unlock()
+	for _, listener := range listeners {
+		listener(server, uri)
+	}
 }
 func (m *Manager) notifyResourceCatalogChange(server string, receiver [32]byte, public bool) {
 	if public {
