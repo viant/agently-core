@@ -2335,6 +2335,8 @@ sourcegraph.com/sourcegraph/go-diff v0.5.0/go.mod h1:kuch7UrkMzY0X+p9CRK03kfuPQ2
 sourcegraph.com/sqs/pbtypes v0.0.0-20180604144634-d3ebe8f20ae4/go.mod h1:ketZ/q3QxT9HOBeFhu6RdvsftgpsbFHBF5Cas6cDKZ0=
 github.com/viant/datly v1.1.1-0.20261014035505-59523a9a6c21 h1:LOoHHcGrV3kZ77k8X+VaAspPKjypB9JjjkLMFY4bqvg=
 github.com/viant/datly v1.1.1-0.20261014035505-59523a9a6c21/go.mod h1:c11e73XwmQyFd+GjjX3mcHtu2TUdaoWbNJfx6rmZbqk=
+github.com/viant/mcp-protocol v0.19.1-0.20261014173008-af92f34f304b h1:0VPbrlB8gbHLc1zrwbFW+f3IowORM5MmqpldnWm0+eY=
+github.com/viant/mcp-protocol v0.19.1-0.20261014173008-af92f34f304b/go.mod h1:8h2yGk/LjWpyLqQEZYOGuNZQPohCr1vtM8IvtcNcEIQ=
 github.com/viant/mcp-protocol v0.19.1-0.20261014011736-cc52f4b7738c h1:hdftllQezOybRdshy6ELeILNkgYh8In1DDZUfzrDFCo=
 github.com/viant/mcp-protocol v0.19.1-0.20261014011736-cc52f4b7738c/go.mod h1:8h2yGk/LjWpyLqQEZYOGuNZQPohCr1vtM8IvtcNcEIQ=
 github.com/viant/sqlx v0.26.1-0.20261013010041-718390a26adf h1:r5RB+A3BhNCQ4cz7hol5b/xczDJSW0uJ0tUVdCV5n+8=
