@@ -34,6 +34,7 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 	// unrelated servers' connection and tool-list churn.
 	dependencies := names
 	scopeNames := make([]string, 0, len(names))
+	var standardLease time.Time
 	if category != "" {
 		dependencies = nil
 	}
@@ -53,9 +54,15 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 				if supports(caps, namespace.Namespace, category, "list") {
 					dependencies = append(dependencies, name)
 					scopeNames = append(scopeNames, name)
+					if caps.standardResources && (standardLease.IsZero() || caps.expires.Before(standardLease)) {
+						standardLease = caps.expires
+					}
 					break
 				}
 			}
+		}
+		if category == "" && discoverErr == nil && caps.standardResources && (standardLease.IsZero() || caps.expires.Before(standardLease)) {
+			standardLease = caps.expires
 		}
 	}
 	// Unlinked connectors do not participate in transport initialization. Their
@@ -90,6 +97,9 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 	until := actor.ValidUntil
 	if !cacheable {
 		until = g.now()
+	}
+	if !standardLease.IsZero() {
+		until = identity.MinimumMetadataExpiry(until, standardLease)
 	}
 	generation := g.catalogGeneration(scopeNames)
 	key := fmt.Sprintf("primitive:%p:%s:%s:%s:%x", g, actorKey(actor, "", 0), scope+":"+configuration, kind, generation)

@@ -898,6 +898,9 @@ func NewMCPServer(provider *LocalProvider, compact ...bool) (*mcp.Server, error)
 		}
 	}), mcp.WithNewHandler(func(_ context.Context, n transport.Notifier, l logger.Logger, c client.Operations) (protocol.Handler, error) {
 		h := &localMCPHandler{DefaultHandler: protocol.NewDefaultHandler(n, l, c), provider: provider}
+		h.ServerCapabilities = &schema.ServerCapabilities{Resources: &schema.ServerCapabilitiesResources{}}
+		h.Registry.Methods.Put(schema.MethodResourcesList, true)
+		h.Registry.Methods.Put(schema.MethodResourcesRead, true)
 		if err := h.registerNativeSkills(); err != nil {
 			return nil, err
 		}

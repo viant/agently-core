@@ -37,6 +37,7 @@ func (p namespaceIndexTestProvider) Names(context.Context) ([]string, error) {
 
 type namespaceIndexCounters struct {
 	personal              atomic.Bool
+	standardRead          atomic.Bool
 	list, get, definition atomic.Int32
 	malformed, denied     atomic.Bool
 }
@@ -104,6 +105,22 @@ func namespaceIndexServer(t *testing.T, counts *namespaceIndexCounters, extra ..
 			return result(namespaces.GetResult{Resources: page, NextCursor: next})
 		}); err != nil {
 			return err
+		}
+		if counts.standardRead.Load() {
+			mime := "application/json"
+			for uri, definition := range definitions {
+				uri, definition := uri, definition
+				if err := h.Registry.RegisterResource(schema.Resource{Uri: uri, Name: uri, MimeType: &mime}, func(ctx context.Context, request *schema.ReadResourceRequest) (*schema.ReadResourceResult, *jsonrpc.Error) {
+					counts.definition.Add(1)
+					if counts.denied.Load() || request.Params.Uri != uri {
+						return nil, jsonrpc.NewInvalidParamsError("resource unavailable", nil)
+					}
+					return &schema.ReadResourceResult{ResultType: schema.ResultTypeComplete, Contents: []schema.ReadResourceResultContentsElem{{Uri: uri, MimeType: &mime, Text: string(definition)}}}, nil
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 		return protocolserver.RegisterTool[namespaces.ResourceGetRequest, struct{}](h.Registry, namespaces.ResourceGetToolName, "Read exact definition", func(ctx context.Context, in namespaces.ResourceGetRequest) (*schema.CallToolResult, *jsonrpc.Error) {
 			counts.definition.Add(1)
@@ -198,6 +215,31 @@ func TestSharedNamespaceIndexUsesRealMCPWithoutKindToolsOrAuthoringMetadata(t *t
 			require.ErrorIs(t, err, identity.ErrResourceDenied, "owning denial must be terminal")
 		})
 	}
+}
+
+func TestSharedNamespaceIndexReadsDefinitionsThroughStandardMCPResources(t *testing.T) {
+	ctx := context.Background()
+	counts := &namespaceIndexCounters{}
+	counts.standardRead.Store(true)
+	server := namespaceIndexServer(t, counts)
+	mgr, err := manager.New(nil)
+	require.NoError(t, err)
+	require.NoError(t, mgr.RegisterLocal(ctx, "index", &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "index"}, func(ctx context.Context) (mcpclient.Interface, error) { return server.AsClient(ctx), nil }))
+	t.Cleanup(func() { mgr.CloseConversation("") })
+	actor, verify := PublicReadActors()
+	gateway := NewGateway(mgr, actor, verify, "consumer")
+	t.Cleanup(gateway.Close)
+	rows, err := gateway.List(ctx, "window", "remote")
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	located := rows[0]
+	got, err := Get[json.RawMessage](ctx, gateway, located.Connection, identity.ResourceRef{URI: located.Resource.URI}, nil)
+	require.NoError(t, err)
+	require.Contains(t, string(got.Definition), "Original content")
+	require.EqualValues(t, 1, counts.definition.Load(), "standard resources/read must deliver the selected definition")
+	counts.denied.Store(true)
+	_, err = Get[json.RawMessage](ctx, gateway, located.Connection, identity.ResourceRef{URI: located.Resource.URI}, nil)
+	require.Error(t, err, "owning resources/read denial must remain terminal")
 }
 
 func TestSharedNamespaceIndexMissingResourcesNeverLooksComplete(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	producer "github.com/viant/agently-core/service/resource/provider"
 	"github.com/viant/jsonrpc"
+	namespaces "github.com/viant/mcp-protocol/extension/namespaces"
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 	"reflect"
@@ -43,6 +44,7 @@ type LocatedResource struct {
 }
 type capabilities struct {
 	sharedIndex            bool
+	standardResources      bool
 	indexedResources       map[string]primitive.ResourceState
 	actor                  identity.VerifiedActor
 	connection             Connection
@@ -351,7 +353,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 			if e != nil {
 				var rpc *jsonrpc.Error
 				if errors.As(e, &rpc) && rpc.Code == -32601 {
-					return capabilities{}, ErrUnavailable
+					break // Resource-only MCP servers need not implement tools/list.
 				}
 				return capabilities{}, e
 			}
@@ -402,6 +404,22 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 		}
 	}
 	if !installed["namespaces/list"] || !installed["namespaces/get"] {
+		standardCapable := standardResourceReadSupported(ctx, c)
+		if standardCapable {
+			standard, supported, standardErr := g.discoverStandardResources(ctx, a, name, binding, options, c, generation, resourceVersion)
+			if standardErr != nil {
+				return capabilities{}, standardErr
+			}
+			if supported {
+				currentRestrictions := append([]string(nil), options.PrimitiveNamespaces...)
+				sort.Strings(currentRestrictions)
+				currentRestrictionKey, _ := json.Marshal(currentRestrictions)
+				if !bytes.Equal(currentRestrictionKey, restrictionKey) {
+					return capabilities{}, primitive.ErrCatalogCursor
+				}
+				return g.publishDiscovery(ctx, a, name, binding, key, generation, resourceVersion, force, standard)
+			}
+		}
 		return capabilities{}, ErrUnavailable
 	}
 	var result capabilities
@@ -464,7 +482,8 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 				break
 			}
 		}
-		result, e = g.discoverNamespaceIndex(ctx, c, listedRaw, result, allowed)
+		standardRead := !installed[namespaces.ResourceGetToolName] && standardResourceReadSupported(ctx, c)
+		result, e = g.discoverNamespaceIndex(ctx, c, listedRaw, result, allowed, standardRead)
 		if e != nil {
 			return capabilities{}, e
 		}
@@ -567,14 +586,18 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 		}
 
 	}
+	return g.publishDiscovery(ctx, a, name, binding, key, generation, resourceVersion, force, result)
+}
+
+func (g *Gateway) publishDiscovery(ctx context.Context, a identity.VerifiedActor, name string, binding *resourceReadBinding, key string, generation uint64, resourceVersion [2]uint64, force bool, result capabilities) (capabilities, error) {
 	if g.generation(name) != generation || g.Manager.ResourceCatalogGeneration(ctx, name) != resourceVersion {
 		return capabilities{}, identity.ErrResourceStale
 	}
-	if e = g.checkReadBinding(ctx, a, binding); e != nil {
-		return capabilities{}, e
+	if err := g.checkReadBinding(ctx, a, binding); err != nil {
+		return capabilities{}, err
 	}
-	if e = g.final(ctx, a); e != nil {
-		return capabilities{}, e
+	if err := g.final(ctx, a); err != nil {
+		return capabilities{}, err
 	}
 	g.mu.Lock()
 	for k, v := range g.cache {
@@ -586,10 +609,10 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 		g.cache = map[string]capabilities{}
 	}
 	g.cache[key] = result
-	g.observedOwners[name] = owner
+	g.observedOwners[name] = result.connection.ProviderIdentity
 	g.mu.Unlock()
-	if sequence != nil && !force {
-		if err := sequence.record(name, readKey, result); err != nil {
+	if sequence := sequenceFromContext(ctx); sequence != nil && !force {
+		if err := sequence.record(name, binding.key, result); err != nil {
 			return capabilities{}, err
 		}
 	}
@@ -871,12 +894,18 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 		e = g.checkReadBinding(ctx, a, binding)
 	}
 	if e == nil && !found {
-		result, cacheReference, e = g.cachedDefinitionGet(ctx, a, binding, c, uri, ref, func(ctx context.Context) (primitive.GetResult, error) {
-			if c.sharedIndex {
-				return indexedDefinitionGet(ctx, ext, c, ref)
-			}
-			return call[primitive.GetResult](ctx, ext, operationMethod(c, uri.Namespace, uri.Kind, "get"), primitive.GetRequest{URI: ref.URI, Revision: ref.Revision})
-		})
+		if c.standardResources {
+			// A standard resource read has no provider revision receipt or cache lease.
+			// Keep the owning MCP authoritative on each selected read.
+			result, e = standardDefinitionGet(ctx, ext, c, ref)
+		} else {
+			result, cacheReference, e = g.cachedDefinitionGet(ctx, a, binding, c, uri, ref, func(ctx context.Context) (primitive.GetResult, error) {
+				if c.sharedIndex {
+					return indexedDefinitionGet(ctx, ext, c, ref)
+				}
+				return call[primitive.GetResult](ctx, ext, operationMethod(c, uri.Namespace, uri.Kind, "get"), primitive.GetRequest{URI: ref.URI, Revision: ref.Revision})
+			})
+		}
 	}
 	if e != nil {
 		return nil, e
