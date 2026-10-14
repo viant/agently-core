@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,10 +15,16 @@ import (
 
 type controlLineageStore struct {
 	aguistore.Store
-	runs map[string]*aguistore.Run
+	runs  map[string]*aguistore.Run
+	calls int
+	onGet func(context.Context, string)
 }
 
-func (s *controlLineageStore) GetRun(_ context.Context, principal, thread, id string) (*aguistore.Run, error) {
+func (s *controlLineageStore) GetRun(ctx context.Context, principal, thread, id string) (*aguistore.Run, error) {
+	s.calls++
+	if s.onGet != nil {
+		s.onGet(ctx, id)
+	}
 	record := s.runs[id]
 	if record == nil {
 		return nil, aguistore.ErrNotFound
@@ -63,6 +70,8 @@ func TestAGUIContinuationRejectsBrokenOrCrossScopeLineage(t *testing.T) {
 		{"missing", nil}, {"principal", &aguistore.Run{RunID: "initial", ThreadID: "thread", ConversationID: "thread", Principal: "foreign", TurnID: "turn"}},
 		{"thread", &aguistore.Run{RunID: "initial", ThreadID: "foreign", ConversationID: "foreign", Principal: "owner", TurnID: "turn"}},
 		{"turn", &aguistore.Run{RunID: "initial", ThreadID: "thread", ConversationID: "thread", Principal: "owner", TurnID: "foreign"}},
+		{"conversation", &aguistore.Run{RunID: "initial", ThreadID: "thread", ConversationID: "foreign", Principal: "owner", TurnID: "turn"}},
+		{"run", &aguistore.Run{RunID: "foreign", ThreadID: "thread", ConversationID: "thread", Principal: "owner", TurnID: "turn"}},
 		{"cycle", &aguistore.Run{RunID: "initial", ThreadID: "thread", ConversationID: "thread", Principal: "owner", TurnID: "turn", PriorRunID: "current"}},
 	}
 	for _, test := range tests {
@@ -80,4 +89,81 @@ func TestAGUIContinuationRejectsBrokenOrCrossScopeLineage(t *testing.T) {
 	store := &controlLineageStore{runs: map[string]*aguistore.Run{"initial": valid}}
 	query := &agentsvc.QueryInput{ConversationID: "other", MessageID: "turn", UserId: "owner"}
 	require.Error(t, restoreAGUIContinuationControls(context.Background(), store, &aguistore.Run{RunID: "current", ThreadID: "thread", ConversationID: "thread", Principal: "owner", TurnID: "turn", PriorRunID: "initial"}, query))
+}
+
+func continuationControlChain(length int) (*controlLineageStore, *aguistore.Run, *agentsvc.QueryInput) {
+	store := &controlLineageStore{runs: map[string]*aguistore.Run{}}
+	var current *aguistore.Run
+	for i := 0; i <= length; i++ {
+		current = &aguistore.Run{Principal: "owner", ThreadID: "thread", ConversationID: "conversation", TurnID: "turn", RunID: fmt.Sprintf("run-%d", i)}
+		if i == 0 {
+			current.Input = json.RawMessage(`{"threadId":"thread","runId":"run-0","messages":[],"forwardedProps":{"agently":{"version":"1","operation":"chat","payload":{"backendTools":["report/read"],"reasoningEffort":"high","disableChains":true,"allowedChains":["review"]}}}}`)
+		} else {
+			current.PriorRunID = fmt.Sprintf("run-%d", i-1)
+		}
+		store.runs[current.RunID] = current
+	}
+	query := &agentsvc.QueryInput{ConversationID: "conversation", MessageID: "turn", UserId: "owner"}
+	return store, current, query
+}
+
+func TestAGUIContinuationRestoresControlsWithoutAncestorDepthCeiling(t *testing.T) {
+	for _, length := range []int{33, 64, 65, 128, 1024} {
+		t.Run(fmt.Sprint(length), func(t *testing.T) {
+			store, record, query := continuationControlChain(length)
+			require.NoError(t, restoreAGUIContinuationControls(context.Background(), store, record, query))
+			require.Equal(t, length, store.calls)
+			require.Equal(t, []string{"report/read"}, query.ToolsAllowed)
+			require.Equal(t, "high", *query.ReasoningEffort)
+			require.True(t, query.DisableChains)
+			require.Equal(t, []string{"review"}, query.AllowedChains)
+		})
+	}
+}
+
+func TestAGUIContinuationRejectsCyclesBeyondFormerDepthCeiling(t *testing.T) {
+	for _, length := range []int{0, 1, 128} {
+		t.Run(fmt.Sprint(length), func(t *testing.T) {
+			store, record, query := continuationControlChain(length)
+			store.runs["run-0"].PriorRunID = record.RunID
+			require.ErrorContains(t, restoreAGUIContinuationControls(context.Background(), store, record, query), "lineage is cyclic")
+			require.Equal(t, length, store.calls)
+			require.Empty(t, query.ToolsAllowed)
+		})
+	}
+}
+
+func TestAGUIContinuationStopsOnCancellationEvenIfStoreIgnoresIt(t *testing.T) {
+	for _, cancelAfter := range []int{0, 17, 128} {
+		t.Run(fmt.Sprint(cancelAfter), func(t *testing.T) {
+			store, record, query := continuationControlChain(128)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if cancelAfter == 0 {
+				cancel()
+			} else {
+				store.onGet = func(context.Context, string) {
+					if store.calls == cancelAfter {
+						cancel()
+					}
+				}
+			}
+			require.ErrorIs(t, restoreAGUIContinuationControls(ctx, store, record, query), context.Canceled)
+			require.Equal(t, cancelAfter, store.calls)
+			require.Empty(t, query.ToolsAllowed)
+			require.Nil(t, query.ReasoningEffort)
+		})
+	}
+}
+
+func TestAGUIContinuationRestoresDetachedChildOwnRoot(t *testing.T) {
+	store, record, query := continuationControlChain(128)
+	childRoot := store.runs["run-0"]
+	childRoot.ParentRunID = "parent-execution"
+	store.runs[childRoot.ParentRunID] = &aguistore.Run{RunID: childRoot.ParentRunID, ThreadID: "parent-thread", ConversationID: "parent-conversation", TurnID: "parent-turn", Principal: "owner", PriorRunID: "parent-execution"}
+	childRoot.Input = json.RawMessage(`{"threadId":"thread","runId":"run-0","parentRunId":"parent-execution","messages":[],"forwardedProps":{"agently":{"version":"1","operation":"chat","payload":{"backendTools":["child/read"],"reasoningEffort":"low"}}}}`)
+	require.NoError(t, restoreAGUIContinuationControls(context.Background(), store, record, query))
+	require.Equal(t, 128, store.calls)
+	require.Equal(t, []string{"child/read"}, query.ToolsAllowed)
+	require.Equal(t, "low", *query.ReasoningEffort)
 }

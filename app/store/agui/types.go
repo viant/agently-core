@@ -68,6 +68,9 @@ type Admission struct {
 	Input                 json.RawMessage
 	PriorRunID            string
 	ExpectedPriorRevision int64
+	// Only a proven failed accepted continuation may claim its one recovery
+	// successor. The original interrupted parent's consumed relation stays intact.
+	ExpectedFailedRevision int64
 }
 
 // Change combines the journal append and projection/lifecycle updates in one
