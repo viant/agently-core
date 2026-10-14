@@ -16,6 +16,7 @@ type CreateResourceInput struct {
 	ACLMode        string          `json:"aclMode,omitempty"`
 	FormatVersion  int64           `json:"formatVersion"`
 	Definition     json.RawMessage `json:"definition"`
+	SourceManifest json.RawMessage `json:"sourceManifest,omitempty"`
 	IdempotencyKey string          `json:"idempotencyKey"`
 }
 
@@ -26,6 +27,7 @@ type UpdateDraftInput struct {
 	ExpectedDraftRevision      int64           `json:"expectedDraftRevision"`
 	FormatVersion              int64           `json:"formatVersion"`
 	Definition                 json.RawMessage `json:"definition"`
+	SourceManifest             json.RawMessage `json:"sourceManifest,omitempty"`
 	IdempotencyKey             string          `json:"idempotencyKey"`
 }
 
