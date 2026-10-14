@@ -31,7 +31,15 @@ func (m *Manager) invalidateToolCatalogLocked(server string) {
 		m.toolCatalogGeneration = map[string]uint64{}
 	}
 	m.toolCatalogGeneration[server]++
-	m.visibleCatalogs = nil
+	// A tool-list change only invalidates snapshots that depend on this MCP.
+	// A snapshot with no source tags is conservatively invalidated because its
+	// dependency set is unknown. Other providers may reconnect while a local
+	// resource catalog is being populated.
+	for key, held := range m.visibleCatalogs {
+		if held == nil || held.sources == nil || len(held.sources) == 0 || held.sources[server] {
+			delete(m.visibleCatalogs, key)
+		}
+	}
 	for key, page := range m.toolCatalog {
 		if page.server == server {
 			delete(m.toolCatalog, key)

@@ -156,7 +156,7 @@ func (s *Service) unresolvedTurnBundles(ctx context.Context, bundleIDs []string,
 	if len(bundleIDs) == 0 {
 		return nil, nil
 	}
-	bundles, err := s.loadBundles(ctx)
+	bundles, err := s.loadBundlesFor(ctx, bundleIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +400,7 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 	if s == nil || s.registry == nil {
 		return &resolvedToolSurface{}, nil
 	}
-	bundles, err := s.loadBundles(ctx)
+	bundles, err := s.loadBundlesFor(ctx, bundleIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -521,6 +521,45 @@ func (s *Service) loadBundles(ctx context.Context) (map[string]*toolbundle.Bundl
 		return nil, nil
 	}
 	return indexBundlesByID(list), nil
+}
+
+// loadBundlesFor preserves an admitted intent's own declared attachments while
+// allowing the trusted runtime to add independently selected toolfeed bundles.
+// A missing bundle declared by the intent can never fall back to the host.
+func (s *Service) loadBundlesFor(ctx context.Context, requested []string) (map[string]*toolbundle.Bundle, error) {
+	bundles, err := s.loadBundles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profile := selectedPromptProfileFromContext(ctx)
+	if profile == nil || profile.ResourceURI == "" {
+		return bundles, nil
+	}
+	missing := false
+	for _, id := range requested {
+		if bundles[strings.ToLower(strings.TrimSpace(id))] == nil {
+			missing = true
+			break
+		}
+	}
+	if !missing {
+		return bundles, nil
+	}
+	var ambient []*toolbundle.Bundle
+	if s.toolBundles != nil {
+		ambient, err = s.toolBundles(ctx)
+	} else if s.toolBundleRepo != nil {
+		ambient, err = s.toolBundleRepo.LoadAll(ctx)
+	}
+	if err != nil {
+		return nil, err
+	}
+	for id, bundle := range indexBundlesByID(ambient) {
+		if bundles[id] == nil {
+			bundles[id] = bundle
+		}
+	}
+	return bundles, nil
 }
 
 func indexBundlesByID(in []*toolbundle.Bundle) map[string]*toolbundle.Bundle {

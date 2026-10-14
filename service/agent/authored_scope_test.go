@@ -62,3 +62,26 @@ func TestMainWorkerUsesAdmittedOwnerAndBundleAttachments(t *testing.T) {
 	_, err = svc.resolveTools(ctx, &QueryInput{ToolBundles: []string{"same-bundle"}})
 	require.Error(t, err, "authored patterns grant no unregistered tool")
 }
+
+func TestAdmittedIntentCanUseAdditionalRuntimeToolfeedBundle(t *testing.T) {
+	svc := &Service{
+		registry: &fakeRegistry{defs: []llm.ToolDefinition{{Name: "owner-read"}, {Name: "remote-report"}, {Name: "foreign-read"}}},
+		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{
+				{ID: "advanced-reporting-tools", Match: []llm.Tool{{Name: "remote-report"}}},
+				{ID: "workspace-ui", Match: []llm.Tool{{Name: "foreign-read"}}},
+			}, nil
+		},
+	}
+	profile := &intent.Profile{
+		ResourceURI:           "intent://workspace/workspace_ui",
+		ToolBundles:           []string{"workspace-ui"},
+		ToolBundleDefinitions: []*toolbundle.Bundle{{ID: "workspace-ui", Match: []llm.Tool{{Name: "owner-read"}}}},
+	}
+	ctx := withSelectedPromptProfile(context.Background(), profile)
+	tools, err := svc.resolveTools(ctx, &QueryInput{ToolBundles: []string{"workspace-ui", "advanced-reporting-tools"}})
+	require.NoError(t, err)
+	require.Len(t, tools, 2)
+	names := []string{tools[0].Definition.Name, tools[1].Definition.Name}
+	require.ElementsMatch(t, []string{"owner-read", "remote-report"}, names)
+}
