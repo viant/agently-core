@@ -43,17 +43,43 @@ func omitCanonicalModelPayloads(state *ConversationState) {
 	}
 }
 
+func hasTranscriptToolSteps(state *ConversationState) bool {
+	if state == nil {
+		return false
+	}
+	for _, turn := range state.Turns {
+		if turn == nil || turn.Execution == nil {
+			continue
+		}
+		for _, page := range turn.Execution.Pages {
+			if page != nil && len(page.ToolSteps) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // This is an output projection after canonical role/workspace/render/feed
 // derivation. Originals and lazy payload references are never modified.
 func (c *backendClient) omitCanonicalToolPayloads(state *ConversationState, contexts ...context.Context) {
-	if state == nil {
-		return
-	}
 	ctx := context.Background()
 	if len(contexts) > 0 {
 		ctx = contexts[0]
 	}
-	specs, _ := c.feedSpecs(ctx)
+	c.omitCanonicalToolPayloadsWithCatalog(state, ctx, true)
+}
+
+func (c *backendClient) omitCanonicalToolPayloadsWithCatalog(state *ConversationState, ctx context.Context, loadDynamicSpecs bool) {
+	if !hasTranscriptToolSteps(state) {
+		return
+	}
+	var specs []*FeedSpec
+	if loadDynamicSpecs {
+		specs, _ = c.feedSpecs(ctx)
+	} else if c.feeds != nil {
+		specs = c.feeds.Specs()
+	}
 	for _, turn := range state.Turns {
 		if turn == nil || turn.Execution == nil {
 			continue

@@ -166,7 +166,7 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 		includeToolPayloads = *optState.includeToolPayloads
 	}
 	if !includeToolPayloads {
-		c.omitCanonicalToolPayloads(state, ctx)
+		c.omitCanonicalToolPayloadsWithCatalog(state, ctx, optState.includeFeeds)
 	}
 	return resp, nil
 }

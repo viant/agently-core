@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	convstore "github.com/viant/agently-core/app/store/conversation"
+	resources "github.com/viant/agently-core/service/resource"
 )
 
 // The same native payload and tool/message records used by normal execution
@@ -116,4 +118,9 @@ func TestCompactToolProjectionPreservesRendererFeedErrorsAndPending(t *testing.T
 	client.omitCanonicalToolPayloads(ordinaryState)
 	require.Empty(t, ordinary.Content)
 	require.Empty(t, ordinary.ResponsePayload, "tool names containing report words do not classify renderer data")
+	fastState := &ConversationState{Turns: []*TurnState{{Execution: &ExecutionState{Pages: []*ExecutionPageState{{ToolSteps: []*ToolStepState{{ToolName: "ordinary/read", Status: "completed", Content: "bulk", ResponsePayloadID: "body", ResponsePayload: payload}}}}}}}}
+	client.primitiveProviders = &resources.Gateway{} // Any dynamic catalog call would fail; the initial compact history read must not make one.
+	client.omitCanonicalToolPayloadsWithCatalog(fastState, context.Background(), false)
+	require.Empty(t, fastState.Turns[0].Execution.Pages[0].ToolSteps[0].Content)
+	require.Equal(t, "body", fastState.Turns[0].Execution.Pages[0].ToolSteps[0].ResponsePayloadID)
 }
