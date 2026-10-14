@@ -491,3 +491,124 @@ it('continues all original browser interrupts with terminal transport failures i
     expect(revoke).not.toHaveBeenCalled();
     f.finish(continuation.runId); f.transport.reset(); f.host.resetAgUiInteractions();
 });
+
+async function browserContinuationFixture(execute = vi.fn(async () => ({ content: 'fixture result' }))) {
+    const tool = { name: 'device-safe_read', description: 'Fixture', parameters: { type: 'object' } };
+    const browser = { tools: vi.fn(async () => [{ tool, execute }]), reset: vi.fn(), closeConversation: vi.fn(async () => {}) } as unknown as BrowserMCPHost;
+    let turns: any[] = [];
+    const f = fixture([], undefined, [], undefined, () => turns, undefined, browser);
+    const errors: string[] = [];
+    f.transport.subscribe('thread', { onError: error => errors.push(error) });
+    await f.transport.query({ conversationId: 'thread', query: 'Generic continuation fixture' });
+    const chat = f.posted.find(input => input.forwardedProps?.agently?.operation === 'chat');
+    const completion: Promise<unknown> = (f.transport as any).entries.get('thread').runs.get(chat.runId).completion;
+    const finishCall = (runId: string, id: string, mode: 'messages' | 'interrupts' = 'messages') => {
+        const stream = f.controls.get(runId)!;
+        for (const event of [
+            { type: 'TOOL_CALL_START', toolCallId: id, toolCallName: tool.name, parentMessageId: `assistant-${id}` },
+            { type: 'TOOL_CALL_ARGS', toolCallId: id, delta: '{}' },
+            { type: 'TOOL_CALL_END', toolCallId: id },
+            { type: 'RUN_FINISHED', threadId: 'thread', runId, outcome: mode === 'messages' ? { type: 'success', pendingToolCallIds: [id] }
+                : { type: 'interrupt', interrupts: [{ id: `interrupt-${id}`, toolCallId: id, reason: 'agently.client_tool', metadata: { agently: { version: '1', kind: 'client-tool' } } }] } },
+        ]) stream.enqueue(frame(event));
+        stream.close(); f.controls.delete(runId);
+    };
+    const next = async (runId: string) => {
+        await vi.waitFor(() => expect(f.posted.some(input => input.parentRunId === runId), JSON.stringify({ errors, calls: execute.mock.calls.length })).toBe(true));
+        return f.posted.find(input => input.parentRunId === runId);
+    };
+    const dispose = () => { f.transport.reset(); f.host.resetAgUiInteractions(); };
+    return { ...f, browser, tool, execute, errors, chat, completion, finishCall, next, dispose, setTurns: (value: any[]) => { turns = value; } };
+}
+
+it.each(['messages', 'interrupts'] as const)('continues forty distinct original browser calls via %s with identical arguments and one cached tool registry', async mode => {
+    const f = await browserContinuationFixture();
+    try {
+        let run = f.chat;
+        for (let i = 0; i < 40; i++) {
+            const id = `original-call-${i}`;
+            f.finishCall(run.runId, id, mode);
+            run = await f.next(run.runId);
+            if (mode === 'messages') expect(run.messages).toContainEqual(expect.objectContaining({ role: 'tool', toolCallId: id, content: 'fixture result' }));
+            else expect(run.resume).toContainEqual(expect.objectContaining({ interruptId: `interrupt-${id}`, status: 'resolved', payload: { content: 'fixture result' } }));
+            expect(run.tools).toEqual([f.tool]);
+        }
+        f.finish(run.runId);
+        await f.completion;
+        expect(f.execute).toHaveBeenCalledTimes(40);
+        expect(new Set(f.execute.mock.calls.map(call => (call as any[])[1].id)).size).toBe(40);
+        expect(f.browser.tools).toHaveBeenCalledOnce();
+        expect(f.errors).toEqual([]);
+    } finally { f.dispose(); }
+});
+
+it('leaves a human approval after forty browser continuations to the normal interrupt flow', async () => {
+    const f = await browserContinuationFixture();
+    try {
+        let run = f.chat;
+        for (let i = 0; i < 40; i++) {
+            f.finishCall(run.runId, `original-call-${i}`, 'interrupts');
+            run = await f.next(run.runId);
+        }
+        const before = f.posted.length, stream = f.controls.get(run.runId)!;
+        stream.enqueue(frame({ type: 'RUN_FINISHED', threadId: 'thread', runId: run.runId, outcome: { type: 'interrupt', interrupts: [
+            { id: 'human-approval', reason: 'agently.tool_approval', metadata: { agently: { version: '1', kind: 'tool-approval' } } },
+        ] } }));
+        stream.close(); f.controls.delete(run.runId);
+        await f.completion;
+        expect(f.posted).toHaveLength(before);
+        expect(f.execute).toHaveBeenCalledTimes(40);
+        expect(f.errors).toEqual([]);
+    } finally { f.dispose(); }
+});
+
+it('does not resume after account disposal while a browser handler is finishing', async () => {
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const execute = vi.fn(async () => { await pending; return { content: 'fixture result' }; });
+    const f = await browserContinuationFixture(execute);
+    try {
+        f.finishCall(f.chat.runId, 'original-call');
+        await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+        f.transport.reset();
+        release();
+        await f.completion;
+        expect(f.posted.some(input => input.parentRunId === f.chat.runId)).toBe(false);
+        expect(execute).toHaveBeenCalledOnce();
+    } finally { release(); f.dispose(); }
+});
+
+it('does not resume a backend-canceled native turn while a browser handler is finishing', async () => {
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const execute = vi.fn(async () => { await pending; return { content: 'fixture result' }; });
+    const f = await browserContinuationFixture(execute);
+    try {
+        f.finishCall(f.chat.runId, 'original-call');
+        await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+        f.setTurns([{ turnId: `native-${f.chat.runId}`, status: 'canceled' }]);
+        await f.transport.reconcile('thread');
+        release();
+        await f.completion;
+        expect(f.posted.some(input => input.parentRunId === f.chat.runId)).toBe(false);
+        expect(execute).toHaveBeenCalledOnce();
+        expect(f.errors).toEqual([]);
+    } finally { release(); f.dispose(); }
+});
+
+it('refuses a repeated original pending call even when resume replaces the prior result messages', async () => {
+    const f = await browserContinuationFixture();
+    try {
+        f.finishCall(f.chat.runId, 'original-call');
+        const run = await f.next(f.chat.runId), stream = f.controls.get(run.runId)!;
+        stream.enqueue(frame({ type: 'MESSAGES_SNAPSHOT', messages: [
+            { id: 'repeated-assistant', role: 'assistant', content: '', toolCalls: [{ id: 'original-call', type: 'function', function: { name: f.tool.name, arguments: '{}' } }] },
+        ] }));
+        stream.enqueue(frame({ type: 'RUN_FINISHED', threadId: 'thread', runId: run.runId, outcome: { type: 'success', pendingToolCallIds: ['original-call'] } }));
+        stream.close(); f.controls.delete(run.runId);
+        await vi.waitFor(() => expect(f.errors).toContain('Browser MCP continuation repeated an original pending call'));
+        await f.completion;
+        expect(f.execute).toHaveBeenCalledOnce();
+        expect(f.posted.some(input => input.parentRunId === run.runId)).toBe(false);
+    } finally { f.dispose(); }
+});

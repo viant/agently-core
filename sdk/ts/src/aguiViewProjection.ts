@@ -93,6 +93,20 @@ export class AgUiViewProjection {
             onStateChanged: ({ state }) => this.options.onDescriptor?.({ kind:'state', state:structuredClone(state), hostEffectsAllowed:this.hostEffects }),
             onRunFinishedEvent: params => {
                 this.consumeReduced(params.messages, params.state);
+                const interrupts=params.outcome==='interrupt' ? params.interrupts : [];
+                let waitKind:SSEEvent['waitKind']='none';
+                if (interrupts.length) {
+                    waitKind=interrupts.some(item=>item.reason==='approval') ? 'approval'
+                        : interrupts.some(item=>item.reason==='elicitation') ? 'elicitation'
+                        : this.hostEffects && interrupts.every(item=>{
+                            const marker=item.metadata?.agently;
+                            return item.reason==='agently.client_tool' && marker && typeof marker==='object' && !Array.isArray(marker)
+                                && marker.version==='1' && marker.kind==='client-tool' && !!item.toolCallId && this.calls.has(item.toolCallId);
+                        }) ? 'client_tool':'unknown';
+                } else if (params.outcome==='success' && params.pendingToolCallIds.length) {
+                    waitKind=this.hostEffects && params.pendingToolCallIds.every(id=>this.calls.has(id)) ? 'client_tool':'unknown';
+                } else if (params.outcome==='interrupt') waitKind='unknown';
+                this.emit({type:'turn_wait_kind',waitKind});
                 this.options.onOutcome?.({ ...this.outcomeBase(), phase:params.outcome,
                     ...(params.outcome==='interrupt'?{interrupts:structuredClone(params.interrupts)}:{}),
                     ...(params.outcome==='success'?{pendingToolCallIds:[...params.pendingToolCallIds],result:params.result}:{}) });
@@ -151,6 +165,7 @@ export class AgUiViewProjection {
             if (!owner && metadata?.nativeTurnId) this.nativeTurnId=metadata.nativeTurnId;
             this.options.onOutcome?.({...this.outcomeBase(),phase:'started'});
             if(this.options.profile==='standard')this.emit({type:'turn_started',status:'running',userMessageId:this.inputUserId,clientRequestId:this.inputUserId});
+            if (!owner) this.emit({type:'turn_wait_kind',waitKind:'none'});
             return;
         }
         const id=string(event.messageId),callId=string(event.toolCallId),parent=string(event.parentMessageId);

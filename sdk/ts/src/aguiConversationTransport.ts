@@ -266,10 +266,15 @@ export class AgUiConversationTransport {
 
     private async continueBrowserTools(entry: Entry, initial: RunSlot, session: AgUiSession, tools: ClientTool[]) {
         let current = initial;
+        const completedCalls = new Set<string>();
         try {
-            for (let round = 0; round < 32; round++) {
+            // The backend owns the logical turn's execution budget. Ending a
+            // frontend batch after resume can strand its newly admitted call.
+            while (true) {
                 if (!this.current(entry)) throw new Error('Original browser conversation is unavailable');
                 const snapshot = session.getSnapshot();
+                if (snapshot.phase === 'detached' || snapshot.phase === 'cancelled'
+                    || current.nativeTurnId && entry.terminalTurns.has(current.nativeTurnId)) return;
                 recordBrowserMCPLifecycle('continuation', { stage: snapshot.pendingToolCallIds.length ? 'execute' : snapshot.interrupts.length ? 'interrupts' : 'idle', pendingCount: snapshot.pendingToolCallIds.length, interruptCount: snapshot.interrupts.length });
                 const pendingIds = new Set(snapshot.pendingToolCallIds.length ? snapshot.pendingToolCallIds : snapshot.interrupts.map(item => item.toolCallId));
                 const pendingNames = snapshot.messages.flatMap(message => message.role === 'assistant' ? message.toolCalls ?? [] : [])
@@ -291,15 +296,26 @@ export class AgUiConversationTransport {
                 }
                 finishBrowserTiming('handoff.pendingToHandler', current.firstBrowserToolAt);
                 finishBrowserTiming('handoff.terminalToHandler', current.terminalAt);
+                const clientInterrupts = snapshot.interrupts.length && snapshot.interrupts.every(interrupt => {
+                    const marker = (interrupt.metadata as any)?.agently;
+                    return interrupt.reason === 'agently.client_tool' && marker?.version === '1' && marker?.kind === 'client-tool';
+                });
+                if (!snapshot.pendingToolCallIds.length && !clientInterrupts) return;
+                const callIds = snapshot.pendingToolCallIds.length ? snapshot.pendingToolCallIds
+                    : snapshot.interrupts.map(interrupt => interrupt.toolCallId ?? interrupt.id);
+                // A new call ID with identical arguments is a new invocation.
+                // A returned original ID cannot regain authority, even when a
+                // resumed message snapshot has omitted its prior tool result.
+                if (callIds.some(id => completedCalls.has(id))) throw new Error('Browser MCP continuation repeated an original pending call');
                 const handlersStarted = globalThis.performance?.now();
                 let responses: Record<string, import('./agui').InterruptResponse> | undefined;
                 if (snapshot.pendingToolCallIds.length) await session.client.executeClientTools(tools);
-                else if (snapshot.interrupts.length && snapshot.interrupts.every(interrupt => {
-                    const marker = (interrupt.metadata as any)?.agently;
-                    return interrupt.reason === 'agently.client_tool' && marker?.version === '1' && marker?.kind === 'client-tool';
-                })) responses = await session.client.executeClientToolInterrupts(tools);
-                else return; // Human approvals and unrelated interrupts keep their ordinary UI flow.
+                else responses = await session.client.executeClientToolInterrupts(tools);
+                for (const id of callIds) completedCalls.add(id);
                 finishBrowserTiming('handoff.handlers', handlersStarted);
+                if (!this.current(entry)) throw new Error('Original browser conversation is unavailable');
+                if (session.getSnapshot().phase === 'detached' || session.getSnapshot().phase === 'cancelled'
+                    || current.nativeTurnId && entry.terminalTurns.has(current.nativeTurnId)) return;
                 current.stopProjection();
                 if (entry.runs.get(current.id) === current) entry.runs.delete(current.id);
                 const nextRunId = crypto.randomUUID();
@@ -314,7 +330,6 @@ export class AgUiConversationTransport {
                     else await session.continue(parameters);
                 } finally { finishBrowserTiming('handoff.continuation', continuationStarted); }
             }
-            throw new Error('Browser MCP continuation budget exhausted');
         } catch (error) {
             const message = error instanceof Error ? error.message : '';
             const failure = message.startsWith('Missing pending tool call:') || message.startsWith('Missing interrupted tool call:') ? 'missingPendingCall'

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '@ag-ui/core';
+import type { SSEEvent } from './types';
 import { AgUiClient } from './agui';
 import { AgUiViewProjection, type AgUiViewEvent, type AgUiViewDescriptor, type AgUiViewOutcome } from './aguiViewProjection';
 import { applyEvent, applyTranscript, applyLocalSubmit, newConversationState } from './chatStore/reducer';
@@ -346,7 +347,6 @@ it('retains explicit message-add ownership through a metadata-poor terminal mess
     expect((h.rows().find(row=>row.kind==='iteration') as IterationRenderRow).rounds.some(round=>round.content===note)).toBe(false);
 });
 
-
 describe('native rendered model message ownership', () => {
     it('keeps rich activity on its declared model page and preserves pending tools and public highlights', async () => {
         const pending=metadata({nativeMessageId:'pending-model',modelCallId:'pending-model',pageId:'pending-model',iteration:2});
@@ -409,5 +409,54 @@ describe('late initial history during a new native turn', () => {
         expect(state.turns.map(turn=>turn.turnId)).toEqual(['older-91','older-92',live]);
         expect(h.rows().filter(row=>row.kind==='assistant'&&row.messageId===note)).toEqual([expect.objectContaining({content:'Public highlight retained.'})]);
         expect(heldPage?.toolCalls[0].status).toBe('requested');
+    });
+});
+
+describe('scoped client-tool waiting presentation',()=>{
+    it('uses validated client interrupts and preserves approval for the same requested tool',async()=>{
+        for (const [reason,marker,expected] of [
+            ['agently.client_tool',{version:'1',kind:'client-tool'},'client_tool'],
+            ['approval',{version:'1',kind:'client-tool'},'approval'],
+            ['agently.client_tool',{version:'2',kind:'client-tool'},'unknown'],
+        ] as const) {
+            const h=harness('agently',[
+                {...start,metadata:{agently:{identityVersion:'1',nativeTurnId:'native-turn'}}},
+                {type:'ACTIVITY_SNAPSHOT',messageId:'turn-status',activityType:'agently.turn',content:{version:'1',nativeTurnId:'native-turn',status:'running',queueSequence:'0'},metadata:metadata()},
+                {type:'TOOL_CALL_START',toolCallId:'call',toolCallName:'fixture',parentMessageId:'assistant',metadata:metadata()},
+                {type:'TOOL_CALL_ARGS',toolCallId:'call',delta:'{}'},{type:'TOOL_CALL_END',toolCallId:'call'},
+                {...finish,outcome:{type:'interrupt',interrupts:[{id:'interruption',reason,toolCallId:'call',responseSchema:{type:'boolean'},metadata:{agently:marker}}]}},
+            ],{allowHostEffects:true});
+            await h.run();
+            expect(h.views.filter(event=>event.type==='turn_wait_kind').at(-1)).toMatchObject({conversationId:'conversation',turnId:'native-turn',waitKind:expected});
+            expect(h.rows().find(row=>row.kind==='iteration')).toMatchObject({turnId:'native-turn',waitKind:expected});
+        }
+    });
+    it('recognizes official pending client IDs only in the opted-in scoped host profile',async()=>{
+        for (const allowHostEffects of [false,true]) {
+            const h=harness('agently',[
+                {...start,metadata:{agently:{identityVersion:'1',nativeTurnId:'native-turn'}}},
+                {type:'ACTIVITY_SNAPSHOT',messageId:'turn-status',activityType:'agently.turn',content:{version:'1',nativeTurnId:'native-turn',status:'running',queueSequence:'0'},metadata:metadata()},
+                {type:'TOOL_CALL_START',toolCallId:'call',toolCallName:'fixture',parentMessageId:'assistant',metadata:metadata()},
+                {type:'TOOL_CALL_ARGS',toolCallId:'call',delta:'{}'},{type:'TOOL_CALL_END',toolCallId:'call'},finish,
+            ],{allowHostEffects});
+            await h.run();
+            expect(h.views.filter(event=>event.type==='turn_wait_kind').at(-1)?.waitKind).toBe(allowHostEffects?'client_tool':'unknown');
+        }
+    });
+    it('clears waiting hints on resume and terminal events without borrowing another turn',()=>{
+        const state=newConversationState('conversation');
+        const event=(type:SSEEvent['type'],turnId='one',extra:Partial<SSEEvent>={})=>applyEvent(state,{type,conversationId:'conversation',turnId,connectionProfile:'agently',hostEffectsAllowed:true,...extra});
+        event('turn_started');event('turn_wait_kind','one',{waitKind:'client_tool'});
+        event('turn_started','two');
+        expect(state.turns.find(turn=>turn.turnId==='two')?.waitKind).toBe('none');
+        applyEvent(state,{type:'turn_wait_kind',conversationId:'foreign',turnId:'two',waitKind:'client_tool'});
+        expect(state.turns.find(turn=>turn.turnId==='two')?.waitKind).toBe('none');
+        event('turn_started','one');expect(state.turns.find(turn=>turn.turnId==='one')?.waitKind).toBe('none');
+        event('turn_wait_kind','one',{waitKind:'client_tool'});event('turn_completed','one');
+        event('turn_wait_kind','one',{waitKind:'client_tool'});
+        expect(state.turns.find(turn=>turn.turnId==='one')?.waitKind).toBe('none');
+        event('turn_wait_kind','two',{waitKind:'client_tool'});
+        applyTranscript(state,{conversationId:'conversation',turns:[{turnId:'two',status:'completed'}]});
+        expect(state.turns.find(turn=>turn.turnId==='two')?.waitKind).toBe('none');
     });
 });

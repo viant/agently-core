@@ -62,6 +62,30 @@ func (c *backendClient) aguiNormalizeToolOutput(ctx context.Context, call client
 	}
 	// Error results are reduced to their closed error message, not binary echoes.
 	if toolError != "" {
+		// The browser SDK's finite transport failures never contain artifact
+		// bytes. Preserve that failure instead of misclassifying it as an
+		// extraction failure. Other adapter errors may contain binary echoes
+		// or private details and still use the closed artifact failure below.
+		var raw string
+		var transport struct {
+			Code          string `json:"code"`
+			DispatchState string `json:"dispatchState"`
+			Outcome       string `json:"outcome"`
+		}
+		if len(content) <= 1024 && json.Unmarshal(content, &raw) == nil {
+			decoder := json.NewDecoder(strings.NewReader(raw))
+			decoder.DisallowUnknownFields()
+			if decoder.Decode(&transport) == nil && decoder.Decode(new(any)) == io.EOF {
+				knownCode := transport.Code == "browserTransportTimeout" || transport.Code == "browserTransportUnavailable" || transport.Code == "resultTransferInvalid" || transport.Code == "resultTransferTimeout" || transport.Code == "resultTransferTooLarge"
+				unknown := transport.DispatchState == "unknown" && transport.Outcome == "unknown" && toolError == "Browser tool transport failed; outcome is unknown. This call will not be replayed."
+				notDispatched := transport.Code == "browserTransportUnavailable" && transport.DispatchState == "notDispatched" && transport.Outcome == "notDispatched" && toolError == "Browser tool connection is unavailable; this call was not dispatched."
+				if knownCode && (unknown || notDispatched) {
+					result, _ := json.Marshal(map[string]any{"code": transport.Code, "dispatchState": transport.DispatchState, "outcome": transport.Outcome, "resources": []any{}, "sourceDigest": digest})
+					encoded, _ := json.Marshal(string(result))
+					return encoded, toolError, nil
+				}
+			}
+		}
 		return failedOutput()
 	}
 	var raw string
