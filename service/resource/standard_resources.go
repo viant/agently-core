@@ -35,7 +35,7 @@ func (g *Gateway) discoverStandardResources(ctx context.Context, actor identity.
 		connection:       Connection{Name: name, ProviderIdentity: owner, Generation: generation},
 		indexedResources: map[string]primitive.ResourceState{},
 		installed:        map[string]bool{schema.MethodResourcesList: true, schema.MethodResourcesRead: true},
-		bindingKey:       binding.key, resourceVersion: resourceVersion, expires: actor.ValidUntil}
+		bindingKey:       binding.capabilityKey(), resourceVersion: resourceVersion, expires: actor.ValidUntil}
 	minTTL := int(^uint(0) >> 1)
 	allPublic := true
 	seenCursor := map[string]bool{}
