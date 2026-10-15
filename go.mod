@@ -9,7 +9,6 @@ require (
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/dop251/goja v0.0.0-20261007200356-e2ea74d3d210 // indirect
 	github.com/dlclark/regexp2/v2 v2.8.1 // indirect
-	github.com/viant/agently-core/service/reportdefinition/materializer v0.0.0-20261008231612-4e2d839e8f05
 	github.com/viant/agently-core/protocol/window v0.0.0-20261014061347-bbbdb0ee25d5
 	github.com/viant/agently-core/protocol/resource v0.0.0-20261014060740-664c53d5a109
 	github.com/viant/agently-core/protocol/primitive v0.0.0-20261014170051-3064cfcf1124
@@ -38,7 +37,7 @@ require (
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e
 	github.com/viant/datly v1.1.1-0.20261014171954-a220d43fa66b
 	github.com/viant/embedius v0.5.6
-	github.com/viant/forge v0.3.45-0.20261014165144-904778e4df12
+	github.com/viant/forge v0.3.45-0.20261015011117-38bb1cf13641
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.1-0.20261007222529-b829eaaf687b
 	github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb

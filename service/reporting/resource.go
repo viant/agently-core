@@ -8,7 +8,7 @@ import (
 	"io"
 
 	identity "github.com/viant/agently-core/protocol/resource"
-	"github.com/viant/agently-core/service/reportdefinition/materializer"
+	"github.com/viant/forge/backend/reporting/materializer"
 	"github.com/viant/forge/backend/reporting/registry"
 )
 
