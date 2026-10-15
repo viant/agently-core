@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"github.com/viant/agently-core/protocol/mcpname"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -20,6 +21,9 @@ func (r *Registry) projectOutputArtifactDefinition(ctx context.Context, definiti
 	if definition == nil || r.mgr == nil {
 		return definition
 	}
+	if candidate, _ := splitToolName(definition.Name); r.isInternalServer(candidate) {
+		return definition
+	}
 	// Most tools have no output-artifact policy. Check the configured candidate
 	// before resolving its advertised identity; that resolution may refresh a
 	// private tools/list catalog and must not run for every ordinary definition.
@@ -30,6 +34,34 @@ func (r *Registry) projectOutputArtifactDefinition(ctx context.Context, definiti
 					return definition
 				}
 			}
+		}
+	}
+	// Multi-segment names cannot be split safely. Inspect configured artifact
+	// policies first; ordinary definitions need no remote identity discovery.
+	if strings.Count(definition.Name, "/") > 1 && !strings.Contains(definition.Name, ":") {
+		servers, err := r.listServers(ctx)
+		if err != nil {
+			return definition
+		}
+		candidate := false
+		for _, server := range servers {
+			options, err := r.mgr.Options(ctx, server)
+			if err != nil || options == nil {
+				continue
+			}
+			for method := range options.OutputArtifacts {
+				full, colon := server+"/"+method, server+":"+method
+				if definition.Name == full || definition.Name == colon || definition.Name == mcpname.Canonical(full) || definition.Name == mcpname.Canonical(colon) {
+					candidate = true
+					break
+				}
+			}
+			if candidate {
+				break
+			}
+		}
+		if !candidate {
+			return definition
 		}
 	}
 	server, method, found, err := r.discoveredMCPIdentity(ctx, definition.Name)

@@ -95,7 +95,12 @@ func (r *Registry) cachedManagerCatalog(ctx context.Context, server string) (str
 	if r.isDelegatedAuthServer(ctx, server) {
 		token = ""
 	}
-	scope := requestctx.ConversationIDFromContext(ctx)
+	scope := ""
+	if options, err := r.mgr.Options(ctx, server); err == nil && options != nil {
+		scope = r.discoveryClientScope(ctx, server, token, r.isPublicToolCatalog(ctx, server))
+	} else {
+		scope = requestctx.ConversationIDFromContext(ctx)
+	}
 	if scope == "" {
 		r.mu.RLock()
 		var newest discoveryIdentity
