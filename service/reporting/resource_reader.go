@@ -32,6 +32,9 @@ type ResourceReaderFactory func(context.Context, string) (ResourceReader, error)
 func (s *Service) SetResourceReaderFactory(factory ResourceReaderFactory) {
 	if s != nil {
 		s.resourceReaderFactory = factory
+		if s.execution != nil {
+			s.execution.SetResourceReaderFactory(sharedengine.ResourceReaderFactory(factory))
+		}
 	}
 }
 func (s *Service) hasResourceReader() bool {

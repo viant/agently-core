@@ -10,6 +10,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/runtime/evidence"
 	"github.com/viant/agently-core/service/reporting/catalog"
+	sharedengine "github.com/viant/forge/backend/reporting/engine"
 	"github.com/viant/forge/backend/reporting/registry"
 	forgetypes "github.com/viant/forge/backend/types"
 	"reflect"
@@ -79,13 +80,13 @@ type Options struct {
 // Service is the agently-core runtime boundary for reporting compile and
 // export job orchestration.
 type Service struct {
+	execution                   *sharedengine.Service
 	reportResourceService       primitive.ResourceAuthoring
 	reportCatalog               catalog.Provider
 	resourceResolver            ResourceResolver
 	resourceReaderFactory       ResourceReaderFactory
 	resourceDependencyResolver  ResourceDependencyResolver
 	resourceDependencyProof     forgetypes.WindowTargetProof
-	resourceDatasetExecutor     ResourceDatasetExecutor
 	reportCompilation           evidence.ReportCompilation
 	compiler                    Compiler
 	exporter                    Exporter
@@ -115,7 +116,7 @@ func New(opts Options) *Service {
 	if newIDFn == nil {
 		newIDFn = func() string { return uuid.NewString() }
 	}
-	return &Service{reportResourceService: opts.ReportResourceService, reportCatalog: opts.ReportCatalog, resourceResolver: opts.ResourceResolver, resourceDependencyResolver: opts.ResourceDependencyResolver, resourceDependencyProof: opts.ResourceDependencyProof,
+	service := &Service{reportResourceService: opts.ReportResourceService, reportCatalog: opts.ReportCatalog, resourceResolver: opts.ResourceResolver, resourceDependencyResolver: opts.ResourceDependencyResolver, resourceDependencyProof: opts.ResourceDependencyProof,
 		reportCompilation: opts.ReportCompilation,
 		compiler:          opts.Compiler,
 		exporter:          opts.Exporter,
@@ -136,6 +137,14 @@ func New(opts Options) *Service {
 		activeRunResolver:           normalizeActiveReportRunResolver(opts.ActiveRunResolver),
 		forgeUIViewResolver:         normalizeForgeUIViewResolver(opts.ForgeUIViewResolver),
 	}
+	service.execution = sharedengine.New(sharedengine.Options{
+		Compiler: opts.Compiler, ReportCatalog: opts.ReportCatalog,
+		ResourceResolver:           sharedengine.ResourceResolver(opts.ResourceResolver),
+		ResourceDependencyResolver: sharedengine.ResourceDependencyResolver(opts.ResourceDependencyResolver),
+		ResourceDependencyProof:    opts.ResourceDependencyProof, Now: nowFn,
+		Audit: opts.Audit, ActorID: effectiveActorID,
+	})
+	return service
 }
 
 func (s *Service) Name() string { return Name }
