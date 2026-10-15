@@ -1001,3 +1001,59 @@ func requireBooleanForKind(raw json.RawMessage, artifactKind string, field strin
 	_ = value
 	return nil
 }
+
+// Export-time validation remains part of the Core export adapter. Canonical
+// compilation itself is provided by the shared Forge report compiler.
+func validateReportSpecRoot(root map[string]json.RawMessage) error {
+	if err := requireCanonicalFields(root, "reportSpec", []string{
+		"version",
+		"kind",
+		"source",
+		"title",
+		"parameters",
+		"layoutIntent",
+		"refinements",
+		"calculatedFields",
+		"datasets",
+		"blocks",
+	}); err != nil {
+		return err
+	}
+	var kind string
+	if err := requireJSONStringForKind(root["kind"], "reportSpec", "kind", false, &kind); err != nil {
+		return err
+	}
+	if strings.TrimSpace(kind) != "reportSpec" {
+		return fmt.Errorf("invalid reportSpec: kind must be reportSpec")
+	}
+	if _, err := requireIntegerAtLeast(root["version"], "reportSpec", "version", 1); err != nil {
+		return err
+	}
+	if err := validateCanonicalSource(root["source"], "reportSpec"); err != nil {
+		return err
+	}
+	if err := requireJSONStringForKind(root["title"], "reportSpec", "title", false, new(string)); err != nil {
+		return err
+	}
+	if err := validateCanonicalParameters(root["parameters"], "reportSpec"); err != nil {
+		return err
+	}
+	if err := validateCanonicalLayoutIntent(root["layoutIntent"], "reportSpec"); err != nil {
+		return err
+	}
+	if err := requireJSONArrayForKind(root["refinements"], "reportSpec", "refinements", true); err != nil {
+		return err
+	}
+	if err := requireJSONArrayForKind(root["calculatedFields"], "reportSpec", "calculatedFields", true); err != nil {
+		return err
+	}
+	var datasets []json.RawMessage
+	if err := requireJSONArrayForKind(root["datasets"], "reportSpec", "datasets", false, &datasets); err != nil {
+		return err
+	}
+	var blocks []json.RawMessage
+	if err := requireJSONArrayForKind(root["blocks"], "reportSpec", "blocks", false, &blocks); err != nil {
+		return err
+	}
+	return nil
+}

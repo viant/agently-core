@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	"reflect"
 	"strings"
 
@@ -56,6 +57,8 @@ func (s *Service) SetResourceDatasetExecutor(execute ResourceDatasetExecutor) {
 	}
 }
 func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceRequest) (out *ExecuteResourceResult, resultErr error) {
+	span := observe.Start(ctx, "report.execute", observe.Labels{Kind: "report"})
+	defer func() { span.End(observe.OutcomeFor(resultErr), observe.CacheUnknown) }()
 	if s != nil && s.reportCatalog != nil && s.hasResourceReader() {
 		scoped, finish, err := s.reportCatalog.MetadataRead(ctx)
 		if err != nil {

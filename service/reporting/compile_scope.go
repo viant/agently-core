@@ -3,12 +3,15 @@ package reporting
 import (
 	"context"
 	"errors"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 )
 
 // Compile is a metadata-only phase. Its explicit host scope ends before the
 // original execution context proceeds to datasource admission or dispatch.
 func (s *Service) Compile(ctx context.Context, request *CompileRequest) (out *CompileResult, resultErr error) {
+	span := observe.Start(ctx, "report.compile", observe.Labels{Kind: "report"})
+	defer func() { span.End(observe.OutcomeFor(resultErr), observe.CacheUnknown) }()
 	if s.reportCatalog != nil && s.hasResourceReader() {
 		scoped, finish, err := s.reportCatalog.MetadataRead(ctx)
 		if err != nil {

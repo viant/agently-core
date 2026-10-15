@@ -8,6 +8,7 @@ import (
 	"github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/reporting/catalog"
+	shared "github.com/viant/forge/backend/reporting/engine"
 	"strings"
 	"time"
 )
@@ -43,18 +44,7 @@ const (
 
 // Diagnostic is the structured backend diagnostic shape used across compile
 // and export operations.
-type Diagnostic struct {
-	Code         string `json:"code,omitempty"`
-	Severity     string `json:"severity,omitempty"`
-	Path         string `json:"path,omitempty"`
-	Message      string `json:"message,omitempty"`
-	SuggestedFix string `json:"suggestedFix,omitempty"`
-	// Cause contains the underlying operational error when a diagnostic is
-	// produced from a failed integration step. It is intentionally optional so
-	// existing diagnostics remain compact and do not expose implementation
-	// details unless the producer explicitly opts in.
-	Cause string `json:"cause,omitempty"`
-}
+type Diagnostic = shared.Diagnostic
 
 const (
 	SourceKindReportSpec = "reportSpec"
@@ -130,26 +120,10 @@ type CompileAndExportForgeUIRequest struct {
 type CompileAndExportForgeUIResult = CompileAndExportFencedReportResult
 
 // CompileRequest carries an authored artifact into the backend compile seam.
-type CompileRequest struct {
-	DependencyPins   map[string]identity.ResolvedResource `json:"dependencyPins,omitempty"`
-	DependencyToken  string                               `json:"dependencyToken,omitempty"`
-	ResolvedResource *identity.ResolvedResource           `json:"resolvedResource,omitempty"`
-	Resource         *identity.ResourceRef                `json:"resource,omitempty"`
-	ArtifactRef      string                               `json:"artifactRef,omitempty"`
-	SourceKind       string                               `json:"sourceKind,omitempty"`
-	Document         json.RawMessage                      `json:"document,omitempty"`
-}
+type CompileRequest = shared.CompileRequest
 
 // CompileResult is the canonical compile response.
-type CompileResult struct {
-	DependencyPins  map[string]identity.ResolvedResource `json:"dependencyPins,omitempty"`
-	DependencyToken string                               `json:"dependencyToken,omitempty"`
-	Resource        *identity.ResolvedResource           `json:"resource,omitempty"`
-	ArtifactRef     string                               `json:"artifactRef,omitempty"`
-	ReportSpec      json.RawMessage                      `json:"reportSpec,omitempty"`
-	Diagnostics     []Diagnostic                         `json:"diagnostics,omitempty"`
-	CompiledAt      time.Time                            `json:"compiledAt,omitempty"`
-}
+type CompileResult = shared.CompileResult
 
 // RenderRequest is the worker-facing canonical export payload handed to the
 // backend exporter boundary.
@@ -561,9 +535,7 @@ type RecordReportRunRequest struct {
 }
 
 // Compiler lowers authored artifacts into canonical ReportSpec payloads.
-type Compiler interface {
-	Compile(ctx context.Context, request *CompileRequest) (*CompileResult, error)
-}
+type Compiler = shared.Compiler
 
 // Exporter turns canonical report artifacts into a persisted downloadable
 // artifact without re-interpreting authoring semantics.
