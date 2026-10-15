@@ -251,7 +251,7 @@ func handleAGUIDurable(client Client, runtime aguiRuntime, authCfg *svcauth.Conf
 				nativeConversationID = authorizedThreadID
 			}
 			if nativeConversationID != "" {
-				conv, readErr := client.GetConversation(ctx, nativeConversationID)
+				conv, readErr := readConversationHeader(ctx, client, nativeConversationID)
 				if readErr != nil || conv == nil || conv.Id != nativeConversationID || conv.CreatedByUserId == nil || *conv.CreatedByUserId != userID {
 					httpError(w, 403, fmt.Errorf("original conversation unavailable"))
 					return

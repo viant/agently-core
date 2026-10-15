@@ -37,7 +37,7 @@ func registerBrowserMCPRoutes(mux *http.ServeMux, client Client, authCfg *svcaut
 			httpError(w, 400, browsermcp.ErrUnavailable)
 			return
 		}
-		conv, err := client.GetConversation(ctx, input.ConversationID)
+		conv, err := readConversationHeader(ctx, client, input.ConversationID)
 		if err != nil || conv == nil || conv.Id != input.ConversationID || conv.CreatedByUserId == nil || *conv.CreatedByUserId != user {
 			httpError(w, 403, browsermcp.ErrUnavailable)
 			return
@@ -92,7 +92,7 @@ func registerBrowserMCPRoutes(mux *http.ServeMux, client Client, authCfg *svcaut
 			return
 		}
 		ownershipStarted := time.Now()
-		conv, err := client.GetConversation(ctx, catalog.ConversationID)
+		conv, err := readConversationHeader(ctx, client, catalog.ConversationID)
 		w.Header().Set("Server-Timing", w.Header().Get("Server-Timing")+fmt.Sprintf(", ownership;dur=%.3f", float64(time.Since(ownershipStarted).Microseconds())/1000))
 		if err != nil || conv == nil {
 			httpError(w, 403, errors.New("browser MCP catalog unavailable for this conversation (conversationUnavailable)"))

@@ -262,7 +262,7 @@ func authorizeDatasourceConversation(ctx context.Context, client Backend, conver
 	if conversationID == "" {
 		return nil
 	}
-	conversation, err := client.GetConversation(ctx, conversationID)
+	conversation, err := readConversationHeader(ctx, client, conversationID)
 	if err != nil {
 		return err
 	}
