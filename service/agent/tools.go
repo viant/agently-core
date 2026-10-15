@@ -216,9 +216,8 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 			Tools:   append([]string(nil), qi.ToolsAllowed...),
 		},
 	}
-	if qi.toolBundlesAutoSelected {
-		selections.Agent.Bundles = nil
-	}
+	// Intake/planner suggestions append to configured base capabilities.
+	// Auto-selection records provenance; it is not an implicit replacement.
 	profileDef, err := s.selectedPromptProfile(ctx, qi)
 	if err != nil {
 		return agenttool.Selection{}, err
