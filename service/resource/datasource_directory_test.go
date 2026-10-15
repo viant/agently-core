@@ -106,8 +106,8 @@ func TestDatasourceOriginalWorkspaceSnapshotCompatibility(t *testing.T) {
 	handle, err := os.OpenRoot(root)
 	require.NoError(t, err)
 	defer handle.Close()
-	reader := &ExtensionReader{root: handle}
-	defer reader.close()
+	reader := NewExtensionReader(handle)
+	defer reader.Close()
 	for _, definition := range definitions {
 		_, loadErr := definition.Load(context.Background(), reader, definition.File)
 		if loadErr != nil {
@@ -133,8 +133,8 @@ func TestDatasourceLegacyPinnedUsesExistingBackendDispatch(t *testing.T) {
 	handle, err := os.OpenRoot(root)
 	require.NoError(t, err)
 	defer handle.Close()
-	reader := &ExtensionReader{root: handle}
-	defer reader.close()
+	reader := NewExtensionReader(handle)
+	defer reader.Close()
 	raw, err := NativeDatasourceLoader(context.Background(), reader, "source.yaml")
 	require.NoError(t, err)
 	ds, err := DecodeDatasourceDefinition(raw)

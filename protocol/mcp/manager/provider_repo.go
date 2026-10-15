@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	shared "github.com/viant/forge/backend/clientpool"
 	"log"
 	"os"
 	"path/filepath"
@@ -23,10 +24,7 @@ import (
 
 // RepoProvider loads MCP client options from the Agently workspace repo ($AGENTLY_WORKSPACE/mcp).
 // DefinitionReader supplies authored definitions through the same catalog path.
-type DefinitionReader interface {
-	List(context.Context) ([]string, error)
-	Load(context.Context, string) (*mcpcfg.MCPClient, error)
-}
+type DefinitionReader = shared.DefinitionReader
 
 type localNameReservationReader interface{ ReserveLocalNames([]string) error }
 
@@ -333,4 +331,14 @@ func expandEnvString(value string) string {
 // environment/resource providers are attached by ordinary server Options.
 func (p *RepoProvider) BrowserOptions(ctx context.Context, name string) (*mcpcfg.MCPClient, error) {
 	return p.preparedOptions(ctx, name, true)
+}
+
+// These methods expose only provider lifecycle/configuration to the shared pool.
+func (p *RepoProvider) BindDefinitionReader(reader DefinitionReader, names []string) error {
+	return p.bindDefinitionReader(reader, names)
+}
+func (p *RepoProvider) DefinitionReaderBound() bool        { return p.definitionReaderBound() }
+func (p *RepoProvider) ReservedLocalName(name string) bool { return p.reservedLocalName(name) }
+func (p *RepoProvider) DefinitionGeneration(ctx context.Context) string {
+	return p.definitionGeneration(ctx)
 }

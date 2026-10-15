@@ -25,8 +25,8 @@ func NativeLookupPickerDefinitions(ctx context.Context, root string, lookups, wi
 		return nil, err
 	}
 	defer handle.Close()
-	reader := &ExtensionReader{root: handle}
-	defer reader.close()
+	reader := NewExtensionReader(handle)
+	defer reader.Close()
 	needed := map[string]string{}
 	for _, definition := range lookups {
 		uri, e := identity.ParseResourceURI(definition.URI)

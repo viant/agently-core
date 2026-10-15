@@ -5,16 +5,14 @@ import (
 	"encoding/json"
 	"github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
+	sharedengine "github.com/viant/forge/backend/reporting/engine"
 	"reflect"
 )
 
 // ResourceReader preserves the original provider pin and lease across report
 // retrieval, compilation, execution and export. Concrete ResourceResolver still
 // implements this contract; alternate carriers must retain operation admission.
-type ResourceReader interface {
-	Resolve(context.Context, identity.ResourceRef) (*identity.ResolvedResource, error)
-	ReadResolved(context.Context, identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error)
-}
+type ResourceReader = sharedengine.ResourceReader
 
 // ResourceDefinitionReader returns the managing provider's complete get result,
 // keeping header metadata and definition on the same delivery path.

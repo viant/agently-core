@@ -24,10 +24,10 @@ func NativeWorkspaceWindowBindings(ctx context.Context, root, namespace string) 
 		return nil, err
 	}
 	defer opened.Close()
-	reader := &ExtensionReader{root: opened}
-	defer reader.close()
+	reader := NewExtensionReader(opened)
+	defer reader.Close()
 	const directory = "extension/forge/windows"
-	if err := reader.check(directory); os.IsNotExist(err) {
+	if err := reader.CheckPath(directory); os.IsNotExist(err) {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
@@ -40,7 +40,7 @@ func NativeWorkspaceWindowBindings(ctx context.Context, root, namespace string) 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if err = reader.check(file); err != nil {
+		if err = reader.CheckPath(file); err != nil {
 			return err
 		}
 		if e.IsDir() {

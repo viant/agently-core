@@ -434,8 +434,8 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	require.Equal(t, beforeForeignFilter+1, len(ordinary.calls), "the backend receives one rejected request, with no replay")
 	ordinary.mu.Unlock()
 
-	// Silent producer edits remain outside the captured catalog until the
-	// managing MCP connection is refreshed. The old parent pin is then stale.
+	// A new operation reads the working definition from its managing provider.
+	// An outdated parent pin fails before any dataset dispatch, even without an event.
 	reportBodyMu.Lock()
 	originalReportBody := append(json.RawMessage(nil), reportBody...)
 	reportBody = append(append(json.RawMessage(nil), reportBody...), ' ')
@@ -444,9 +444,9 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	beforeDrift := len(ordinary.calls)
 	ordinary.mu.Unlock()
 	_, silentErr := built.Reporting.ExecuteResource(ctx, &reportingsvc.ExecuteResourceRequest{ResolvedResource: run.Resource, DependencyPins: run.DependencyPins, DependencyToken: run.DependencyToken})
-	require.NoError(t, silentErr, "the captured revision stays usable before a provider change event or reconnect")
+	require.Error(t, silentErr, "the managing provider changed the selected working definition")
 	ordinary.mu.Lock()
-	require.Greater(t, len(ordinary.calls), beforeDrift)
+	require.Equal(t, beforeDrift, len(ordinary.calls), "stale working definitions must not dispatch a dataset")
 	beforeDrift = len(ordinary.calls)
 	ordinary.mu.Unlock()
 	_, err = mgr.Reconnect(mgr.WithAuthTokenContext(ctx, "primitive-source"), "", "primitive-source")

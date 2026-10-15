@@ -1,32 +1,8 @@
 package requestctx
 
-import "context"
+import shared "github.com/viant/forge/backend/requestctx"
 
-type uiBridgeSessionKey struct{}
-
-// WithUIBridgeSessionID carries the existing transport session for host-only
-// lookup. It is neither identity facts nor an upstream MCP credential.
-func WithUIBridgeSessionID(ctx context.Context, id string) context.Context {
-	return context.WithValue(ctx, uiBridgeSessionKey{}, id)
-}
-func UIBridgeSessionIDFromContext(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	id, _ := ctx.Value(uiBridgeSessionKey{}).(string)
-	return id
-}
-
-type uiWindowRoutingKey struct{}
-
-// WithUIWindowID selects an exact held instance only after transport ownership.
-func WithUIWindowID(ctx context.Context, id string) context.Context {
-	return context.WithValue(ctx, uiWindowRoutingKey{}, id)
-}
-func UIWindowIDFromContext(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	id, _ := ctx.Value(uiWindowRoutingKey{}).(string)
-	return id
-}
+var WithUIBridgeSessionID = shared.WithUIBridgeSessionID
+var UIBridgeSessionIDFromContext = shared.UIBridgeSessionIDFromContext
+var WithUIWindowID = shared.WithUIWindowID
+var UIWindowIDFromContext = shared.UIWindowIDFromContext

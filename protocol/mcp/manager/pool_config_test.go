@@ -21,7 +21,6 @@ import (
 	"github.com/viant/mcp-protocol/logger"
 	"github.com/viant/mcp-protocol/schema"
 	protocol "github.com/viant/mcp-protocol/server"
-	mcpclient "github.com/viant/mcp/client"
 	mcpserver "github.com/viant/mcp/server"
 )
 
@@ -120,58 +119,4 @@ func TestPoolEffectiveConfigReplacesEndpointAndRejectsRemoval(t *testing.T) {
 	require.False(t, mgr.IsCurrentClient(alice, "", "owned", replacement))
 	require.EqualValues(t, 1, callsA.Load())
 	require.EqualValues(t, 1, callsB.Load(), "configuration replacement cannot replay tools")
-}
-
-func TestPoolConfigChangeDuringCreationCannotPublishOldEndpoint(t *testing.T) {
-	started, release := make(chan struct{}), make(chan struct{})
-	a, callsA := poolConfigEndpoint(t, "A", nil, nil)
-	b, callsB := poolConfigEndpoint(t, "B", nil, nil)
-	provider := &changingEndpointProvider{endpoint: a.URL + "/mcp"}
-	var mgr *Manager
-	var once sync.Once
-	var err error
-	mgr, err = New(provider, WithClientFactory(func(ctx context.Context, conversation, name string) (mcpclient.Interface, error) {
-		client, err := mgr.newClient(ctx, conversation, name)
-		if err == nil {
-			once.Do(func() { close(started); <-release })
-		}
-		return client, err
-	}))
-	require.NoError(t, err)
-	defer mgr.CloseConversation("")
-	done := make(chan error, 1)
-	go func() { _, err := mgr.Get(context.Background(), "", "owned"); done <- err }()
-	select {
-	case <-started:
-	case err := <-done:
-		t.Fatalf("client creation stopped before barrier: %v", err)
-	}
-	provider.set(b.URL+"/mcp", false)
-	interim, err := mgr.Get(context.Background(), "", "owned")
-	require.Error(t, err)
-	require.Nil(t, interim)
-	close(release)
-	require.Error(t, <-done, "old endpoint client constructed but cannot publish after source changed")
-	latest, err := mgr.Get(context.Background(), "", "owned")
-	require.NoError(t, err)
-	result, err := latest.CallTool(context.Background(), &schema.CallToolRequestParams{Name: "owned.echo", Arguments: map[string]any{"original": true}})
-	require.NoError(t, err)
-	require.Equal(t, "B", result.StructuredContent.(map[string]any)["endpoint"])
-	require.Zero(t, callsA.Load())
-	require.EqualValues(t, 1, callsB.Load())
-}
-
-func TestEffectiveConfigFingerprintPreservesExactNumbersAndDefaultNormalization(t *testing.T) {
-	first := &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, Metadata: map[string]any{"exact": json.Number("9007199254740993")}}
-	second := &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, Metadata: map[string]any{"exact": json.Number("9007199254740992")}}
-	a, err := effectiveConfigFingerprint(first)
-	require.NoError(t, err)
-	b, err := effectiveConfigFingerprint(second)
-	require.NoError(t, err)
-	require.NotEqual(t, a, b, "large authored values cannot collide through float rounding")
-	require.Empty(t, first.Name, "fingerprinting must not normalize source-owned objects")
-	first.Init()
-	normalized, err := effectiveConfigFingerprint(first)
-	require.NoError(t, err)
-	require.Equal(t, a, normalized, "ordinary client initialization cannot invalidate its own effective config")
 }

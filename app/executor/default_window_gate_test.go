@@ -54,7 +54,7 @@ func TestDefaultWindowOriginalApplicationGateUsesCurrentFacts(t *testing.T) {
 	require.NotNil(t, got.Definition)
 	facts.roles = nil
 	_, err = rt.UIBridge.WindowDefinitionGet(context.Background(), &forge.WindowDefinitionGetInput{WindowID: "protected"})
-	require.NoError(t, err, "unannounced owning changes leave captured metadata stable")
+	require.Error(t, err, "a new working read observes the owning provider's current visibility")
 	mgr.CloseConversation("")
 	_, err = rt.UIBridge.WindowDefinitionGet(context.Background(), &forge.WindowDefinitionGetInput{WindowID: "protected"})
 	require.Error(t, err)

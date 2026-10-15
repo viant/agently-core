@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/viant/agently-core/protocol/primitive/observe"
+	sharedprovider "github.com/viant/forge/backend/provider"
 	"path"
 	"sort"
 	"strings"
@@ -21,44 +22,16 @@ import (
 )
 
 // WindowDefinitionCatalog belongs to the embedding host, not the browser.
-type WindowDefinitionCatalog interface {
-	List(context.Context, *WindowDefinitionListInput) (*WindowDefinitionListOutput, error)
-	Get(context.Context, *WindowDefinitionGetInput) (*WindowDefinitionGetOutput, error)
-}
+type WindowDefinitionCatalog = sharedprovider.WindowDefinitionCatalog
 
-type WindowDefinitionSummary struct {
-	ProviderIdentity string `json:"providerIdentity,omitempty" yaml:"-"`
-	ResourceURI      string `json:"resourceUri,omitempty" yaml:"resourceUri,omitempty"`
-	Name             string `json:"name,omitempty" yaml:"name,omitempty"`
-	WindowID         string `json:"windowId" yaml:"windowId"`
-	Title            string `json:"title" yaml:"title"`
-	Namespace        string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
-}
+type WindowDefinitionSummary = sharedprovider.WindowDefinitionSummary
 
-type WindowDefinitionListInput struct {
-	Query  string `json:"query,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
-	Offset int    `json:"offset,omitempty"`
-}
+type WindowDefinitionListInput = sharedprovider.WindowDefinitionListInput
 
-type WindowDefinitionListOutput struct {
-	Windows []WindowDefinitionSummary `json:"windows"`
-	HasMore bool                      `json:"hasMore"`
-}
+type WindowDefinitionListOutput = sharedprovider.WindowDefinitionListOutput
 
-type WindowDefinitionGetInput struct {
-	// Routing hints select an existing catalog identity; they confer no authority.
-	Namespace        string                     `json:"namespace,omitempty"`
-	ProviderIdentity string                     `json:"providerIdentity,omitempty"`
-	Target           *types.WindowTarget        `json:"target,omitempty"`
-	Resource         *identity.ResourceRef      `json:"resource,omitempty"`
-	ResolvedResource *identity.ResolvedResource `json:"resolvedResource,omitempty"`
-	WindowID         string                     `json:"windowId"`
-}
-type WindowDefinitionGetOutput struct {
-	WindowID   string        `json:"windowId"`
-	Definition *types.Window `json:"definition"`
-}
+type WindowDefinitionGetInput = sharedprovider.WindowDefinitionGetInput
+type WindowDefinitionGetOutput = sharedprovider.WindowDefinitionGetOutput
 
 // SavedWindow maps a stable public ID to host-owned Forge loader arguments.
 type SavedWindow struct {

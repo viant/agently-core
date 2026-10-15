@@ -1,23 +1,6 @@
 package requestctx
 
-import "context"
+import shared "github.com/viant/forge/backend/requestctx"
 
-type windowParametersKey struct{}
-
-// WindowParameters are untrusted selectors, never identity or permission facts.
-func WithWindowParameters(ctx context.Context, parameters map[string]any) context.Context {
-	copy := make(map[string]any, len(parameters))
-	for key, value := range parameters {
-		copy[key] = value
-	}
-	return context.WithValue(ctx, windowParametersKey{}, copy)
-}
-
-func WindowParametersFromContext(ctx context.Context) map[string]any {
-	parameters, _ := ctx.Value(windowParametersKey{}).(map[string]any)
-	copy := make(map[string]any, len(parameters))
-	for key, value := range parameters {
-		copy[key] = value
-	}
-	return copy
-}
+var WithWindowParameters = shared.WithWindowParameters
+var WindowParametersFromContext = shared.WindowParametersFromContext

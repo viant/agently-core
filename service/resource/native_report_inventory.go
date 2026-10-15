@@ -22,8 +22,8 @@ func NativeWorkspaceReportDefinitions(ctx context.Context, root, namespace, repo
 		return nil, options, err
 	}
 	defer opened.Close()
-	reader := &ExtensionReader{root: opened}
-	defer reader.close()
+	reader := NewExtensionReader(opened)
+	defer reader.Close()
 	for i, window := range windows {
 		raw, err := reader.ReadFile(ctx, window.File)
 		if err != nil {
