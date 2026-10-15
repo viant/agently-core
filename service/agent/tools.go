@@ -59,6 +59,23 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 		if !ok {
 			return
 		}
+		var visible map[string]bool
+		if batch, ok := s.registry.(interface {
+			MCPToolsVisible(context.Context, []string, string) (map[string]bool, error)
+		}); ok {
+			names := make([]string, 0, len(tools))
+			for _, tool := range tools {
+				if _, browser := browsermcp.Definitions(ctx)[mcpname2.Canonical(tool.Definition.Name)]; !browser {
+					names = append(names, tool.Definition.Name)
+				}
+			}
+			var checkErr error
+			visible, checkErr = batch.MCPToolsVisible(ctx, names, "model")
+			if checkErr != nil {
+				tools, err = nil, checkErr
+				return
+			}
+		}
 		filtered := make([]llm.Tool, 0, len(tools))
 		for _, tool := range tools {
 			// Browser definitions already passed the originating catalog's model
@@ -67,7 +84,11 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 				filtered = append(filtered, tool)
 				continue
 			}
-			allowed, checkErr := visibility.MCPToolVisible(ctx, tool.Definition.Name, "model")
+			allowed := visible[tool.Definition.Name]
+			var checkErr error
+			if visible == nil {
+				allowed, checkErr = visibility.MCPToolVisible(ctx, tool.Definition.Name, "model")
+			}
 			if checkErr != nil {
 				tools, err = nil, checkErr
 				return
