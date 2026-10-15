@@ -67,7 +67,7 @@ func handleAGUIRun(client Client, authCfg *svcauth.Config, bindings ...AGUIWorks
 		}
 		// Authenticate/authorize before subscribing: the internal bus is not an
 		// authorization boundary. A caller must own an existing thread to run it.
-		conversation, err := client.GetConversation(ctx, input.ThreadID)
+		conversation, err := readConversationHeader(ctx, client, input.ThreadID)
 		if err != nil {
 			httpError(w, http.StatusForbidden, fmt.Errorf("thread unavailable"))
 			return

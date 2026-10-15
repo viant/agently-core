@@ -101,10 +101,8 @@ func handleGetConversation(client Client, configs ...*svcauth.Config) http.Handl
 		}
 		var out *conversation.Conversation
 		var err error
-		if reader, ok := client.(interface {
-			getConversationHeader(context.Context, string) (*conversation.Conversation, error)
-		}); ok && r.URL.Query().Get("includeTranscript") == "false" {
-			out, err = reader.getConversationHeader(r.Context(), id)
+		if r.URL.Query().Get("includeTranscript") == "false" {
+			out, err = readConversationHeader(r.Context(), client, id)
 		} else {
 			out, err = client.GetConversation(r.Context(), id)
 		}

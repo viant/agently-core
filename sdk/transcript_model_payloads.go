@@ -14,6 +14,17 @@ func (c *backendClient) getConversationHeader(ctx context.Context, id string) (*
 	return c.conv.GetConversation(ctx, id, convstore.WithIncludeTranscript(false), convstore.WithIncludeModelCall(false), convstore.WithIncludeToolCall(false))
 }
 
+// readConversationHeader preserves Client compatibility while avoiding transcript
+// joins for native ownership and binding checks.
+func readConversationHeader(ctx context.Context, client Client, id string) (*convstore.Conversation, error) {
+	if reader, ok := client.(interface {
+		getConversationHeader(context.Context, string) (*convstore.Conversation, error)
+	}); ok {
+		return reader.getConversationHeader(ctx, id)
+	}
+	return client.GetConversation(ctx, id)
+}
+
 // Payload omission follows canonical derivation so execution roles inferred from
 // stored model responses remain identical. Only the response projection changes;
 // the native transcript and payload retrieval service remain untouched.
