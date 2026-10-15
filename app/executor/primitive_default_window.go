@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	identity "github.com/viant/agently-core/protocol/resource"
+	resources "github.com/viant/agently-core/service/resource"
 
 	forge "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/agently-core/service/ui/permittedview"
@@ -67,4 +68,14 @@ func (b *Builder) configureDefaultUIOwner(out *Runtime) {
 		}
 		return forge.NamespaceIdentity{Namespace: namespace, SessionBound: true}, nil
 	})
+}
+
+// Default workspace profile IDs retain their authored namespace. Explicit URIs
+// still resolve external profiles through the same gateway.
+func defaultIntentReader(out *Runtime) *resources.IntentReader {
+	reader := resources.NewIntentReader(out.PrimitiveProviders)
+	if out.publicPrimitiveDefault {
+		reader.Scope = resources.DefinitionScope{Namespace: "workspace", ProviderIdentity: resources.InternalProviderIdentity}
+	}
+	return reader
 }

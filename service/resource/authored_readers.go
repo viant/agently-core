@@ -21,7 +21,12 @@ type TemplateDefinition struct {
 	TemplateBundles []*bundle.Bundle `json:"templateBundles,omitempty"`
 }
 type TemplateReader struct{ Gateway *Gateway }
-type IntentReader struct{ Gateway *Gateway }
+type IntentReader struct {
+	Gateway *Gateway
+	// Scope resolves relative profile IDs within the host's authored workspace.
+	// Absolute resource URIs remain federated references.
+	Scope DefinitionScope
+}
 type TemplateBundleReader struct{ Gateway *Gateway }
 
 func NewTemplateReader(g *Gateway) *TemplateReader { return &TemplateReader{Gateway: g} }
@@ -154,6 +159,9 @@ func (r *IntentReader) LoadAll(ctx context.Context) ([]*intent.Profile, error) {
 	return out, nil
 }
 func (r *IntentReader) Load(ctx context.Context, key string) (*intent.Profile, error) {
+	if r.Scope != (DefinitionScope{}) {
+		ctx = WithDefinitionScope(ctx, r.Scope)
+	}
 	got, err := ResolveDefinition[intent.Profile](ctx, r.Gateway, "intent", key, func(v intent.Profile) string {
 		if strings.EqualFold(v.ID, key) {
 			return key
