@@ -69,6 +69,6 @@ func TestCachedWindowProjectionKeepsInputAndSeparateSelectionsIsolated(t *testin
 	require.NoError(t, err)
 	require.Equal(t, ownerDescriptors, secondDescriptors, "projection keeps selected transport descriptors and owner arguments exact")
 	require.Equal(t, "unchanged", secondProjection.Window.Parameters[0]["value"])
-	require.Equal(t, 1, reads, "second selection uses the existing cached owning definition")
+	require.Equal(t, 2, reads, "a second working selection reads its owning definition freshly")
 	require.NoError(t, proof.Verify(ctx, *secondProjection.Window.Resource, *secondProjection.Window.ResourceTarget, fingerprint, secondProjection.Window.ResourceTarget.SelectionToken))
 }

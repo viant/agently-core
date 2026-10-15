@@ -16,7 +16,7 @@ import (
 func TestDefinitionCachePreservesExactBytesWithoutDuplicateJSON(t *testing.T) {
 	uri := "window://shared/pretty"
 	exact := json.RawMessage("{\n  \"view\": {\"content\": {\"id\": \"pretty\"}}\n}\n")
-	source := &definitionCacheProvider{dependencyMCPProvider: &dependencyMCPProvider{owner: "provider", items: map[string]*dependencyResource{uri: {raw: exact, formatVersion: 2, revision: identity.WorkingCandidate, authorityBinding: "neutral"}}}, gets: map[string]int{}}
+	source := &definitionCacheProvider{dependencyMCPProvider: &dependencyMCPProvider{owner: "provider", items: map[string]*dependencyResource{uri: {raw: exact, formatVersion: 2, revision: "1", authorityBinding: "neutral"}}}, gets: map[string]int{}}
 	mgr, err := manager.New(fixtureOptions{"source": {PrimitiveProviderIdentity: "provider", ResourceCacheScopes: map[string]string{"shared": cfg.ResourceCachePublic}}}, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return source, nil }))
 	require.NoError(t, err)
 	defer mgr.CloseConversation("")
@@ -26,7 +26,7 @@ func TestDefinitionCachePreservesExactBytesWithoutDuplicateJSON(t *testing.T) {
 	ctx := cacheUser("alice", "token", "conversation")
 	connection, err := g.ConnectionForProvider(ctx, "provider")
 	require.NoError(t, err)
-	first, err := Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri}, nil)
+	first, err := Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri, Revision: "1"}, nil)
 	require.NoError(t, err)
 	require.Equal(t, exact, first.Definition)
 	require.NotNil(t, first.definitionCache)
@@ -40,7 +40,7 @@ func TestDefinitionCachePreservesExactBytesWithoutDuplicateJSON(t *testing.T) {
 	})
 	require.NoError(t, err)
 	first.Definition[0] = 'X'
-	second, err := Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri}, nil)
+	second, err := Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri, Revision: "1"}, nil)
 	require.NoError(t, err)
 	require.Equal(t, exact, second.Definition)
 	require.Equal(t, exact, second.Resource.Definition)

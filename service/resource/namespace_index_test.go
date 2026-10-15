@@ -201,7 +201,7 @@ func TestSharedNamespaceIndexUsesRealMCPWithoutKindToolsOrAuthoringMetadata(t *t
 			again, err := Get[json.RawMessage](context.Background(), gateway, located.Connection, identity.ResourceRef{URI: located.Resource.URI}, got.ResolvedResource)
 			require.NoError(t, err)
 			require.JSONEq(t, string(got.Definition), string(again.Definition))
-			require.EqualValues(t, 1, counts.definition.Load())
+			require.EqualValues(t, 2, counts.definition.Load(), "a separate pinned working read reaches the owner")
 			proof, err := types.NewWindowTargetHMAC(bytes.Repeat([]byte{7}, 32))
 			require.NoError(t, err)
 			catalog := &WindowCatalog{Gateway: gateway, TargetProof: proof}
@@ -209,7 +209,7 @@ func TestSharedNamespaceIndexUsesRealMCPWithoutKindToolsOrAuthoringMetadata(t *t
 			require.NoError(t, err)
 			require.Equal(t, "Sales authored title", window.Definition.Title)
 			require.NotEmpty(t, window.Definition.ResourceTarget.SelectionToken)
-			require.EqualValues(t, 1, counts.definition.Load(), "window delivery consumes the same generic definition cache")
+			require.EqualValues(t, 3, counts.definition.Load(), "window delivery obtains a fresh working definition")
 			counts.denied.Store(true)
 			_, err = Get[json.RawMessage](context.Background(), gateway, Connection{Name: "index", ProviderIdentity: "index", Generation: gateway.generation("index")}, identity.ResourceRef{URI: "window://separate/help"}, nil)
 			require.ErrorIs(t, err, identity.ErrResourceDenied, "owning denial must be terminal")
@@ -295,7 +295,7 @@ func TestSharedNamespaceIndexDeliversAuthoredStudioWindowAndDatasource(t *testin
 	require.EqualValues(t, 25, definition.Paging.Size)
 }
 
-func TestSharedNamespaceIndexPrivateDefinitionCacheStaysPerUser(t *testing.T) {
+func TestSharedNamespaceIndexWorkingDefinitionReadsStayPerUser(t *testing.T) {
 	counts := &namespaceIndexCounters{}
 	counts.personal.Store(true)
 	server := namespaceIndexServer(t, counts)
@@ -313,5 +313,5 @@ func TestSharedNamespaceIndexPrivateDefinitionCacheStaysPerUser(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, subject, got.Definition["owner"], "raw definitions retain existing manager principal partitions")
 	}
-	require.EqualValues(t, 2, counts.definition.Load(), "warm Alice read cannot borrow Bob's bytes or force another owning Get")
+	require.EqualValues(t, 3, counts.definition.Load(), "each working read reaches its owner with the current user")
 }

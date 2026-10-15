@@ -72,7 +72,7 @@ func TestOwnerBoundGetCachesDefinitionsAndRetainsTerminalChecks(t *testing.T) {
 				require.NotNil(t, got)
 				require.Equal(t, 1, p.calls["namespaces/list"], "unchanged namespace metadata must not repeat authority roundtrips")
 				require.Equal(t, 1, p.calls["namespaces/get"])
-				require.Equal(t, 1, p.calls["windows/get"], "initial and pinned reads share the owning metadata definition until notification")
+				require.Equal(t, 2, p.calls["windows/get"], "a new pinned working read reaches its owner")
 			} else {
 				require.Error(t, err)
 				require.Nil(t, got)
