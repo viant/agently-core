@@ -32,6 +32,7 @@ import (
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	asyncnarrator "github.com/viant/agently-core/protocol/async/narrator"
 	bindpkg "github.com/viant/agently-core/protocol/binding"
+	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
@@ -398,6 +399,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	ctx = s.bindAuthFromInputContext(ctx, input)
 	ctx = bindEffectiveUserFromInput(ctx, input)
+	// Async turns may not inherit HTTP middleware. Share metadata preparation
+	// across intake, binding, and execution within this turn; credential and
+	// notification generations still fence every cached read.
+	ctx = mcpmgr.WithToolCatalogReadSnapshot(mcpmgr.WithNamesMemo(ctx))
 	if input != nil {
 		logx.Infof("conversation", "agent.Query serviceStart at=%s convo=%q message_id=%q agent_id=%q user_id=%q", queryStarted.Format(time.RFC3339Nano), strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.AgentID), strings.TrimSpace(input.UserId))
 	}
