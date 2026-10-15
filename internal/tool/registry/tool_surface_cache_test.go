@@ -42,7 +42,7 @@ func (p *surfaceCatalogProvider) Options(context.Context, string) (*config.MCPCl
 }
 
 func TestPrivateSurfaceIdentityTracksPrincipalCredentialsAndExpiry(t *testing.T) {
-	var calls atomic.Int32
+	var calls, initializes atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
 			w.WriteHeader(405)
@@ -58,6 +58,7 @@ func TestPrivateSurfaceIdentityTracksPrincipalCredentialsAndExpiry(t *testing.T)
 		var result any
 		switch request.Method {
 		case "initialize":
+			initializes.Add(1)
 			result = map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "surface", "version": "1"}}
 		case "tools/list":
 			calls.Add(1)
@@ -74,6 +75,10 @@ func TestPrivateSurfaceIdentityTracksPrincipalCredentialsAndExpiry(t *testing.T)
 	require.NoError(t, err)
 	r := &Registry{mgr: owner, cache: map[string]*toolCacheEntry{}}
 	ctx := requestctx.WithConversationID(authctx.WithBearer(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"}), "a"), "surface-conversation")
+	// Resource gateway metadata already owns this user's shared transport.
+	_, err = owner.Get(ctx, "", "private")
+	require.NoError(t, err)
+	defer owner.CloseConversation("")
 	_, err = r.listServerTools(ctx, "private")
 	require.NoError(t, err)
 	kind, generation := r.ToolSurfaceCacheIdentity(ctx, "private:*")
@@ -90,6 +95,7 @@ func TestPrivateSurfaceIdentityTracksPrincipalCredentialsAndExpiry(t *testing.T)
 	_, reused := r.ToolSurfaceCacheIdentity(anotherConversation, "private:*")
 	require.Equal(t, generation, reused)
 	require.EqualValues(t, 1, calls.Load(), "same-user conversations share the authenticated HTTP metadata catalog")
+	require.EqualValues(t, 1, initializes.Load(), "registry discovery must reuse the resource gateway transport")
 
 	changed := authctx.WithBearer(ctx, "new")
 	_, other := r.ToolSurfaceCacheIdentity(changed, "private:*")
@@ -110,7 +116,7 @@ func TestPrivateSurfaceIdentityTracksPrincipalCredentialsAndExpiry(t *testing.T)
 	require.NotEmpty(t, other)
 	require.NotEqual(t, generation, other)
 	require.Empty(t, r.cache, "private catalogs must remain manager owned")
-	_, err = owner.Reconnect(ctx, "surface-conversation", "private")
+	_, err = owner.Reconnect(ctx, r.metadataConnectionScope(ctx, "surface-conversation", "private"), "private")
 	require.NoError(t, err)
 	_, other = r.ToolSurfaceCacheIdentity(ctx, "private:*")
 	require.Empty(t, other)

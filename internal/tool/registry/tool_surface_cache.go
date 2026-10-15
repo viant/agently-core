@@ -119,5 +119,5 @@ func (r *Registry) cachedManagerCatalog(ctx context.Context, server string) (str
 	if token != "" {
 		opts = append(opts, mcpclient.WithAuthToken(token))
 	}
-	return owner.ToolCatalogSnapshot(ctx, scope, server, opts...)
+	return owner.ToolCatalogSnapshot(ctx, r.metadataConnectionScope(ctx, scope, server), server, opts...)
 }

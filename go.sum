@@ -2377,3 +2377,7 @@ github.com/viant/forge v0.3.45-0.20261015203359-875570dbe49b h1:jBcyoSO2Irt04VR9
 github.com/viant/forge v0.3.45-0.20261015203359-875570dbe49b/go.mod h1:asQHHCMbgC0d3pc0dm+GFFQ5cDyzjG0qN86vrW85rCY=
 github.com/viant/forge v0.3.45-0.20261015205139-f16a37cd7b56 h1:tyHiIfN79riy6HyhLO2+bLfDEnO+tcK7eltSd49yN1o=
 github.com/viant/forge v0.3.45-0.20261015205139-f16a37cd7b56/go.mod h1:asQHHCMbgC0d3pc0dm+GFFQ5cDyzjG0qN86vrW85rCY=
+github.com/viant/forge v0.3.45-0.20261015211427-4e084aae8004 h1:CV2VRsKMbN7Wmn3uzgdeZaQmL3EccjNzuk3qkjhMVoo=
+github.com/viant/forge v0.3.45-0.20261015211427-4e084aae8004/go.mod h1:58JlyxeMR/WET8tzeHgVJI4ub/KP3Da5KSCqStW7QQY=
+github.com/viant/mcp v0.24.1-0.20261015210604-ea8543a12c53 h1:yrs4lIW1+CD0PO4PLb8mOnsRD9fWcgohn6DUYG3sArE=
+github.com/viant/mcp v0.24.1-0.20261015210604-ea8543a12c53/go.mod h1:Yn0ypkLtyn531y0pQTGBdNU8mFtEJlW+r76YoFaOAY0=
