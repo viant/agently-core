@@ -417,21 +417,21 @@ func TestSelectedDatasourcePostFirstReadsFillOnlyOriginalResourceSlots(t *testin
 	end, err := requestctx.BeginResourceReadDispatch(ctx)
 	require.NoError(t, err)
 	require.NoError(t, end())
-	require.Equal(t, 1, parentSpy.count("windows/get"))
-	require.Equal(t, 1, childSpy.count("datasources/get"))
+	require.Equal(t, 2, parentSpy.count("windows/get"), "dispatch checks the held working selection with its owner")
+	require.Equal(t, 2, childSpy.count("datasources/get"))
 	child := target.DependencyPins["orders"]
 	for i := 0; i < 3; i++ {
 		_, _, err = stack.gateway.ResolveDatasource(ctx, child)
 		require.NoError(t, err)
 	}
-	require.Equal(t, 1, childSpy.count("datasources/get"), "POST reads reuse the owning definition until resource notification")
+	require.Equal(t, 3, childSpy.count("datasources/get"), "POST reads reuse only the current phase's original resource slot")
 	_, err = stack.catalog.ResolveDatasource(ctx, parent, target, "orders")
 	require.NoError(t, err)
-	require.Equal(t, 1, parentSpy.count("windows/get"))
-	require.Equal(t, 1, childSpy.count("datasources/get"))
+	require.Equal(t, 3, parentSpy.count("windows/get"))
+	require.Equal(t, 3, childSpy.count("datasources/get"))
 	require.NoError(t, finish())
-	require.Equal(t, 1, parentSpy.count("windows/get"))
-	require.Equal(t, 1, childSpy.count("datasources/get"), "final release validates existing scope and pins without rereading definitions")
+	require.Equal(t, 4, parentSpy.count("windows/get"))
+	require.Equal(t, 4, childSpy.count("datasources/get"), "final release validates the current working content")
 }
 func TestSelectedDatasourcePostFirstReadCannotAdoptMutationOrRevocation(t *testing.T) {
 	for _, change := range []string{"content", "revocation"} {

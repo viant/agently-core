@@ -61,7 +61,7 @@ func TestReadSequenceReusesDefinitionAndContractAcrossPhases(t *testing.T) {
 		_, err := g.GetForProvider(ctx, "owned", ref, nil)
 		require.NoError(t, err)
 	}
-	require.Equal(t, 1, p.calls["windows/get"], "definitions are captured once for the authenticated user until notification")
+	require.Equal(t, 3, p.calls["windows/get"], "unselected working reads remain fresh within a metadata sequence")
 	require.Equal(t, 1, p.calls["namespaces/list"])
 	require.Equal(t, 1, p.calls["namespaces/get"])
 	endDispatch, err := requestctx.BeginResourceReadDispatch(ctx)
@@ -72,8 +72,8 @@ func TestReadSequenceReusesDefinitionAndContractAcrossPhases(t *testing.T) {
 		_, err := g.GetForProvider(ctx, "owned", ref, nil)
 		require.NoError(t, err)
 	}
-	require.Equal(t, 1, p.calls["windows/get"])
-	require.Equal(t, 1, p.calls["namespaces/list"], "POST reuses the same captured definition and namespace contract")
+	require.Equal(t, 5, p.calls["windows/get"])
+	require.Equal(t, 1, p.calls["namespaces/list"], "POST reuses namespace discovery while working definitions remain fresh")
 	require.NoError(t, finish())
 	require.Equal(t, 1, p.calls["namespaces/list"], "release fences transport without another namespace RPC")
 	_, err = g.GetForProvider(ctx, "owned", ref, nil)

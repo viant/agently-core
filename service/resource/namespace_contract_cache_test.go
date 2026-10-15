@@ -25,7 +25,7 @@ func (c *contractCacheClient) ListTools(ctx context.Context, cursor *string, opt
 	c.tools.Add(1)
 	return c.fixtureProvider.ListTools(ctx, cursor, options...)
 }
-func TestNamespaceContractCacheReusesDefinitionsAndPreservesExactBindings(t *testing.T) {
+func TestNamespaceContractCachePreservesDiscoveryAndFreshWorkingReads(t *testing.T) {
 	provider := provider("owner")
 	provider.definition = json.RawMessage(`{"synthetic":"original"}`)
 	client := &contractCacheClient{fixtureProvider: provider}
@@ -50,13 +50,13 @@ func TestNamespaceContractCacheReusesDefinitionsAndPreservesExactBindings(t *tes
 		_, err = Get[json.RawMessage](ctx, gateway, connection, identity.ResourceRef{URI: "window://example/sales"}, nil)
 		require.NoError(t, err)
 	}
-	require.Equal(t, 1, provider.calls["windows/get"], "450 reads of the same definition reuse its user namespace snapshot")
+	require.Equal(t, 450, provider.calls["windows/get"], "working definitions are read freshly while namespace discovery stays warm")
 	require.Equal(t, initialList, provider.calls["namespaces/list"])
 	require.Equal(t, initialDetail, provider.calls["namespaces/get"])
 	provider.resourceChanged()
 	_, err = Get[json.RawMessage](ctx, gateway, connection, identity.ResourceRef{URI: "window://example/sales"}, nil)
 	require.NoError(t, err)
-	require.Equal(t, 2, provider.calls["windows/get"], "a standard source event refreshes the owning definition once")
+	require.Equal(t, 451, provider.calls["windows/get"], "a standard source event retains fresh owning reads")
 	first[0].Kinds[0].Methods["get"] = "caller-mutated"
 	_, err = Get[json.RawMessage](ctx, gateway, connection, identity.ResourceRef{URI: "window://example/sales"}, nil)
 	require.NoError(t, err, "exported namespace maps must not mutate cached dispatch metadata")

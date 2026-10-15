@@ -98,7 +98,11 @@ func runThreePageReportCounts(t *testing.T, httpScope bool) {
 	counter.mu.Lock()
 	defer counter.mu.Unlock()
 	t.Logf("actual three-page run: reports/get=%d namespaces/list=%d namespaces/get=%d data=%d", counter.calls["reports/get"], counter.calls["namespaces/list"], counter.calls["namespaces/get"], dataCalls)
-	require.Equal(t, 1, counter.calls["reports/get"], "three data pages reuse one managing report definition until a resource notification")
+	expectedGets := 4 // selection plus current working validation for each page
+	if httpScope {
+		expectedGets = 2 // one operation selection and its final source check
+	}
+	require.Equal(t, expectedGets, counter.calls["reports/get"], "working report reads follow the configured operation scope")
 	require.Equal(t, 1, counter.calls["namespaces/list"])
 	require.Equal(t, 1, counter.calls["namespaces/get"])
 

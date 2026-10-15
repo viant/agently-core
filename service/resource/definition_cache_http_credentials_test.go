@@ -34,7 +34,13 @@ func TestGenericPrivateDefinitionHTTPUsesEffectiveCredentialWitness(t *testing.T
 			name = "unsupported-custom-store"
 		}
 		t.Run(name, func(t *testing.T) {
-			provider, _, actor, _ := localFixture(t)
+			provider, _, actor, _ := menuFixtureProvider(t)
+			binding := localProviderBinding(provider, "navigation://team/navigation")
+			immutable := &stampedMenuSource{raw: json.RawMessage(menuFixture)}
+			binding.Resolver = func(context.Context, identity.VerifiedActor, string) (*identity.ResourceResolver, error) {
+				return &identity.ResourceResolver{ProviderIdentity: provider.ProviderIdentity(), Source: immutable, Policy: stampMenuPolicy{until: actor.ValidUntil}}, nil
+			}
+			updateLocalProvider(t, provider, func(config *LocalConfig) { setLocalConfigBinding(config, binding) })
 			var gets atomic.Int32
 			handler, err := NewMCPHandler(provider, func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +58,7 @@ func TestGenericPrivateDefinitionHTTPUsesEffectiveCredentialWitness(t *testing.T
 								Name string `json:"name"`
 							} `json:"params"`
 						}
-						if json.Unmarshal(raw, &packet) == nil && packet.Method == "tools/call" && packet.Params.Name == "windows/get" {
+						if json.Unmarshal(raw, &packet) == nil && packet.Method == "tools/call" && packet.Params.Name == "navigations/get" {
 							gets.Add(1)
 						}
 					}
@@ -90,7 +96,7 @@ func TestGenericPrivateDefinitionHTTPUsesEffectiveCredentialWitness(t *testing.T
 				defer cancel()
 				connection, err := g.ConnectionForProvider(ctx, provider.ProviderIdentity())
 				require.NoError(t, err)
-				_, err = Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: "window://team/sales"}, nil)
+				_, err = Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: "navigation://team/navigation", Revision: "release-7"}, nil)
 				require.NoError(t, err)
 			}
 			get("alice", "fixture-alice", "a")

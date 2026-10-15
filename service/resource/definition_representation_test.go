@@ -17,7 +17,7 @@ import (
 func TestGenericNamespaceCacheCompilesWindowOnceAndDetachesTargets(t *testing.T) {
 	uri := "window://shared/original"
 	raw := localWindowBytes(t)
-	source := &definitionCacheProvider{dependencyMCPProvider: &dependencyMCPProvider{owner: "provider", items: map[string]*dependencyResource{uri: {raw: raw, formatVersion: 2, revision: identity.WorkingCandidate, authorityBinding: "neutral"}}}, gets: map[string]int{}}
+	source := &definitionCacheProvider{dependencyMCPProvider: &dependencyMCPProvider{owner: "provider", items: map[string]*dependencyResource{uri: {raw: raw, formatVersion: 2, revision: "1", authorityBinding: "neutral"}}}, gets: map[string]int{}}
 	options := fixtureOptions{"source": {PrimitiveProviderIdentity: "provider", ResourceCacheScopes: map[string]string{"shared": cfg.ResourceCachePublic}}}
 	mgr, err := manager.New(options, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return source, nil }))
 	require.NoError(t, err)
@@ -34,12 +34,12 @@ func TestGenericNamespaceCacheCompilesWindowOnceAndDetachesTargets(t *testing.T)
 		parses++
 		return types.CompileWindowResource(raw)
 	}}
-	first, err := GetWithCodec(ctx, g, connection, identity.ResourceRef{URI: uri}, nil, codec)
+	first, err := GetWithCodec(ctx, g, connection, identity.ResourceRef{URI: uri, Revision: "1"}, nil, codec)
 	require.NoError(t, err)
 	selected, err := first.Definition.Select(nil)
 	require.NoError(t, err)
 	selected.Window.Title = "caller mutation"
-	next, err := GetWithCodec(ctx, g, connection, identity.ResourceRef{URI: uri}, first.ResolvedResource, codec)
+	next, err := GetWithCodec(ctx, g, connection, identity.ResourceRef{URI: uri, Revision: "1"}, first.ResolvedResource, codec)
 	require.NoError(t, err)
 	nextSelected, err := next.Definition.Select(nil)
 	require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestGenericNamespaceCacheCompilesWindowOnceAndDetachesTargets(t *testing.T)
 	connection, err = g.ConnectionForProvider(ctx, "provider")
 	require.NoError(t, err)
 	source.items[uri].raw = json.RawMessage(`{"format":"invalid"}`)
-	_, err = GetWithCodec(ctx, g, connection, identity.ResourceRef{URI: uri}, nil, codec)
+	_, err = GetWithCodec(ctx, g, connection, identity.ResourceRef{URI: uri, Revision: "1"}, nil, codec)
 	require.Error(t, err, "changed malformed body must be validated after invalidation")
 	require.Equal(t, 2, parses)
 }

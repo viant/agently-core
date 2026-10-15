@@ -61,7 +61,7 @@ func TestGenericPrivateDefinitionCacheSeparatesAccountAndIdentityRevision(t *tes
 	const uri = "window://private/original"
 	source := &definitionCacheProvider{dependencyMCPProvider: &dependencyMCPProvider{
 		owner: "private-provider",
-		items: map[string]*dependencyResource{uri: {raw: json.RawMessage(`{"title":"private"}`), formatVersion: 1, revision: identity.WorkingCandidate, authorityBinding: "owner-policy"}},
+		items: map[string]*dependencyResource{uri: {raw: json.RawMessage(`{"title":"private"}`), formatVersion: 1, revision: "1", authorityBinding: "owner-policy"}},
 	}, gets: map[string]int{}}
 	mgr, err := manager.New(fixtureOptions{"source": {PrimitiveProviderIdentity: source.owner, ResourceCacheScopes: map[string]string{"private": cfg.ResourceCacheUser}}}, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return source, nil }))
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestGenericPrivateDefinitionCacheSeparatesAccountAndIdentityRevision(t *tes
 		ctx := context.WithValue(cacheUser("alice", "same-token", "same-conversation"), key, authority{account, revision})
 		connection, err := g.ConnectionForResource(ctx, mustCacheURI(t, uri), source.owner)
 		require.NoError(t, err)
-		_, err = Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri}, nil)
+		_, err = Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri, Revision: "1"}, nil)
 		require.NoError(t, err)
 	}
 	get("one", "r1")
@@ -90,12 +90,13 @@ func TestGenericPrivateDefinitionCacheSeparatesAccountAndIdentityRevision(t *tes
 	require.Equal(t, 3, source.count(uri), "original authority partition should remain warm")
 }
 
-func TestGenericDefinitionCachePublicWindowAndPrivateMenuInSameNamespace(t *testing.T) {
+func TestGenericDefinitionCachePublicImmutableWindowAndPrivateWorkingMenu(t *testing.T) {
 	windowURI, menuURI := "window://shared/original", "navigation://shared/layout"
 	item := func(raw string, version int64) *dependencyResource {
-		return &dependencyResource{raw: json.RawMessage(raw), formatVersion: version, revision: identity.WorkingCandidate, authorityBinding: "neutral-definition"}
+		return &dependencyResource{raw: json.RawMessage(raw), formatVersion: version, revision: "1", authorityBinding: "neutral-definition"}
 	}
 	source := &definitionCacheProvider{dependencyMCPProvider: &dependencyMCPProvider{owner: "original-provider", items: map[string]*dependencyResource{windowURI: item(`{"view":{"content":{"id":"original"}}}`, 2), menuURI: item(`{"schemaVersion":1,"applications":[]}`, 1)}}, gets: map[string]int{}}
+	source.items[menuURI].revision = identity.WorkingCandidate
 	options := fixtureOptions{"source": {PrimitiveProviderIdentity: source.owner, ResourceCacheScopes: map[string]string{"shared": cfg.ResourceCachePublic, "shared/navigation": cfg.ResourceCacheUser}}}
 	mgr, err := manager.New(options, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return source, nil }))
 	require.NoError(t, err)
@@ -108,7 +109,11 @@ func TestGenericDefinitionCachePublicWindowAndPrivateMenuInSameNamespace(t *test
 	get := func(ctx context.Context, uri string) *Result[json.RawMessage] {
 		connection, err := g.ConnectionForResource(ctx, mustCacheURI(t, uri), source.owner)
 		require.NoError(t, err)
-		value, err := Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri}, nil)
+		revision := "1"
+		if uri == menuURI {
+			revision = identity.WorkingCandidate
+		}
+		value, err := Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri, Revision: revision}, nil)
 		require.NoError(t, err)
 		return value
 	}
@@ -124,11 +129,11 @@ func TestGenericDefinitionCachePublicWindowAndPrivateMenuInSameNamespace(t *test
 	require.Contains(t, string(b.Definition), "bob")
 	require.Equal(t, 2, source.count(menuURI))
 	get(alice, menuURI)
-	require.Equal(t, 2, source.count(menuURI))
+	require.Equal(t, 3, source.count(menuURI), "working menu projections are read freshly")
 	get(cacheUser("alice", "rotated-token", "browser-a"), menuURI)
-	require.Equal(t, 3, source.count(menuURI), "changed credential isolates private metadata")
+	require.Equal(t, 4, source.count(menuURI), "changed credential isolates private metadata")
 	get(cacheUser("alice", "alice-token", "another-conversation"), menuURI)
-	require.Equal(t, 3, source.count(menuURI), "ordinary private server reuses the same user metadata across logical conversations")
+	require.Equal(t, 5, source.count(menuURI), "a different operation obtains a current private projection")
 	mgr.CloseConversation("")
 	get(alice, windowURI)
 	require.Equal(t, 2, source.count(windowURI), "reconnect invalidates existing metadata slots")
@@ -173,7 +178,7 @@ func TestGenericDefinitionCache450ResourcesRetainWarmNamespaceAndDefinitions(t *
 	items := map[string]*dependencyResource{}
 	for i := 0; i < 450; i++ {
 		uri := fmt.Sprintf("window://shared/%03d", i)
-		items[uri] = &dependencyResource{raw: json.RawMessage(`{"view":{"content":{"id":"original"}}}`), formatVersion: 2, revision: identity.WorkingCandidate, authorityBinding: "neutral"}
+		items[uri] = &dependencyResource{raw: json.RawMessage(`{"view":{"content":{"id":"original"}}}`), formatVersion: 2, revision: "1", authorityBinding: "neutral"}
 	}
 	source := &definitionCacheProvider{dependencyMCPProvider: &dependencyMCPProvider{owner: "provider", items: items}, gets: map[string]int{}}
 	options := fixtureOptions{"source": {PrimitiveProviderIdentity: "provider", ResourceCacheScopes: map[string]string{"shared": cfg.ResourceCachePublic}}}
@@ -190,7 +195,7 @@ func TestGenericDefinitionCache450ResourcesRetainWarmNamespaceAndDefinitions(t *
 	for repeat := 0; repeat < 2; repeat++ {
 		for i := 0; i < 450; i++ {
 			uri := fmt.Sprintf("window://shared/%03d", i)
-			_, err := Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri}, nil)
+			_, err := Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri, Revision: "1"}, nil)
 			require.NoError(t, err)
 			require.Equal(t, 1, source.count(uri))
 		}
@@ -210,7 +215,7 @@ func TestBrowserAndDeclaredSessionMetadataScopeRetainsConversation(t *testing.T)
 
 func TestGenericDefinitionCacheDeclaredConversationScopeSeparatesLogicalConversations(t *testing.T) {
 	uri := "window://shared/session"
-	source := &definitionCacheProvider{dependencyMCPProvider: &dependencyMCPProvider{owner: "provider", items: map[string]*dependencyResource{uri: {raw: json.RawMessage(`{"view":{"content":{"id":"original"}}}`), formatVersion: 2, revision: identity.WorkingCandidate, authorityBinding: "neutral"}}}, gets: map[string]int{}}
+	source := &definitionCacheProvider{dependencyMCPProvider: &dependencyMCPProvider{owner: "provider", items: map[string]*dependencyResource{uri: {raw: json.RawMessage(`{"view":{"content":{"id":"original"}}}`), formatVersion: 2, revision: "1", authorityBinding: "neutral"}}}, gets: map[string]int{}}
 	options := fixtureOptions{"source": {PrimitiveProviderIdentity: "provider", ResourceCacheScopes: map[string]string{"shared": cfg.ResourceCacheConversation}}}
 	mgr, err := manager.New(options, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return source, nil }))
 	require.NoError(t, err)
@@ -223,7 +228,7 @@ func TestGenericDefinitionCacheDeclaredConversationScopeSeparatesLogicalConversa
 		ctx := cacheUser("alice", "token", conversation)
 		connection, err := g.ConnectionForProvider(ctx, "provider")
 		require.NoError(t, err)
-		_, err = Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri}, nil)
+		_, err = Get[json.RawMessage](ctx, g, connection, identity.ResourceRef{URI: uri, Revision: "1"}, nil)
 		require.NoError(t, err)
 	}
 	require.Equal(t, 2, source.count(uri), "same credential and connection, two distinct conversation metadata slots")
