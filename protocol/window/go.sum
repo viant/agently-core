@@ -6,12 +6,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/tiendc/go-deepcopy v1.7.1 h1:LnubftI6nYaaMOcaz0LphzwraqN8jiWTwm416sitff4=
 github.com/tiendc/go-deepcopy v1.7.1/go.mod h1:4bKjNC2r7boYOkD2IOuZpYjmlDdzjbpTRyCx+goBCJQ=
-github.com/viant/agently-core/protocol/primitive v0.0.0-20261014061041-1f9a58166259 h1:nvUsFLOr6GMSSdDWDOK6R1coFgoUH7SGsgsjzQ1n1c8=
-github.com/viant/agently-core/protocol/primitive v0.0.0-20261014061041-1f9a58166259/go.mod h1:5Lav2s0l6Wcy5DTPcAoPnt83z8697STgm2iHlZEwy+g=
-github.com/viant/agently-core/protocol/resource v0.0.0-20261014060740-664c53d5a109 h1:JB3W2IfwPYFUv0i25JKZ5ldTzMTb/zxm/l1tFRuOKBI=
-github.com/viant/agently-core/protocol/resource v0.0.0-20261014060740-664c53d5a109/go.mod h1:r8HQhB4iUN4FYwLpWp9AnTM+BGSsnKBHFUvjRyt3ab4=
-github.com/viant/forge v0.3.45-0.20261014055339-711acf436cbe h1:QdS3UJbv7FXRkcXCBIn2isJRgehUXXecHeORXHLCl44=
-github.com/viant/forge v0.3.45-0.20261014055339-711acf436cbe/go.mod h1:moia7SqzaaLpeTN3if/XwSZ4C2umli6uXYpQrJGxSqw=
+github.com/viant/forge v0.3.45-0.20261015011117-38bb1cf13641 h1:yA6VXuZfTdnbkxDY3MN6NKiKavfsg/fjxQmlKqS5KDw=
+github.com/viant/forge v0.3.45-0.20261015011117-38bb1cf13641/go.mod h1:asQHHCMbgC0d3pc0dm+GFFQ5cDyzjG0qN86vrW85rCY=
 gopkg.in/yaml.v2 v2.4.0 h1:D8xgwECY7CYvx+Y2n4sBz93Jn9JRvxdiyyo8CTfuKaY=
 gopkg.in/yaml.v2 v2.4.0/go.mod h1:RDklbk79AGWmwhnvt/jBztapEOGDOx6ZbXqjP6csGnQ=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=

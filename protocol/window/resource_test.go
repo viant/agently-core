@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	identity "github.com/viant/agently-core/protocol/resource"
+	identity "github.com/viant/forge/backend/resource"
 	"github.com/viant/forge/backend/types"
 )
 
