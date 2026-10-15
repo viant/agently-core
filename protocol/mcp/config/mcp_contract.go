@@ -12,6 +12,7 @@ type (
 	BrowserDescriptor       = shared.BrowserDescriptor
 	OutputArtifact          = shared.OutputArtifact
 	ResourceRoot            = shared.ResourceRoot
+	ResourceMetadata        = shared.ResourceMetadata
 	Upstream                = shared.Upstream
 	SkillDiscovery          = shared.SkillDiscovery
 	SkillToolBridge         = shared.SkillToolBridge

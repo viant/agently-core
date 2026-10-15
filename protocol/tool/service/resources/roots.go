@@ -267,7 +267,7 @@ func (s *Service) collectMCPRoots(ctx context.Context) []Root {
 				AllowedSemanticSearch: root.Vectorize && root.Snapshot,
 				AllowedGrepSearch:     root.AllowGrep && root.Snapshot,
 				Role:                  "system",
-				Metadata:              root.Metadata,
+				Metadata:              metadata.Config{Extractor: root.Metadata.Extractor, Fields: root.Metadata.Fields},
 			}
 			if semAllowed && match != nil {
 				rootEntry.Match = match
