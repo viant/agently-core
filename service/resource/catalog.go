@@ -192,18 +192,26 @@ func (g *Gateway) catalogCapability(ctx context.Context, actor identity.Verified
 	hint, found := g.capabilityHints[hintKey]
 	cached, present := g.cache[hint.cacheKey]
 	g.mu.Unlock()
+	if found && hint.unavailableUntil.After(g.now()) {
+		probe.End(observe.OK, observe.CacheHit)
+		return capabilities{}, ErrUnavailable
+	}
 	if found && present && cached.connection.Name == name && cached.connection.Generation == g.generation(name) && cached.resourceVersion == g.Manager.ResourceCatalogGeneration(ctx, name) && identity.MetadataExpiryValid(discoveryCacheUntil(cached), g.now()) {
 		probe.End(observe.OK, observe.CacheHit)
 		return cached, nil
 	}
 	probe.End(observe.OK, observe.CacheMiss)
 	resolved, err := g.discover(ctx, actor, name)
-	if err == nil && resolved.cacheKey != "" {
+	if err == nil && resolved.cacheKey != "" || errors.Is(err, ErrUnavailable) {
 		g.mu.Lock()
 		if len(g.capabilityHints) >= 512 {
 			g.capabilityHints = map[string]capabilityHint{}
 		}
-		g.capabilityHints[hintKey] = capabilityHint{connection: name, cacheKey: resolved.cacheKey}
+		hint := capabilityHint{connection: name, cacheKey: resolved.cacheKey}
+		if errors.Is(err, ErrUnavailable) {
+			hint.unavailableUntil = g.now().Add(30 * time.Second)
+		}
+		g.capabilityHints[hintKey] = hint
 		g.mu.Unlock()
 	}
 	return resolved, err
