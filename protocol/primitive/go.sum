@@ -1,6 +1,2 @@
-github.com/viant/agently-core/protocol/resource v0.0.0-20261008214809-31759347c5b7 h1:f9s+3U+UeAlL8ggKhucwiTM0WEv04e30d0lLmLUoxqQ=
-github.com/viant/agently-core/protocol/resource v0.0.0-20261008214809-31759347c5b7/go.mod h1:r8HQhB4iUN4FYwLpWp9AnTM+BGSsnKBHFUvjRyt3ab4=
-github.com/viant/agently-core/protocol/resource v0.0.0-20261008223520-8ba096a165a0 h1:HDctm6ZJI6wNKI4KLInsS4tgBS+4YfoSIl2In5IUKEk=
-github.com/viant/agently-core/protocol/resource v0.0.0-20261008223520-8ba096a165a0/go.mod h1:r8HQhB4iUN4FYwLpWp9AnTM+BGSsnKBHFUvjRyt3ab4=
-github.com/viant/agently-core/protocol/resource v0.0.0-20261014060740-664c53d5a109 h1:JB3W2IfwPYFUv0i25JKZ5ldTzMTb/zxm/l1tFRuOKBI=
-github.com/viant/agently-core/protocol/resource v0.0.0-20261014060740-664c53d5a109/go.mod h1:r8HQhB4iUN4FYwLpWp9AnTM+BGSsnKBHFUvjRyt3ab4=
+github.com/viant/forge v0.3.45-0.20261015011117-38bb1cf13641 h1:yA6VXuZfTdnbkxDY3MN6NKiKavfsg/fjxQmlKqS5KDw=
+github.com/viant/forge v0.3.45-0.20261015011117-38bb1cf13641/go.mod h1:asQHHCMbgC0d3pc0dm+GFFQ5cDyzjG0qN86vrW85rCY=

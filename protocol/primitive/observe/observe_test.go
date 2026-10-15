@@ -3,7 +3,7 @@ package observe
 import (
 	"context"
 	"errors"
-	identity "github.com/viant/agently-core/protocol/resource"
+	identity "github.com/viant/forge/backend/resource"
 	"strings"
 	"sync"
 	"testing"

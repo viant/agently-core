@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	identity "github.com/viant/agently-core/protocol/resource"
+	identity "github.com/viant/forge/backend/resource"
 )
 
 func TestDatasourceReferenceBindsExactProviderAndImmutableSelector(t *testing.T) {
