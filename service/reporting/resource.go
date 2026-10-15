@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	sharedengine "github.com/viant/forge/backend/reporting/engine"
 	"io"
 
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -101,6 +102,9 @@ func (s *Service) compileResolved(ctx context.Context, request *CompileRequest) 
 func (s *Service) SetResourceResolver(resolve ResourceResolver) {
 	if s != nil {
 		s.resourceResolver = resolve
+		if s.execution != nil {
+			s.execution.SetResourceResolver(sharedengine.ResourceResolver(resolve))
+		}
 	}
 }
 

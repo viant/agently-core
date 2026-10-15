@@ -571,22 +571,10 @@ type RunExportStore interface {
 }
 
 // AuditEvent is the generic reporting audit payload emitted by the service.
-type AuditEvent struct {
-	EventType   string                 `json:"eventType,omitempty"`
-	ArtifactRef string                 `json:"artifactRef,omitempty"`
-	Version     int                    `json:"version,omitempty"`
-	JobID       string                 `json:"jobId,omitempty"`
-	ArtifactID  string                 `json:"artifactId,omitempty"`
-	ActorID     string                 `json:"actorId,omitempty"`
-	ActorRef    string                 `json:"actorRef,omitempty"`
-	OccurredAt  time.Time              `json:"occurredAt,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-}
+type AuditEvent = shared.AuditEvent
 
-// AuditSink records reporting lifecycle events.
-type AuditSink interface {
-	Record(ctx context.Context, event *AuditEvent) error
-}
+// AuditSink records reporting lifecycle events through the shared contract.
+type AuditSink = shared.AuditSink
 
 // StampReportRequest explicitly freezes the selected draft; ordinary saves never stamp.
 type StampReportRequest struct {

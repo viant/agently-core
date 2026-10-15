@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
+	sharedengine "github.com/viant/forge/backend/reporting/engine"
 	"github.com/viant/forge/backend/reporting/registry"
 	"github.com/viant/forge/backend/types"
 )
@@ -19,6 +20,9 @@ func (s *Service) SetResourceDependencies(resolve ResourceDependencyResolver, pr
 	if s != nil {
 		s.resourceDependencyResolver = resolve
 		s.resourceDependencyProof = proof
+		if s.execution != nil {
+			s.execution.SetResourceDependencies(sharedengine.ResourceDependencyResolver(resolve), proof)
+		}
 	}
 }
 func cloneDependencyPins(input map[string]identity.ResolvedResource) map[string]identity.ResolvedResource {

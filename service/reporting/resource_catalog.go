@@ -18,6 +18,9 @@ import (
 func (s *Service) SetReportCatalog(catalog catalog.Provider) {
 	if s != nil {
 		s.reportCatalog = catalog
+		if s.execution != nil {
+			s.execution.SetReportCatalog(catalog)
+		}
 	}
 }
 
