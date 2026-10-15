@@ -178,6 +178,7 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 			if runtime == nil && useDefaults {
 				runtime = permittedview.DefaultRuntime()
 			}
+			projectionSpan := observe.Start(r.Context(), "http.window.project", observe.Labels{Kind: "window"})
 			if canonical {
 				if project, ok := settings.windows.(interface {
 					ProjectWindowWithInput(context.Context, *permittedview.BoundView) (*forgeTypes.Window, error)
@@ -193,6 +194,7 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 					authorization = result.Authorization
 				}
 			}
+			projectionSpan.End(observe.OutcomeFor(err), observe.CacheUnknown)
 			if err != nil || aWindow == nil {
 				writeWindowError(w, err)
 				return
@@ -201,7 +203,9 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 				if emitter, ok := settings.windows.(interface {
 					EmitWindowSelection(context.Context, *forgeTypes.Window, map[string]any) (*forgeTypes.Window, error)
 				}); ok {
+					selectionSpan := observe.Start(r.Context(), "http.window.selection", observe.Labels{Kind: "window"})
 					aWindow, err = emitter.EmitWindowSelection(r.Context(), aWindow, openParameters)
+					selectionSpan.End(observe.OutcomeFor(err), observe.CacheUnknown)
 					if err != nil || aWindow == nil {
 						writeWindowError(w, err)
 						return
