@@ -128,9 +128,15 @@ func feedGatewayFixture(t *testing.T, n int, ordinary bool, collision ...bool) (
 		public, _ := feedActor(feedActorContext("alice"))
 		actorSource = func(context.Context) (identity.VerifiedActor, error) { return public, nil }
 	}
-	provider, err := resources.NewInternalProvider(context.Background(), root, dirs, func(_ context.Context, a identity.VerifiedActor, _ identity.ResourceURI, _ string) (identity.ResourceRevisionPolicy, error) {
+	definitions, err := resources.SnapshotToolfeedDefinitions(context.Background(), root, dirs)
+	require.NoError(t, err)
+	snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, definitions, resources.NativeSnapshotOptions{})
+	require.NoError(t, err)
+	bindings, err := snapshot.Bindings(resources.InternalProviderIdentity, func(_ context.Context, a identity.VerifiedActor, _ identity.ResourceURI, _ string) (identity.ResourceRevisionPolicy, error) {
 		return feedPolicy{a, lease}, nil
-	}, resources.LocalConfig{Actor: actorSource, Verify: verify, Authorize: func(_ context.Context, a identity.VerifiedActor, u identity.ResourceURI, _ string) error {
+	})
+	require.NoError(t, err)
+	provider, err := resources.NewLocalProvider(resources.LocalConfig{ProviderIdentity: resources.InternalProviderIdentity, Bindings: bindings, Actor: actorSource, Verify: verify, Authorize: func(_ context.Context, a identity.VerifiedActor, u identity.ResourceURI, _ string) error {
 		if u.Namespace != "user-"+a.Subject && u.Namespace != "user-team" {
 			return identity.ErrResourceDenied
 		}
@@ -174,7 +180,7 @@ func TestFeedGatewayNativeTwentyDefinitionsWarmCountsAndActorIsolation(t *testin
 	require.Equal(t, "toolfeed://user-alice/feed-00", feedIdentity(selected))
 	require.Contains(t, fmt.Sprint(selected.UI), "9007199254740993")
 	warmGets, _ := transport.counts()
-	require.Equal(t, coldGets, warmGets, "selected Get should reuse the captured definition")
+	require.Equal(t, coldGets+1, warmGets, "a new working selection reads the current captured source from its owner")
 	_, err = c.ListFeedSpecsContext(alice)
 	require.NoError(t, err)
 	afterList, _ := transport.counts()
@@ -231,7 +237,7 @@ func TestFeedGatewayOrdinaryPartialProviderRetainsCapturedDefinitionAndNativeCom
 		t.Fatal("native feed event missing")
 	}
 	after, _ := transport.counts()
-	require.Equal(t, 0, after-before, "notification matching should reuse the captured definition")
+	require.Equal(t, 1, after-before, "notification matching obtains the current working feed from its owner")
 	file := filepath.Join(root, "feeds/alice/feed-00.yaml")
 	body, err := os.ReadFile(file)
 	require.NoError(t, err)

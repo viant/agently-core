@@ -225,7 +225,7 @@ func TestSDKHTTPSharedNamespaceSkillManifestActivationAndSupportingFiles(t *test
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, response.StatusCode, string(raw))
 	require.Contains(t, string(raw), "Original shared supporting bytes")
-	require.Equal(t, 1, fixture.count("resource/get"), "supporting read reuses the same generic metadata slot")
+	require.Equal(t, 2, fixture.count("resource/get"), "a separate supporting-file operation refreshes its working manifest")
 	before := fixture.count("resources/read")
 	fixture.setMode("deny")
 	denied, err := client.ActivateSkill(ctx, &ActivateSkillInput{ConversationID: conv.Id, Name: sharedSDKSkillURI})
