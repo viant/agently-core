@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -80,4 +81,17 @@ func TestAdmittedIntentScopesUnqualifiedTemplateToOwningProvider(t *testing.T) {
 	raw, err := json.Marshal(profile)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "ResourceProviderIdentity")
+	// Workspace-relative profile selection must remain usable when an
+	// unrelated connector cannot initialize (for example, OAuth discovery).
+	offlineCalls := 0
+	require.NoError(t, mgr.RegisterLocal(ctx, "offline", &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "offline"}, func(context.Context) (mcpclient.Interface, error) {
+		offlineCalls++
+		return nil, errors.New("unrelated connector offline")
+	}))
+	reader := NewIntentReader(g)
+	reader.Scope = DefinitionScope{Namespace: "team", ProviderIdentity: "owner"}
+	selectedProfile, err := reader.Load(ctx, "owner-intent")
+	require.NoError(t, err)
+	require.Equal(t, "owner", selectedProfile.ResourceProviderIdentity)
+	require.Zero(t, offlineCalls)
 }

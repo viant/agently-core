@@ -858,7 +858,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 		promptRepo := intakerepo.NewWithStore(out.Store)
 		if out.PrimitiveProviders != nil {
-			promptRepo = intakerepo.NewWithReader(resourcesvc.NewIntentReader(out.PrimitiveProviders))
+			promptRepo = intakerepo.NewWithReader(defaultIntentReader(out))
 		}
 		templateRepo := tplrepo.NewWithStore(out.Store)
 		if out.PrimitiveProviders != nil {
@@ -1022,7 +1022,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 	promptRepo := intakerepo.NewWithStore(out.Store)
 	if out.PrimitiveProviders != nil {
-		promptRepo = intakerepo.NewWithReader(resourcesvc.NewIntentReader(out.PrimitiveProviders))
+		promptRepo = intakerepo.NewWithReader(defaultIntentReader(out))
 	}
 	if err := tool.AddInternalService(out.Registry, llmagents.New(out.Agent,
 		llmagents.WithDirectoryProvider(localAgentDirectory(b.agentFinder, b.agentDirectoryProvider)),
