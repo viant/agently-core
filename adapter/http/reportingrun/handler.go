@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	convstore "github.com/viant/agently-core/app/store/conversation"
+	reportstore "github.com/viant/agently-core/app/store/reporting"
 	authctx "github.com/viant/agently-core/internal/auth"
 	reportingrunsvc "github.com/viant/agently-core/service/reportingrun"
 )
@@ -165,6 +166,10 @@ func (h *Handler) validateConversation(w http.ResponseWriter, r *http.Request, c
 		return false
 	}
 	conversation, err := h.conversations.GetConversation(r.Context(), conversationID)
+	if err != nil && !errors.Is(err, reportstore.ErrNotFound) && !errors.Is(err, reportingrunsvc.ErrNotFound) {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("report conversation lookup failed"))
+		return false
+	}
 	if err != nil || conversation == nil {
 		writeError(w, http.StatusNotFound, reportingrunsvc.ErrNotFound)
 		return false
