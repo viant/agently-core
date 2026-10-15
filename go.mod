@@ -145,12 +145,12 @@ require (
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/shakinm/xlsReader v0.9.12 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
-	github.com/tidwall/gjson v1.19.0 // indirect
+	github.com/tidwall/gjson v1.20.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
-	github.com/viant/authz v0.0.0-20261012005207-7814ee919e44
+	github.com/viant/authz v0.0.0-20261014234113-96042135a76f
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
 	github.com/viant/govalidator v0.3.4-0.20260913213120-027a9dd54d73 // indirect
