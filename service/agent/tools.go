@@ -20,6 +20,7 @@ import (
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	agenttool "github.com/viant/agently-core/service/agent/tool"
 	"github.com/viant/agently-core/service/browsermcp"
+	intakesvc "github.com/viant/agently-core/service/intake"
 )
 
 // Small utilities for tool name resolution and filtering.
@@ -36,6 +37,13 @@ type resolvedToolSurface struct {
 //     and do not gate by agent patterns (explicit allow-list).
 //   - Otherwise, resolve tools from agent patterns.
 func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm.Tool, err error) {
+	// Clarification is a conversational outcome, not an execution attempt.
+	// Resolve no profiles or remote catalogs until the missing input is supplied.
+	if qi != nil {
+		if tc := intakesvc.FromContext(qi.Context); tc != nil && tc.Routing.Mode == intakesvc.ModeClarify {
+			return nil, nil
+		}
+	}
 	if profile, loadErr := s.selectedPromptProfileAny(ctx, qi); loadErr != nil {
 		return nil, loadErr
 	} else if profile != nil {
