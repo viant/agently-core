@@ -30,7 +30,7 @@ import (
 )
 
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding.Binding, error) {
-	ctx = mcpmgr.WithToolCatalogReadSnapshot(ctx)
+	ctx = mcpmgr.WithToolCatalogReadSnapshot(mcpmgr.WithNamesMemo(ctx))
 	ctx = s.withBindingPayloadReads(ctx)
 	defer closeBindingPayloadReads(ctx)
 	if input != nil {

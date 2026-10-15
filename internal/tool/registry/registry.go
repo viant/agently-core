@@ -2661,7 +2661,16 @@ func shouldSkipBestEffortToolSurfaceDiscoveryError(ctx context.Context, err erro
 
 func (r *Registry) discoveryClientScope(ctx context.Context, server, token string, publicCatalog bool) string {
 	if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
-		return convID
+		// Browser and in-process catalogs may depend on conversation state.
+		// Ordinary configured MCP metadata is shared only within its public or
+		// authenticated-user partition; tool execution keeps its own scope.
+		if r.mgr == nil || r.isInternalServer(server) {
+			return convID
+		}
+		options, err := r.mgr.Options(ctx, server)
+		if err != nil || options == nil || options.ClientOptions == nil || options.Transport.Type == "" || options.IsBrowserExecution() {
+			return convID
+		}
 	}
 	server = strings.TrimSpace(server)
 	if server == "" {
@@ -2675,8 +2684,7 @@ func (r *Registry) discoveryClientScope(ctx context.Context, server, token strin
 		return fmt.Sprintf("mcp-discovery:%s:public", server)
 	}
 	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
-		// A conversation-less authenticated operation (for example a workspace
-		// report datasource) needs one reusable transport per user and credential,
+		// Metadata operations need one reusable transport per user and credential,
 		// never one client per datasource fetch or a cross-user catalog.
 		key := sha256.Sum256([]byte(userID + "\x00" + tokenFingerprint(token)))
 		return fmt.Sprintf("mcp-discovery:%s:principal:%x", server, key[:8])
