@@ -2371,3 +2371,5 @@ github.com/viant/agently-core/protocol/window v0.0.0-20261015021722-e84334ca688f
 github.com/viant/authz v0.0.0-20261014234113-96042135a76f h1:c+Pf7/zzA4XrAg1Dm9v3BC33WxgQCpOIpZ2cNI4VkEY=
 github.com/viant/forge v0.3.45-0.20261015132040-31450cc20703 h1:vCMsEqD4Oi5QvnkWUQynKr0Lt0yM1te6byv5qLzUBXc=
 github.com/viant/forge v0.3.45-0.20261015132040-31450cc20703/go.mod h1:asQHHCMbgC0d3pc0dm+GFFQ5cDyzjG0qN86vrW85rCY=
+github.com/viant/mcp v0.24.1-0.20261015203306-d176f84d2dc9 h1:KN52e80ASwfrZvoaIPDGbVuqT1m2+W2SwBGddCKHLYE=
+github.com/viant/mcp v0.24.1-0.20261015203306-d176f84d2dc9/go.mod h1:Yn0ypkLtyn531y0pQTGBdNU8mFtEJlW+r76YoFaOAY0=

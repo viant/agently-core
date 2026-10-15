@@ -12,7 +12,7 @@ import (
 type UserInfo = shared.UserInfo
 
 func WithTokens(ctx context.Context, value *scyauth.Token) context.Context {
-	return shared.InjectTokens(ctx, value)
+	return shared.WithTokens(ctx, value)
 }
 func TokensFromContext(ctx context.Context) *scyauth.Token { return shared.TokensFromContext(ctx) }
 func WithoutTokens(ctx context.Context) context.Context    { return shared.WithoutTokens(ctx) }
