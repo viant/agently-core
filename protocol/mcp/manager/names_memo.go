@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"net/http"
 	"sync"
 
 	authctx "github.com/viant/agently-core/internal/auth"
@@ -96,4 +97,13 @@ func (memo *namesMemo) putDefinition(key definitionMemoEntry, value definitionMe
 		value.identity = &copy
 	}
 	memo.definitions[key] = value
+}
+
+// WithRequestCatalog shares configuration/catalog preparation within one HTTP
+// operation. It never persists selected resource bytes or tool-call results.
+func WithRequestCatalog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := WithToolCatalogReadSnapshot(WithNamesMemo(r.Context()))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }

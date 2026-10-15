@@ -45,7 +45,7 @@ func (p *optionalPrimitiveClient) announceToolsChanged() {
 	}
 }
 
-func TestOrdinaryMCPNegativeCapabilityCacheRefreshesOnEventAndExpiry(t *testing.T) {
+func TestOrdinaryMCPNegativeCapabilityCacheRefreshesOnEventNotWallClock(t *testing.T) {
 	provider := &optionalPrimitiveClient{fixtureProvider: provider("ordinary")}
 	options := fixtureOptions{"ordinary": {}}
 	mgr, err := manager.New(options, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) {
@@ -93,5 +93,10 @@ func TestOrdinaryMCPNegativeCapabilityCacheRefreshesOnEventAndExpiry(t *testing.
 	now = now.Add(31 * time.Second)
 	_, err = gateway.catalogCapability(ctx, actor, "ordinary")
 	require.ErrorIs(t, err, ErrUnavailable)
-	require.Equal(t, 7, provider.lists, "the negative hint must have a bounded expiry if a server sends no notification")
+	require.Equal(t, 6, provider.lists, "unchanged MCP capabilities must not be polled again because time passed")
+	provider.active = true
+	provider.announceToolsChanged()
+	_, err = gateway.catalogCapability(ctx, actor, "ordinary")
+	require.NoError(t, err)
+	require.Equal(t, 7, provider.lists, "notification must replace the cached unsupported result")
 }

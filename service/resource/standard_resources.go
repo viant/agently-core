@@ -89,7 +89,11 @@ func (g *Gateway) discoverStandardResources(ctx context.Context, actor identity.
 		seenCursor[*listed.NextCursor] = true
 		cursor = listed.NextCursor
 	}
-	if minTTL == 0 {
+	if len(result.indexedResources) == 0 {
+		// An ordinary MCP with no supported primitives is a stable empty
+		// discovery result. Retain it until scoped connection/catalog events.
+		result.cacheUntil = result.expires
+	} else if minTTL == 0 {
 		result.cacheUntil = g.now()
 	} else if minTTL != int(^uint(0)>>1) {
 		until := g.now().Add(time.Duration(minTTL) * time.Millisecond)

@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	service "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
@@ -29,6 +30,8 @@ func (c *CompositeWindowCatalog) AuthzReady() bool {
 }
 func (c *CompositeWindowCatalog) UsesResourceResolution() bool { return true }
 func (c *CompositeWindowCatalog) List(ctx context.Context, input *service.WindowDefinitionListInput) (result *service.WindowDefinitionListOutput, err error) {
+	span := observe.Start(ctx, "window.catalog.list", observe.Labels{})
+	defer func() { span.End(observe.OutcomeFor(err), observe.CacheUnknown) }()
 	if !c.AuthzReady() {
 		return nil, identity.ErrResourceDenied
 	}
@@ -130,7 +133,9 @@ func (c *CompositeWindowCatalog) List(ctx context.Context, input *service.Window
 	}
 	return &service.WindowDefinitionListOutput{Windows: out[start:end], HasMore: end < len(out)}, nil
 }
-func (c *CompositeWindowCatalog) Get(ctx context.Context, input *service.WindowDefinitionGetInput) (*service.WindowDefinitionGetOutput, error) {
+func (c *CompositeWindowCatalog) Get(ctx context.Context, input *service.WindowDefinitionGetInput) (result *service.WindowDefinitionGetOutput, resultErr error) {
+	span := observe.Start(ctx, "window.catalog.get", observe.Labels{})
+	defer func() { span.End(observe.OutcomeFor(resultErr), observe.CacheUnknown) }()
 	if input == nil {
 		return nil, identity.ErrResource
 	}

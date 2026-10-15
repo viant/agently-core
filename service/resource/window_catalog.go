@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	service "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
@@ -144,7 +145,9 @@ func (c *WindowCatalog) GetForProvider(ctx context.Context, owner string, input 
 	return c.getForProvider(ctx, owner, input)
 }
 
-func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string, input *service.WindowDefinitionGetInput) (*service.WindowDefinitionGetOutput, error) {
+func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string, input *service.WindowDefinitionGetInput) (out *service.WindowDefinitionGetOutput, resultErr error) {
+	span := observe.Start(ctx, "window.open", observe.Labels{Kind: "window"})
+	defer func() { span.End(observe.OutcomeFor(resultErr), observe.CacheUnknown) }()
 	if !c.AuthzReady() || input == nil {
 		return nil, identity.ErrResourceDenied
 	}
@@ -173,7 +176,9 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 	if e != nil {
 		return nil, fmt.Errorf("window read/select: %w", e)
 	}
+	selectionTiming := observe.Start(ctx, "window.target.select", observe.Labels{})
 	selected, e := result.Definition.Select(input.Target)
+	selectionTiming.End(observe.OutcomeFor(e), observe.CacheUnknown)
 	if e != nil {
 		return nil, e
 	}
@@ -230,7 +235,9 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 		} else if input.Target != nil && len(input.Target.DependencyPins) > 0 {
 			return nil, identity.ErrResourceDenied
 		}
+		dependencyTiming := observe.Start(ctx, "window.dependencies", observe.Labels{})
 		dependencyPins, e = c.Gateway.ResolveDependencyPins(ctx, loc.Connection, pin, selected.DataSourceResources, selected.DataSources, existing)
+		dependencyTiming.End(observe.OutcomeFor(e), observe.CacheUnknown)
 		if e != nil {
 			return nil, e
 		}

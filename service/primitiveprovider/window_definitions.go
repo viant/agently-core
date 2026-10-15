@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	"path"
 	"sort"
 	"strings"
@@ -251,14 +252,18 @@ func knownWindowDefinitionFailure(err error, message string) error {
 }
 
 func (c *MetadataWindowCatalog) checkEntry(ctx context.Context, entry SavedWindow) (bool, error) {
+	visibilityTiming := observe.Start(ctx, "window.native.visibility", observe.Labels{})
 	allowed, err := c.checkEntryAccess(ctx, entry)
+	visibilityTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil || !allowed {
 		return allowed, err
 	}
 	if c.resolveResource == nil {
 		return true, nil
 	}
+	resolveTiming := observe.Start(ctx, "window.native.resolver", observe.Labels{})
 	resolver, ref, err := c.resolveResource(ctx, entry.WindowID)
+	resolveTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil || resolver == nil {
 		return false, windowDefinitionFailure(err, "window resource authority unavailable")
 	}
@@ -565,8 +570,12 @@ func (s *Service) windowDefinitionForOpen(ctx context.Context, in *WindowDefinit
 	return result, err
 }
 
-func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWindow, requested *identity.ResourceRef, pinned *identity.ResolvedResource, target *types.WindowTarget) (*WindowDefinitionGetOutput, error) {
+func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWindow, requested *identity.ResourceRef, pinned *identity.ResolvedResource, target *types.WindowTarget) (result *WindowDefinitionGetOutput, resultErr error) {
+	span := observe.Start(ctx, "window.native.get", observe.Labels{})
+	defer func() { span.End(observe.OutcomeFor(resultErr), observe.CacheUnknown) }()
+	resolveTiming := observe.Start(ctx, "window.native.resolver", observe.Labels{})
 	resolver, ref, err := c.resolveResource(ctx, entry.WindowID)
+	resolveTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil || resolver == nil {
 		return nil, windowDefinitionFailure(err, "window resource authority unavailable")
 	}
@@ -582,7 +591,9 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	}
 	// Existing host roles/admission remain an intersection, not a replacement for
 	// revision policy. The source is read only after explicit candidate admission.
+	visibilityTiming := observe.Start(ctx, "window.native.visibility", observe.Labels{})
 	allowed, err := c.checkEntryAccess(ctx, entry)
+	visibilityTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil || !allowed {
 		if err == nil {
 			err = identity.ErrResourceDenied
@@ -591,7 +602,9 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	}
 	pin := pinned
 	if pin == nil {
+		selectTiming := observe.Start(ctx, "window.native.select", observe.Labels{})
 		pin, err = resolver.Resolve(ctx, ref)
+		selectTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 		if err != nil {
 			return nil, windowDefinitionFailure(err, "window definition is not available")
 		}
@@ -599,11 +612,15 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	if pin.URI != ref.URI || ref.Revision != "" && pin.Selector() != ref.Revision {
 		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
+	readTiming := observe.Start(ctx, "window.native.read", observe.Labels{})
 	raw, fresh, err := resolver.ReadResolved(ctx, *pin)
+	readTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
+	compileTiming := observe.Start(ctx, "window.native.compile", observe.Labels{})
 	variant, selectErr := types.SelectWindowResource(raw, target)
+	compileTiming.End(observe.OutcomeFor(selectErr), observe.CacheUnknown)
 	if selectErr != nil && target != nil && c.legacyTargets != nil {
 		var header struct {
 			Format string `json:"format"`
@@ -625,7 +642,9 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 		if encodeErr != nil {
 			return nil, windowDefinitionFailure(encodeErr, "window definition is not available")
 		}
+		loadTiming := observe.Start(ctx, "window.native.enrich", observe.Labels{})
 		definition, err = c.loadResolvedDefinition(ctx, entry.WindowID, *fresh, selected)
+		loadTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	}
 	if err != nil || definition == nil {
 		return nil, windowDefinitionFailure(err, "window definition is not available")

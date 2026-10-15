@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/forge/backend/types"
 )
@@ -12,7 +13,9 @@ import (
 func (g *Gateway) ConnectionForProvider(ctx context.Context, owner string) (Connection, error) {
 	return g.dependencyConnection(ctx, Connection{}, owner)
 }
-func (g *Gateway) ConnectionForResource(ctx context.Context, uri identity.ResourceURI, owner string) (Connection, error) {
+func (g *Gateway) ConnectionForResource(ctx context.Context, uri identity.ResourceURI, owner string) (result Connection, resultErr error) {
+	span := observe.Start(ctx, "gateway.routing", observe.Labels{Kind: uri.Kind})
+	defer func() { span.End(observe.OutcomeFor(resultErr), observe.CacheUnknown) }()
 	if connection, found, err := g.declaredOwnerConnection(ctx, owner); found || err != nil {
 		if err != nil {
 			return Connection{}, err
