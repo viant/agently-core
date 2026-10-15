@@ -2432,7 +2432,7 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	var cli mcpclient.Interface
 	err := r.waitDiscoveryStage(ctx, server, "manager_get", func(callCtx context.Context) error {
 		var getErr error
-		cli, getErr = r.mgr.Get(callCtx, scope, server)
+		cli, getErr = r.mgr.Get(callCtx, r.metadataConnectionScope(callCtx, scope, server), server)
 		return getErr
 	})
 	if err != nil {
@@ -2493,7 +2493,7 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 	}
 	log.Printf("[warn][mcp-discovery] reconnect requested server=%q scope=%q scope_type=%s reason=list_tools_retry",
 		server, scope, discoveryScopeType(scope, server))
-	if _, err := r.mgr.Reconnect(ctx, scope, server); err != nil {
+	if _, err := r.mgr.Reconnect(ctx, r.metadataConnectionScope(ctx, scope, server), server); err != nil {
 		r.noteDiscoveryFailure(server, scope, err)
 		log.Printf("[warn][mcp-discovery] reconnect failed server=%q scope=%q scope_type=%s err=%v",
 			server, scope, discoveryScopeType(scope, server), err)
@@ -2502,7 +2502,7 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 	var cli mcpclient.Interface
 	err := r.waitDiscoveryStage(ctx, server, "manager_get_retry", func(callCtx context.Context) error {
 		var getErr error
-		cli, getErr = r.mgr.Get(callCtx, scope, server)
+		cli, getErr = r.mgr.Get(callCtx, r.metadataConnectionScope(callCtx, scope, server), server)
 		return getErr
 	})
 	if err != nil {
