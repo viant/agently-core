@@ -14,7 +14,7 @@ import (
 	windowprotocol "github.com/viant/agently-core/protocol/window"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	dssvc "github.com/viant/agently-core/service/datasource"
-	"github.com/viant/agently-core/service/reportdefinition/materializer"
+	"github.com/viant/forge/backend/reporting/materializer"
 	"github.com/viant/forge/backend/reporting/registry"
 )
 

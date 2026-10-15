@@ -1250,8 +1250,6 @@ github.com/viant/agently-core/protocol/window v0.0.0-20261008230757-163b77505d6a
 github.com/viant/agently-core/protocol/window v0.0.0-20261008230757-163b77505d6a/go.mod h1:wWgiQ0QEZQ6X35nwJD+LjLkC84zs1JszxS11q8qbGuU=
 github.com/viant/agently-core/protocol/window v0.0.0-20261014061347-bbbdb0ee25d5 h1:OhascR3QLF71Fg9qTwkTZXL1v8O5X4Zhqsh9BGKkeRs=
 github.com/viant/agently-core/protocol/window v0.0.0-20261014061347-bbbdb0ee25d5/go.mod h1:IGmXc58axCTzwoDhtd4iLnarWdoq0929qA9o1vu03bQ=
-github.com/viant/agently-core/service/reportdefinition/materializer v0.0.0-20261008231612-4e2d839e8f05 h1:ZvsppBOsHysC2KmVrKALOfUv+YcLAK14AVeWRRSZLEY=
-github.com/viant/agently-core/service/reportdefinition/materializer v0.0.0-20261008231612-4e2d839e8f05/go.mod h1:c6nlqGtDuz719xw7Li15QGt0dZvHba4YrtWj3TEOLEU=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
@@ -2359,3 +2357,5 @@ github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb h1:xZ/QTDNgUOhn/M
 github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb/go.mod h1:b214Lo4zBwLqbu6Tf2bRlgQkFfPMBW5ap4qS+I3zcJ8=
 github.com/viant/mcp v0.24.1-0.20261015005417-1d6bc8f12751 h1:wcPDMHb87wIzhwxd+EWpUD1+hzfBW+7vKYJFf41OGek=
 github.com/viant/mcp v0.24.1-0.20261015005417-1d6bc8f12751/go.mod h1:Yn0ypkLtyn531y0pQTGBdNU8mFtEJlW+r76YoFaOAY0=
+github.com/viant/forge v0.3.45-0.20261015011117-38bb1cf13641 h1:yA6VXuZfTdnbkxDY3MN6NKiKavfsg/fjxQmlKqS5KDw=
+github.com/viant/forge v0.3.45-0.20261015011117-38bb1cf13641/go.mod h1:asQHHCMbgC0d3pc0dm+GFFQ5cDyzjG0qN86vrW85rCY=
