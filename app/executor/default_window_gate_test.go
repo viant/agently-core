@@ -27,7 +27,7 @@ func (r *defaultWindowFacts) Resolve(ctx context.Context, _ *permittedview.Reque
 	}
 	return &permittedview.Snapshot{AuthorizationVersion: "current", ExpiresAt: time.Now().Add(time.Minute), Principal: map[string]any{"roles": roles}}, nil
 }
-func TestDefaultWindowOriginalApplicationGateUsesCurrentFacts(t *testing.T) {
+func TestDefaultWindowApplicationVisibilityRefreshesOnInvalidation(t *testing.T) {
 	root := t.TempDir()
 	old := workspace.Root()
 	workspace.SetRoot(root)
@@ -54,7 +54,10 @@ func TestDefaultWindowOriginalApplicationGateUsesCurrentFacts(t *testing.T) {
 	require.NotNil(t, got.Definition)
 	facts.roles = nil
 	_, err = rt.UIBridge.WindowDefinitionGet(context.Background(), &forge.WindowDefinitionGetInput{WindowID: "protected"})
-	require.Error(t, err, "a new working read observes the owning provider's current visibility")
+	require.NoError(t, err, "declared user metadata remains cached until owner invalidation or reload")
+	rt.PrimitiveProviders.Invalidate("internal")
+	_, err = rt.UIBridge.WindowDefinitionGet(context.Background(), &forge.WindowDefinitionGetInput{WindowID: "protected"})
+	require.Error(t, err, "invalidation refreshes the owning provider's visibility")
 	mgr.CloseConversation("")
 	_, err = rt.UIBridge.WindowDefinitionGet(context.Background(), &forge.WindowDefinitionGetInput{WindowID: "protected"})
 	require.Error(t, err)
