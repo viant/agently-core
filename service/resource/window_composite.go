@@ -143,6 +143,21 @@ func (c *CompositeWindowCatalog) Get(ctx context.Context, input *service.WindowD
 		return c.Remote.Get(ctx, input)
 	}
 	if uri, e := identity.ParseResourceURI(input.WindowID); e == nil && uri.Kind == "window" {
+		if input.Namespace != "" && input.Namespace != uri.Namespace {
+			return nil, identity.ErrResource
+		}
+		if input.ProviderIdentity != "" {
+			// Preserve the explicit provider locator supplied by discovery. A URI
+			// is resource identity, not a reason to enumerate unrelated catalogs.
+			// The selected provider still performs the ordinary Get below.
+			if input.ResolvedResource != nil && input.ResolvedResource.ProviderIdentity != input.ProviderIdentity {
+				return nil, identity.ErrResourceDenied
+			}
+			if input.ProviderIdentity == c.LocalProviderIdentity && c.Local != nil {
+				return c.Local.Get(ctx, input)
+			}
+			return c.Remote.GetForProvider(ctx, input.ProviderIdentity, input)
+		}
 		if pin := input.ResolvedResource; pin != nil && pin.ProviderIdentity != "" {
 			if !c.AuthzReady() || pin.URI != uri.String() {
 				return nil, identity.ErrResourceDenied

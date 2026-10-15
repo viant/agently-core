@@ -175,3 +175,27 @@ func TestScopedPlainWindowHTTPUsesCanonicalChildForRevalidationAndEmission(t *te
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/window/nested/sales?"+query.Encode(), nil))
 	require.Equal(t, http.StatusNotFound, response.Code)
 }
+
+func TestCanonicalWindowWithExplicitProviderSkipsAggregateListing(t *testing.T) {
+	catalog, remote, local := routingFixture(t)
+	input := &service.WindowDefinitionGetInput{WindowID: "window://example/nested/sales", Namespace: "example", ProviderIdentity: "studio-a"}
+	for range 2 {
+		got, err := catalog.Get(context.Background(), input)
+		require.NoError(t, err)
+		require.Equal(t, input.WindowID, got.Definition.Resource.URI)
+		require.Equal(t, input.ProviderIdentity, got.Definition.Resource.ProviderIdentity)
+	}
+	require.Zero(t, local.lists, "an explicit owner must not enumerate the local catalog")
+	require.Zero(t, local.gets, "the explicit remote provider must not fall back locally")
+	require.Zero(t, remote.calls["windows/list"], "opening a selected canonical resource must not list its provider")
+	require.Equal(t, 2, remote.calls["windows/get"], "the owning provider still handles each selected read")
+	bad := *input
+	bad.Namespace = "other"
+	_, err := catalog.Get(context.Background(), &bad)
+	require.ErrorIs(t, err, identity.ErrResource)
+	bad = *input
+	bad.ResolvedResource = &identity.ResolvedResource{ProviderIdentity: "different-owner"}
+	_, err = catalog.Get(context.Background(), &bad)
+	require.ErrorIs(t, err, identity.ErrResourceDenied)
+	require.Equal(t, 2, remote.calls["windows/get"])
+}
