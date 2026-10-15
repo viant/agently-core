@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	"testing"
 )
 
@@ -33,4 +34,26 @@ func TestIntakeCapabilitiesUseExecutionSurfaceAndSkillMetadataOnly(t *testing.T)
 	require.Equal(t, summary, repeated)
 	require.Equal(t, []string{"inventory:rank"}, input.ToolsAllowed, "routing metadata must not expand caller tool permissions")
 	require.Empty(t, input.PromptProfileId)
+}
+
+func TestIntakeAdvertisedBaseToolSurvivesAppendedRoutingBundle(t *testing.T) {
+	service := &Service{
+		registry: &fakeRegistry{defs: []llm.ToolDefinition{{Name: "catalog:rank", Description: "Rank available items"}, {Name: "ui:open", Description: "Open a view"}}},
+		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{
+				{ID: "base", Match: []llm.Tool{{Name: "catalog:rank"}}},
+				{ID: "view", Match: []llm.Tool{{Name: "ui:open"}}},
+			}, nil
+		},
+	}
+	input := &QueryInput{Agent: &agentmdl.Agent{Tool: agentmdl.Tool{Bundles: []string{"base"}}}}
+	before, err := service.intakeCapabilitySummary(context.Background(), input)
+	require.NoError(t, err)
+	require.Contains(t, before, "Rank available items")
+	input.ToolBundles = []string{"view"}
+	input.toolBundlesAutoSelected = true
+	after, err := service.intakeCapabilitySummary(context.Background(), input)
+	require.NoError(t, err)
+	require.Contains(t, after, "Rank available items")
+	require.Contains(t, after, "Open a view")
 }
