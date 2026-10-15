@@ -2,7 +2,7 @@ package primitive
 
 import (
 	"encoding/json"
-	identity "github.com/viant/agently-core/protocol/resource"
+	identity "github.com/viant/forge/backend/resource"
 	"testing"
 )
 
