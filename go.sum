@@ -2357,3 +2357,5 @@ github.com/viant/mcp v0.24.1-0.20261014055918-4cd46ac44865 h1:U2cNBdnNNSO7FtDuvY
 github.com/viant/mcp v0.24.1-0.20261014055918-4cd46ac44865/go.mod h1:Pi8Kru6Aj1xuVkWeDnZuSTVtOt76C1cj6ncIYpAdJ4I=
 github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb h1:xZ/QTDNgUOhn/MMmUHOtYA57l0lZW5cQ0gLQFQeS2Yw=
 github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb/go.mod h1:b214Lo4zBwLqbu6Tf2bRlgQkFfPMBW5ap4qS+I3zcJ8=
+github.com/viant/mcp v0.24.1-0.20261015005417-1d6bc8f12751 h1:wcPDMHb87wIzhwxd+EWpUD1+hzfBW+7vKYJFf41OGek=
+github.com/viant/mcp v0.24.1-0.20261015005417-1d6bc8f12751/go.mod h1:Yn0ypkLtyn531y0pQTGBdNU8mFtEJlW+r76YoFaOAY0=
