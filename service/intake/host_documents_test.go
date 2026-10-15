@@ -47,6 +47,7 @@ func TestIntakeHostDocumentsUseNativeReaderAndPreserveImports(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Original imported rule.", inline)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "intake/parts/detail.md"), []byte("changed rule"), 0600))
-	_, err = service.resolveIntakePromptText(context.Background(), agent.IntakePrompt{Prompt: binding.Prompt{URI: "intake/prompt.tmpl"}})
-	require.Error(t, err, "configured source must not fall back to fresh filesystem bytes")
+	cached, err := service.resolveIntakePromptText(context.Background(), agent.IntakePrompt{Prompt: binding.Prompt{URI: "intake/prompt.tmpl"}})
+	require.NoError(t, err)
+	require.Equal(t, prompt, cached, "startup snapshot must remain authoritative until reload; never fall back to changed filesystem bytes")
 }

@@ -635,6 +635,9 @@ func templateAppliesTo(tpl *tpldef.Template) []string {
 func buildOutputSchema(cfg *agentmdl.Intake) string {
 	var b strings.Builder
 	b.WriteString("\n\nRespond with a single JSON object. Include only the fields listed below:")
+	if cfg.PlannerEnabled {
+		b.WriteString("\n- routing (object): set mode to route for a concrete workflow, planner when scope is actionable but choosing a workflow requires planning, or clarify when missing information blocks a reasonable next step. An empty profile does not select the planner. For clarify, preserve the missing detail in scope.values.clarificationQuestion and leave directAction null.")
+	}
 	if cfg.HasScope(agentmdl.IntakeScopeIntent) {
 		b.WriteString("\n- classification (object): grouped task labeling with `title`, `intent`, and optional `confidence`")
 	}
@@ -662,6 +665,16 @@ func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
 			"type":                 "object",
 			"properties":           properties,
 			"required":             required,
+			"additionalProperties": false,
+		}
+	}
+	if cfg.PlannerEnabled {
+		properties["routing"] = map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"mode": map[string]interface{}{"type": "string", "enum": []string{ModeRoute, ModePlanner, ModeClarify}},
+			},
+			"required":             []string{"mode"},
 			"additionalProperties": false,
 		}
 	}
