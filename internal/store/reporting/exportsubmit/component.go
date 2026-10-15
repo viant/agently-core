@@ -31,8 +31,9 @@ var (
 	ErrAlreadyExists     = errors.New("reporting store: already exists")
 )
 
+// Component uses imperative child calls because each mutation is read back
+// within the same transaction before the response is returned.
 type Component struct {
-	// The coordinator reads the inserted job before its owned transaction commits.
 	Contract xdatly.Component[Input, Output] `component:"RunExportSubmit,path=/v1/internal/forge/reporting/export/submit,method=POST,handler=NewSubmit,internal=true" componentCallPolicy:"imperative"`
 }
 

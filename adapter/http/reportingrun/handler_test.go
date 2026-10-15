@@ -26,9 +26,13 @@ type conversationStub struct {
 	convstore.Client
 	ownerID        string
 	conversationID string
+	lookupError    error
 }
 
 func (s *conversationStub) GetConversation(ctx context.Context, id string, _ ...convstore.Option) (*convstore.Conversation, error) {
+	if s.lookupError != nil {
+		return nil, s.lookupError
+	}
 	if authctx.EffectiveUserID(ctx) != s.ownerID || id != s.conversationID {
 		return nil, reportstore.ErrNotFound
 	}
@@ -171,5 +175,25 @@ VALUES (?, ?, 'private', 0)`, row.id, row.ownerID); err != nil {
 		if _, err := store.GetReportRunByRequestID(ownerCtx, "denied-"+conversationID); !errors.Is(err, reportstore.ErrNotFound) {
 			t.Fatalf("denied conversation %s persisted a run: %v", conversationID, err)
 		}
+	}
+}
+
+func TestHandler_ConversationLookupFailureIsNotMissingReport(t *testing.T) {
+	store := reportmemory.New().(reportstore.RunClient)
+	handler := New(reportingrunsvc.New(reportingrunsvc.Options{Store: store}), &conversationStub{lookupError: errors.New("database unavailable")}, false)
+	response := postJSON(t, handler, routePrefix+"/begin", map[string]any{"conversationId": "conv-1", "uiRunRequestId": "lookup-failure", "origin": "manual"}, "owner-1")
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["error"] != "report conversation lookup failed" {
+		t.Fatalf("unexpected public error: %v", body)
+	}
+	owner := authsvc.InjectUser(context.Background(), "owner-1")
+	if _, err := store.GetReportRunByRequestID(owner, "lookup-failure"); !errors.Is(err, reportstore.ErrNotFound) {
+		t.Fatalf("failed lookup created run: %v", err)
 	}
 }
