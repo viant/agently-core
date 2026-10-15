@@ -82,6 +82,9 @@ func TestDefaultSDKManagerReceivesAdvertisedResourceChangesAfterFirstRequest(t *
 	require.NotNil(t, discovery.Capabilities.Resources)
 	require.NotNil(t, discovery.Capabilities.Resources.ListChanged)
 	require.True(t, *discovery.Capabilities.Resources.ListChanged, "owning server advertises standard change support")
+	listed, err := client.ListResources(ctx, nil)
+	require.NoError(t, err)
+	require.Positive(t, listed.TtlMs, "notification-backed private resource catalog should not be rediscovered on every read")
 	var events atomic.Int32
 	stop := mgr.OnResourceCatalogChange(func(string) { events.Add(1) })
 	defer stop()

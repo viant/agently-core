@@ -89,6 +89,9 @@ type discoveryCall struct {
 
 type capabilityHint struct {
 	connection, cacheKey string
+	// A provider without primitives is still a stable discovery result. Keep
+	// it briefly so ordinary MCP servers are not probed for every datasource.
+	unavailableUntil time.Time
 }
 
 func NewGateway(m *manager.Manager, a ActorResolver, v ActorVerifier, localIdentity string) *Gateway {

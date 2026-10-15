@@ -291,5 +291,11 @@ func (h *localMCPHandler) ListResources(ctx context.Context, request *jsonrpc.Ty
 	if h.provider.finishActor(ctx, actor) != nil {
 		return nil, jsonrpc.NewInvalidParamsError("resources unavailable", nil)
 	}
-	return &schema.ListResourcesResult{ResultType: schema.ResultTypeComplete, CacheScope: schema.ListResourcesResultCacheScopePrivate, Resources: page, NextCursor: next}, nil
+	// Reuse a private catalog only when this provider also publishes list-change
+	// notifications. The TTL bounds staleness if a client loses its stream.
+	ttl := 0
+	if h.provider.hasResourceChanges() && len(h.provider.nativeResources) > 0 {
+		ttl = 30_000
+	}
+	return &schema.ListResourcesResult{ResultType: schema.ResultTypeComplete, CacheScope: schema.ListResourcesResultCacheScopePrivate, TtlMs: ttl, Resources: page, NextCursor: next}, nil
 }
