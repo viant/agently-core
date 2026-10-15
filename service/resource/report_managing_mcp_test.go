@@ -72,7 +72,9 @@ func TestReportConsumerUsesOneManagingReadAndForwardsContext(t *testing.T) {
 	})
 	reader, err := catalog.Reader(ctx, "report.execute")
 	require.NoError(t, err)
-	raw, pin, err := reader.(*gatewayReportReader).ReadResource(ctx, identity.ResourceRef{URI: "report://steward/sales"}, nil)
+	raw, pin, err := reader.(interface {
+		ReadResource(context.Context, identity.ResourceRef, *identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error)
+	}).ReadResource(ctx, identity.ResourceRef{URI: "report://steward/sales"}, nil)
 	require.NoError(t, err)
 	require.True(t, json.Valid(raw))
 	require.Equal(t, 1, client.gets, "one owning-MCP read, no second read after consumer policy")

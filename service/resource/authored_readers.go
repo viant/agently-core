@@ -83,7 +83,7 @@ func authoredPages[T any](ctx context.Context, g *Gateway, kind string) ([]Locat
 		if err != nil {
 			return nil, err
 		}
-		scope := definitionScope(ctx)
+		scope := DefinitionScopeFromContext(ctx)
 		for _, row := range p.Items {
 			if (scope.Namespace == "" || row.Resource.Namespace == scope.Namespace) && (scope.ProviderIdentity == "" || row.Connection.ProviderIdentity == scope.ProviderIdentity) {
 				out = append(out, row)

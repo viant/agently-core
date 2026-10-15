@@ -464,10 +464,6 @@ func (f *primitiveBenchFixture) measure(t *testing.T, stage string, repeat, work
 	t.Log("PRIMITIVE_BENCH " + string(raw))
 }
 func (f *primitiveBenchFixture) discoverNamespaces(workers int) (int, int, error) {
-	actor, err := f.gateway.actor(f.ctx)
-	if err != nil {
-		return 0, 0, err
-	}
 	names, err := f.manager.Names(f.ctx)
 	if err != nil {
 		return 0, 0, err
@@ -475,12 +471,12 @@ func (f *primitiveBenchFixture) discoverNamespaces(workers int) (int, int, error
 	var total int
 	var lock sync.Mutex
 	err = primitiveBenchWorkers(f.ctx, workers, len(names), func(index int) error {
-		caps, err := f.gateway.discover(f.ctx, actor, names[index])
+		caps, err := f.gateway.DiscoverConnection(f.ctx, names[index])
 		if err != nil {
 			return err
 		}
 		lock.Lock()
-		total += len(caps.namespaces)
+		total += len(caps)
 		lock.Unlock()
 		return nil
 	})

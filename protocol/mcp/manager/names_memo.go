@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	shared "github.com/viant/forge/backend/clientpool"
 	"net/http"
 	"sync"
 
@@ -17,15 +18,10 @@ import (
 // preserving a fresh owner-supplied list for the next operation.
 type namesMemo struct {
 	mu          sync.Mutex
-	values      map[namesMemoEntry][]string
 	definitions map[definitionMemoEntry]definitionMemoValue
 }
 
 type namesMemoContextKey struct{}
-type namesMemoEntry struct {
-	manager           *Manager
-	scope, generation string
-}
 type definitionMemoEntry struct {
 	provider                *RepoProvider
 	name, scope, generation string
@@ -41,7 +37,7 @@ func WithNamesMemo(ctx context.Context) context.Context {
 	if ctx == nil {
 		return nil
 	}
-	return context.WithValue(ctx, namesMemoContextKey{}, &namesMemo{values: map[namesMemoEntry][]string{}, definitions: map[definitionMemoEntry]definitionMemoValue{}})
+	return context.WithValue(shared.WithNamesMemo(ctx), namesMemoContextKey{}, &namesMemo{definitions: map[definitionMemoEntry]definitionMemoValue{}})
 }
 
 func namesMemoFromContext(ctx context.Context) *namesMemo {
@@ -50,19 +46,6 @@ func namesMemoFromContext(ctx context.Context) *namesMemo {
 	}
 	memo, _ := ctx.Value(namesMemoContextKey{}).(*namesMemo)
 	return memo
-}
-
-func (memo *namesMemo) get(manager *Manager, scope, generation string) ([]string, bool) {
-	memo.mu.Lock()
-	defer memo.mu.Unlock()
-	value, ok := memo.values[namesMemoEntry{manager: manager, scope: scope, generation: generation}]
-	return append([]string(nil), value...), ok
-}
-
-func (memo *namesMemo) put(manager *Manager, scope, generation string, value []string) {
-	memo.mu.Lock()
-	defer memo.mu.Unlock()
-	memo.values[namesMemoEntry{manager: manager, scope: scope, generation: generation}] = append([]string(nil), value...)
 }
 
 func definitionMemoScope(ctx context.Context) string {

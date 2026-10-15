@@ -5,33 +5,18 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
+	shared "github.com/viant/forge/backend/requestctx"
 )
 
-type conversationIDKey string
-
-var ConversationIDKey = conversationIDKey("conversationID")
+// Conversation identity is shared with the resource client pool. Turn/model
+// lifecycle tracking below remains application-owned.
+var ConversationIDKey = shared.ConversationIDKey
 
 func ConversationIDFromContext(ctx context.Context) string {
-	value := ctx.Value(ConversationIDKey)
-	if value == nil {
-		return ""
-	}
-	if id, ok := value.(string); ok {
-		return id
-	}
-	return ""
+	return shared.ConversationIDFromContext(ctx)
 }
-
-func WithConversationID(ctx context.Context, conversationID string) context.Context {
-	if conversationID == "" {
-		conversationID = uuid.New().String()
-	}
-	prev := ctx.Value(ConversationIDKey)
-	if prev != nil && prev == conversationID {
-		return ctx
-	}
-	return context.WithValue(ctx, ConversationIDKey, conversationID)
+func WithConversationID(ctx context.Context, id string) context.Context {
+	return shared.WithConversationID(ctx, id)
 }
 
 // WithoutConversationTracking removes conversation / turn-local tracking keys

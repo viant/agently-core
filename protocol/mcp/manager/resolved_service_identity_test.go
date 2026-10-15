@@ -41,7 +41,11 @@ func TestResolvedServiceAliasesShareClientTokenStoreAndCallbackIdentity(t *testi
 	require.NotSame(t, definition.ResolvedIdentity, canonical.ResolvedIdentity)
 	canonical.ResolvedIdentity.ServiceName = "caller mutation"
 	require.Equal(t, "remote", definition.ResolvedIdentity.ServiceName)
-	mgr, err := New(provider)
+	var createdService string
+	mgr, err := New(provider, WithClientFactory(func(_ context.Context, _, service string) (mcpclient.Interface, error) {
+		createdService = service
+		return &stubClient{}, nil
+	}))
 	require.NoError(t, err)
 	defer mgr.CloseConversation("")
 	first, err := mgr.Get(ctx, "", uri)
@@ -51,7 +55,7 @@ func TestResolvedServiceAliasesShareClientTokenStoreAndCallbackIdentity(t *testi
 	require.Same(t, first, second)
 	require.True(t, mgr.IsCurrentClient(ctx, "", uri, first))
 	require.True(t, mgr.IsCurrentClient(ctx, "", "remote", first))
-	require.Equal(t, "remote", first.(*managedClient).serverName, "auth and notification callbacks retain configured service identity")
+	require.Equal(t, "remote", createdService, "auth and notification callbacks retain configured service identity")
 	reader.failure = context.Canceled
 	denied, err := mgr.Get(ctx, "", uri)
 	require.ErrorIs(t, err, context.Canceled)

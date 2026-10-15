@@ -177,7 +177,7 @@ func TestAuthoredReadersPrivateActorsPartialProviderAliasesAndDenial(t *testing.
 				mgr.EvictUserServer("alice", "partial")
 			} else {
 				beforeEvent := mgr.ResourceCatalogGeneration(alice, "partial")
-				snap.changes.Publish(context.Background())
+				require.NoError(t, snap.Reload(context.Background()))
 				require.NotEqual(t, beforeEvent, mgr.ResourceCatalogGeneration(alice, "partial"))
 			}
 

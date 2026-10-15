@@ -36,16 +36,16 @@ func (c *AuthoredCompilation) Release() { c.bundles = nil }
 func (c *AuthoredCompilation) Prepare(ctx context.Context, r *ExtensionReader) error {
 	c.bundles = nil
 	dir := path.Join(c.directory, "bundles")
-	if err := r.check(dir); os.IsNotExist(err) {
+	if err := r.CheckPath(dir); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
 		return err
 	}
-	return fs.WalkDir(r.root.FS(), dir, func(file string, e fs.DirEntry, err error) error {
+	return fs.WalkDir(r.FS(), dir, func(file string, e fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if err = r.check(file); err != nil {
+		if err = r.CheckPath(file); err != nil {
 			return err
 		}
 		if e.IsDir() {
@@ -116,7 +116,7 @@ func NativeIntentLoader(ctx context.Context, r *ExtensionReader, file string) (j
 	// consuming client's filesystem. Reader confinement applies to every import.
 	for i := range p.Messages {
 		if uri := p.Messages[i].URI; uri != "" {
-			if !extensionPath(uri) {
+			if !ValidExtensionPath(uri) {
 				return nil, identity.ErrResource
 			}
 			text, err := r.ReadFile(ctx, uri)
@@ -179,16 +179,16 @@ func NewIntentCompilation(directory, bundleDirectory string) *IntentCompilation 
 func (c *IntentCompilation) Release() { c.bundles = nil }
 func (c *IntentCompilation) Prepare(ctx context.Context, r *ExtensionReader) error {
 	c.bundles = map[string]*toolbundle.Bundle{}
-	if err := r.check(c.bundleDirectory); os.IsNotExist(err) {
+	if err := r.CheckPath(c.bundleDirectory); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
 		return err
 	}
-	return fs.WalkDir(r.root.FS(), c.bundleDirectory, func(file string, e fs.DirEntry, err error) error {
+	return fs.WalkDir(r.FS(), c.bundleDirectory, func(file string, e fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if err = r.check(file); err != nil {
+		if err = r.CheckPath(file); err != nil {
 			return err
 		}
 		if e.IsDir() {
@@ -248,7 +248,7 @@ type nativeImportReader struct {
 
 func (r *nativeImportReader) DownloadWithURL(ctx context.Context, location string, _ ...storage.Option) ([]byte, error) {
 	location = path.Clean(location)
-	if !extensionPath(location) {
+	if !ValidExtensionPath(location) {
 		return nil, identity.ErrResourceDenied
 	}
 	return r.reader.ReadFile(ctx, location)

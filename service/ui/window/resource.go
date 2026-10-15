@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	sharedsource "github.com/viant/forge/backend/window/source"
 	"path/filepath"
 	"strings"
 
@@ -16,12 +17,7 @@ import (
 
 // ResourceBinding assigns a logical namespace/name to a local workspace window.
 // File keys and provider transport aliases never become URI authorities.
-type ResourceBinding struct {
-	CatalogID string                    `json:"catalogId,omitempty"`
-	WindowKey string                    `json:"windowKey"`
-	URI       string                    `json:"uri"`
-	Targets   []forgeTypes.WindowTarget `json:"targets,omitempty"`
-}
+type ResourceBinding = sharedsource.ResourceBinding
 
 type WorkspaceResourceSource struct {
 	root    string

@@ -1,9 +1,9 @@
 # Reusable resource provider
 
-This package exports an authoritative primitive catalog through standard MCP
-`tools/list` and `tools/call`. It depends on neutral primitive/resource contracts,
-MCP libraries and the standard library. It imports no Agently application,
-workspace, SQL service, SDK or Forge domain code.
+This package is a compatibility facade for
+`github.com/viant/forge/backend/resourcehost/producer`. The shared implementation
+exports an authoritative primitive catalog through standard MCP. Core does not
+maintain a second producer, catalog, or transport implementation.
 
 Use `NewLocalProvider(LocalConfig)` with a stable host-assigned `ProviderIdentity`,
 verified request actor callbacks, resource authorization callback, explicit logical
