@@ -9,9 +9,9 @@ require (
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/dop251/goja v0.0.0-20261007200356-e2ea74d3d210 // indirect
 	github.com/dlclark/regexp2/v2 v2.8.1 // indirect
-	github.com/viant/agently-core/protocol/window v0.0.0-20261014061347-bbbdb0ee25d5
-	github.com/viant/agently-core/protocol/resource v0.0.0-20261014060740-664c53d5a109
-	github.com/viant/agently-core/protocol/primitive v0.0.0-20261014170051-3064cfcf1124
+	github.com/viant/agently-core/protocol/window v0.0.0-20261015021722-e84334ca688f
+	github.com/viant/agently-core/protocol/resource v0.0.0-20261015021722-e84334ca688f
+	github.com/viant/agently-core/protocol/primitive v0.0.0-20261015021722-e84334ca688f
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
