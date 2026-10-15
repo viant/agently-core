@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -24,7 +25,9 @@ type resourceReadBinding struct {
 	catalogKey string
 }
 
-func (g *Gateway) resolveReadBinding(ctx context.Context, actor identity.VerifiedActor, name string) (*resourceReadBinding, error) {
+func (g *Gateway) resolveReadBinding(ctx context.Context, actor identity.VerifiedActor, name string) (result *resourceReadBinding, resultErr error) {
+	span := observe.Start(ctx, "gateway.binding", observe.Labels{Provider: name})
+	defer func() { span.End(observe.OutcomeFor(resultErr), observe.CacheUnknown) }()
 	options, err := g.Manager.Options(ctx, name)
 	if err != nil {
 		return nil, err

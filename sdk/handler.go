@@ -166,10 +166,7 @@ func NewHandlerWithContext(ctx context.Context, client Backend, opts ...HandlerO
 
 	var handler http.Handler = mux
 	handler = withDebugHeaders(handler)
-	next := handler
-	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r.WithContext(manager.WithNamesMemo(r.Context())))
-	})
+	handler = manager.WithRequestCatalog(handler)
 	if cfg.authCfg != nil && cfg.authCfg.Enabled && cfg.authSessions != nil {
 		handler = svcauth.Protect(cfg.authCfg, cfg.authSessions)(handler)
 	}

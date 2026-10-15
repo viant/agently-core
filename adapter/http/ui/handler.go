@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/protocol/mcp/manager"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"io"
 	"log"
@@ -248,7 +249,7 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 		encodeSpan.End(observe.OutcomeFor(encodeErr), observe.CacheBypass)
 	})
 
-	return mux
+	return manager.WithRequestCatalog(mux)
 }
 
 func navigationHandler(loader *metaSvc.Service, root string) http.HandlerFunc {
