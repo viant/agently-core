@@ -22,7 +22,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/viant/afs"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/auth/mcpauth"
@@ -39,7 +38,6 @@ import (
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	"github.com/viant/agently-core/runtime/mcpapps"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 
@@ -3138,30 +3136,18 @@ func (r *Registry) warnDiscoveryf(key, format string, args ...interface{}) {
 	}
 }
 
-// listServers returns MCP client names from the workspace repository.
+// listServers uses the shared manager inventory plus explicitly registered servers.
 func (r *Registry) listServers(ctx context.Context) ([]string, error) {
-	repo := mcprepo.New(afs.New())
-	names, _ := repo.List(ctx)
-	// Filter out malformed MCP configs to avoid nil pointer panics downstream.
-	validNames := make([]string, 0, len(names))
-	for _, n := range names {
-		cfgPath, pathErr := repo.ResolveFilename(ctx, n)
-		if pathErr != nil {
-			r.warnf("mcp config path resolution failed: %s: %v", n, pathErr)
-			continue
-		}
-		cfg, err := repo.Load(ctx, n)
+	var names []string
+	if inventory, ok := r.mgr.(interface {
+		Names(context.Context) ([]string, error)
+	}); ok {
+		var err error
+		names, err = inventory.Names(ctx)
 		if err != nil {
-			r.warnf("mcp config load failed: %s: %v", cfgPath, err)
-			continue
+			return nil, err
 		}
-		if cfg == nil || cfg.ClientOptions == nil || strings.TrimSpace(cfg.Name) == "" {
-			r.warnf("mcp config invalid (missing name/transport): %s", cfgPath)
-			continue
-		}
-		validNames = append(validNames, n)
 	}
-	names = validNames
 	// Optional override to force discovery of specific servers (comma-separated)
 	if extra := strings.TrimSpace(os.Getenv("AGENTLY_MCP_SERVERS")); extra != "" {
 		for _, s := range strings.Split(extra, ",") {
