@@ -15,9 +15,14 @@ func (c *backendClient) resolveActiveFeedsFromState(ctx context.Context, state *
 }
 
 func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state *ConversationState, visited map[string]struct{}) []*ActiveFeedState {
-	if c.feeds == nil || state == nil || len(state.Turns) == 0 {
+	if !hasTranscriptToolSteps(state) {
 		return nil
 	}
+	specs, err := c.feedSpecs(ctx)
+	if err != nil {
+		return nil
+	}
+
 	type toolPayload struct {
 		service           string
 		method            string
@@ -69,7 +74,7 @@ func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state
 		if len(turnSteps) == 0 {
 			continue
 		}
-		for _, spec := range c.feeds.Specs() {
+		for _, spec := range specs {
 			if spec == nil || strings.TrimSpace(spec.ID) == "" {
 				continue
 			}
@@ -83,10 +88,10 @@ func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state
 			if !triggered {
 				continue
 			}
-			col, exists := collectors[spec.ID]
+			col, exists := collectors[feedIdentity(spec)]
 			if !exists {
 				col = &feedCollector{spec: spec, turnIdx: turnIdx}
-				collectors[spec.ID] = col
+				collectors[feedIdentity(spec)] = col
 			}
 			isAll := strings.EqualFold(strings.TrimSpace(spec.Activation.Scope), "all")
 			if !isAll && col.turnIdx != turnIdx {
@@ -146,11 +151,11 @@ func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state
 		if len(turnSteps) == 0 {
 			continue
 		}
-		for _, spec := range c.feeds.Specs() {
+		for _, spec := range specs {
 			if spec == nil || strings.TrimSpace(spec.ID) == "" {
 				continue
 			}
-			col, exists := collectors[spec.ID]
+			col, exists := collectors[feedIdentity(spec)]
 			if !exists {
 				continue
 			}
@@ -175,6 +180,11 @@ func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state
 
 	var result []*ActiveFeedState
 	for _, col := range collectors {
+		fresh, err := c.admitFeedSpec(ctx, col.spec)
+		if err != nil {
+			continue
+		}
+		col.spec = fresh
 		if strings.EqualFold(strings.TrimSpace(col.spec.Activation.Kind), "tool_call") {
 			if activationFeed := c.resolveActivationToolFeed(ctx, state, col.spec); activationFeed != nil {
 				result = append(result, activationFeed)
@@ -197,7 +207,7 @@ func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state
 			continue
 		}
 		result = append(result, &ActiveFeedState{
-			FeedID:        col.spec.ID,
+			FeedID:        feedIdentity(col.spec),
 			TurnID:        strings.TrimSpace(state.Turns[col.turnIdx].TurnID),
 			Title:         col.spec.Title,
 			DeveloperOnly: col.spec.DeveloperOnly,
@@ -241,7 +251,7 @@ func (c *backendClient) resolveActivationToolFeed(ctx context.Context, state *Co
 		return nil
 	}
 	return &ActiveFeedState{
-		FeedID:        spec.ID,
+		FeedID:        feedIdentity(spec),
 		Title:         spec.Title,
 		DeveloperOnly: spec.DeveloperOnly,
 		Presentation:  normalizedFeedPresentation(spec),

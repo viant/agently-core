@@ -41,7 +41,11 @@ func currentSessionOAuthToken(client *OAuthClient, sess *Session) tokenAvailabil
 	if !usableOAuthToken(sess.Tokens, time.Now()) {
 		return preserveOAuthSession()
 	}
-	if err := validateConfiguredOAuthScopes(client, sess.Scopes, scopeValidationTokens(sess)...); err != nil {
+	scopeErr := validateConfiguredOAuthScopes(client, sess.Scopes, scopeValidationTokens(sess)...)
+	if responseScopes, present := oauthResponseScopes(&sess.Tokens.Token); present {
+		scopeErr = validateCompleteOAuthScopeSet(client, sess.Scopes, responseScopes)
+	}
+	if scopeErr != nil {
 		return preserveOAuthSession()
 	}
 	return availableOAuthToken(sess.Tokens)
@@ -56,6 +60,11 @@ func usableOAuthToken(token *scyauth.Token, now time.Time) bool {
 	}
 	access := strings.TrimSpace(token.AccessToken)
 	idToken := strings.TrimSpace(token.IDToken)
+	// An expired ID token must never accompany an otherwise usable access token.
+	// It selects the normal same-owner refresh path instead.
+	if idToken != "" && oauthJWTExpired(idToken, now) {
+		return false
+	}
 	accessUsable := access != "" && !oauthJWTExpired(access, now)
 	idUsable := idToken != "" && !oauthJWTExpired(idToken, now)
 	return accessUsable || idUsable
@@ -88,6 +97,9 @@ func resolveOAuthTokenOwner(ctx context.Context, users UserService, provider str
 	if users != nil && subject != "" && provider != "" {
 		started := time.Now()
 		if user, err := users.GetBySubjectAndProvider(ctx, subject, provider); err == nil && user != nil && strings.TrimSpace(user.ID) != "" {
+			if user.Disabled {
+				return oauthTokenOwnerResolution{uncertain: true}
+			}
 			return oauthTokenOwnerResolution{id: strings.TrimSpace(user.ID), canonical: true}
 		} else if err != nil {
 			authlog.Log(ctx, authlog.Event{
@@ -156,14 +168,14 @@ func resolveStoredOAuthToken(ctx context.Context, store TokenStore, owner oauthT
 	if storedProvider := strings.TrimSpace(dbTok.Provider); storedProvider != "" && storedProvider != provider {
 		return preserveOAuthSession()
 	}
-	token := &scyauth.Token{IDToken: strings.TrimSpace(dbTok.IDToken)}
-	token.AccessToken = strings.TrimSpace(dbTok.AccessToken)
-	token.RefreshToken = strings.TrimSpace(dbTok.RefreshToken)
-	token.Expiry = dbTok.ExpiresAt
+	token := oauthTokenToSessionToken(dbTok)
+	token.IDToken = strings.TrimSpace(token.IDToken)
+	token.AccessToken = strings.TrimSpace(token.AccessToken)
+	token.RefreshToken = strings.TrimSpace(token.RefreshToken)
 	if !usableOAuthToken(token, time.Now()) {
 		return preserveOAuthSession()
 	}
-	if err := validateConfiguredOAuthScopes(client, expectedScopes, token.IDToken, token.AccessToken, token.RefreshToken); err != nil {
+	if err := validateStoredOAuthScopes(client, expectedScopes, dbTok); err != nil {
 		authlog.Log(ctx, authlog.Event{
 			Op:             "scope_validate_stored",
 			UserID:         owner.id,
@@ -186,4 +198,13 @@ func resolveSessionOAuthToken(ctx context.Context, users UserService, store Toke
 	}
 	owner := resolveOAuthTokenOwner(ctx, users, provider, sess)
 	return resolveStoredOAuthToken(ctx, store, owner, provider, client, sess.Scopes)
+}
+
+// Store metadata may contain scopes returned by an opaque-token provider.
+// Never require an OIDC ID token to carry access-token permissions.
+func validateStoredOAuthScopes(client *OAuthClient, expected []string, token *OAuthToken) error {
+	if len(token.Scopes) > 0 {
+		return validateOAuthScopeSet(client, expected, token.Scopes)
+	}
+	return validateConfiguredOAuthScopes(client, expected, token.IDToken, token.AccessToken, token.RefreshToken)
 }

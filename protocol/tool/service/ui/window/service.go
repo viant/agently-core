@@ -11,7 +11,9 @@ import (
 	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	identity "github.com/viant/agently-core/protocol/resource"
+	forgetypes "github.com/viant/forge/backend/types"
 )
 
 const Name = "ui/window"
@@ -21,22 +23,24 @@ type ListInput struct {
 }
 
 type WindowItem struct {
-	WorkspaceObject    *workspaceproto.Object `json:"workspaceObject,omitempty"`
-	ClientID           string                 `json:"clientId,omitempty"`
-	WindowID           string                 `json:"windowId,omitempty"`
-	WindowKey          string                 `json:"windowKey,omitempty"`
-	WindowTitle        string                 `json:"windowTitle,omitempty"`
-	ConversationID     string                 `json:"conversationId,omitempty"`
-	Presentation       string                 `json:"presentation,omitempty"`
-	Region             string                 `json:"region,omitempty"`
-	ParentKey          string                 `json:"parentKey,omitempty"`
-	WorkspaceSharePct  int                    `json:"workspaceSharePct,omitempty"`
-	WorkspaceMinHeight int                    `json:"workspaceMinHeight,omitempty"`
-	Parameters         map[string]interface{} `json:"parameters,omitempty"`
-	InTab              bool                   `json:"inTab,omitempty"`
-	IsModal            bool                   `json:"isModal,omitempty"`
-	IsMinimized        bool                   `json:"isMinimized,omitempty"`
-	DataSourceRefs     []string               `json:"dataSourceRefs,omitempty"`
+	ResourceTarget     *forgetypes.WindowTarget   `json:"resourceTarget,omitempty"`
+	Resource           *identity.ResolvedResource `json:"resource,omitempty"`
+	WorkspaceObject    *workspaceproto.Object     `json:"workspaceObject,omitempty"`
+	ClientID           string                     `json:"clientId,omitempty"`
+	WindowID           string                     `json:"windowId,omitempty"`
+	WindowKey          string                     `json:"windowKey,omitempty"`
+	WindowTitle        string                     `json:"windowTitle,omitempty"`
+	ConversationID     string                     `json:"conversationId,omitempty"`
+	Presentation       string                     `json:"presentation,omitempty"`
+	Region             string                     `json:"region,omitempty"`
+	ParentKey          string                     `json:"parentKey,omitempty"`
+	WorkspaceSharePct  int                        `json:"workspaceSharePct,omitempty"`
+	WorkspaceMinHeight int                        `json:"workspaceMinHeight,omitempty"`
+	Parameters         map[string]interface{}     `json:"parameters,omitempty"`
+	InTab              bool                       `json:"inTab,omitempty"`
+	IsModal            bool                       `json:"isModal,omitempty"`
+	IsMinimized        bool                       `json:"isMinimized,omitempty"`
+	DataSourceRefs     []string                   `json:"dataSourceRefs,omitempty"`
 }
 
 type ListOutput struct {
@@ -46,9 +50,10 @@ type ListOutput struct {
 }
 
 type GetInput struct {
-	ClientID  string `json:"clientId,omitempty"`
-	WindowID  string `json:"windowId,omitempty"`
-	WindowKey string `json:"windowKey,omitempty"`
+	Resource  *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID  string                     `json:"clientId,omitempty"`
+	WindowID  string                     `json:"windowId,omitempty"`
+	WindowKey string                     `json:"windowKey,omitempty"`
 }
 
 type GetOutput struct {
@@ -88,35 +93,40 @@ type WindowControlOption struct {
 }
 
 type ActivateInput struct {
-	ClientID string `json:"clientId,omitempty"`
-	WindowID string `json:"windowId,omitempty"`
+	Resource *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID string                     `json:"clientId,omitempty"`
+	WindowID string                     `json:"windowId,omitempty"`
 }
 
 type SelectTabInput struct {
-	ClientID    string `json:"clientId,omitempty"`
-	WindowID    string `json:"windowId,omitempty"`
-	TabID       string `json:"tabId,omitempty"`
-	ContainerID string `json:"containerId,omitempty"`
+	Resource    *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID    string                     `json:"clientId,omitempty"`
+	WindowID    string                     `json:"windowId,omitempty"`
+	TabID       string                     `json:"tabId,omitempty"`
+	ContainerID string                     `json:"containerId,omitempty"`
 }
 
 type HideInput struct {
-	ClientID string `json:"clientId,omitempty"`
-	WindowID string `json:"windowId,omitempty"`
+	Resource *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID string                     `json:"clientId,omitempty"`
+	WindowID string                     `json:"windowId,omitempty"`
 }
 
 type SetFormDataInput struct {
-	ClientID  string                 `json:"clientId,omitempty"`
-	WindowID  string                 `json:"windowId,omitempty"`
-	WindowKey string                 `json:"windowKey,omitempty"`
-	Values    map[string]interface{} `json:"values,omitempty"`
-	Replace   bool                   `json:"replace,omitempty"`
+	Resource  *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID  string                     `json:"clientId,omitempty"`
+	WindowID  string                     `json:"windowId,omitempty"`
+	WindowKey string                     `json:"windowKey,omitempty"`
+	Values    map[string]interface{}     `json:"values,omitempty"`
+	Replace   bool                       `json:"replace,omitempty"`
 }
 
 type CommandOutput struct {
-	WorkspaceObject *workspaceproto.Object `json:"workspaceObject,omitempty"`
-	ClientID        string                 `json:"clientId,omitempty"`
-	OK              bool                   `json:"ok,omitempty"`
-	Error           string                 `json:"error,omitempty"`
+	Resource        *identity.ResolvedResource `json:"resource,omitempty"`
+	WorkspaceObject *workspaceproto.Object     `json:"workspaceObject,omitempty"`
+	ClientID        string                     `json:"clientId,omitempty"`
+	OK              bool                       `json:"ok,omitempty"`
+	Error           string                     `json:"error,omitempty"`
 }
 
 type resolvedWindowTarget struct {
@@ -204,6 +214,8 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 					refs = append(refs, ref)
 				}
 				output.Items = append(output.Items, WindowItem{
+					ResourceTarget:     win.ResourceTarget,
+					Resource:           win.Resource,
 					WorkspaceObject:    win.WorkspaceObject,
 					ClientID:           item.ClientID,
 					WindowID:           win.WindowID,
@@ -245,7 +257,11 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	if preferredClientID == "" {
 		preferredClientID = normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
 	}
-	clientID, _, snap, win, err := s.reg.FindReadableWindow(ctx, conversationID, preferredClientID, input.WindowID, input.WindowKey)
+	clientID, namespace, snap, win, err := s.reg.FindReadableWindow(ctx, conversationID, preferredClientID, input.WindowID, input.WindowKey)
+	if err != nil {
+		return err
+	}
+	ctx, err = s.reg.WindowRequestContext(ctx, namespace, clientID, win, input.Resource)
 	if err != nil {
 		return err
 	}
@@ -282,6 +298,9 @@ func (s *Service) resolveWindowTarget(ctx context.Context, requestedClientID, wi
 			Snapshot:  readableSnap,
 			Window:    readableWin,
 		}, nil
+	}
+	if s.bridge != nil && s.bridge.UsesWindowResourceResolution() {
+		return nil, err
 	}
 	if strings.TrimSpace(windowID) == "" {
 		return nil, err
@@ -334,6 +353,11 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	ctx, err = s.reg.WindowRequestContext(ctx, target.Namespace, target.ClientID, target.Window, input.Resource)
+	if err != nil {
+		return err
+	}
+	output.Resource = target.Window.Resource
 	descriptor := workspaceForShow(ctx, target.Window)
 	if windowAlreadyFocused(target.Snapshot, target.Window) && (descriptor == nil || descriptor.LastActivatedBy.TurnID == "") {
 		output.ClientID = target.ClientID
@@ -359,7 +383,7 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 		output.WorkspaceObject = descriptor
 	}
 	output.Error = resp.Error
-	s.reg.RecordEvent(target.Namespace, target.ClientID, uireg.UIEvent{
+	s.reg.RecordEventContext(ctx, target.Namespace, target.ClientID, uireg.UIEvent{
 		ConversationID: strings.TrimSpace(target.Window.ConversationID),
 		ClientID:       target.ClientID,
 		WindowID:       strings.TrimSpace(target.Window.WindowID),
@@ -428,6 +452,11 @@ func (s *Service) setFormData(ctx context.Context, in, out interface{}) error {
 		return err
 	}
 	targetWindowID := strings.TrimSpace(target.Window.WindowID)
+	ctx, err = s.reg.WindowRequestContext(ctx, target.Namespace, target.ClientID, target.Window, input.Resource)
+	if err != nil {
+		return err
+	}
+	output.Resource = target.Window.Resource
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  target.ClientID,
 		Namespace: target.Namespace,
@@ -444,7 +473,7 @@ func (s *Service) setFormData(ctx context.Context, in, out interface{}) error {
 	output.ClientID = target.ClientID
 	output.OK = resp.OK
 	output.Error = resp.Error
-	s.reg.RecordEvent(target.Namespace, target.ClientID, uireg.UIEvent{
+	s.reg.RecordEventContext(ctx, target.Namespace, target.ClientID, uireg.UIEvent{
 		ConversationID: strings.TrimSpace(target.Window.ConversationID),
 		ClientID:       target.ClientID,
 		WindowID:       strings.TrimSpace(target.Window.WindowID),
@@ -503,6 +532,11 @@ func (s *Service) hide(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	ctx, err = s.reg.WindowRequestContext(ctx, target.Namespace, target.ClientID, target.Window, input.Resource)
+	if err != nil {
+		return err
+	}
+	output.Resource = target.Window.Resource
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  target.ClientID,
 		Namespace: target.Namespace,
@@ -515,7 +549,7 @@ func (s *Service) hide(ctx context.Context, in, out interface{}) error {
 	output.ClientID = target.ClientID
 	output.OK = resp.OK
 	output.Error = resp.Error
-	s.reg.RecordEvent(target.Namespace, target.ClientID, uireg.UIEvent{
+	s.reg.RecordEventContext(ctx, target.Namespace, target.ClientID, uireg.UIEvent{
 		ConversationID: strings.TrimSpace(target.Window.ConversationID),
 		ClientID:       target.ClientID,
 		WindowID:       strings.TrimSpace(target.Window.WindowID),
@@ -551,6 +585,11 @@ func (s *Service) selectTab(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	ctx, err = s.reg.WindowRequestContext(ctx, target.Namespace, target.ClientID, target.Window, input.Resource)
+	if err != nil {
+		return err
+	}
+	output.Resource = target.Window.Resource
 	containerID, err := resolveTabContainer(target.Window, tabID, strings.TrimSpace(input.ContainerID))
 	if err != nil {
 		return err
@@ -574,7 +613,7 @@ func (s *Service) selectTab(ctx context.Context, in, out interface{}) error {
 	if !resp.OK {
 		return fmt.Errorf("UI tab selection rejected: %s", resp.Error)
 	}
-	s.reg.RecordEvent(target.Namespace, target.ClientID, uireg.UIEvent{
+	s.reg.RecordEventContext(ctx, target.Namespace, target.ClientID, uireg.UIEvent{
 		ConversationID: conversationID,
 		ClientID:       target.ClientID,
 		WindowID:       windowID,

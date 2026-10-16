@@ -9,6 +9,6 @@ import (
 // TokenOutput is the generated output scaffold for reader.
 type TokenOutput struct {
 	response.Status `parameter:",kind=output,in=status"`
-	Metrics         response.Metrics `parameter:",kind=output,in=metrics"`
-	Data            []*TokenView     `parameter:"Data,kind=output,in=view,dataType=[]*TokenView" view:"reader,type=TokenView,table=user_oauth_token" sql:"uri=oauth_token_read_reader:sql/reader.sql"`
+	Metrics         response.Metrics `parameter:",kind=output,in=metrics" json:"metrics"`
+	Data            []*TokenView     `parameter:"Data,kind=output,in=view,dataType=[]*TokenView" view:"reader,type=TokenView,table=user_oauth_token" json:"data" sql:"uri=oauth_token_read_reader:sql/reader.sql"`
 }

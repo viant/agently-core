@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
+	requestctx "github.com/viant/agently-core/runtime/requestctx"
+	mcpschema "github.com/viant/mcp-protocol/schema"
+	mcpclient "github.com/viant/mcp/client"
 )
 
 // ToolSurfaceCacheIdentity describes a single backend namespace. Configuration
@@ -25,6 +27,7 @@ func (r *Registry) ToolSurfaceCacheIdentity(ctx context.Context, pattern string)
 	var config interface{}
 	principal := ""
 	credential := ""
+	generation := uint64(0)
 	if !r.isInternalServer(server) {
 		if r.mgr == nil {
 			return "", ""
@@ -47,14 +50,11 @@ func (r *Registry) ToolSurfaceCacheIdentity(ctx context.Context, pattern string)
 			if principal == "" {
 				return kind, ""
 			}
-			// Delegated credentials are resolved by the manager. Until it exposes
-			// a credential generation, do not create a second cache above it.
-			if options.IsDelegatedAuth() {
+			snapshot, _, err := r.cachedManagerCatalog(ctx, server)
+			if err != nil || snapshot == "" {
 				return kind, ""
 			}
-			scoped := r.mgr.WithAuthTokenContext(ctx, server)
-			useID := r.mgr.UseIDToken(scoped, server)
-			credential = r.principalDiscoveryToolsKey(server, principal, authctx.MCPAuthToken(scoped, useID), useID)
+			credential = snapshot
 		}
 	}
 	catalog := map[string]llm.ToolDefinition{}
@@ -65,20 +65,59 @@ func (r *Registry) ToolSurfaceCacheIdentity(ctx context.Context, pattern string)
 				catalog[entry.def.Name] = entry.def
 			}
 		}
-	} else if entry, ok := r.discoveryTools[credential]; ok && entry.expiresAt.After(time.Now()) {
-		for _, item := range entry.tools {
-			if definition := llm.ToolDefinitionFromMcpTool(&item); definition != nil {
-				catalog[item.Name] = *definition
-			}
-		}
 	}
 	r.mu.RUnlock()
-	if len(catalog) == 0 {
+	if kind == "public" && len(catalog) == 0 {
 		return kind, ""
 	}
-	raw, err := json.Marshal([]interface{}{server, config, principal, credential, catalog})
+	if owner, ok := r.mgr.(interface{ ToolCatalogGeneration(string) uint64 }); ok {
+		generation = owner.ToolCatalogGeneration(server)
+	}
+	raw, err := json.Marshal([]interface{}{server, config, principal, credential, generation, catalog})
 	if err != nil {
 		return kind, ""
 	}
 	return kind, fmt.Sprintf("%x", sha256.Sum256(raw))
+}
+
+// cachedManagerCatalog uses the exact discovery connection and request options.
+// The manager alone decides whether that complete source catalog is reusable.
+func (r *Registry) cachedManagerCatalog(ctx context.Context, server string) (string, []mcpschema.Tool, error) {
+	owner, ok := r.mgr.(interface {
+		ToolCatalogSnapshot(context.Context, string, string, ...mcpclient.RequestOption) (string, []mcpschema.Tool, error)
+	})
+	if !ok {
+		return "", nil, nil
+	}
+	ctx = r.mgr.WithAuthTokenContext(ctx, server)
+	useID := r.mgr.UseIDToken(ctx, server)
+	token := authctx.MCPAuthToken(ctx, useID)
+	if r.isDelegatedAuthServer(ctx, server) {
+		token = ""
+	}
+	scope := ""
+	if options, err := r.mgr.Options(ctx, server); err == nil && options != nil {
+		scope = r.discoveryClientScope(ctx, server, token, r.isPublicToolCatalog(ctx, server))
+	} else {
+		scope = requestctx.ConversationIDFromContext(ctx)
+	}
+	if scope == "" {
+		r.mu.RLock()
+		var newest discoveryIdentity
+		for key, observed := range r.discoveryShared {
+			if strings.HasPrefix(key, server+"|") && observed.catalogSeen && observed.userID == authctx.EffectiveUserID(ctx) && observed.tokenFP == tokenFingerprint(token) && observed.useID == useID && observed.seenAt.After(newest.seenAt) {
+				scope = strings.TrimPrefix(key, server+"|")
+				newest = observed
+			}
+		}
+		r.mu.RUnlock()
+	}
+	if scope == "" {
+		return "", nil, nil
+	}
+	var opts []mcpclient.RequestOption
+	if token != "" {
+		opts = append(opts, mcpclient.WithAuthToken(token))
+	}
+	return owner.ToolCatalogSnapshot(ctx, r.metadataConnectionScope(ctx, scope, server), server, opts...)
 }

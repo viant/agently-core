@@ -28,12 +28,18 @@ import (
 )
 
 // Service runs the intake sidecar LLM call and returns an intake Context.
+type HostDocumentReader interface {
+	ReadURI(context.Context, string) ([]byte, error)
+	RootURI() string
+}
+
 type Service struct {
-	llm          *core.Service
-	conversation apiconv.Client
-	profileRepo  *intakerepo.Repository
-	templateRepo *tplrepo.Repository
-	bundleRepo   *toolbundlerepo.Repository
+	hostDocuments HostDocumentReader
+	llm           *core.Service
+	conversation  apiconv.Client
+	profileRepo   *intakerepo.Repository
+	templateRepo  *tplrepo.Repository
+	bundleRepo    *toolbundlerepo.Repository
 }
 
 // TranscriptMessage is a compact, generic transcript row provided to intent.
@@ -572,6 +578,26 @@ func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (
 }
 
 func (s *Service) resolveIntakePromptText(ctx context.Context, prompt agentmdl.IntakePrompt) (string, error) {
+	if s.hostDocuments != nil {
+		text := prompt.Text
+		base := s.hostDocuments.RootURI() + "/intake/inline-intent.tmpl"
+		if prompt.URI != "" {
+			if text != "" {
+				return text, nil
+			}
+			base = prompt.URI
+			if !strings.Contains(base, "://") && !filepath.IsAbs(base) {
+				base = s.hostDocuments.RootURI() + "/" + base
+			}
+			raw, err := s.hostDocuments.ReadURI(ctx, base)
+			if err != nil {
+				return "", err
+			}
+			text = string(raw)
+		}
+		return binding.ResolveTextImportsWithReader(ctx, s.hostDocuments.ReadURI, text, base)
+	}
+
 	if strings.TrimSpace(prompt.URI) != "" {
 		resolved := prompt
 		if !filepath.IsAbs(strings.TrimSpace(resolved.URI)) && !strings.Contains(resolved.URI, "://") {
@@ -609,6 +635,9 @@ func templateAppliesTo(tpl *tpldef.Template) []string {
 func buildOutputSchema(cfg *agentmdl.Intake) string {
 	var b strings.Builder
 	b.WriteString("\n\nRespond with a single JSON object. Include only the fields listed below:")
+	if cfg.PlannerEnabled {
+		b.WriteString("\n- routing (object): set mode to route for a concrete workflow, planner when scope is actionable but choosing a workflow requires planning, or clarify when missing information blocks a reasonable next step. An empty profile does not select the planner. If an available tool or skill clearly covers the concrete request, choose route without requiring an intent profile. Choose planner only when the execution strategy itself is unresolved. For clarify, preserve the missing detail in scope.values.clarificationQuestion and leave directAction null.")
+	}
 	if cfg.HasScope(agentmdl.IntakeScopeIntent) {
 		b.WriteString("\n- classification (object): grouped task labeling with `title`, `intent`, and optional `confidence`")
 	}
@@ -636,6 +665,16 @@ func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
 			"type":                 "object",
 			"properties":           properties,
 			"required":             required,
+			"additionalProperties": false,
+		}
+	}
+	if cfg.PlannerEnabled {
+		properties["routing"] = map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"mode": map[string]interface{}{"type": "string", "enum": []string{ModeRoute, ModePlanner, ModeClarify}},
+			},
+			"required":             []string{"mode"},
 			"additionalProperties": false,
 		}
 	}
@@ -1030,4 +1069,9 @@ func unmarshalContext(data []byte, tc *Context) error {
 		tc.Planner.AgentID = wire.PlannerAgentID
 	}
 	return nil
+}
+
+func (s *Service) SetHostDocuments(reader HostDocumentReader, bundles *toolbundlerepo.Repository) {
+	s.hostDocuments = reader
+	s.bundleRepo = bundles
 }

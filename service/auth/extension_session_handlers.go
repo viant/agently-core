@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	iauth "github.com/viant/agently-core/internal/auth"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
@@ -16,6 +17,15 @@ import (
 func (a *authExtension) handleMe() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess := a.currentSession(r)
+		// Trusted request ingress selects the actor. A leftover cookie cannot
+		// replace bearer identity or contribute another actor's session fence.
+		if actor := iauth.User(r.Context()); actor != nil {
+			if raw, ok := r.Context().Value(runtimeAuthContextKey{}).(runtimeAuthUser); ok && raw.Provider == "jwt" {
+				sess = nil
+			} else if sess != nil && (strings.TrimSpace(firstNonEmpty(actor.Subject, actor.Email)) != strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email, sess.Username)) || (iauth.CanonicalUserID(r.Context()) != "" && iauth.CanonicalUserID(r.Context()) != strings.TrimSpace(sess.UserID))) {
+				sess = nil
+			}
+		}
 		if sess == nil {
 			if runtimeConfirmedMissing(r.Context()) {
 				if cookieName := strings.TrimSpace(a.cfg.CookieName); cookieName != "" {
@@ -24,7 +34,7 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 				runtimeError(w, http.StatusUnauthorized, fmt.Errorf("oauth session is missing a valid token"))
 				return
 			}
-			if user := RuntimeUserFromContext(r.Context()); user != nil {
+			if user := iauth.User(r.Context()); user != nil {
 				displayName := strings.TrimSpace(user.Subject)
 				if resolved := a.lookupDisplayUserBySubject(r.Context(), strings.TrimSpace(user.Subject), a.oauthProviderName()); resolved != nil {
 					if v := strings.TrimSpace(resolved.DisplayName); v != "" {
@@ -34,11 +44,12 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 					}
 				}
 				runtimeJSON(w, http.StatusOK, map[string]any{
-					"subject":     strings.TrimSpace(user.Subject),
-					"username":    strings.TrimSpace(user.Subject),
-					"email":       strings.TrimSpace(user.Email),
-					"displayName": displayName,
-					"provider":    "jwt",
+					"subject":        strings.TrimSpace(user.Subject),
+					"username":       strings.TrimSpace(user.Subject),
+					"email":          strings.TrimSpace(user.Email),
+					"displayName":    displayName,
+					"provider":       "jwt",
+					"sessionBinding": meSessionBinding(r.Context(), "jwt", strings.TrimSpace(user.Subject), nil),
 				})
 				return
 			}
@@ -71,11 +82,12 @@ func (a *authExtension) handleMe() http.HandlerFunc {
 			}
 		}
 		runtimeJSON(w, http.StatusOK, map[string]any{
-			"subject":     strings.TrimSpace(sess.Subject),
-			"username":    strings.TrimSpace(sess.Username),
-			"email":       strings.TrimSpace(sess.Email),
-			"displayName": displayName,
-			"provider":    "session",
+			"subject":        strings.TrimSpace(sess.Subject),
+			"username":       strings.TrimSpace(sess.Username),
+			"email":          strings.TrimSpace(sess.Email),
+			"displayName":    displayName,
+			"provider":       "session",
+			"sessionBinding": meSessionBinding(r.Context(), strings.TrimSpace(sess.Provider), strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email, sess.Username)), sess),
 		})
 	}
 }

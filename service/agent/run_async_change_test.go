@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -54,6 +56,7 @@ func (m singleResponseModel) Generate(context.Context, *llm.GenerateRequest) (*l
 func (singleResponseModel) Implements(string) bool { return false }
 
 type loopConvClient struct {
+	mu           sync.Mutex
 	conversation *apiconv.Conversation
 	messages     map[string]*conversationmodel.MessageView
 }
@@ -77,7 +80,27 @@ func newLoopConvClient(conv *apiconv.Conversation) *loopConvClient {
 }
 
 func (c *loopConvClient) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
-	return c.conversation, nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conversation == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(c.conversation)
+	if err != nil {
+		return nil, err
+	}
+	var snapshot apiconv.Conversation
+	if err = json.Unmarshal(b, &snapshot); err != nil {
+		return nil, err
+	}
+	return &snapshot, nil
+}
+
+func (c *loopConvClient) appendSteer(message *conversationmodel.MessageView) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.conversation.Transcript[0].Message = append(c.conversation.Transcript[0].Message, message)
+	c.messages[message.Id] = message
 }
 
 func (c *loopConvClient) GetConversations(context.Context, *apiconv.Input) ([]*apiconv.Conversation, error) {
@@ -103,6 +126,8 @@ func (c *loopConvClient) DeleteConversation(context.Context, string) error      
 func (c *loopConvClient) DeleteMessage(context.Context, string, string) error           { return nil }
 
 func (c *loopConvClient) PatchModelCall(_ context.Context, in *apiconv.MutableModelCall) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if in == nil || in.Has == nil || !in.Has.MessageID {
 		return nil
 	}
@@ -125,6 +150,8 @@ func (c *loopConvClient) PatchModelCall(_ context.Context, in *apiconv.MutableMo
 }
 
 func (c *loopConvClient) PatchMessage(_ context.Context, in *apiconv.MutableMessage) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if in == nil || in.Has == nil || !in.Has.Id {
 		return nil
 	}
@@ -386,8 +413,7 @@ func TestServiceRunPlanLoop_SteerUnlocksAsyncWaitAndAddsDirective(t *testing.T) 
 		TurnId:         cancelPtr("turn-1"),
 		CreatedAt:      now.Add(time.Second),
 	}
-	conv.Transcript[0].Message = append(conv.Transcript[0].Message, steerMsg)
-	convClient.messages[steerMsg.Id] = steerMsg
+	convClient.appendSteer(steerMsg)
 	manager.SignalTurn(ctx, "conv-steer", "turn-1")
 
 	var req *llm.GenerateRequest

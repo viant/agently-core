@@ -1,63 +1,6 @@
-init:
-  mysqlCred: mysql-e2e.json
-  mysqlSecrets: ${secrets.$mysqlCred}
-  repoPath: $WorkingDirectory(./..)
-  testdataPath: ${repoPath}/e2e/query/testdata
-  workspacePath: /tmp/agently-core-e2e-workspace/.agently
-  serverPort: '$serverPort ? $serverPort : 9001'
-  debugger: off
-  sdkKey: ${env.OPENAI_API_KEY}
-  dbIP:
-    mysql: localhost
-    user: ${mysqlSecrets.Username}
-    password: ${mysqlSecrets.Password}
-  dbPort:
-    mysql: 3308
-  connections: -c='agently|mysql|${dbIP.user}:${dbIP.password}@tcp(${dbIP.mysql}:${dbPort.mysql})/agently?parseTime=true'
-  datlyOptions: $connections
-
+# Canonical default entrypoint. Owned fixture creation is explicitly external;
+# this alias performs no Docker startup or database initialization/reset.
 pipeline:
-
-  init:
-    system:
-      action: run
-      description: init system
-      request: '@system'
-
-    database:
-      action: run
-      description: init database
-      request: '@database/database'
-
-  rule:
-    native:
-      action: run
-      description: generate and verify the native v1 contracts
-      request: '@rule/native'
-
-  build:
-    binaries:
-      action: run
-      description: build all e2e binaries
-      request: '@build/build'
-
-  prepareWorkspace:
-    action: exec:run
-    description: reset e2e workspace fixtures before app start
-    checkError: true
-    commands:
-      - ${repoPath}/e2e/scripts/prepare_workspace.sh ${repoPath} ${workspacePath} ${testdataPath}
-
-  app:
+  canonical:
     action: run
-    description: run agently-app host
-    request: '@app/app'
-    params:
-      serverPort: $serverPort
-
-  test:
-    action: run
-    description: run e2e regression tests
-    request: '@regression/regression'
-    params:
-      serverPort: $serverPort
+    request: '@canonical-run'

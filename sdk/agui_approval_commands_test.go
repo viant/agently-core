@@ -96,7 +96,7 @@ func newCoordinatedApprovalFixture(t *testing.T, approvals int, mixed bool) *coo
 		message.SetConversationID("approval-thread")
 		message.SetTurnID("approval-turn")
 		message.SetRole("tool")
-		message.SetType("tool_call")
+		message.SetType("tool_op")
 		message.SetParentMessageID("approval-assistant")
 		require.NoError(t, c.conv.PatchMessage(ctx, message))
 		payloadID := messageID + "/request"
@@ -114,8 +114,8 @@ func newCoordinatedApprovalFixture(t *testing.T, approvals int, mixed bool) *coo
 		call.SetTurnID("approval-turn")
 		call.SetOpID(op)
 		call.SetToolName("backend")
-		call.SetToolKind("function")
-		call.SetStatus("waiting_for_user")
+		call.SetToolKind("general")
+		call.SetStatus("queued")
 		call.RequestPayloadID = &payloadID
 		call.Has.RequestPayloadID = true
 		require.NoError(t, c.conv.PatchToolCall(ctx, call))
@@ -163,6 +163,8 @@ func approvalAnswer(id, action string) agui.WireResumeEntry {
 func waitApprovalSuccessor(t *testing.T, store aguistore.Store, original *aguistore.Run) *aguistore.Run {
 	t.Helper()
 	var successor *aguistore.Run
+	// Native journal projection reads are expensive under the race detector.
+	// Leave the worker CPU time while observing its durable terminal receipt.
 	require.Eventually(t, func() bool {
 		latest, err := store.GetRun(recoveryContext(), original.Principal, original.ThreadID, original.RunID)
 		if err != nil || latest.ResumedByRunID == "" {
@@ -170,7 +172,7 @@ func waitApprovalSuccessor(t *testing.T, store aguistore.Store, original *aguist
 		}
 		successor, err = store.GetRun(recoveryContext(), original.Principal, original.ThreadID, latest.ResumedByRunID)
 		return err == nil && aguiRunTerminal(successor.Status)
-	}, 3*time.Second, 10*time.Millisecond)
+	}, 15*time.Second, 500*time.Millisecond)
 	return successor
 }
 

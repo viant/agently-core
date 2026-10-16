@@ -24,6 +24,7 @@ const Name = "template"
 type ListInput struct{}
 
 type ListItem struct {
+	URI         string `json:"uri,omitempty"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Format      string `json:"format,omitempty"`
@@ -108,6 +109,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 			continue
 		}
 		items = append(items, ListItem{
+			URI:         tpl.ResourceURI,
 			Name:        strings.TrimSpace(tpl.Name),
 			Description: strings.TrimSpace(tpl.Description),
 			Format:      strings.TrimSpace(tpl.Format),
@@ -140,14 +142,24 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 		if tpl == nil {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(tpl.Name), name) || strings.EqualFold(strings.TrimSpace(tpl.ID), name) {
+		if strings.EqualFold(strings.TrimSpace(tpl.Name), name) || strings.EqualFold(strings.TrimSpace(tpl.ID), name) || tpl.ResourceURI == name {
+			if selected != nil {
+				return fmt.Errorf("ambiguous authored definition: %s", name)
+			}
 			selected = tpl
-			break
 		}
 	}
 	if selected == nil {
 		return fmt.Errorf("template %q not found", name)
 	}
+	fresh, err := s.templates.AdmitSelected(ctx, name, selected)
+	if err != nil {
+		return err
+	}
+	if fresh == nil {
+		return fmt.Errorf("template not found")
+	}
+	selected = fresh
 	goo.Name = strings.TrimSpace(selected.Name)
 	goo.Format = strings.TrimSpace(selected.Format)
 	goo.Description = strings.TrimSpace(selected.Description)

@@ -4,5 +4,5 @@ package base
 
 // ScheduleOutput is the generated output scaffold for reader.
 type ScheduleOutput struct {
-	Data []*ScheduleBaseView `parameter:"Data,kind=output,in=view,dataType=[]*ScheduleBaseView" view:"reader,type=ScheduleBaseView,rowLock=schedule t,rowLockOrder=t.id,table=schedule" sql:"uri=datly_schedule_base_reader:sql/reader.sql"`
+	Data []*ScheduleBaseView `parameter:"Data,kind=output,in=view,dataType=[]*ScheduleBaseView" view:"reader,type=ScheduleBaseView,rowLock=schedule t,rowLockOrder=t.id,table=schedule" json:"data" sql:"uri=datly_schedule_base_reader:sql/reader.sql"`
 }

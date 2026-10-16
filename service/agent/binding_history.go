@@ -137,6 +137,8 @@ func (s *Service) buildChronologicalHistory(
 		projection.Scope = scope
 		projection.HiddenMessageIDs = appendUniqueProjectionIDs(projection.HiddenMessageIDs, expandHiddenTurnMessageIDs(transcript, projection.HiddenTurnIDs)...)
 	}
+	approvalReviews, approvalResponses := s.completedApprovalReviews(ctx, transcript, projection.HiddenMessageIDs...)
+	projection.HiddenMessageIDs = appendUniqueProjectionIDs(projection.HiddenMessageIDs, approvalResponses...)
 	normalized, elicitation := s.collectNormalizedMessages(ctx, transcript, applyPreview, currentTurnID, currentElicitation, lastElicitationMessage, projection)
 
 	// Dedupe current-turn user task messages that are effectively the
@@ -262,10 +264,20 @@ func (s *Service) buildChronologicalHistory(
 			orig = *msg.Content
 		}
 		text := orig
-		if applyPreview && orig != "" {
-			limit := s.messagePreviewLimit(item.turnIdx, totalTurns, true, isConcreteToolResultMessage(msg))
+		isToolResult := isConcreteToolResultMessage(msg)
+		if (applyPreview || isToolResult) && orig != "" {
+			limit := 0
+			if applyPreview {
+				limit = s.messagePreviewLimit(item.turnIdx, totalTurns, true, isToolResult)
+			}
+			if isToolResult {
+				limit = stricterToolResultLimit(s.messagePreviewLimit(item.turnIdx, totalTurns, true, true), s.selectedModelToolResultLimit(input))
+			}
 			if limit > 0 {
 				preview, of := buildOverflowPreview(orig, limit, msg.Id, allowContinuation)
+				if isToolResult {
+					preview, of = s.presentRecordedToolResult(ctx, input, orig, msg.Id, limit, allowContinuation)
+				}
 				if of {
 					overflow = true
 					if size := len(orig); size > maxOverflowBytes {
@@ -373,6 +385,7 @@ func (s *Service) buildChronologicalHistory(
 			pmsg.ToolOpID = tc.OpId
 			pmsg.ToolName = tc.ToolName
 			pmsg.ToolArgs = msg.ToolCallArguments()
+			pmsg.Content = projectToolApprovalReview(pmsg.Content, approvalReviews[msg.Id])
 			if msg.ContextSummary != nil && *msg.ContextSummary == clienttool.ContentMIME {
 				items, err := clienttool.MapContent(json.RawMessage(msg.GetContent()))
 				if err != nil {

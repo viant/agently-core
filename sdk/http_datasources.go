@@ -7,7 +7,10 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/viant/agently-core/protocol/primitive"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/sdk/api"
+	"github.com/viant/forge/backend/types"
 )
 
 // FetchDatasource dispatches POST /v1/api/datasources/{id}/fetch.
@@ -22,10 +25,15 @@ func (c *HTTPClient) FetchDatasource(ctx context.Context, in *api.FetchDatasourc
 	conversationID := strings.TrimSpace(in.ConversationID)
 	// Wire body: the server reads id from the URL; carry the rest verbatim.
 	body := struct {
-		ConversationID string                    `json:"conversationId,omitempty"`
-		Inputs         map[string]interface{}    `json:"inputs,omitempty"`
-		Cache          *api.DatasourceCacheHints `json:"cache,omitempty"`
-	}{ConversationID: conversationID, Inputs: in.Inputs, Cache: in.Cache}
+		SelectionBinding *identity.SelectionBinding `json:"selectionBinding,omitempty"`
+		WindowParameters map[string]any             `json:"windowParameters,omitempty"`
+		Target           *types.WindowTarget        `json:"target,omitempty"`
+		ResourceProof    *primitive.ExecutionProof  `json:"resourceProof,omitempty"`
+		Resource         *identity.ResolvedResource `json:"resource,omitempty"`
+		ConversationID   string                     `json:"conversationId,omitempty"`
+		Inputs           map[string]interface{}     `json:"inputs,omitempty"`
+		Cache            *api.DatasourceCacheHints  `json:"cache,omitempty"`
+	}{SelectionBinding: in.SelectionBinding, WindowParameters: in.WindowParameters, Target: in.Target, ResourceProof: in.ResourceProof, Resource: in.Resource, ConversationID: conversationID, Inputs: in.Inputs, Cache: in.Cache}
 	var out api.FetchDatasourceOutput
 	path := "/v1/api/datasources/" + url.PathEscape(id) + "/fetch"
 	if err := c.doJSON(ctx, http.MethodPost, path, body, &out); err != nil {

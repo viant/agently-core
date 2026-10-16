@@ -17,6 +17,7 @@ func TestAGUIGoalSubscriptionKeepsChatProjectionSeparateAndRefreshesAuthoritativ
 	bus := streaming.NewMemoryBus(64)
 	backend := &backendClient{goalRepo: repository, goalInvoker: server, streaming: bus}
 	store := aguistore.New(server)
+	observed := observeSubscriptionCommits(store)
 	ctx := context.Background()
 	_, err := backend.CreateGoal(ctx, &CreateGoalInput{ConversationID: "goal-thread", Objective: "background work"})
 	require.NoError(t, err)
@@ -25,40 +26,45 @@ func TestAGUIGoalSubscriptionKeepsChatProjectionSeparateAndRefreshesAuthoritativ
 	require.NoError(t, err)
 	observerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- observeAGUIGoal(observerCtx, backend, store, record, 3*time.Second) }()
+	done := startSubscriptionObserver(t, cancel, func() error { return observeAGUIGoal(observerCtx, backend, observed, record, 3*time.Second) })
 	require.Eventually(t, func() bool {
-		events, err := store.Replay(ctx, "owner", "goal-thread", "subscription", 0, 1000)
-		return err == nil && len(events) >= 2
+		return observed.afterCommit(func() bool {
+			events, err := store.Replay(ctx, "owner", "goal-thread", "subscription", 0, 1000)
+			return err == nil && len(events) >= 2
+		})
 	}, time.Second, 10*time.Millisecond)
 	paused := atomicGoalRecord(t, store, "goal.pause", "pause-background", nil)
 	_, err = executeAGUIGoalTransaction(ctx, backend, store, paused, "goal.pause", nil)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		events, _ := store.Replay(ctx, "owner", "goal-thread", "subscription", 0, 1000)
-		for _, event := range events {
-			if stringContainsGoalState(event.Event, "paused") {
-				return true
+		return observed.afterCommit(func() bool {
+			events, _ := store.Replay(ctx, "owner", "goal-thread", "subscription", 0, 1000)
+			for _, event := range events {
+				if stringContainsGoalState(event.Event, "paused") {
+					return true
+				}
 			}
-		}
-		return false
+			return false
+		})
 	}, time.Second, 10*time.Millisecond)
 	cleared := atomicGoalRecord(t, store, "goal.clear", "clear-background", nil)
 	_, err = executeAGUIGoalTransaction(ctx, backend, store, cleared, "goal.clear", nil)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
-		events, _ := store.Replay(ctx, "owner", "goal-thread", "subscription", 0, 1000)
-		for _, event := range events {
-			var value struct {
-				Type    string
-				Content struct{ Goal json.RawMessage }
+		return observed.afterCommit(func() bool {
+			events, _ := store.Replay(ctx, "owner", "goal-thread", "subscription", 0, 1000)
+			for _, event := range events {
+				var value struct {
+					Type    string
+					Content struct{ Goal json.RawMessage }
+				}
+				json.Unmarshal(event.Event, &value)
+				if value.Type == "ACTIVITY_SNAPSHOT" && string(value.Content.Goal) == "null" {
+					return true
+				}
 			}
-			json.Unmarshal(event.Event, &value)
-			if value.Type == "ACTIVITY_SNAPSHOT" && string(value.Content.Goal) == "null" {
-				return true
-			}
-		}
-		return false
+			return false
+		})
 	}, time.Second, 10*time.Millisecond)
 	cancel()
 	require.NoError(t, <-done)

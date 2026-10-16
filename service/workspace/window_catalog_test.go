@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"github.com/viant/agently-core/service/policy"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -48,5 +49,12 @@ func TestBuiltInWindowCatalogDatasourceRoutes(t *testing.T) {
 	options, _ := updated["options"].(map[string]any)
 	if options["provider"] != "openai" {
 		t.Fatalf("save lost existing options: %v", options)
+	}
+}
+
+func TestCatalogIdentityRejectionIsAuthenticationFailure(t *testing.T) {
+	w := httptest.NewRecorder()
+	if !catalogAuthorizationError(w, policy.ErrIdentityRejected) || w.Code != http.StatusUnauthorized {
+		t.Fatalf("catalog identity rejection was hidden: status=%d body=%s", w.Code, w.Body.String())
 	}
 }

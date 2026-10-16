@@ -12,6 +12,8 @@ import (
 	"github.com/viant/xdatly/handler"
 )
 
+// Answer mutations read newly written payloads before committing the receipt.
+// Execute children immediately within this coordinator's owned transaction.
 type ResolveComponent struct {
 	Contract xdatly.Component[elicitationreceipt.Input, elicitationreceipt.Output] `component:"Resolve,path=/v1/internal/agently/elicitation/resolve,method=POST,connector=agently,handler=NewResolve,internal=true" componentCallPolicy:"imperative"`
 }

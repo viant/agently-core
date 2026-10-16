@@ -1,73 +1,123 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-queue-approval
+      email: e2e-queue-approval@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval queue - create conversation"
+    description: tool approval queue - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: approval_queue_probe
+        Title: queue-approval-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: approval_queue_probe
-          Title: queue-approval-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   startQueuedQuery:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval queue - start query (tool should be queued)"
+    description: tool approval queue - start query (tool should be queued)
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 060_tool_approval_queue-startQueuedQuery
+        query:
+          conversationID: ${createConversation.Responses[0].JSONBody.id}
+          agentID: approval_queue_probe
+          query: run the approval test tool
+      Expect:
+        Code: 200
         JSONBody:
-          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-          AgentID: approval_queue_probe
-          UserId: e2e-queue-approval
-          Query: run the approval test tool
-
+          outcome:
+            type: interrupt
   waitForQueue:
     when: $sdkKey != ''
     action: nop
     sleepTimeMs: 3000
-
   listPendingApprovals:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval queue - verify pending approval appears"
+    description: tool approval queue - verify pending approval appears
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/tool-approvals/pending?userId=e2e-queue-approval&conversationId=${createConversation.Responses[0].JSONBody.Id}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@rows[0]": true
-            "@exists@rows[0].id": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/tool-approvals/pending?userId=e2e-queue-approval&conversationId=${createConversation.Responses[0].JSONBody.id}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@rows[0]': true
+          '@exists@rows[0].id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   approveToolCall:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval queue - approve the queued tool call"
+    description: tool approval queue - approve the queued tool call
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/tool-approvals/${listPendingApprovals.Responses[0].JSONBody.rows[0].id}/decision
+    - Method: POST
+      URL: ${authServerURL}/v1/tool-approvals/${listPendingApprovals.Responses[0].JSONBody.rows[0].id}/decision
+      JSONBody:
+        action: approve
+        userId: e2e-queue-approval
+      Expect:
+        Code: 200
         JSONBody:
-          action: approve
-          userId: e2e-queue-approval
-        Expect:
-          Code: 200
-          JSONBody:
-            status: ok
-
+          status: ok
+          protocol:
+            '@exists@continuationRunId': true
+            '@exists@remainingInterruptIds[0]': false
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+  collectApprovalContinuation:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: observe the successor owned by the actual HTTP approval command
+    requests:
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: approval-continuation-60
+        nativeConversationId: ${createConversation.Responses[0].JSONBody.id}
+        attach:
+          threadId: ${approveToolCall.Responses[0].JSONBody.protocol.threadId}
+          runId: ${approveToolCall.Responses[0].JSONBody.protocol.continuationRunId}
+      Expect:
+        Code: 200
+        JSONBody:
+          outcome:
+            type: success
   verifyExecuted:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval queue - verify queue row transitioned to executed"
+    description: tool approval queue - verify queue row transitioned to executed
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/tool-approvals/pending?userId=e2e-queue-approval&conversationId=${createConversation.Responses[0].JSONBody.Id}&status=executed
-        Expect:
-          Code: 200
+    - Method: GET
+      URL: ${authServerURL}/v1/tool-approvals/pending?userId=e2e-queue-approval&conversationId=${createConversation.Responses[0].JSONBody.id}&status=executed
+      Expect:
+        Code: 200
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

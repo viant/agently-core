@@ -1,49 +1,70 @@
 pipeline:
-  queryReject:
-    when: $sdkKey != ''
+  mintToken:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-elicitation-reject
+      email: e2e-elicitation-reject@example.test
+  canonical019:
     action: http/runner:send
-    description: "elicitation reject - query should create elicitation"
+    TimeoutMs: 240000
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Authorization: ["Bearer ${mintToken.TokenString}"]
+      JSONBody:
+        target: ${authServerURL}
+        probeId: canonical-focused-019
+        query:
+          agentId: elicitation_favorite_color
+          query: describe my favourite color in 3 sentences
+          elicitationMode: deferred
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: elicitation_favorite_color
-          UserId: e2e-elicitation-reject
-          Query: describe my favourite color in 3 sentences
-          ElicitationMode: deferred
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@plan.elicitation.elicitationId": true
-
+          "@exists@identity.nativeConversationId": true
+          "@exists@transcript.conversation.turns[0].elicitation.elicitationId": true
+          outcome:
+            type: interrupt
+          http:
+            - method: POST
+              path: /v1/conversations
+              statusCode: 200
+            - method: GET
+              statusCode: 200
+            - method: POST
+              path: /v1/ag-ui/run
+              statusCode: 200
+            - method: GET
+              statusCode: 200
+          "@exists@events[0]": true
   resolveReject:
-    when: $sdkKey != ''
     action: http/runner:send
-    description: "elicitation reject - resolve with reject action"
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/elicitations/${queryReject.Responses[0].JSONBody.conversationId}/${queryReject.Responses[0].JSONBody.plan.elicitation.elicitationId}/resolve
+    - Method: POST
+      URL: ${authServerURL}/v1/elicitations/${canonical019.Responses[0].JSONBody.identity.nativeConversationId}/${canonical019.Responses[0].JSONBody.transcript.conversation.turns[0].elicitation.elicitationId}/resolve
+      Header:
+        Authorization: ["Bearer ${mintToken.TokenString}"]
+      JSONBody:
+        action: reject
+      Expect:
+        Code: 200
         JSONBody:
-          action: reject
-        Expect:
-          Code: 200
-          JSONBody:
-            status: ok
-
+          status: ok
   verifyRejectedMessage:
-    when: $sdkKey != ''
     action: http/runner:send
-    description: "elicitation reject - persisted assistant elicitation message is rejected"
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${queryReject.Responses[0].JSONBody.conversationId}&roles=assistant&types=text
-        Expect:
-          Code: 200
-          JSONBody:
-            Rows:
-              "@indexBy@": ElicitationId
-              "${queryReject.Responses[0].JSONBody.plan.elicitation.elicitationId}":
-                Status: rejected
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${canonical019.Responses[0].JSONBody.identity.nativeConversationId}&roles=assistant&types=text
+      Header:
+        Authorization: ["Bearer ${mintToken.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          Rows:
+            "@indexBy@": elicitationId
+            "${canonical019.Responses[0].JSONBody.transcript.conversation.turns[0].elicitation.elicitationId}":
+              status: rejected

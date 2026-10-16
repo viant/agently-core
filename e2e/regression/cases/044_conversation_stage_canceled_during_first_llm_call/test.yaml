@@ -1,72 +1,97 @@
 init:
   turnSuffix: $FormatTime('now', 'yyyyMMdd-HHmmss-SSS')
-
 pipeline:
-    createConversation:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-stage-test
+      email: e2e-stage-test@example.test
+  createConversation:
+    action: http/runner:send
+    requests:
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: simple
+        Title: conversation-stage-canceled-during-first-llm-call-e2e
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+  runAndCancel:
+    multiAction: true
+    startStoryTurn:
+      async: true
       action: http/runner:send
+      description: start long story turn (step 1)
       requests:
-        - Method: POST
-          URL: ${serverURL}/v1/conversations
-          JSONBody:
-            AgentID: simple
-            Title: conversation-stage-canceled-during-first-llm-call-e2e
-          Expect:
-            Code: 200
-            JSONBody:
-              "@exists@Id": true
-
-    runAndCancel:
-      multiAction: true
-
-      startStoryTurn:
-        async: true
-        action: http/runner:send
-        description: start long story turn (step 1)
-        requests:
-          - Method: POST
-            URL: ${serverURL}/v1/agent/query
-            Header:
-              Connection: [close]
-            JSONBody:
-              ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-              AgentID: simple
-              MessageID: e2e-stage-running-turn-first-llm-${turnSuffix}
-              UserId: e2e-stage-test
-              Query: create 500 words long story about mouse in bakery, for kids, no violence
-#            Expect:
-#              Code: 500
-#              JSONBody:
-#                error: "execution of query function canceled: context canceled"
-
-      waitForTurnActivation:
-        action: nop
-        sleepTimeMs: 2000
-
-      cancelRunningTurn:
-        action: http/runner:send
-        description: cancel the active running turn (step 2)
-        requests:
-          - Method: POST
-            URL: ${serverURL}/v1/turns/e2e-stage-running-turn-first-llm-${turnSuffix}/cancel
-            Expect:
-              Code: 200
-
-    waitForCancelPersistence:
+      - Method: POST
+        URL: ${aguiProbeURL}/run
+        Header:
+          Connection:
+          - close
+          Authorization:
+          - Bearer ${mintCanonicalOwner.TokenString}
+        JSONBody:
+          target: ${authServerURL}
+          probeId: 044_conversation_stage_canceled_during_first_llm_call-startStoryTurn
+          query:
+            conversationID: ${createConversation.Responses[0].JSONBody.id}
+            agentID: simple
+            messageID: e2e-stage-running-turn-first-llm-${turnSuffix}
+            query: create 500 words long story about mouse in bakery, for kids, no
+              violence
+    waitForTurnActivation:
       action: nop
-      sleepTimeMs: 1200
-
-    getConversation:
+      sleepTimeMs: 2000
+    observeActiveNativeTurn:
       action: http/runner:send
       requests:
-        - Method: GET
-          URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
-          Expect:
-            Code: 200
-
-    getTranscriptWithModelCall:
+      - Method: GET
+        URL: ${aguiProbeURL}/observe/044_conversation_stage_canceled_during_first_llm_call-startStoryTurn
+        Header:
+          Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+        Expect:
+          Code: 200
+          JSONBody:
+            '@exists@identity.nativeTurnId': true
+    cancelRunningTurn:
       action: http/runner:send
+      description: cancel the active running turn (step 2)
       requests:
-        - Method: GET
-          URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/transcript?includeModelCalls=true
-          Expect:
-            Code: 200
+      - Method: POST
+        URL: ${authServerURL}/v1/turns/${observeActiveNativeTurn.Responses[0].JSONBody.identity.nativeTurnId}/cancel
+        Expect:
+          Code: 200
+        Header:
+          Authorization:
+          - Bearer ${mintCanonicalOwner.TokenString}
+  waitForCancelPersistence:
+    action: nop
+    sleepTimeMs: 1200
+  getConversation:
+    action: http/runner:send
+    requests:
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}
+      Expect:
+        Code: 200
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+  getTranscriptWithModelCall:
+    action: http/runner:send
+    requests:
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}/transcript?includeModelCalls=true
+      Expect:
+        Code: 200
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

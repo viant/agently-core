@@ -18,8 +18,10 @@ import (
 	"github.com/viant/xdatly/handler"
 )
 
+// Later graph reads and locked child deletes must observe the queued prefix.
+// Imperative calls keep completion with the same parent-owned transaction.
 type DeleteComponent struct {
-	Contract xdatly.Component[DeleteInput, DeleteOutput] `component:"ConversationTreeDelete,path=/v1/internal/agently/conversation-tree/delete,method=POST,handler=NewDelete,internal=true"`
+	Contract xdatly.Component[DeleteInput, DeleteOutput] `component:"ConversationTreeDelete,path=/v1/internal/agently/conversation-tree/delete,method=POST,handler=NewDelete,internal=true" componentCallPolicy:"imperative"`
 }
 
 type DeleteInput struct {

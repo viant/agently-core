@@ -34,10 +34,7 @@ import (
 func New(ctx context.Context, options standalone.Options) (*standalone.Server, error) {
 	options.RequireLinked = true
 	if options.Config != nil && options.Config.GoBootstrap == nil {
-		options.Config.GoBootstrap = &config.Packages{LinkedOnly: true, Packages: []string{
-			"github.com/viant/agently-core/internal/datly/...",
-			"github.com/viant/agently-core/internal/store/...",
-		}}
+		options.Config.GoBootstrap = DefaultBootstrap()
 	}
 	server, err := standalone.New(ctx, options)
 	if err != nil {
@@ -48,4 +45,13 @@ func New(ctx context.Context, options standalone.Options) (*standalone.Server, e
 		return nil, err
 	}
 	return server, nil
+}
+
+// DefaultBootstrap selects the linked Core catalog without assuming a caller's
+// database schema. Managed native runtimes choose their readiness preloads.
+func DefaultBootstrap() *config.Packages {
+	return &config.Packages{LinkedOnly: true, Packages: []string{
+		"github.com/viant/agently-core/internal/datly/...",
+		"github.com/viant/agently-core/internal/store/...",
+	}}
 }

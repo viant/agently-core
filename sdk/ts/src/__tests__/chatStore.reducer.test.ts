@@ -426,6 +426,7 @@ describe('chatStore/reducer — applyEvent lifecycle', () => {
             elicitationId: 'elic_1',
             content: 'Please provide the environment variable name.',
             elicitationData: {
+                deadline: '2026-10-06T17:59:00Z',
                 requestedSchema: {
                     type: 'object',
                     properties: { name: { type: 'string' } },
@@ -434,6 +435,7 @@ describe('chatStore/reducer — applyEvent lifecycle', () => {
             },
         } as SSEEvent));
         expect(state.turns[0].elicitation?.message).toBe('Please provide the environment variable name.');
+        expect(state.turns[0].elicitation?.deadline).toBe('2026-10-06T17:59:00Z');
         expect(state.turns[0].elicitation?.requestedSchema).toMatchObject({
             type: 'object',
             required: ['name'],
@@ -529,6 +531,15 @@ describe('chatStore/reducer — applyEvent lifecycle', () => {
         } as SSEEvent));
 
         expect(state.turns[0].elicitation?.status).toBe('failed');
+    });
+
+    it.each(['accepted', 'rejected'])('persisted %s answer settles matching event-owned pending elicitation', (status) => {
+        let state = applyEvent(fresh(), sse({type: 'turn_started', turnId: 'tn_A'}));
+        state = applyEvent(state, sse({type: 'elicitation_requested', turnId: 'tn_A', elicitationId: 'answered', status: 'pending'} as SSEEvent));
+        state = applyEvent(state, sse({type: 'elicitation_requested', turnId: 'tn_A', elicitationId: 'still-open', status: 'pending'} as SSEEvent));
+        state = applyTranscript(state, {conversationId: CONV, turns: [{turnId: 'tn_A', status: 'running', elicitation: {elicitationId: 'answered', status}}]} as CanonicalConversationState);
+        expect(state.turns[0].elicitations?.find((item) => item.elicitationId === 'answered')?.status).toBe(status === 'rejected' ? 'declined' : status);
+        expect(state.turns[0].elicitations?.find((item) => item.elicitationId === 'still-open')?.status).toBe('pending');
     });
 
     it('terminal transcript can settle an event-owned pending canceled elicitation', () => {

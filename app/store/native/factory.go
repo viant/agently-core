@@ -37,19 +37,25 @@ func New(ctx context.Context, options Options) (*standalone.Server, error) {
 		return nil, fmt.Errorf("native Datly context is required")
 	}
 	connectors := options.Connectors
+	var bootstrap *config.Packages
 	if len(connectors) == 0 {
 		config, err := connectorFromEnvironment(ctx, options.WorkspaceRoot)
 		if err != nil {
 			return nil, err
 		}
 		connectors = []connector.Config{config}
+		// The managed Core database uses Datly's linked package index. Datly
+		// selects its own warmup, async and cache components; ordinary readers
+		// remain lazy. Explicit connectors may provide only metadata.
+		bootstrap = host.DefaultBootstrap()
 	}
 	providers := AccessProviders()
 	providers = append(providers, options.Providers...)
 	return host.New(ctx, standalone.Options{
 		Config: &config.Config{
-			Connector:  "agently",
-			Connectors: connectors,
+			Connector:   "agently",
+			Connectors:  connectors,
+			GoBootstrap: bootstrap,
 		},
 		Providers:            providers,
 		DefaultAuthenticator: options.DefaultAuthenticator,

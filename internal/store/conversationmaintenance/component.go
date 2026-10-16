@@ -38,8 +38,11 @@ type Output struct {
 	ConversationCount          int
 	LastActivity               time.Time
 }
+
+// Retention must observe its fence and graph-mutation children before returning.
+// Imperative composition preserves the same parent-owned transaction.
 type Component struct {
-	Contract xdatly.Component[Input, Output] `component:"ConversationMaintenance,path=/v1/internal/agently/conversation/maintenance,method=POST,handler=NewMaintain,internal=true"`
+	Contract xdatly.Component[Input, Output] `component:"ConversationMaintenance,path=/v1/internal/agently/conversation/maintenance,method=POST,handler=NewMaintain,internal=true" componentCallPolicy:"imperative"`
 }
 type Maintain struct{}
 

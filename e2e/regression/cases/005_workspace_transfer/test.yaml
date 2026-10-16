@@ -1,50 +1,49 @@
 pipeline:
   save:
     action: http/runner:send
-    description: "workspace transfer - save resource"
+    description: workspace transfer - save resource
     requests:
-      - Method: PUT
-        URL: ${serverURL}/v1/workspace/resources/agents/transfer_test
-        Body: "id: transfer_test\nname: Transfer Test"
-        Expect:
-          Code: 204
-
+    - Method: PUT
+      URL: ${serverURL}/v1/workspace/resources/agents/transfer_test
+      Body: |-
+        id: transfer_test
+        name: Transfer Test
+      Expect:
+        Code: 204
   export:
     action: http/runner:send
-    description: "workspace transfer - export"
+    description: workspace transfer - export
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/workspace/resources/export
+    - Method: POST
+      URL: ${serverURL}/v1/workspace/resources/export
+      JSONBody:
+        Kinds:
+        - agents
+      Expect:
+        Code: 200
         JSONBody:
-          Kinds:
-            - agents
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Resources": true
-
+          '@exists@resources': true
   import:
     action: http/runner:send
-    description: "workspace transfer - import with replace"
+    description: workspace transfer - import with replace
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/workspace/resources/import
+    - Method: POST
+      URL: ${serverURL}/v1/workspace/resources/import
+      JSONBody:
+        Resources:
+        - Kind: agents
+          Name: transfer_test
+          Data: aWQ6IHRyYW5zZmVyX3Rlc3QKbmFtZTogVHJhbnNmZXIgVGVzdA==
+        Replace: true
+      Expect:
+        Code: 200
         JSONBody:
-          Resources:
-            - Kind: agents
-              Name: transfer_test
-              Data: aWQ6IHRyYW5zZmVyX3Rlc3QKbmFtZTogVHJhbnNmZXIgVGVzdA==
-          Replace: true
-        Expect:
-          Code: 200
-          JSONBody:
-            imported: 1
-
+          imported: 1
   cleanup:
     action: http/runner:send
-    description: "workspace transfer - cleanup"
+    description: workspace transfer - cleanup
     requests:
-      - Method: DELETE
-        URL: ${serverURL}/v1/workspace/resources/agents/transfer_test
-        Expect:
-          Code: 204
+    - Method: DELETE
+      URL: ${serverURL}/v1/workspace/resources/agents/transfer_test
+      Expect:
+        Code: 204

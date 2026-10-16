@@ -1,0 +1,64 @@
+id: ad_order_lookup
+title: Ad Order Lookup
+cardinality: collection
+selectionMode: single
+uniqueKey:
+  - field: adOrderId
+selectors:
+  data: data
+  dataInfo: meta
+paging:
+  enabled: true
+  size: 20
+  parameters:
+    page: Page
+    size: Limit
+  dataInfoSelectors:
+    pageCount: pageCount
+    totalCount: recordCount
+filterSet:
+  - name: quick
+    default: true
+    template:
+      - id: AdOrderId
+        label: Order ID
+        operator: equal
+        type: int[]
+      - id: AdOrderName
+        label: Ad Order
+        operator: contains
+quickFilterSet: quick
+responseAliases:
+  adOrderId: AdOrderId
+  campaignId: CampaignId
+  advertiserId: AdvertiserId
+  agencyId: AgencyId
+  agencyName: AgencyName
+  advertiserName: AdvertiserName
+  campaignName: CampaignName
+  adOrderName: AdOrderName
+backend:
+  kind: mcp_tool
+  service: steward
+  method: MetaOrder
+  pinned:
+    Fields:
+      - adOrderId
+      - campaignId
+      - advertiserId
+      - agencyId
+      - agencyName
+      - advertiserName
+      - campaignName
+      - adOrderName
+    OrderBy:
+      - adOrderId:desc
+cache:
+  scope: user
+  ttl: 10m
+  maxEntries: 200
+  key:
+    - args.AdOrderId
+    - args.AdOrderName
+    - args.Page
+    - args.Limit

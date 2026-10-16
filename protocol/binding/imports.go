@@ -65,12 +65,24 @@ func ResolveTextImports(ctx context.Context, fs afs.Service, text, baseURI strin
 	if !strings.Contains(text, "$import(") {
 		return text, nil
 	}
-	return resolveTextImports(ctx, fs, text, baseURI, 0, map[string]bool{})
+	return ResolveTextImportsWithReader(ctx, func(ctx context.Context, uri string) ([]byte, error) { return fs.DownloadWithURL(ctx, uri) }, text, baseURI)
+}
+
+// ResolveTextImportsWithReader preserves import syntax/limits while letting
+// an owning document provider supply the original bytes.
+func ResolveTextImportsWithReader(ctx context.Context, read func(context.Context, string) ([]byte, error), text, baseURI string) (string, error) {
+	if read == nil {
+		return "", fmt.Errorf("prompt document reader unavailable")
+	}
+	if !strings.Contains(text, "$import(") {
+		return text, nil
+	}
+	return resolveTextImports(ctx, read, text, baseURI, 0, map[string]bool{})
 }
 
 func resolveTextImports(
 	ctx context.Context,
-	fs afs.Service,
+	read func(context.Context, string) ([]byte, error),
 	text, baseURI string,
 	depth int,
 	visiting map[string]bool,
@@ -111,14 +123,14 @@ func resolveTextImports(
 			return match
 		}
 
-		data, err := fs.DownloadWithURL(ctx, resolvedURI)
+		data, err := read(ctx, resolvedURI)
 		if err != nil {
 			firstErr = fmt.Errorf("$import %q (resolved %s) from %s: %w", importPath, resolvedURI, baseURI, err)
 			return match
 		}
 
 		visiting[resolvedURI] = true
-		child, err := resolveTextImports(ctx, fs, string(data), resolvedURI, depth+1, visiting)
+		child, err := resolveTextImports(ctx, read, string(data), resolvedURI, depth+1, visiting)
 		delete(visiting, resolvedURI)
 		if err != nil {
 			firstErr = err

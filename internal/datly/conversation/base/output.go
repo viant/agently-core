@@ -4,5 +4,5 @@ package base
 
 // ConversationOutput is the generated output scaffold for reader.
 type ConversationOutput struct {
-	Data []*ConversationBaseView `parameter:"Data,kind=output,in=view,dataType=[]*ConversationBaseView" view:"reader,type=ConversationBaseView,rowLock=conversation t,rowLockOrder=t.id,table=conversation,selectorProjection=true,selectorLimit=true" sql:"uri=datly_conversation_base_reader:sql/reader.sql"`
+	Data []*ConversationBaseView `parameter:"Data,kind=output,in=view,dataType=[]*ConversationBaseView" view:"reader,type=ConversationBaseView,rowLock=conversation t,rowLockOrder=t.id,table=conversation,selectorProjection=true,selectorLimit=true" json:"data" sql:"uri=datly_conversation_base_reader:sql/reader.sql"`
 }

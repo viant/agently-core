@@ -165,7 +165,7 @@ func (s *Service) getActiveReportRunTool(ctx context.Context, in, out interface{
 	}
 	result, err := s.GetActiveReportRun(ctx)
 	if err != nil {
-		return ErrNotFound
+		return err
 	}
 	*output = *result
 	return nil

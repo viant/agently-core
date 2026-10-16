@@ -45,6 +45,10 @@ type Skill struct {
 }
 
 type Metadata struct {
+	// LocalSelector preserves the original selector of a trusted startup-local
+	// entry. Host delivery sets it from registered originals, never MCP metadata.
+	LocalSelector string `json:"localSelector,omitempty"`
+	Namespace     string `json:"namespace,omitempty"`
 	URI           string `json:"uri,omitempty"`
 	QualifiedName string `json:"qualifiedName,omitempty"`
 	ServerID      string `json:"serverId,omitempty"`

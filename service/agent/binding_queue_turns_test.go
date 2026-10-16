@@ -120,7 +120,9 @@ func TestContinuationRequest_QueuedPromptUsesTurnCreatedAt(t *testing.T) {
 
 	req := &llm.GenerateRequest{Messages: []llm.Message{{ID: "turn-3", Role: llm.RoleUser, Content: promptText}}}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-3"})
-	cont := (&core.Service{}).BuildContinuationRequest(ctx, req, history)
+	require.Nil(t, (&core.Service{}).BuildContinuationRequest(ctx, req, history), "unconfigured continuation must fail closed")
+	continuationService, verifiedCtx := verifiedContinuationFixture(t, ctx, req, "resp-2")
+	cont := continuationService.BuildContinuationRequest(verifiedCtx, req, history)
 
 	require.NotNil(t, cont)
 	require.Equal(t, "resp-2", cont.PreviousResponseID)

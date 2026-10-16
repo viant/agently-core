@@ -10,7 +10,7 @@ import (
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 )
 
 const Name = "ui/context"
@@ -104,10 +104,10 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 		output.ConversationID = conversationID
 		output.ClientID = preferredClientID
 		output.RecentEvents = newestFirstUIEvents(
-			s.reg.ListEvents(conversationID, preferredClientID, strings.TrimSpace(input.WindowID), strings.TrimSpace(input.WindowKey), 10, 0),
+			s.protectedEvents(ctx, conversationID, preferredClientID, strings.TrimSpace(input.WindowID), strings.TrimSpace(input.WindowKey), 10, 0),
 		)
 		output.CurrentReports = buildCurrentReportContexts(
-			s.reg.ListEvents(conversationID, preferredClientID, strings.TrimSpace(input.WindowID), strings.TrimSpace(input.WindowKey), 100, 0),
+			s.protectedEvents(ctx, conversationID, preferredClientID, strings.TrimSpace(input.WindowID), strings.TrimSpace(input.WindowKey), 100, 0),
 		)
 		return nil
 	}
@@ -135,10 +135,10 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	output.RecentEvents = newestFirstUIEvents(
-		s.reg.ListEvents(conversationID, client.ClientID, strings.TrimSpace(input.WindowID), strings.TrimSpace(input.WindowKey), 10, 0),
+		s.protectedEvents(ctx, conversationID, client.ClientID, strings.TrimSpace(input.WindowID), strings.TrimSpace(input.WindowKey), 10, 0),
 	)
 	output.CurrentReports = buildCurrentReportContexts(
-		s.reg.ListEvents(conversationID, client.ClientID, strings.TrimSpace(input.WindowID), strings.TrimSpace(input.WindowKey), 100, 0),
+		s.protectedEvents(ctx, conversationID, client.ClientID, strings.TrimSpace(input.WindowID), strings.TrimSpace(input.WindowKey), 100, 0),
 	)
 	return nil
 }
@@ -326,4 +326,12 @@ func normalizeOptionalClientID(raw string) string {
 		return ""
 	}
 	return value
+}
+
+func (s *Service) protectedEvents(ctx context.Context, conversationID, clientID, windowID, windowKey string, limit int, sinceSeq int64) []uireg.UIEvent {
+	events, err := s.reg.ListEventsContext(ctx, conversationID, clientID, windowID, windowKey, limit, sinceSeq)
+	if err != nil {
+		return nil
+	}
+	return events
 }

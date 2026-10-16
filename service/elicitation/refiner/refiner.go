@@ -23,6 +23,12 @@ var overlayHook OverlayHook
 func SetOverlayHook(h OverlayHook) { overlayHook = h }
 
 func Refine(rs *schema.ElicitRequestParamsRequestedSchema) {
+	RefineWithHook(rs, overlayHook)
+}
+
+// RefineWithHook uses one caller-owned presentation hook without consulting the
+// legacy process-wide hook. Runtime instances keep their lookup scopes separate.
+func RefineWithHook(rs *schema.ElicitRequestParamsRequestedSchema, hook OverlayHook) {
 	if rs == nil {
 		return
 	}
@@ -65,8 +71,8 @@ func Refine(rs *schema.ElicitRequestParamsRequestedSchema) {
 	if !hasExplicitOrder(rs) {
 		assignAutoOrder(rs)
 	}
-	if overlayHook != nil {
-		overlayHook(rs.Properties)
+	if hook != nil {
+		hook(rs.Properties)
 	}
 }
 

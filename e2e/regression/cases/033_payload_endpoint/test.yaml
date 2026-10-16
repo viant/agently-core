@@ -1,97 +1,122 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-payload
+      email: e2e-payload@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "payload endpoint - create conversation"
+    description: payload endpoint - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: simple
+        Title: payload-endpoint-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: simple
-          Title: payload-endpoint-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   query:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "payload endpoint - generate model call payloads"
+    description: payload endpoint - generate model call payloads
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 033_payload_endpoint-query
+        query:
+          conversationID: ${createConversation.Responses[0].JSONBody.id}
+          agentID: simple
+          query: Say hello in one short sentence.
+      Expect:
+        Code: 200
         JSONBody:
-          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-          AgentID: simple
-          UserId: e2e-payload
-          Query: Say hello in one short sentence.
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-
+          '@exists@identity.nativeConversationId': true
   transcript:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "payload endpoint - fetch transcript with model call ids"
+    description: payload endpoint - fetch transcript with model call ids
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/transcript?includeModelCalls=true
-        extract:
-          - key: responsePayloadId
-            regExpr: '(?s)"modelSteps":\[\{.*?"responsePayloadId":"([^"]+)"'
-            required: true
-        Expect:
-          Code: 200
-
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}/transcript?includeModelCalls=true
+      extract:
+      - key: responsePayloadId
+        regExpr: (?s)"modelSteps":\[\{.*?"responsePayloadId":"([^"]+)"
+        required: true
+      Expect:
+        Code: 200
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   rawResponsePayload:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "payload endpoint - raw response payload returns JSON body"
+    description: payload endpoint - raw response payload returns JSON body
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/api/payload/${transcript.Data.responsePayloadId}?raw=1
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@choices": true
-            "@exists@model": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/api/payload/${transcript.Data.responsePayloadId}?raw=1
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@choices': true
+          '@exists@model': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   metaResponsePayload:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "payload endpoint - meta mode returns payload envelope"
+    description: payload endpoint - meta mode returns payload envelope
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/api/payload/${transcript.Data.responsePayloadId}?meta=1
-        Expect:
-          Code: 200
-          JSONBody:
-            Id: ${transcript.Data.responsePayloadId}
-            "@exists@Compression": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/api/payload/${transcript.Data.responsePayloadId}?meta=1
+      Expect:
+        Code: 200
+        JSONBody:
+          Id: ${transcript.Data.responsePayloadId}
+          '@exists@Compression': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   inlineResponsePayload:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "payload endpoint - inline mode includes InlineBody"
+    description: payload endpoint - inline mode includes InlineBody
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/api/payload/${transcript.Data.responsePayloadId}?inline=1
-        Expect:
-          Code: 200
-          JSONBody:
-            Id: ${transcript.Data.responsePayloadId}
-            "@exists@InlineBody": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/api/payload/${transcript.Data.responsePayloadId}?inline=1
+      Expect:
+        Code: 200
+        JSONBody:
+          Id: ${transcript.Data.responsePayloadId}
+          '@exists@InlineBody': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   missingPayload:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "payload endpoint - missing payload id returns 404"
+    description: payload endpoint - missing payload id returns 404
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/api/payload/does-not-exist?raw=1
-        Expect:
-          Code: 404
+    - Method: GET
+      URL: ${authServerURL}/v1/api/payload/does-not-exist?raw=1
+      Expect:
+        Code: 404
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

@@ -1,21 +1,38 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-test
+      email: e2e-test@example.test
   query:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "model override responses - verify explicit Responses model field"
+    description: model override responses - verify explicit Responses model field
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 036_model_override_responses-query
+        query:
+          agentID: simple
+          query: Say hello
+          model: openai_gpt4o_mini_responses
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: simple
-          Query: Say hello
-          UserId: e2e-test
-          ModelOverride: openai_gpt4o_mini_responses
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@content": true
-            model: ~/gpt4o_mini|gpt-4o-mini/
+          '@exists@identity.nativeConversationId': true
+          '@exists@assistantText': true
+          rootTurn:
+            execution:
+              pages:
+              - modelSteps:
+                - model: ~/gpt4o_mini|gpt-4o-mini/

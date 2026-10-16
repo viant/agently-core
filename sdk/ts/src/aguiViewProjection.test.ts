@@ -19,6 +19,54 @@ function harness(profile:'standard'|'agently',events:object[],options:{baseline?
 }
 
 describe('official reduced AG-UI view projection',()=>{
+    it('correlates bare terminal steps with the retained native model and tool identities', async () => {
+        const model = metadata({modelCallId:'native-model',nativeMessageId:'model-message',pageId:'model-page'});
+        const tool = metadata({modelCallId:'native-model',nativeMessageId:'model-message',nativeToolCallId:'native-tool',toolMessageId:'tool-message',pageId:'model-page'});
+        const h = harness('agently', [start,
+            {type:'STEP_STARTED',stepName:'model/native-model',metadata:model},
+            {type:'TOOL_CALL_START',toolCallId:'protocol-tool',toolCallName:'fixture_tool',parentMessageId:'model-message',metadata:tool},
+            {type:'TOOL_CALL_ARGS',toolCallId:'protocol-tool',delta:'{}',metadata:tool},
+            {type:'TOOL_CALL_END',toolCallId:'protocol-tool',metadata:tool},
+            {type:'TOOL_CALL_RESULT',toolCallId:'protocol-tool',messageId:'tool-message',content:'done',metadata:tool},
+            {type:'STEP_FINISHED',stepName:'model/native-model'}, finish]);
+        await h.run();
+        // Replayed terminal observation is idempotent at the projection boundary;
+        // the official wire verifier correctly rejects duplicate STEP_FINISHED.
+        h.projection.subscriber.onEvent?.({event:{type:'STEP_FINISHED',stepName:'model/native-model'}} as any);
+        const terminal = h.views.filter(event => event.type === 'model_completed');
+        expect(terminal).toHaveLength(1);
+        expect(terminal[0]).toMatchObject({modelCallId:'native-model',turnId:'native-turn',pageId:'model-page',status:'completed'});
+        const models = h.store().turns.flatMap(turn => turn.pages.flatMap(page => page.modelSteps));
+        expect(models).toHaveLength(1);
+        expect(models[0]).toMatchObject({modelCallId:'native-model',status:'completed'});
+        const tools = h.store().turns.flatMap(turn => turn.pages.flatMap(page => page.toolCalls));
+        expect(tools).toHaveLength(1);
+        expect(tools[0]).toMatchObject({toolCallId:'native-tool',status:'completed'});
+    });
+    it('keeps the started lane when terminal turn metadata has no model identity', async () => {
+        const held = metadata({modelCallId:'native-model',nativeMessageId:'model-message',pageId:'model-page'});
+        const terminalTurn = metadata({nativeTurnId:'terminal-turn',pageId:'terminal-page'});
+        const h = harness('agently', [start,
+            {type:'STEP_STARTED',stepName:'model/native-model',metadata:held},
+            {type:'STEP_FINISHED',stepName:'model/native-model',metadata:terminalTurn},finish]);
+        await h.run();
+        expect(h.views.find(event=>event.type==='model_completed')).toMatchObject({modelCallId:'native-model',turnId:'native-turn',pageId:'model-page',status:'completed'});
+        const models = h.store().turns.flatMap(turn => turn.pages.flatMap(page => page.modelSteps));
+        expect(models).toEqual([expect.objectContaining({modelCallId:'native-model',status:'completed'})]);
+    });
+    it('retains child owner and page for a bare terminal without moving it to the root', async () => {
+        const child = {agently:{presentation:{version:'1',conversationId:'conversation',nativeTurnId:'child-turn',pageId:'child-page',modelCallId:'child-model',nativeMessageId:'child-message',iteration:0}}};
+        const h = harness('agently', [start,
+            {type:'STEP_STARTED',stepName:'model/child-model',subagentRunId:'child-run',metadata:child},
+            {type:'STEP_FINISHED',stepName:'model/child-model',subagentRunId:'child-run'}, finish]);
+        await h.run();
+        const terminal = h.views.find(event => event.type === 'model_completed');
+        expect(terminal).toMatchObject({modelCallId:'child-model',turnId:'child-turn',pageId:'child-page',subagentRunId:'child-run'});
+        const childTurn = h.store().turns.find(turn => turn.turnId === 'child-turn');
+        expect(childTurn?.pages.flatMap(page => page.modelSteps)).toEqual([expect.objectContaining({modelCallId:'child-model',status:'completed'})]);
+        expect(h.store().turns.filter(turn => turn.turnId !== 'child-turn').flatMap(turn => turn.pages.flatMap(page => page.modelSteps))).toHaveLength(0);
+    });
+
     it('finishes the current native turn without taking identity from old history or children', async () => {
         const prior = ['prior-one', 'prior-two', 'prior-three'].map(id => ({
             id, role: 'assistant' as const, content: 'Earlier answer',
@@ -297,6 +345,71 @@ it('retains explicit message-add ownership through a metadata-poor terminal mess
     await h.run();
     expect(h.rows().filter(row=>row.kind==='assistant'&&row.messageId===noteId)).toHaveLength(1);
     expect((h.rows().find(row=>row.kind==='iteration') as IterationRenderRow).rounds.some(round=>round.content===note)).toBe(false);
+});
+
+describe('native rendered model message ownership', () => {
+    it('keeps rich activity on its declared model page and preserves pending tools and public highlights', async () => {
+        const pending=metadata({nativeMessageId:'pending-model',modelCallId:'pending-model',pageId:'pending-model',iteration:2});
+        const finalStart=metadata({nativeMessageId:'final-model',modelCallId:'final-model',pageId:'final-model',iteration:3});
+        // Actual99 activity carries exact model identity, omitting pageId.
+        const finalContent=metadata({nativeMessageId:'final-model',modelCallId:'final-model',pageId:undefined,iteration:0});
+        const highlight=metadata({nativeMessageId:'public-highlight',pageId:undefined,messageKind:'standalone',iteration:0});
+        const rich={schemaVersion:1,parts:[{kind:'text',text:'Synthetic report complete.'}],reports:[],diagnostics:[]};
+        const h=harness('agently',[start,
+            {type:'STEP_STARTED',stepName:'pending-model',metadata:pending},
+            {type:'TOOL_CALL_START',toolCallId:'pending-protocol-tool',toolCallName:'fixture_pending',parentMessageId:'pending-model',metadata:metadata({...pending.agently.presentation,nativeToolCallId:'pending-native-tool'})},
+            {type:'TEXT_MESSAGE_START',messageId:'public-highlight',role:'assistant',metadata:highlight},
+            {type:'TEXT_MESSAGE_CONTENT',messageId:'public-highlight',delta:'Public highlight retained.'},
+            {type:'STEP_STARTED',stepName:'final-model',metadata:finalStart},
+            {type:'TEXT_MESSAGE_START',messageId:'final-model',role:'assistant',metadata:finalContent},
+            {type:'TEXT_MESSAGE_CONTENT',messageId:'final-model',delta:'Synthetic report complete.'},
+            {type:'ACTIVITY_SNAPSHOT',messageId:'final-model/activity',activityType:'agently.rendered-content',content:{version:'1',renderedContent:rich},metadata:finalContent},
+            {type:'STEP_FINISHED',stepName:'final-model',metadata:metadata({...finalContent.agently.presentation,pageId:'final-model',status:'completed'})},
+        ]);
+        await h.run();
+        const pages=h.store().turns.flatMap(turn=>turn.pages);
+        expect(pages.map(page=>page.pageId)).toEqual(['pending-model','final-model']);
+        expect(pages.find(page=>page.pageId==='final-model')?.renderedContent).toEqual(rich);
+        expect(pages.find(page=>page.pageId==='pending-model')?.toolCalls).toEqual([expect.objectContaining({toolCallId:'pending-native-tool',status:'requested'})]);
+        expect(h.rows().some(row=>row.kind==='assistant'&&row.content==='Public highlight retained.')).toBe(true);
+    });
+});
+
+
+describe('late initial history during a new native turn', () => {
+    it('keeps canonical history before the live turn without losing its standalone highlight or pending execution', async () => {
+        const live='451275ed-7d2c-4cea-9874-d1c45e23ae8a';
+        const note='93244293-3f54-4b9f-b06d-b18efb5c172f';
+        const lane=metadata({nativeTurnId:live,nativeMessageId:'live-model',modelCallId:'live-model',pageId:'live-model',iteration:1});
+        const standalone=metadata({nativeTurnId:live,nativeMessageId:note,pageId:undefined,messageKind:'standalone',iteration:0});
+        const h=harness('agently',[start,
+            {type:'ACTIVITY_SNAPSHOT',messageId:'live-status',activityType:'agently.turn',content:{version:'1',nativeTurnId:live,status:'running',queueSequence:'0'},metadata:metadata({nativeTurnId:live})},
+            {type:'STEP_STARTED',stepName:'live-model',metadata:lane},
+            {type:'TOOL_CALL_START',toolCallId:'pending-protocol',toolCallName:'fixture_pending',parentMessageId:'live-model',metadata:metadata({...lane.agently.presentation,nativeToolCallId:'pending-native'})},
+            {type:'TEXT_MESSAGE_START',messageId:note,role:'assistant',metadata:standalone},
+            {type:'TEXT_MESSAGE_CONTENT',messageId:note,delta:'Public highlight retained.'},
+        ]);
+        await h.run();
+        const state=h.store();
+        const heldPage=state.turns.find(turn=>turn.turnId===live)?.pages[0];
+        const heldNote=state.turns.find(turn=>turn.turnId===live)?.messages.find(message=>message.messageId===note);
+        const history={conversationId:'conversation',turns:[
+            {turnId:'older-91',status:'completed',user:{messageId:'user-91',content:'Earlier request'}},
+            {turnId:'older-92',status:'completed',user:{messageId:'user-92',content:'Earlier request'}},
+        ]};
+        // The initial canonical GET began before the submit and settles afterwards.
+        applyTranscript(state,history as any);
+        expect(state.turns.map(turn=>turn.turnId)).toEqual(['older-91','older-92',live]);
+        expect(state.turns.find(turn=>turn.turnId===live)?.pages[0]).toBe(heldPage);
+        expect(state.turns.find(turn=>turn.turnId===live)?.messages.find(message=>message.messageId===note)).toBe(heldNote);
+        expect(h.rows().filter(row=>row.kind==='assistant'&&row.messageId===note)).toHaveLength(1);
+        expect(heldPage?.toolCalls).toEqual([expect.objectContaining({toolCallId:'pending-native',status:'requested'})]);
+        applyTranscript(state,{...history,turns:[...history.turns,{turnId:live,status:'running',messages:[{messageId:note,role:'assistant',content:'Stale note'}]}]} as any);
+        applyTranscript(state,history as any);
+        expect(state.turns.map(turn=>turn.turnId)).toEqual(['older-91','older-92',live]);
+        expect(h.rows().filter(row=>row.kind==='assistant'&&row.messageId===note)).toEqual([expect.objectContaining({content:'Public highlight retained.'})]);
+        expect(heldPage?.toolCalls[0].status).toBe('requested');
+    });
 });
 
 describe('scoped client-tool waiting presentation',()=>{

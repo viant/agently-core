@@ -595,6 +595,7 @@ func applyElicitationRequested(turn *TurnState, event *streaming.Event) {
 		Message:         strings.TrimSpace(event.Content),
 		RequestedSchema: marshalToRawJSON(event.ElicitationData),
 		CallbackURL:     strings.TrimSpace(event.CallbackURL),
+		Deadline:        elicitationDeadline(event.ElicitationData),
 	}
 	turn.Elicitation.Mode, _ = event.ElicitationData["mode"].(string)
 	turn.Elicitation.URL, _ = event.ElicitationData["url"].(string)
@@ -926,4 +927,9 @@ func deactivateFeed(state *ConversationState, feedID string) {
 		filtered = append(filtered, f)
 	}
 	state.Feeds = filtered
+}
+
+func elicitationDeadline(data map[string]interface{}) string {
+	deadline, _ := data["deadline"].(string)
+	return strings.TrimSpace(deadline)
 }

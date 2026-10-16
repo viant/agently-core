@@ -229,22 +229,7 @@ func loadWorkspaceDataSources(ctx context.Context, svc *wsmeta.Service) (map[str
 			log.Printf("workspace forge: skipping additional duplicate datasource id %q from %s", id, workspaceAssetPath(dataSourcePath))
 			continue
 		}
-		if dataSource.Service == nil {
-			dataSource.Service = &forgeTypes.Service{
-				Endpoint: "agentlyAPI",
-				URI:      "/v1/api/datasources/" + id + "/fetch",
-				Method:   "POST",
-			}
-			if dataSource.Selectors == nil {
-				dataSource.Selectors = &forgeTypes.Selectors{}
-			}
-			if strings.TrimSpace(dataSource.Selectors.Data) == "" || strings.TrimSpace(dataSource.Selectors.Data) == "data" {
-				dataSource.Selectors.Data = "rows"
-			}
-			if strings.TrimSpace(dataSource.Selectors.DataInfo) == "" || strings.TrimSpace(dataSource.Selectors.DataInfo) == "meta" {
-				dataSource.Selectors.DataInfo = "dataInfo"
-			}
-		}
+		dataSource = forgeTypes.ProjectNativeDataSource(id, dataSource)
 		if _, exists := result[id]; exists {
 			log.Printf("workspace forge: quarantining duplicate datasource id %q from %s and %s", id, workspaceAssetPath(sources[id]), workspaceAssetPath(dataSourcePath))
 			delete(result, id)

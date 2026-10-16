@@ -15,7 +15,7 @@ import (
 	reportingrunsvc "github.com/viant/agently-core/service/reportingrun"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	fsstate "github.com/viant/agently-core/workspace/store/fs"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 )
 
 func postUIRPC(t *testing.T, bridge *forgeuisvc.Service, method string, params map[string]interface{}) map[string]interface{} {

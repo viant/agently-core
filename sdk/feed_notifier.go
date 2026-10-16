@@ -16,6 +16,7 @@ import (
 // events via the streaming bus.
 type feedNotifier struct {
 	registry *FeedRegistry
+	resolve  func(context.Context, string) ([]*FeedSpec, error)
 	bus      streaming.Bus
 
 	mu          sync.Mutex
@@ -33,10 +34,19 @@ func newFeedNotifier(registry *FeedRegistry, bus streaming.Bus) *feedNotifier {
 // NotifyToolCompleted checks if the completed tool matches any feed spec
 // and emits a tool_feed_active SSE event.
 func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string, request map[string]interface{}, result string) {
-	if n.registry == nil || n.bus == nil {
+	if (n.registry == nil && n.resolve == nil) || n.bus == nil {
 		return
 	}
-	matched := n.registry.Match(toolName)
+	var matched []*FeedSpec
+	if n.resolve != nil {
+		var err error
+		matched, err = n.resolve(ctx, toolName)
+		if err != nil {
+			return
+		}
+	} else {
+		matched = n.registry.Match(toolName)
+	}
 	if len(matched) > 0 {
 		log.Printf("[feed-notifier] tool=%q matched %d feeds", toolName, len(matched))
 	}
@@ -64,7 +74,10 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 		n.activeFeeds[convID] = feedsByConversation
 	}
 	for _, spec := range matched {
-		feedsByConversation[spec.ID] = true
+		feedsByConversation[feedIdentity(spec)] = true
+		if n.resolve != nil {
+			feedsByConversation[feedIdentity(spec)] = strings.EqualFold(strings.TrimSpace(spec.Activation.Scope), "turn")
+		}
 	}
 	n.mu.Unlock()
 	// Emit SSE events outside the lock — bus.Publish must not be called under
@@ -86,25 +99,33 @@ func (n *feedNotifier) NotifyToolCompleted(ctx context.Context, toolName string,
 // EmitInactiveForMissing emits tool_feed_inactive for feeds that were
 // previously active but are no longer matched in the current turn.
 func (n *feedNotifier) EmitInactiveForMissing(ctx context.Context, convID string, currentToolNames []string) {
-	if n.registry == nil || n.bus == nil {
+	if (n.registry == nil && n.resolve == nil) || n.bus == nil {
 		return
 	}
 	// Build set of currently matched feed IDs.
 	currentFeedIDs := map[string]bool{}
 	for _, name := range currentToolNames {
-		for _, spec := range n.registry.Match(name) {
-			currentFeedIDs[spec.ID] = true
+		var matched []*FeedSpec
+		if n.resolve != nil {
+			matched, _ = n.resolve(ctx, name)
+		} else {
+			matched = n.registry.Match(name)
+		}
+		for _, spec := range matched {
+			currentFeedIDs[feedIdentity(spec)] = true
 		}
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	feedsByConversation := n.activeFeeds[convID]
-	for feedID := range feedsByConversation {
-		var turnScoped bool
-		for _, spec := range n.registry.Specs() {
-			if spec != nil && spec.ID == feedID {
-				turnScoped = strings.EqualFold(strings.TrimSpace(spec.Activation.Scope), "turn")
-				break
+	for feedID, turnScoped := range feedsByConversation {
+		if n.resolve == nil {
+			turnScoped = false
+			for _, spec := range n.registry.Specs() {
+				if spec != nil && feedIdentity(spec) == feedID {
+					turnScoped = strings.EqualFold(strings.TrimSpace(spec.Activation.Scope), "turn")
+					break
+				}
 			}
 		}
 		if !turnScoped {

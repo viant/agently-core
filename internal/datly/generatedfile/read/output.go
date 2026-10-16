@@ -9,6 +9,6 @@ import (
 // Output is the generated output scaffold for reader.
 type Output struct {
 	response.Status `parameter:",kind=output,in=status"`
-	Metrics         response.Metrics     `parameter:",kind=output,in=metrics"`
-	Data            []*GeneratedFileView `parameter:"Data,kind=output,in=view,dataType=[]*GeneratedFileView" view:"reader,type=GeneratedFileView,rowLock=generated_file gf,table=generated_file" sql:"uri=datly_generatedfile_read_reader:sql/reader.sql"`
+	Metrics         response.Metrics     `parameter:",kind=output,in=metrics" json:"metrics"`
+	Data            []*GeneratedFileView `parameter:"Data,kind=output,in=view,dataType=[]*GeneratedFileView" view:"reader,type=GeneratedFileView,rowLock=generated_file gf,table=generated_file" json:"data" sql:"uri=datly_generatedfile_read_reader:sql/reader.sql"`
 }

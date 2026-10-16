@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -390,7 +391,44 @@ func TestRegistryExecutionProtectionLimitsReconnectAttempts(t *testing.T) {
 	}
 }
 
+func TestAuthorizationGuardChecksEachIdenticalCall(t *testing.T) {
+	client := &protectionTestClient{result: "current-account-result"}
+	registry, _ := newRemoteProtectionRegistry(client, nil)
+	checks := 0
+	registry.SetAuthorizationGuard(func(context.Context, string, map[string]interface{}) error { checks++; return nil })
+	for i := 0; i < 2; i++ {
+		result, err := registry.Execute(protectedTurnContext("turn-current"), "service/tool", map[string]interface{}{"body": "same"})
+		if err != nil || result != "current-account-result" {
+			t.Fatalf("guarded call=%q err=%v", result, err)
+		}
+	}
+	if checks != 2 || client.calls.Load() != 2 {
+		t.Fatalf("authorization guard or provider was skipped: checks=%d provider=%d", checks, client.calls.Load())
+	}
+}
+
+func TestAccountBoundModeDispatchesEachIdenticalCallWithoutToolGuard(t *testing.T) {
+	client := &protectionTestClient{result: "current-account-result"}
+	registry, _ := newRemoteProtectionRegistry(client, nil)
+	registry.SetResultReuseDisabled(true)
+	for i := 0; i < 2; i++ {
+		result, err := registry.Execute(protectedTurnContext("turn-current"), "service/tool", map[string]interface{}{"body": "same"})
+		if err != nil || result != "current-account-result" {
+			t.Fatalf("account-bound call=%q err=%v", result, err)
+		}
+	}
+	if client.calls.Load() != 2 {
+		t.Fatalf("account-bound result reused: provider calls=%d", client.calls.Load())
+	}
+}
+
 func TestRegistryExecutesConcurrentIdenticalUnprotectedCallsIndependently(t *testing.T) {
+	for _, recorded := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) { testRegistryConcurrentCallsIndependently(t, recorded) })
+	}
+}
+
+func testRegistryConcurrentCallsIndependently(t *testing.T, recorded bool) {
 	started := make(chan struct{}, 2)
 	release := make(chan struct{})
 	client := &protectionTestClient{
@@ -404,6 +442,10 @@ func TestRegistryExecutesConcurrentIdenticalUnprotectedCallsIndependently(t *tes
 		},
 	}
 	registry, _ := newRemoteProtectionRegistry(client, nil)
+	ctx := protectedTurnContext("turn-unprotected")
+	if recorded {
+		ctx = runtimerequestctx.WithToolMessageID(ctx, "host-tool-message")
+	}
 	start := make(chan struct{})
 	results := make(chan string, 2)
 	errs := make(chan error, 2)
@@ -413,7 +455,7 @@ func TestRegistryExecutesConcurrentIdenticalUnprotectedCallsIndependently(t *tes
 		go func() {
 			defer wait.Done()
 			<-start
-			result, err := registry.Execute(protectedTurnContext("turn-unprotected"), "service/tool", map[string]interface{}{"body": "same"})
+			result, err := registry.Execute(ctx, "service/tool", map[string]interface{}{"body": "same"})
 			results <- result
 			errs <- err
 		}()
@@ -608,5 +650,30 @@ func TestRegistryExecutionProtectionFinishIsDetachedAndBounded(t *testing.T) {
 	case <-guard.finished:
 	case <-time.After(time.Second):
 		t.Fatal("Finish goroutine did not terminate")
+	}
+}
+
+func TestRegistryExecutesIdenticalPresentationSinkCallsIndependently(t *testing.T) {
+	for _, recordedFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recorded-first=%t", recordedFirst), func(t *testing.T) {
+			client := &rawResultProtectionClient{}
+			registry, _ := newRemoteProtectionRegistry(client, nil)
+			direct := protectedTurnContext("turn-unprotected")
+			recorded := runtimerequestctx.WithToolMessageID(direct, "host-tool-message")
+			contexts := []context.Context{direct, recorded}
+			if recordedFirst {
+				contexts[0], contexts[1] = recorded, direct
+			}
+			for index, ctx := range contexts {
+				for repeat := 0; repeat < 2; repeat++ {
+					if _, err := registry.Execute(ctx, "service/tool", map[string]interface{}{"body": "same"}); err != nil {
+						t.Fatal(err)
+					}
+					if got := client.calls.Load(); got != int64(index*2+repeat+1) {
+						t.Fatalf("sink %d repeat %d provider calls=%d", index, repeat, got)
+					}
+				}
+			}
+		})
 	}
 }

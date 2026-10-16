@@ -6,12 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
 	convdata "github.com/viant/agently-core/app/store/data"
+	dsproto "github.com/viant/agently-core/protocol/datasource"
+	identity "github.com/viant/agently-core/protocol/resource"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
+	"github.com/viant/agently-core/service/policy"
+	"github.com/viant/agently-core/service/ui/permittedview"
+	"github.com/viant/authz"
+	"github.com/viant/authz/gating"
+	"github.com/viant/jsonrpc"
 )
 
 // ErrDatasourceStackNotConfigured is returned by Backend implementations that
@@ -33,7 +41,8 @@ func handleFetchDatasource(client Backend) http.HandlerFunc {
 			return
 		}
 		in.ID = id
-		ctx := r.Context()
+		ctx := runtimerequestctx.WithUIBridgeSessionID(r.Context(), r.Header.Get("Mcp-Session-Id"))
+		ctx = runtimerequestctx.WithUIWindowID(ctx, r.URL.Query().Get("windowId"))
 		convID := strings.TrimSpace(in.ConversationID)
 		if convID == "" {
 			convID = strings.TrimSpace(r.URL.Query().Get("conversationId"))
@@ -48,7 +57,7 @@ func handleFetchDatasource(client Backend) http.HandlerFunc {
 		}
 		out, err := client.FetchDatasource(ctx, &in)
 		if err != nil {
-			httpError(w, statusForDatasourceErr(err), err)
+			writeDatasourceFetchError(w, err, in.Resource)
 			return
 		}
 		if out == nil {
@@ -72,7 +81,7 @@ func handleInvalidateDatasourceCache(client Backend) http.HandlerFunc {
 		if err := client.InvalidateDatasourceCache(r.Context(), &api.InvalidateDatasourceCacheInput{
 			ID: id, InputsHash: inputsHash,
 		}); err != nil {
-			httpError(w, statusForDatasourceErr(err), err)
+			writeDatasourceError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -86,9 +95,14 @@ func handleListLookupRegistry(client Backend) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("context query parameter is required (e.g. ?context=template:foo)"))
 			return
 		}
-		out, err := client.ListLookupRegistry(r.Context(), &api.ListLookupRegistryInput{Context: ctxParam})
+		input := &api.ListLookupRegistryInput{Context: ctxParam, ProviderIdentity: r.URL.Query().Get("providerIdentity")}
+		if owner := strings.TrimSpace(r.URL.Query().Get("owner")); owner != "" {
+			input.Owner = &identity.ResourceRef{URI: owner, Revision: r.URL.Query().Get("revision")}
+		}
+		out, err := client.ListLookupRegistry(r.Context(), input)
 		if err != nil {
-			httpError(w, statusForDatasourceErr(err), err)
+			log.Printf("lookup registry diagnostic: %v", err)
+			writeDatasourceError(w, err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
@@ -98,6 +112,26 @@ func handleListLookupRegistry(client Backend) http.HandlerFunc {
 // statusForDatasourceErr maps the sentinel "not configured" error to 501 so
 // clients can distinguish it from genuine internal errors.
 func statusForDatasourceErr(err error) int {
+	var upstream *dsproto.UpstreamAuthorizationError
+	var rpcError *jsonrpc.Error
+	if errors.As(err, &rpcError) && isAuthStatus(rpcError.Code) {
+		return rpcError.Code
+	}
+	if errors.Is(err, dsproto.ErrDatasourceDenied) {
+		return http.StatusForbidden
+	}
+	if errors.As(err, &upstream) && (upstream.Status == 401 || upstream.Status == 403) {
+		return upstream.Status
+	}
+	if errors.Is(err, policy.ErrDenied) || errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) || errors.Is(err, authz.ErrDenied) {
+		return http.StatusForbidden
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return http.StatusGatewayTimeout
+	}
+	if errors.Is(err, permittedview.ErrUnavailable) || errors.Is(err, authz.ErrUnavailable) || errors.Is(err, gating.ErrUnavailable) {
+		return http.StatusServiceUnavailable
+	}
 	if errors.Is(err, ErrDatasourceStackNotConfigured) {
 		return http.StatusNotImplemented
 	}
@@ -105,6 +139,38 @@ func statusForDatasourceErr(err error) int {
 		return status
 	}
 	return http.StatusInternalServerError
+}
+
+// Availability is classified by trusted sentinels; upstream payloads are omitted.
+func writeDatasourceError(w http.ResponseWriter, err error) {
+	status := statusForDatasourceErr(err)
+	var rpcError *jsonrpc.Error
+	if isAuthStatus(status) && errors.As(err, &rpcError) && isAuthStatus(rpcError.Code) {
+		err = &dsproto.UpstreamAuthorizationError{Status: status, Cause: err}
+	}
+	switch status {
+	case http.StatusGatewayTimeout:
+		err = context.DeadlineExceeded
+	case http.StatusServiceUnavailable:
+		err = permittedview.ErrUnavailable
+	}
+	httpError(w, status, err)
+}
+
+// A window artifact failure is distinct from managing-MCP data denial. The
+// request selects the artifact kind; only trusted error types set this scope.
+func writeDatasourceFetchError(w http.ResponseWriter, err error, resource *identity.ResolvedResource) {
+	if resource != nil && statusForDatasourceErr(err) == http.StatusForbidden &&
+		(errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale)) {
+		uri, parseErr := identity.ParseResourceURI(resource.URI)
+		if parseErr == nil && uri.Kind == "window" {
+			httpJSON(w, http.StatusForbidden, map[string]string{
+				"error": "window artifact access denied", "code": "resource_denied", "scope": "window",
+			})
+			return
+		}
+	}
+	writeDatasourceError(w, err)
 }
 
 type datasourceErrorEnvelope struct {
@@ -196,7 +262,7 @@ func authorizeDatasourceConversation(ctx context.Context, client Backend, conver
 	if conversationID == "" {
 		return nil
 	}
-	conversation, err := client.GetConversation(ctx, conversationID)
+	conversation, err := readConversationHeader(ctx, client, conversationID)
 	if err != nil {
 		return err
 	}

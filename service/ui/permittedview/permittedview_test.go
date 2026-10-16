@@ -60,7 +60,7 @@ func TestBindAndCompile(t *testing.T) {
 	}
 }
 
-func TestCompileFailsClosed(t *testing.T) {
+func TestCompileDoesNotUseEntityReadAsWindowAdmission(t *testing.T) {
 	bound, err := Bind(testWindow(t), "advertiser-85141", "conversation-1", map[string]any{"AdvertiserId": []any{85141.0}})
 	if err != nil {
 		t.Fatal(err)
@@ -69,8 +69,23 @@ func TestCompileFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !compiled.Denied || compiled.Window != nil || len(compiled.DataSourceRefs) != 0 {
-		t.Fatalf("expected fail-closed result: %#v", compiled)
+	if compiled.Denied || compiled.Window == nil || len(compiled.DataSourceRefs) == 0 {
+		t.Fatalf("entity permission unexpectedly denied owner-provided frame: %#v", compiled)
+	}
+}
+
+func TestCompileRejectsMalformedAuthorizationGuards(t *testing.T) {
+	for _, guard := range []string{"hiddenWhen", "disabledWhen", "readOnlyWhen", "visibleWhen"} {
+		t.Run(guard, func(t *testing.T) {
+			raw := `{"authorization":{"resourceType":"document"},"view":{"content":{"id":"root","containers":[{"id":"item","` + guard + `":{"source":"authorization","field":"principal.roles","greaterThan":1}}]}}}`
+			window := &forgetypes.Window{}
+			if err := json.Unmarshal([]byte(raw), window); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Compile(&BoundView{Window: window, ResourceType: "document"}, &Snapshot{}); err == nil {
+				t.Fatal("malformed guard was accepted")
+			}
+		})
 	}
 }
 

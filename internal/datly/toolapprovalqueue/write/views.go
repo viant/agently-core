@@ -28,6 +28,7 @@ type ToolApprovalQueue struct {
 	ErrorMessage     *string               `sqlx:"error_message" json:"errorMessage,omitempty"`
 	CreatedAt        *time.Time            `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
 	UpdatedAt        *time.Time            `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	CompletedAt      *time.Time            `sqlx:"completed_at" json:"completedAt,omitempty"`
 	Has              *ToolApprovalQueueHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"ToolApprovalQueueHas"`
 }
 
@@ -52,6 +53,7 @@ type ToolApprovalQueueHas struct {
 	ErrorMessage     bool
 	CreatedAt        bool
 	UpdatedAt        bool
+	CompletedAt      bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
@@ -75,6 +77,7 @@ type CurrentWriterView struct {
 	ErrorMessage     *string    `sqlx:"error_message" json:"errorMessage,omitempty"`
 	CreatedAt        *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
 	UpdatedAt        *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	CompletedAt      *time.Time `sqlx:"completed_at" json:"completedAt,omitempty"`
 }
 
 type WriterKeysRow struct {

@@ -80,6 +80,13 @@ func (r *Runtime) resolveRuntimeOAuthTokenOwnerResolution(ctx context.Context, s
 		return oauthTokenOwnerResolution{}, ""
 	}
 	owner := resolveOAuthTokenOwner(ctx, r.ext.users, provider, sess)
+	// Existing opaque-token deployments retain subject-to-owner migration.
+	// A signed OIDC session pins its already-established canonical owner.
+	if r.cfg != nil && r.cfg.Enabled && sess.Tokens != nil && len(parseJWTClaims(sess.Tokens.IDToken)) > 0 {
+		if pinned := strings.TrimSpace(sess.UserID); pinned != "" && owner.id != pinned {
+			return oauthTokenOwnerResolution{uncertain: true}, ""
+		}
+	}
 	if owner.id == "" {
 		return oauthTokenOwnerResolution{}, ""
 	}
@@ -113,6 +120,14 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 		}
 		return preserveOAuthSession()
 	}
+	if r.cfg != nil && r.cfg.Enabled && len(parseJWTClaims(dbTok.IDToken)) > 0 {
+		if pinned := strings.TrimSpace(sess.UserID); pinned != "" && pinned != owner.id {
+			return preserveOAuthSession()
+		}
+	}
+	if storedOwner := strings.TrimSpace(dbTok.Username); r.cfg != nil && r.cfg.Enabled && len(parseJWTClaims(dbTok.IDToken)) > 0 && storedOwner != "" && storedOwner != owner.id {
+		return preserveOAuthSession()
+	}
 	if storedProvider := strings.TrimSpace(dbTok.Provider); storedProvider != "" && storedProvider != provider {
 		return preserveOAuthSession()
 	}
@@ -129,10 +144,10 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 		}
 		return preserveOAuthSession()
 	}
-	if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !dbTok.ExpiresAt.After(sess.Tokens.Expiry) {
+	if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !dbTok.ExpiresAt.After(sess.Tokens.Expiry) && !oauthJWTExpired(sess.Tokens.IDToken, time.Now()) {
 		return preserveOAuthSession()
 	}
-	if err := validateConfiguredOAuthScopes(runtimeOAuthClient(r), sess.Scopes, dbTok.IDToken, dbTok.AccessToken, dbTok.RefreshToken); err != nil {
+	if err := validateStoredOAuthScopes(runtimeOAuthClient(r), sess.Scopes, dbTok); err != nil {
 		authlog.Log(ctx, authlog.Event{
 			Op:             "scope_validate_stored",
 			UserID:         owner.id,
@@ -145,6 +160,14 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 	}
 	result := oauthTokenToSessionToken(dbTok)
 	if !usableOAuthToken(result, time.Now()) {
+		// Restore only the exact owned row's refresh credential, never inject it.
+		if result.RefreshToken != "" && result.IDToken != "" && oauthJWTExpired(result.IDToken, time.Now()) {
+			sess.Tokens = result
+			sess.Provider = provider
+		}
+		return preserveOAuthSession()
+	}
+	if err := validateOwnedSessionIDToken(ctx, r.cfg, sess, result.IDToken); err != nil {
 		return preserveOAuthSession()
 	}
 	sess.Tokens = result
@@ -158,7 +181,7 @@ func oauthTokenToSessionToken(token *OAuthToken) *scyauth.Token {
 	if token == nil {
 		return nil
 	}
-	return &scyauth.Token{
+	result := &scyauth.Token{
 		Token: oauth2.Token{
 			AccessToken:  token.AccessToken,
 			RefreshToken: token.RefreshToken,
@@ -166,6 +189,10 @@ func oauthTokenToSessionToken(token *OAuthToken) *scyauth.Token {
 		},
 		IDToken: token.IDToken,
 	}
+	if len(token.Scopes) > 0 {
+		result.Token = *result.Token.WithExtra(map[string]interface{}{"scope": strings.Join(token.Scopes, " ")})
+	}
+	return result
 }
 
 func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvailabilityResult {
@@ -289,6 +316,12 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 		r.putSessionDurable(ctx, sess)
 		return preserveOAuthSession()
 	}
+	if err := validateOwnedSessionIDToken(ctx, r.cfg, sess, refreshedIDToken); err != nil {
+		authlog.Log(ctx, authlog.Event{Op: "refresh_identity_validate", UserID: owner.id, Provider: provider, Classification: "identity_validation", Action: "preserve_no_inject"})
+		r.storeRefreshRetryAt(sess, time.Now().Add(transientRefreshRetryWindow))
+		r.putSessionDurable(ctx, sess)
+		return preserveOAuthSession()
+	}
 	if tokenStore != nil {
 		storeCtx, cancel := authStoreContext(ctx)
 		candidate := &OAuthToken{
@@ -300,6 +333,9 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 			ExpiresAt:        refreshed.Expiry,
 			IDTokenExpiresAt: oauthJWTExpiry(refreshedIDToken),
 			IssuedAt:         time.Now(),
+		}
+		if responseScopes, present := oauthResponseScopes(refreshed); present {
+			candidate.Scopes = append([]string(nil), responseScopes...)
 		}
 		// Preserve stored credential metadata across the refresh write — but
 		// only from the exact same provider row. Get may legacy-fall-back to a
@@ -694,4 +730,62 @@ func (r *Runtime) storeScanHorizon(ctx context.Context) time.Duration {
 		}
 	}
 	return horizon
+}
+
+// Expiry hints only request refresh. Fresh ID-token identity is independently
+// verified against the configured issuer/JWKS/client before any persistence.
+func validateOwnedSessionIDToken(ctx context.Context, cfg *Config, sess *Session, candidate string) error {
+	if cfg == nil || !cfg.Enabled || sess == nil {
+		return nil
+	}
+	previous := ""
+	if sess.Tokens != nil {
+		previous = sess.Tokens.IDToken
+	}
+	oldClaims := parseJWTClaims(previous)
+	newClaims := parseJWTClaims(candidate)
+	// Preserve non-OIDC opaque-token providers' existing contract.
+	if len(oldClaims) == 0 && len(newClaims) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(candidate) == "" {
+		return fmt.Errorf("fresh ID token required")
+	}
+	if cfg.OAuth == nil || cfg.OAuth.Client == nil {
+		return fmt.Errorf("refresh has no configured OAuth authority")
+	}
+	if err := checkJWTAlgorithmAllowlist(candidate); err != nil {
+		return fmt.Errorf("refreshed ID token algorithm is unsupported")
+	}
+	policy, err := resolveSessionOAuthPolicy(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("refreshed ID token authority unavailable")
+	}
+	verifier, err := cachedJWKSVerifier(ctx, policy.jwks)
+	if err != nil {
+		return fmt.Errorf("refreshed ID token verification unavailable")
+	}
+	if _, err = verifier.VerifyClaims(ctx, candidate); err != nil {
+		return fmt.Errorf("refreshed ID token verification failed")
+	}
+	if err = validateVerifiedClaims(newClaims, policy.issuer, "", time.Now(), 0, true); err != nil {
+		return fmt.Errorf("refreshed ID token issuer or lifetime mismatch")
+	}
+	if err = validateIDTokenClaims(newClaims, policy.issuer, "", time.Now(), 0, policy.clientID); err != nil {
+		return fmt.Errorf("refreshed ID token audience or lifetime mismatch")
+	}
+	party := claimString(newClaims, "azp")
+	if (len(claimAudiences(newClaims)) > 1 || party != "") && party != policy.clientID {
+		return fmt.Errorf("refreshed ID token authorized party mismatch")
+	}
+	if strings.TrimSpace(sess.Subject) == "" || claimString(newClaims, "sub") != strings.TrimSpace(sess.Subject) {
+		return fmt.Errorf("refresh changed session subject")
+	}
+	if oldIssuer := claimString(oldClaims, "iss"); oldIssuer != "" && oldIssuer != claimString(newClaims, "iss") {
+		return fmt.Errorf("refresh changed issuer")
+	}
+	// Business identity and tenant policy belong to the host's authenticated
+	// ingress. Core binds the owned provider/session to verified issuer+subject;
+	// it never infers tenant equivalence from arbitrary private token claims.
+	return nil
 }

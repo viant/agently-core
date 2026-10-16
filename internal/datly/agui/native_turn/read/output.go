@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Run `parameter:"Data,kind=output,in=view,dataType=[]*Run" view:"reader,type=Run,table=run" sql:"uri=agui_native_turn_read_reader:sql/reader.sql"`
+	Data []*Run `parameter:"Data,kind=output,in=view,dataType=[]*Run" view:"reader,type=Run,table=run" json:"data" sql:"uri=agui_native_turn_read_reader:sql/reader.sql"`
 }

@@ -1,123 +1,164 @@
 pipeline:
-  # ── reject branch ──────────────────────────────────────────────
-
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-prompt-reject
+      email: e2e-prompt-reject@example.test
   createConversationReject:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt reject - create conversation"
+    description: tool approval prompt reject - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: approval_prompt_probe
+        Title: prompt-approval-reject-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: approval_prompt_probe
-          Title: prompt-approval-reject-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   startQueryReject:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt reject - start query"
+    description: tool approval prompt reject - start query
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 063_tool_approval_prompt_reject-startQueryReject
+        query:
+          conversationID: ${createConversationReject.Responses[0].JSONBody.id}
+          agentID: approval_prompt_probe
+          query: run the approval test tool
+      Expect:
+        Code: 200
         JSONBody:
-          ConversationID: ${createConversationReject.Responses[0].JSONBody.Id}
-          AgentID: approval_prompt_probe
-          UserId: e2e-prompt-reject
-          Query: run the approval test tool
-
+          outcome:
+            type: interrupt
   waitForElicitationReject:
     when: $sdkKey != ''
     action: nop
     sleepTimeMs: 3000
-
   listElicitationsReject:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt reject - verify elicitation appeared"
+    description: tool approval prompt reject - verify elicitation appeared
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/elicitations?conversationId=${createConversationReject.Responses[0].JSONBody.Id}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@rows[0]": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/elicitations?conversationId=${createConversationReject.Responses[0].JSONBody.id}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@rows[0]': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   rejectToolApproval:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt reject - decline the elicitation"
+    description: tool approval prompt reject - decline the elicitation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/elicitations/${createConversationReject.Responses[0].JSONBody.Id}/${listElicitationsReject.Responses[0].JSONBody.rows[0].elicitationId}/resolve
-        JSONBody:
-          action: decline
-          reason: e2e rejection test
-        Expect:
-          Code: 200
-
-  # ── cancel branch ──────────────────────────────────────────────
-
+    - Method: POST
+      URL: ${authServerURL}/v1/elicitations/${createConversationReject.Responses[0].JSONBody.id}/${listElicitationsReject.Responses[0].JSONBody.rows[0].elicitationId}/resolve
+      JSONBody:
+        action: decline
+        reason: e2e rejection test
+      Expect:
+        Code: 200
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+  mintCanonicalCancelOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-prompt-cancel
+      email: e2e-prompt-cancel@example.test
   createConversationCancel:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt cancel - create conversation"
+    description: tool approval prompt cancel - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: approval_prompt_probe
+        Title: prompt-approval-cancel-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: approval_prompt_probe
-          Title: prompt-approval-cancel-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalCancelOwner.TokenString}
   startQueryCancel:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt cancel - start query"
+    description: tool approval prompt cancel - start query
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalCancelOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 063_tool_approval_prompt_reject-startQueryCancel
+        query:
+          conversationID: ${createConversationCancel.Responses[0].JSONBody.id}
+          agentID: approval_prompt_probe
+          query: run the approval test tool
+      Expect:
+        Code: 200
         JSONBody:
-          ConversationID: ${createConversationCancel.Responses[0].JSONBody.Id}
-          AgentID: approval_prompt_probe
-          UserId: e2e-prompt-cancel
-          Query: run the approval test tool
-
+          outcome:
+            type: interrupt
   waitForElicitationCancel:
     when: $sdkKey != ''
     action: nop
     sleepTimeMs: 3000
-
   listElicitationsCancel:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt cancel - verify elicitation appeared"
+    description: tool approval prompt cancel - verify elicitation appeared
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/elicitations?conversationId=${createConversationCancel.Responses[0].JSONBody.Id}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@rows[0]": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/elicitations?conversationId=${createConversationCancel.Responses[0].JSONBody.id}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@rows[0]': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalCancelOwner.TokenString}
   cancelToolApproval:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt cancel - cancel the elicitation"
+    description: tool approval prompt cancel - cancel the elicitation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/elicitations/${createConversationCancel.Responses[0].JSONBody.Id}/${listElicitationsCancel.Responses[0].JSONBody.rows[0].elicitationId}/resolve
-        JSONBody:
-          action: cancel
-        Expect:
-          Code: 200
+    - Method: POST
+      URL: ${authServerURL}/v1/elicitations/${createConversationCancel.Responses[0].JSONBody.id}/${listElicitationsCancel.Responses[0].JSONBody.rows[0].elicitationId}/resolve
+      JSONBody:
+        action: cancel
+      Expect:
+        Code: 200
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalCancelOwner.TokenString}

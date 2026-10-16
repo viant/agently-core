@@ -2,9 +2,7 @@ package tool
 
 import (
 	"context"
-	"strings"
 
-	authctx "github.com/viant/agently-core/internal/auth"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	toolschema "github.com/viant/agently-core/protocol/tool/schema"
 	mcpschema "github.com/viant/mcp-protocol/schema"
@@ -35,13 +33,8 @@ func (r *Registry) cachedMCPInputProperties(ctx context.Context, server, method 
 		if r.mgr == nil {
 			return nil, false
 		}
-		useID := r.mgr.UseIDToken(ctx, server)
-		token := authctx.MCPAuthToken(ctx, useID)
-		if r.isDelegatedAuthServer(ctx, server) {
-			token = ""
-		}
-		tools, found := r.loadPrincipalDiscoveryTools(server, strings.TrimSpace(authctx.EffectiveUserID(ctx)), token, useID)
-		if !found {
+		snapshot, tools, err := r.cachedManagerCatalog(ctx, server)
+		if err != nil || snapshot == "" {
 			return nil, false
 		}
 		for _, tool := range tools {

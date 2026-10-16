@@ -41,6 +41,10 @@ func catalogAuthorizationError(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, policy.ErrIdentityRejected) {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return true
+	}
 	if errors.Is(err, policy.ErrDenied) {
 		http.Error(w, "window not found", http.StatusNotFound)
 	} else {

@@ -206,3 +206,13 @@ func (entity *ToolApprovalQueue) SetUpdatedAt(value *time.Time) {
 	}
 	entity.Has.UpdatedAt = true
 }
+func (entity *ToolApprovalQueue) GetCompletedAt() *time.Time {
+	return entity.CompletedAt
+}
+func (entity *ToolApprovalQueue) SetCompletedAt(value *time.Time) {
+	entity.CompletedAt = value
+	if entity.Has == nil {
+		entity.Has = &ToolApprovalQueueHas{}
+	}
+	entity.Has.CompletedAt = true
+}

@@ -25,10 +25,12 @@ import (
 
 type bootstrapDatlyClient struct {
 	*datlyObservedClient
-	reads   atomic.Int32
-	live    atomic.Int32
-	input   *GetTranscriptInput
-	options transcriptOptions
+	reads     atomic.Int32
+	headers   atomic.Int32
+	fullReads atomic.Int32
+	live      atomic.Int32
+	input     *GetTranscriptInput
+	options   transcriptOptions
 }
 
 func bootstrapFailedControlFixture(t *testing.T, c *bootstrapDatlyClient, snapshot bool, noResult bool) (*aguistore.Run, *aguistore.Run) {
@@ -175,6 +177,7 @@ func TestAGUIBootstrapFailedControlDiscoveryRejectsForeignOrUnrelatedFailure(t *
 }
 
 func (c *bootstrapDatlyClient) GetConversation(ctx context.Context, id string) (*conversation.Conversation, error) {
+	c.fullReads.Add(1)
 	return c.native.GetConversation(ctx, id)
 }
 func (c *bootstrapDatlyClient) GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error) {
@@ -558,4 +561,23 @@ func TestAGUIConversationBootstrapDoesNotReattachInterruptedRunForTerminalNative
 	pending, err := c.store.ListPending(ctx, "owner", "thread")
 	require.NoError(t, err)
 	require.Len(t, pending, 3, "read-only bootstrap preserves original journals and pending controls")
+}
+
+func (c *bootstrapDatlyClient) getConversationHeader(ctx context.Context, id string) (*conversation.Conversation, error) {
+	c.headers.Add(1)
+	return c.native.getConversationHeader(ctx, id)
+}
+
+func TestAGUIBootstrapOwnershipCheckDoesNotLoadTranscriptTwice(t *testing.T) {
+	c, server := newBootstrapDatlyServer(t)
+	ctx := recoveryContext()
+	require.NoError(t, nativeTestTurn(ctx, c.datlyObservedClient, "saved-turn", "succeeded"))
+	require.NoError(t, nativeTestMessage(ctx, c.datlyObservedClient, "saved-turn", "saved-user", "user", "saved request"))
+	status, wire := durablePost(t, server, bootstrapRequest("header-bootstrap", map[string]any{}), nil)
+	require.Equal(t, 200, status, wire)
+	result := bootstrapWireResult(t, wire)
+	require.NotEmpty(t, result.Transcript.Conversation.Turns)
+	require.GreaterOrEqual(t, c.headers.Load(), int32(1), "ownership checks use the authenticated native header")
+	require.Zero(t, c.fullReads.Load(), "bootstrap must not fetch full history before its transcript read")
+	require.EqualValues(t, 1, c.reads.Load())
 }

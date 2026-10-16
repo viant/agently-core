@@ -89,6 +89,12 @@ func Parse(path, root, source, content string) (*Skill, []Diagnostic, error) {
 		delete(raw, "async-narrator-prompt")
 		fm.Raw = raw
 	}
+	if prefs := parseModelPreferences(fm.Raw); prefs != nil {
+		if fm.Agently == nil {
+			fm.Agently = &AgentlyMetadata{}
+		}
+		fm.Agently.ModelPreferences = prefs
+	}
 	s := &Skill{
 		Frontmatter: fm,
 		Body:        strings.TrimSpace(body),

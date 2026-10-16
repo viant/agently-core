@@ -41,6 +41,56 @@ view:
 	})
 }
 
+func TestLoadWorkspaceWindowAtKeepsDefinitionAndAssetsInOneRoot(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	previous := workspace.Root()
+	workspace.SetRoot(first)
+	t.Cleanup(func() { workspace.SetRoot(previous) })
+	for _, fixture := range []struct{ root, name, source string }{{first, "first", "onlyFirst"}, {second, "second", "onlySecond"}} {
+		mustWriteLoaderFile(t, filepath.Join(fixture.root, workspace.KindForgeDataSource, fixture.source+".yaml"), "id: "+fixture.source+"\ncardinality: collection\nbackend: {kind: inline, rows: []}\n")
+		mustWriteLoaderFile(t, filepath.Join(fixture.root, workspace.KindForgeWindow, "sample.yaml"), "windowKey: sample\nresources:\n  dataSources: ["+fixture.source+"]\nview:\n  content: {id: "+fixture.name+", dataSourceRef: "+fixture.source+"}\n")
+	}
+	window, err := LoadWorkspaceWindowAt(context.Background(), second, "sample", nil)
+	if err != nil || window == nil || window.View.Content == nil || window.View.Content.ID != "second" {
+		t.Fatalf("explicit root window=%+v err=%v", window, err)
+	}
+	if _, ok := window.DataSource["onlySecond"]; !ok {
+		t.Fatalf("explicit root datasource missing: %+v", window.DataSource)
+	}
+	if _, leaked := window.DataSource["onlyFirst"]; leaked {
+		t.Fatal("process-global workspace asset leaked into explicit-root window")
+	}
+	cleanup := SetWorkspaceWindowEnricher(func(_ context.Context, value *forgeTypes.Window) error {
+		value.View.Content.Title = "global-hook"
+		return nil
+	})
+	defer cleanup()
+	explicit, err := LoadWorkspaceWindowAt(context.Background(), second, "sample", nil)
+	if err != nil || explicit.View.Content.Title == "global-hook" {
+		t.Fatalf("explicit root used global enricher: %+v %v", explicit, err)
+	}
+	owned, err := LoadWorkspaceWindowWithEnricherAt(context.Background(), second, "sample", nil, func(_ context.Context, value *forgeTypes.Window) error {
+		value.View.Content.Title = "owned-hook"
+		return nil
+	})
+	if err != nil || owned.View.Content.Title != "owned-hook" {
+		t.Fatalf("host enricher was not used: %+v %v", owned, err)
+	}
+	if _, err := LoadWorkspaceWindowAt(context.Background(), second, "provider:external:summary", nil); err == nil {
+		t.Fatal("explicit-root loader used process-global remote provider")
+	}
+	mustWriteLoaderFile(t, filepath.Join(second, workspace.KindForgeWindow, "nested", "window.yaml"), "windowKey: nested/window\nview:\n  content: {id: nested-root}\n")
+	nested, err := LoadWorkspaceWindowAt(context.Background(), second, "nested/window", nil)
+	if err != nil || nested.View.Content == nil || nested.View.Content.ID != "nested-root" {
+		t.Fatalf("valid nested window was not loaded: %v", err)
+	}
+	for _, key := range []string{"../secret", "/tmp/secret", "nested/../window", "nested//window", "nested/%2e%2e/window", `nested\window`, "https://other.example", "provider:invalid"} {
+		if _, err := LoadWorkspaceWindowAt(context.Background(), second, key, nil); err == nil {
+			t.Fatalf("accepted path-shaped window key %q", key)
+		}
+	}
+}
+
 func TestLoadWorkspaceWindowLoadsDatasourceFromDomainSubfolderByExplicitID(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "advertiser.yaml"), `

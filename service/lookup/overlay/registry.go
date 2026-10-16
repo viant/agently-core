@@ -1,9 +1,11 @@
 package overlay
 
 import (
+	"fmt"
 	"sort"
 
 	loproto "github.com/viant/agently-core/protocol/lookup/overlay"
+	identity "github.com/viant/agently-core/protocol/resource"
 )
 
 // Registry returns the set of named-token bindings available for the given
@@ -18,14 +20,24 @@ import (
 // priority overlay wins; ties fall back to overlay-ID ordering for
 // determinism.
 func (s *Service) Registry(contextKind, contextID string) []loproto.RegistryEntry {
+	entries, _ := s.registry(contextKind, contextID, false)
+	return entries
+}
+
+// RegistryScoped rejects same-token references from unrelated namespaces/providers.
+func (s *Service) RegistryScoped(contextKind, contextID string) ([]loproto.RegistryEntry, error) {
+	return s.registry(contextKind, contextID, true)
+}
+func (s *Service) registry(contextKind, contextID string, scoped bool) ([]loproto.RegistryEntry, error) {
 	if s == nil || s.store == nil {
-		return nil
+		return nil, nil
 	}
 
 	type ranked struct {
-		priority int
-		overlay  string
-		entry    loproto.RegistryEntry
+		priority  int
+		overlay   string
+		namespace string
+		entry     loproto.RegistryEntry
 	}
 	byName := make(map[string]ranked)
 
@@ -75,8 +87,31 @@ func (s *Service) Registry(contextKind, contextID string) []loproto.RegistryEntr
 					ResolveInput: b.Named.ResolveInput,
 				}
 			}
-			candidate := ranked{priority: ov.Priority, overlay: ov.ID, entry: entry}
+			if ov.Resource != nil {
+				projected, e := b.Lookup.WithResourceScope(ov.Resource)
+				if e != nil {
+					if scoped {
+						return nil, e
+					}
+				}
+				entry.ProviderIdentity = projected.ProviderIdentity
+				entry.DataSourceResource = projected.DataSourceResource
+				entry.PickerResource = projected.PickerResource
+			}
+
+			namespace := ""
+			if ov.Resource != nil {
+				parsed, _ := identity.ParseResourceURI(ov.Resource.URI)
+				namespace = parsed.Namespace
+			}
+			candidate := ranked{priority: ov.Priority, overlay: ov.ID, namespace: namespace, entry: entry}
 			existing, ok := byName[b.Named.Name]
+			if scoped && ok && existing.entry.ProviderIdentity != "" && entry.ProviderIdentity != "" {
+
+				if existing.entry.ProviderIdentity != entry.ProviderIdentity || existing.namespace != candidate.namespace {
+					return nil, fmt.Errorf("ambiguous lookup token across source namespaces")
+				}
+			}
 			if !ok || candidate.priority > existing.priority ||
 				(candidate.priority == existing.priority && candidate.overlay < existing.overlay) {
 				byName[b.Named.Name] = candidate
@@ -89,7 +124,7 @@ func (s *Service) Registry(contextKind, contextID string) []loproto.RegistryEntr
 		out = append(out, r.entry)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	return out, nil
 }
 
 // targetMatchesNamed is a loosened matcher for the registry path: it ignores

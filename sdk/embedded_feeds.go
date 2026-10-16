@@ -38,7 +38,7 @@ func (c *backendClient) ResolveFeedData(ctx context.Context, spec *FeedSpec, con
 	}
 	resolved := c.resolveActiveFeedsFromState(ctx, state)
 	for _, feed := range resolved {
-		if feed == nil || strings.TrimSpace(feed.FeedID) != strings.TrimSpace(spec.ID) || len(feed.Data) == 0 {
+		if feed == nil || strings.TrimSpace(feed.FeedID) != strings.TrimSpace(feedIdentity(spec)) || len(feed.Data) == 0 {
 			continue
 		}
 		var parsed interface{}

@@ -1,271 +1,145 @@
+---
 init:
-  repoPath: $WorkingDirectory(.)
+  repoPath: $WorkingDirectory(./..)
   testdataPath: ${repoPath}/e2e/query/testdata
-  serverPort: '$serverPort ? $serverPort : 9001'
-  serverURL: http://127.0.0.1:${serverPort}
-  authServerPort: '$authServerPort ? $authServerPort : 9002'
-  authServerURL: http://127.0.0.1:${authServerPort}
-  workspacePath: /tmp/agently-core-e2e-workspace/.agently
-  sdkKey: ${env.OPENAI_API_KEY}
-  jwtPubKey: /tmp/agently-core-e2e-jwt-public.pem
-  jwtPrivKey: /tmp/agently-core-e2e-jwt-private.pem
-
+  ownedRoot: ${env.CORE_ENDLY_ROOT}
+  workspacePath: ${ownedRoot}/workspace/.agently
+  serverPort: 29501
+  serverURL: http://127.0.0.1:29501
+  authServerPort: 29502
+  authServerURL: http://127.0.0.1:29502
+  sdkKey: configured
+  jwtPubKey: ${ownedRoot}/jwt/public.pem
+  jwtPrivKey: ${ownedRoot}/jwt/private.pem
+  aguiProbeURL: http://127.0.0.1:29516
 pipeline:
-  enforceNo8080:
-    action: exec:run
-    description: ensure e2e run does not use port 8080
-    checkError: true
-    commands:
-      - |
-        pids=$(lsof -tiTCP:8080 -sTCP:LISTEN || true)
-        if [ -n "$pids" ]; then
-          echo "stopping listeners on port 8080: $pids"
-          kill $pids || true
-          sleep 1
-        fi
-        if lsof -nP -iTCP:8080 -sTCP:LISTEN | grep -q LISTEN; then
-          echo "port 8080 is still in use"
-          lsof -nP -iTCP:8080 -sTCP:LISTEN
-          exit 1
-        fi
-
-  refreshMCPServerBinaries:
-    action: exec:run
-    description: rebuild mcpserver once and refresh all MCP helper copies used by regression
-    TimeoutMs: 180000
-    checkError: true
-    commands:
-      - cd ${repoPath}
-      - export PATH=/usr/local/go/bin:$PATH
-      - export GOPATH=${env.GOPATH}
-      - mkdir -p ${repoPath}/e2e/bin
-      - cd ${repoPath}/e2e/cli/mcpserver
-      - go build -o mcpserver
-      - cp mcpserver ${repoPath}/e2e/bin/mcp-resources
-      - cp mcpserver ${repoPath}/e2e/bin/mcp-elicitation-form
-      - cp mcpserver ${repoPath}/e2e/bin/mcp-elicitation-oob
-      - cp mcpserver ${repoPath}/e2e/bin/mcp-approval-tool
-
   requireBinaries:
     action: exec:run
     description: verify required e2e binaries are prebuilt
     checkError: true
     commands:
-      - |
-        missing=""
-        for bin in datly agently-app mcp-resources mcp-elicitation-form mcp-elicitation-oob mcp-approval-tool; do
-          path="${repoPath}/e2e/bin/${bin}"
-          if [ ! -x "$path" ]; then
-            missing="${missing} ${path}"
-          fi
-        done
-        if [ -n "$missing" ]; then
-          echo "missing required binaries:${missing}"
-          echo "build them with: cd ${repoPath}/e2e/build && endly -r build.yaml"
-          exit 1
+    - |
+      missing=""
+      for bin in datly agently-app mcp-resources mcp-elicitation-form mcp-elicitation-oob mcp-approval-tool mcp-large-result agui-probe; do
+        path="${repoPath}/e2e/bin/${bin}"
+        if [ ! -x "$path" ]; then
+          missing="${missing} ${path}"
         fi
-
-  refreshAgentlyApp:
-    action: exec:run
-    description: rebuild agently-app from current source for regression host
-    TimeoutMs: 180000
-    checkError: true
-    commands:
-      - |
-        cd ${repoPath}
-        export PATH=/usr/local/go/bin:$PATH
-        export GOPATH=${env.GOPATH}
-        mkdir -p ${repoPath}/e2e/bin
-        go build -o ${repoPath}/e2e/bin/agently-app ./e2e/cli/agently-app
-
+      done
+      if [ -n "$missing" ]; then
+        echo "missing required binaries:${missing}"
+        echo "build them with: cd ${repoPath}/e2e/build && endly -r build.yaml"
+        exit 1
+      fi
   prepareWorkspace:
     action: exec:run
     description: reset e2e workspace fixtures from testdata
     checkError: true
     commands:
-      - ${repoPath}/e2e/scripts/prepare_workspace.sh ${repoPath} ${workspacePath} ${testdataPath}
-
+    - "${repoPath}/e2e/scripts/prepare_workspace.sh ${repoPath} ${workspacePath} ${testdataPath}"
   prepareJWT:
     action: exec:run
     description: generate plain RSA keys for e2e auth host
     checkError: true
     commands:
-      - rm -f ${jwtPrivKey} ${jwtPubKey}
-      - openssl genrsa -out ${jwtPrivKey} 2048
-      - openssl rsa -in ${jwtPrivKey} -pubout -out ${jwtPubKey}
-
+    - mkdir -p ${ownedRoot}/jwt
+    - umask 077; openssl genrsa -out ${jwtPrivKey}
+      2048
+    - openssl rsa -in ${jwtPrivKey} -pubout
+      -out ${jwtPubKey}
   mcpResources:
     start:
-      when: $debugger!=on
+      when: "$debugger!=on"
       action: exec:run
       checkError: true
       commands:
-        - |
-          pids=$(lsof -tiTCP:18091 -sTCP:LISTEN || true)
-          if [ -n "$pids" ]; then
-            kill $pids || true
-          fi
-        - (nohup ${repoPath}/e2e/bin/mcp-resources -port=18091 -mode=resources >/tmp/agently-core-mcp-resources.log 2>&1 &)
-        - sleep 1
-        - lsof -nP -iTCP:18091 -sTCP:LISTEN | grep LISTEN
-
+      - "${repoPath}/e2e/scripts/owned_endly_start.sh 29511 ${repoPath}/e2e/bin/mcp-resources
+        -port=29511 -mode=resources"
   mcpElicitationForm:
     start:
-      when: $debugger!=on
+      when: "$debugger!=on"
       action: exec:run
       checkError: true
       commands:
-        - |
-          pids=$(lsof -tiTCP:18092 -sTCP:LISTEN || true)
-          if [ -n "$pids" ]; then
-            kill $pids || true
-          fi
-        - (nohup ${repoPath}/e2e/bin/mcp-elicitation-form -port=18092 -mode=elicitation_form >/tmp/agently-core-mcp-form.log 2>&1 &)
-        - sleep 1
-        - lsof -nP -iTCP:18092 -sTCP:LISTEN | grep LISTEN
-
+      - "${repoPath}/e2e/scripts/owned_endly_start.sh 29512 ${repoPath}/e2e/bin/mcp-elicitation-form
+        -port=29512 -mode=elicitation_form"
   mcpElicitationOOB:
     start:
-      when: $debugger!=on
+      when: "$debugger!=on"
       action: exec:run
       checkError: true
       commands:
-        - |
-          pids=$(lsof -tiTCP:18093 -sTCP:LISTEN || true)
-          if [ -n "$pids" ]; then
-            kill $pids || true
-          fi
-        - (nohup ${repoPath}/e2e/bin/mcp-elicitation-oob -port=18093 -mode=elicitation_oob >/tmp/agently-core-mcp-oob.log 2>&1 &)
-        - sleep 1
-        - lsof -nP -iTCP:18093 -sTCP:LISTEN | grep LISTEN
-
+      - "${repoPath}/e2e/scripts/owned_endly_start.sh 29513 ${repoPath}/e2e/bin/mcp-elicitation-oob
+        -port=29513 -mode=elicitation_oob"
   mcpApprovalTool:
     start:
-      when: $debugger!=on
+      when: "$debugger!=on"
       action: exec:run
       checkError: true
       commands:
-        - |
-          pids=$(lsof -tiTCP:18094 -sTCP:LISTEN || true)
-          if [ -n "$pids" ]; then
-            kill $pids || true
-          fi
-        - (nohup ${repoPath}/e2e/bin/mcp-approval-tool -port=18094 -mode=approval_tool >/tmp/agently-core-mcp-approval.log 2>&1 &)
-        - sleep 1
-        - lsof -nP -iTCP:18094 -sTCP:LISTEN | grep LISTEN
-
+      - "${repoPath}/e2e/scripts/owned_endly_start.sh 29514 ${repoPath}/e2e/bin/mcp-approval-tool
+        -port=29514 -mode=approval_tool"
+  mcpLargeResult:
+    start:
+      when: "$debugger!=on"
+      action: exec:run
+      checkError: true
+      commands:
+      - "${repoPath}/e2e/scripts/owned_endly_start.sh 29515 ${repoPath}/e2e/bin/mcp-large-result -port=29515 -mode=large_result"
+  aguiProbe:
+    start:
+      when: "$debugger!=on"
+      action: exec:run
+      checkError: true
+      commands:
+      - "${repoPath}/e2e/scripts/owned_endly_start.sh 29516 ${repoPath}/e2e/bin/agui-probe -port=29516"
   app:
     start:
-      when: $debugger!=on
+      when: "$debugger!=on"
       action: exec:run
       checkError: true
       commands:
-        - |
-          if [ -f /tmp/agently-core-e2e-supervisor.pid ]; then
-            old_pid=$(cat /tmp/agently-core-e2e-supervisor.pid || true)
-            if [ -n "$old_pid" ]; then
-              kill "$old_pid" || true
-            fi
-            rm -f /tmp/agently-core-e2e-supervisor.pid
-          fi
-        - |
-          if [ -x "${repoPath}/e2e/bin/agently-app" ]; then
-            pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
-            if [ -n "$pids" ]; then
-              kill $pids || true
-            fi
-            for i in $(seq 1 20); do
-              if ! lsof -nP -iTCP:${serverPort} -sTCP:LISTEN | grep -q LISTEN; then
-                break
-              fi
-              sleep 0.5
-            done
-            (nohup env GODEBUG=netdns=cgo AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${serverPort} >/tmp/agently-core-app.log 2>&1 &)
-
-            auth_pids=$(lsof -tiTCP:${authServerPort} -sTCP:LISTEN || true)
-            if [ -n "$auth_pids" ]; then
-              kill $auth_pids || true
-            fi
-            for i in $(seq 1 20); do
-              if ! lsof -nP -iTCP:${authServerPort} -sTCP:LISTEN | grep -q LISTEN; then
-                break
-              fi
-              sleep 0.5
-            done
-            (nohup env GODEBUG=netdns=cgo AGENTLY_WORKSPACE=${workspacePath} ${repoPath}/e2e/bin/agently-app serve --addr :${authServerPort} --jwt-pub ${jwtPubKey} --jwt-priv ${jwtPrivKey} >/tmp/agently-core-auth-app.log 2>&1 &)
-          else
-            pids=$(lsof -tiTCP:${serverPort} -sTCP:LISTEN || true)
-            if [ -n "$pids" ]; then
-              kill $pids || true
-            fi
-            for i in $(seq 1 20); do
-              if ! lsof -nP -iTCP:${serverPort} -sTCP:LISTEN | grep -q LISTEN; then
-                break
-              fi
-              sleep 0.5
-            done
-            (nohup ${repoPath}/e2e/bin/e2e-server -port=${serverPort} -testdata=${testdataPath} >/tmp/agently-core-e2e-server.log 2>&1 &)
-          fi
-        - |
-          for i in $(seq 1 40); do
-            if curl -fsS ${serverURL}/healthz | grep -q '"status":"ok"'; then
-              exit 0
-            fi
-            sleep 0.5
-          done
-          echo "target server failed to start on ${serverURL}/healthz"
-          tail -n 80 /tmp/agently-core-app.log || true
-          tail -n 80 /tmp/agently-core-e2e-server.log || true
-          exit 1
-
-  appAuth:
-    start:
-      when: false
-      action: exec:run
-      checkError: true
-      commands:
-        - ${repoPath}/e2e/scripts/start_auth_app.sh ${authServerPort} ${authServerURL} ${workspacePath} ${repoPath}/e2e/bin/agently-app ${jwtPubKey} ${jwtPrivKey} /tmp/agently-core-auth-app.log
-
+      - "${repoPath}/e2e/scripts/owned_endly_start.sh 29501 ${repoPath}/e2e/bin/agently-app
+        serve --addr 127.0.0.1:29501"
+      - "${repoPath}/e2e/scripts/owned_endly_start.sh 29502 ${repoPath}/e2e/bin/agently-app
+        serve --addr 127.0.0.1:29502 --jwt-pub ${jwtPubKey}
+        --jwt-priv ${jwtPrivKey}"
   health:
     action: http/runner:send
     description: verify target server health endpoint
     requests:
-      - Method: GET
-        URL: ${serverURL}/healthz
-        Expect:
-          Code: 200
-          JSONBody:
-            status: ok
-
+    - Method: GET
+      URL: "${serverURL}/healthz"
+      Expect:
+        Code: 200
+        JSONBody:
+          status: ok
   testCases:
-    tag: $pathMatch
-    subPath: 'cases/${index}_*'
-    # Allow focused runs, for example:
-    # endly -t=test -p=caseRange=027..027
-    # endly -t=test -p=caseRange=052..052
-#    range: '$caseRange ? $caseRange : 1..065'
+    tag: "$pathMatch"
+    subPath: cases/${index}_*
     template:
       ensureServer:
         action: http/runner:send
         description: ensure e2e server health before each case
         requests:
-          - Method: GET
-            URL: ${serverURL}/healthz
-            Expect:
-              Code: 200
-              JSONBody:
-                status: ok
+        - Method: GET
+          URL: "${serverURL}/healthz"
+          Expect:
+            Code: 200
+            JSONBody:
+              status: ok
       checkSkip:
         action: nop
-        skip: $HasResource(${path}/skip.txt)
+        skip: "$HasResource(${path}/skip.txt)"
       runTest:
         action: run
         init:
-          parentPath: $path
-          repoPath: $repoPath
-          serverURL: $serverURL
-          authServerURL: $authServerURL
-          sdkKey: $sdkKey
-          jwtPrivKey: $jwtPrivKey
-          tag: $tag
-        request: '@test'
+          parentPath: "$path"
+          repoPath: "$repoPath"
+          serverURL: "$serverURL"
+          authServerURL: "$authServerURL"
+          sdkKey: "$sdkKey"
+          jwtPrivKey: "$jwtPrivKey"
+          tag: "$tag"
+          aguiProbeURL: "$aguiProbeURL"
+        request: "@test"

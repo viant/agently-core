@@ -578,7 +578,7 @@ func TestResolveToolControl_MergesAgentProfileAndRuntimeSelections(t *testing.T)
 	)
 }
 
-func TestResolveToolControl_AutoSelectedRuntimeBundlesNarrowAgentDefaults(t *testing.T) {
+func TestResolveToolControl_AutoSelectedRuntimeBundlesAppendToAgentDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
 	skillSvc := newLoadedTestSkillService(t, tmpDir, "forecast")
 	svc := &Service{skillSvc: skillSvc}
@@ -597,7 +597,7 @@ func TestResolveToolControl_AutoSelectedRuntimeBundlesNarrowAgentDefaults(t *tes
 	})
 
 	require.NoError(t, err)
-	assert.EqualValues(t, []string{"workspace-ui"}, actual.Bundles)
+	assert.EqualValues(t, []string{"orchestrator", "creative-test-tools", "workspace-ui"}, actual.Bundles)
 	assert.EqualValues(t,
 		[]string{mcpname2.Canonical("system/os:getEnv"), mcpname2.Canonical("llm/skills:list"), mcpname2.Canonical("llm/skills:get"), mcpname2.Canonical("llm/skills:activate")},
 		actual.Tools,

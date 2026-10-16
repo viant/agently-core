@@ -113,7 +113,7 @@ func (s *Service) resolveMetadataConfig(ctx context.Context, location string) me
 	for _, root := range mcpcfg.ResourceRoots(opts.Metadata) {
 		uri := mcpuri.NormalizeForCompare(root.URI)
 		if uri != "" && (normalized == uri || strings.HasPrefix(normalized, uri+"/")) {
-			return root.Metadata
+			return metadata.Config{Extractor: root.Metadata.Extractor, Fields: root.Metadata.Fields}
 		}
 	}
 	return metadata.Config{}

@@ -1,0 +1,70 @@
+id: adOrderPicker
+title: Select Ad Order
+dataSourceRef: ad_order_lookup
+selectionMode: single
+className: steward-lookup-dialog
+properties:
+  resolveInput: AdOrderId
+  bodyClassName: steward-lookup-dialog__body
+  contentClassName: steward-lookup-dialog__content
+  bodyStyle:
+    display: flex
+    flex: "1 1 auto"
+    flexDirection: column
+    minHeight: 0
+    margin: 0
+    padding: "20px 22px 0"
+    overflow: hidden
+  contentStyle:
+    display: flex
+    flex: "1 1 auto"
+    minHeight: 0
+    minWidth: 0
+    overflow: hidden
+  quickSearch:
+    align: right
+    gap: "10px"
+    icon: search
+    inputClassName: bp4-small
+    style:
+      display: flex
+      flex: "0 0 auto"
+      padding: "0 0 10px"
+      marginBottom: 0
+  quickFilters:
+    - field: AdOrderId
+      placeholder: Filter by order id
+      width: "220px"
+    - field: AdOrderName
+      placeholder: Filter ad orders
+      width: "320px"
+content:
+  id: adOrderPickerContent
+  dataSourceRef: ad_order_lookup
+  containers:
+    - id: adOrderTable
+      dataSourceRef: ad_order_lookup
+      fetchData: true
+      table:
+        width: "100%"
+        fullWidth: true
+        pagination: {}
+        toolbar:
+          items:
+            - id: pagination
+              align: center
+              placement: footer
+        columns:
+          - id: adOrderId
+            name: Order ID
+            width: 110
+          - id: adOrderName
+            name: Ad Order
+            width: 420
+          - id: campaignName
+            name: Campaign
+            width: 320
+style:
+  width: "min(1280px, calc(100vw - 56px))"
+  height: "min(760px, calc(100vh - 72px))"
+  maxHeight: "calc(100vh - 72px)"

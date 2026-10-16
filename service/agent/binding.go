@@ -3,8 +3,11 @@ package agent
 import (
 	"context"
 	"fmt"
+	identity "github.com/viant/agently-core/protocol/resource"
+	tpldef "github.com/viant/agently-core/protocol/template"
 	"github.com/viant/agently-core/runtime/clienttool"
 	"github.com/viant/agently-core/service/browsermcp"
+	resources "github.com/viant/agently-core/service/resource"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +20,7 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
+	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -26,6 +30,7 @@ import (
 )
 
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding.Binding, error) {
+	ctx = mcpmgr.WithToolCatalogReadSnapshot(mcpmgr.WithNamesMemo(ctx))
 	ctx = s.withBindingPayloadReads(ctx)
 	defer closeBindingPayloadReads(ctx)
 	if input != nil {
@@ -125,6 +130,13 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	} else if profile != nil {
 		ApplyPromptProfileExecutionDefaults(input, profile)
 		ctx = withSelectedPromptProfile(ctx, profile)
+		if profile.ResourceURI != "" {
+			parent, err := identity.ParseResourceURI(profile.ResourceURI)
+			if err != nil {
+				return nil, err
+			}
+			ctx = resources.WithDefinitionScope(ctx, resources.DefinitionScope{Namespace: parent.Namespace, ProviderIdentity: profile.ResourceProviderIdentity})
+		}
 		profileDisablesTools = profile.Execution != nil && profile.Execution.DisableTools
 	}
 	stageTimings["profileResolveMs"] = time.Since(profileResolveStart).Milliseconds()
@@ -443,7 +455,7 @@ func (s *Service) applySelectedTemplate(ctx context.Context, input *QueryInput, 
 	if templateID == "" {
 		return nil
 	}
-	tpl, err := s.templateRepo.Load(ctx, templateID)
+	tpl, err := s.loadOwnedTemplate(ctx, input, templateID)
 	if err != nil {
 		return fmt.Errorf("load template %q: %w", templateID, err)
 	}
@@ -485,7 +497,7 @@ func (s *Service) applySelectedTemplateOutputSchema(ctx context.Context, input *
 	if templateID == "" {
 		return nil
 	}
-	tpl, err := s.templateRepo.Load(ctx, templateID)
+	tpl, err := s.loadOwnedTemplate(ctx, input, templateID)
 	if err != nil {
 		return fmt.Errorf("load template %q: %w", templateID, err)
 	}
@@ -751,4 +763,15 @@ func delegationDepthFromContextMap(ctx map[string]interface{}, agentID string) i
 		}
 	}
 	return 0
+}
+
+func (s *Service) loadOwnedTemplate(ctx context.Context, input *QueryInput, key string) (*tpldef.Template, error) {
+	profile, err := s.selectedPromptProfileAny(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if profile != nil && profile.ResourceURI != "" {
+		return s.templateRepo.LoadFrom(ctx, key, profile.ResourceURI, profile.ResourceProviderIdentity)
+	}
+	return s.templateRepo.Load(ctx, key)
 }

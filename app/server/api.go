@@ -16,29 +16,37 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/protocol/tool"
 	uiresource "github.com/viant/agently-core/protocol/ui/resource"
 	"github.com/viant/agently-core/sdk"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
+	"github.com/viant/agently-core/service/ui/permittedview"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	svcworkspace "github.com/viant/agently-core/service/workspace"
+	"github.com/viant/agently-core/workspace"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
 type APIOptions struct {
-	Version          string
-	LayoutDefault    []byte
-	Runtime          *executor.Runtime
-	Client           sdk.Backend
-	AgentFinder      agentmodel.Finder
-	AgentIDs         []string
-	AuthRuntime      *svcauth.Runtime
-	SchedulerService *svcscheduler.Service
-	SchedulerOptions *sdk.SchedulerOptions
-	UIBridgeHandler  http.Handler
-	AGUIDemoBackends []sdk.AGUIDemoBackend
+	MCPUIResourceReader        sdk.MCPUIResourceReader
+	MCPUIResourceContextBinder sdk.MCPUIResourceContextBinder
+	Version                    string
+	LayoutDefault              []byte
+	NativeLayoutSource         *resourcesvc.CapturedLayoutSource
+	MenuReader                 svcworkspace.LayoutMenuReader
+	Runtime                    *executor.Runtime
+	Client                     sdk.Backend
+	AgentFinder                agentmodel.Finder
+	AgentIDs                   []string
+	AuthRuntime                *svcauth.Runtime
+	SchedulerService           *svcscheduler.Service
+	SchedulerOptions           *sdk.SchedulerOptions
+	UIBridgeHandler            http.Handler
+	AGUIDemoBackends           []sdk.AGUIDemoBackend
 }
 
 func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
@@ -48,6 +56,33 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	}
 	metadataHandler := svcworkspace.NewMetadataHandler(opts.Runtime.Defaults, opts.Runtime.Store, metadataVersion)
 	metadataHandler.SetLayoutDefault(opts.LayoutDefault)
+	captured := opts.NativeLayoutSource
+	if captured == nil {
+		captured = opts.Runtime.NativeLayoutSource
+	}
+	if captured == nil {
+		root := workspace.Root()
+		if opts.Runtime.Store != nil {
+			root = opts.Runtime.Store.Root()
+		}
+		var err error
+		captured, err = resourcesvc.CaptureNativeLayoutSource(ctx, root, opts.LayoutDefault)
+		if err != nil {
+			return nil, err
+		}
+	}
+	layoutDefault := opts.LayoutDefault
+	if captured != nil {
+		if err := metadataHandler.SetCapturedLayout(captured.Root, captured.Source, captured.Raw, captured.Check); err != nil {
+			return nil, err
+		}
+		layoutDefault = captured.Raw
+	}
+	menuReader := opts.MenuReader
+	if menuReader == nil && opts.Runtime.NativeLayoutSource != nil && opts.NativeLayoutSource == nil {
+		menuReader = svcworkspace.NewGatewayLayoutMenuReader(opts.Runtime.PrimitiveProviders, []svcworkspace.GatewayMenuSource{{Resource: identity.ResourceRef{URI: "navigation://workspace/layout"}, ProviderIdentity: resourcesvc.InternalProviderIdentity}})
+	}
+	metadataHandler.SetLayoutMenuReader(menuReader)
 	var browserRegistry *browsermcp.Registry
 	if opts.Runtime.MCPManager != nil {
 		browserRegistry = browsermcp.New(opts.Runtime.MCPManager.BrowserDescriptors, opts.Runtime.MCPManager.BrowserDescriptor)
@@ -64,10 +99,17 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		}
 		return result, nil
 	})
-	windowloader.ConfigureRemoteWindowProvider(opts.Runtime.Registry, opts.LayoutDefault)
+	windowloader.ConfigureRemoteWindowProvider(opts.Runtime.Registry, layoutDefault)
 	windowloader.ConfigureRemoteWindowAuthorization(metadataHandler.AuthorizeRemoteWindow)
 	metadataHandler.SetReportingCapabilityEnabled(opts.Runtime.Reporting != nil)
-	metadataHandler.SetAuthorizationPolicy(opts.Runtime.AuthorizationPolicy)
+	var permittedRuntime *permittedview.Runtime
+	if opts.Runtime.PermittedResolver != nil {
+		permittedRuntime = permittedview.NewRuntime(opts.Runtime.PermittedResolver)
+	}
+	metadataHandler.SetAuthorizationRuntimes(opts.Runtime.AuthorizationPolicy, permittedRuntime)
+	if opts.Runtime.UIBridge != nil {
+		metadataHandler.SetWindowResourceCatalog(opts.Runtime.UIBridge)
+	}
 	fileBrowserHandler := svcworkspace.NewFileBrowserHandler()
 	a2aSvc := svca2a.New(opts.Runtime.Agent, opts.AgentFinder)
 	a2aHandler := svca2a.NewHandler(a2aSvc)
@@ -78,6 +120,12 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		sdk.WithFileBrowser(fileBrowserHandler),
 		sdk.WithA2AHandler(a2aHandler),
 		sdk.WithAGUIDemoBackends(opts.AGUIDemoBackends...),
+	}
+	if opts.MCPUIResourceContextBinder != nil {
+		handlerOpts = append(handlerOpts, sdk.WithMCPUIResourceContextBinder(opts.MCPUIResourceContextBinder))
+	}
+	if opts.MCPUIResourceReader != nil {
+		handlerOpts = append(handlerOpts, sdk.WithMCPUIResourceReader(opts.MCPUIResourceReader))
 	}
 	// Callback dispatcher — mounted only when the runtime built one
 	// (requires a tool registry; see executor builder). When auth is
@@ -125,11 +173,27 @@ func NewExposedMCPServer(ctx context.Context, rt *executor.Runtime, cfg *mcpexpo
 	if cfg == nil {
 		return nil, fmt.Errorf("MCP server config required")
 	}
-	server, err := mcpexpose.NewHTTPServer(ctx, &runtimeExecutorAdapter{rt: rt, skillItems: cfg.SkillItems}, cfg)
-	if err != nil {
-		return nil, err
+	var server *http.Server
+	if rt.LocalPrimitiveProvider != nil && len(cfg.ToolPatterns()) == 0 && len(cfg.SkillItems) == 0 {
+		server = &http.Server{Addr: cfg.ListenAddr(), Handler: http.NotFoundHandler()}
+	} else {
+		var err error
+		server, err = mcpexpose.NewHTTPServer(ctx, &runtimeExecutorAdapter{rt: rt, skillItems: cfg.SkillItems}, cfg)
+		if err != nil {
+			return nil, err
+		}
 	}
 	server.Handler = svcauth.WithAuthProtection(server.Handler, authRuntime)
+	if rt.LocalPrimitiveProvider != nil {
+		local, err := resourcesvc.NewMCPHandler(rt.LocalPrimitiveProvider, func(next http.Handler) http.Handler { return svcauth.WithAuthProtection(next, authRuntime) })
+		if err != nil {
+			return nil, err
+		}
+		mux := http.NewServeMux()
+		mux.Handle("/primitives/", http.StripPrefix("/primitives", local))
+		mux.Handle("/", server.Handler)
+		server.Handler = mux
+	}
 	// Bound header read and idle keep-alive so slow / abandoned connections
 	// cannot accumulate goroutines. Body read/write deadlines stay zero
 	// because MCP streamable handlers are long-lived by design.

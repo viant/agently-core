@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 )
 
 func postUIRPC(t *testing.T, bridge *forgeuisvc.Service, method string, params map[string]interface{}) map[string]interface{} {
@@ -80,6 +80,10 @@ func seedClientWindow(t *testing.T, bridge *forgeuisvc.Service, clientID string)
 			},
 		},
 	})
+	// Command lookup requires a serviceable HTTP poll. Establish that state
+	// before racing the command goroutine with its response poll.
+	postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": clientID, "timeoutMs": 1})
+
 }
 
 func TestRefreshUsesRequestClientWithDuplicateConversationWindows(t *testing.T) {

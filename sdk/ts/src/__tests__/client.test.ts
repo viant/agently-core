@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentlyClient } from '../client';
 import { HttpError } from '../errors';
+import type { ResolvedDefinitionResource } from '../types';
 
 type FetchImplementation = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 type FetchMock = ReturnType<typeof vi.fn<FetchImplementation>>;
@@ -1170,6 +1171,7 @@ describe('Forge Window Metadata', () => {
 
         const metadata = await c.applyPermission(' advertiser ', {
             conversationId: ' conv-1 ',
+            authorizationSchemaVersion: 1,
             resource: {advertiserId: 85141},
             windowParams: {AdvertiserId: [85141]},
             targetContext: {platform: 'web', formFactor: 'desktop'},
@@ -1179,15 +1181,66 @@ describe('Forge Window Metadata', () => {
         const call = lastCall(f);
         expect(call.url).toContain('/v1/api/agently/forge/window/advertiser?');
         expect(call.url).toContain('applyPermission=true');
+        expect(call.url).toContain('authorizationSchemaVersion=1');
         expect(call.url).toContain('conversationId=conv-1');
         expect(call.url).toContain('resource=');
         expect(call.url).toContain('windowParams=');
+    });
+
+    it('applyPermission forwards optional exact framework routing without changing original authority', async () => {
+        const f = mockFetch(200, {data: {key: 'chat/new'}}); const c = client(f);
+        await c.applyPermission('chat/new', {conversationId:'conv-1',clientId:' active-client ',windowId:' chat/new '});
+        const url = new URL(lastCall(f).url);
+        expect(url.searchParams.get('clientId')).toBe('active-client');
+        expect(url.searchParams.get('windowId')).toBe('chat/new');
+        expect(url.searchParams.has('namespace')).toBe(false);
+    });
+
+    it('fresh OPEN forwards selector integrity and negotiated transport separately', async () => {
+        const f = mockFetch(200,{data:{key:'chat/new'}}); const c=client(f);
+        const expectedResource={providerIdentity:'framework',uri:'window://agently/chat-new',kind:'working' as const,contentFingerprint:'a'.repeat(64)};
+        await c.applyPermission('chat/new',{conversationId:'conv',clientId:'owned',windowId:'chat/new',expectedResource,bridgeSessionId:'negotiated',windowParams:{EntityId:['original']}});
+        const call=lastCall(f);const url=new URL(call.url);
+        expect(JSON.parse(url.searchParams.get('expectedResource') || '{}')).toEqual(expectedResource);
+        expect(url.searchParams.has('resolvedResource')).toBe(false);
+        expect(call.headers?.['Mcp-Session-Id']).toBe('negotiated');
+        expect(JSON.parse(url.searchParams.get('windowParams') || '{}')).toEqual({EntityId:['original']});
+    });
+
+    it('applyPermission preserves v2 string IDs', async () => {
+        const id = '9007199254740993';
+        const f = mockFetch(200, {data: {authorizationSnapshot: {schemaVersion: 2, resources: {[id]: {type: 'customer', id, capabilities: {read: true}}}}}});
+        const c = client(f);
+        const metadata = await c.applyPermission('customer', {conversationId: '', authorizationSchemaVersion: 2, windowParams: {CustomerId: id}});
+        const url = new URL(lastCall(f).url);
+        expect(url.searchParams.get('authorizationSchemaVersion')).toBe('2');
+        expect(JSON.parse(url.searchParams.get('windowParams') || '{}').CustomerId).toBe(id);
+        expect((metadata as any).authorizationSnapshot.resources[id].id).toBe(id);
+        await expect(c.applyPermission('customer', {conversationId: '', authorizationSchemaVersion: 3 as any})).rejects.toThrow('authorization schema version must be 1 or 2');
     });
 });
 
 // ─── Datasources + Lookups ────────────────────────────────────────────────────
 
 describe('Datasources + Lookups', () => {
+    it('preserves resolved provider provenance across permission and datasource requests', async () => {
+        const resource: ResolvedDefinitionResource = {
+            providerIdentity: 'mcp-instance-a',
+            uri: 'datasource://team-a/accounts',
+            kind: 'stamped',
+            revision: 'release-1',
+            contentFingerprint: 'a'.repeat(64),
+            authorityBinding: 'current-owner',
+            validUntil: '2026-10-10T17:00:00Z',
+        };
+        const f = mockFetch(200, { rows: [] });
+        const c = client(f);
+        await c.applyPermission('accounts', { conversationId: 'conv-1', resolvedResource: resource });
+        expect(JSON.parse(new URL(lastCall(f).url).searchParams.get('resolvedResource') || '{}')).toEqual(resource);
+        await c.fetchDatasource({ id: 'accounts', resource, conversationId: 'conv-1' });
+        expect(lastCall(f).body).toEqual({ resource, conversationId: 'conv-1' });
+    });
+
     it('fetchDatasource retains the existing public request contract', async () => {
         const f = mockFetch(200, {
             rows: [{ id: 'fixture-account-1', name: 'Fixture Account' }],
@@ -1230,6 +1283,14 @@ describe('Datasources + Lookups', () => {
         expect(call.body).toEqual({
             inputs: { q: 'fixture' },
         });
+    });
+
+    it('fetchDatasource preserves exact window selectors separately from datasource inputs', async () => {
+        const f = mockFetch(200, { rows: [] });
+        const c = client(f);
+        const windowParameters = { CustomerID: '9007199254740993', AccountIDs: ['42', '9007199254740995'] };
+        await c.fetchDatasource({ id: 'accounts', windowParameters, inputs: { q: 'selected' } });
+        expect(lastCall(f).body).toEqual({ windowParameters, inputs: { q: 'selected' } });
     });
 
     it('invalidateDatasourceCache encodes id and optional inputs hash', async () => {
@@ -1680,6 +1741,19 @@ describe('skills', () => {
         expect(String(fetch.mock.calls[0][0])).toBe('http://localhost:8585/v1/skills?agentId=coder');
         expect(result.items?.[0].name).toBe('report');
     });
+    it('sends additive skill page and literal term groups without changing activation', async () => {
+        const fetch = mockFetch(200, {items: [{name: 'review'}], nextCursor: 'opaque', complete: false, total: 3});
+        const result = await client(fetch).listSkills({agentId: 'coder', namespace: 'native', nameTerms: ['Alpha', 'Beta'], descriptionTerms: ['sales'], keywords: ['review'], limit: 2, cursor: 'prior'});
+        const url = new URL(String(fetch.mock.calls[0][0]));
+        expect(url.searchParams.getAll('nameTerms')).toEqual(['Alpha', 'Beta']);
+        expect(url.searchParams.getAll('descriptionTerms')).toEqual(['sales']);
+        expect(url.searchParams.getAll('keywords')).toEqual(['review']);
+        expect(url.searchParams.get('namespace')).toBe('native');
+        expect(url.searchParams.get('limit')).toBe('2');
+        expect(url.searchParams.get('cursor')).toBe('prior');
+        expect(result.nextCursor).toBe('opaque');
+        expect(result.complete).toBe(false);
+    });
     it('activates a named skill only through an explicit activation call', async () => {
         const fetch = mockFetch(200, {name: 'report', body: 'Instructions'});
         await client(fetch).activateSkill({name: 'report', conversationId: 'c1', args: 'data'});
@@ -1717,4 +1791,14 @@ it('falls back only for an old compact-field envelope schema rejection', async (
         vi.mocked((c as any).agUiInteractions.readSnapshot).mockRejectedValue(error);
         await expect(c.getTranscript({conversationId:'owned',includeModelPayloads:false})).rejects.toBe(error);
     }
+});
+
+describe('compact tool transcript payload option', () => {
+    it('preserves explicit false in the public history HTTP query', async () => {
+        const fetch = mockFetch(200, {schemaVersion:'2', conversation:{conversationId:'owned',turns:[]}});
+        await client(fetch).readConversationHistory({conversationId:'owned',includeToolCalls:true,includeToolPayloads:false});
+        const url = new URL(String(fetch.mock.calls[0][0]));
+        expect(url.searchParams.get('includeToolPayloads')).toBe('false');
+        expect(url.searchParams.get('includeToolCalls')).toBe('true');
+    });
 });

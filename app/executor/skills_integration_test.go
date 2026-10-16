@@ -1005,18 +1005,18 @@ func TestRuntimeQuery_QueryModelOverride_WinsOverSkillFrontmatterAndSkillsModel(
 	}
 }
 
-func TestRuntimeQuery_SkillMetadataModelPreferences_SelectModelThroughExistingMatcher(t *testing.T) {
+func TestRuntimeQuery_SkillExtensionModelPreferences_SelectModelThroughExistingMatcher(t *testing.T) {
 	root := t.TempDir()
 	writeSkillRaw(t, root, "demo", `---
 name: demo
 description: Demo skill.
 metadata:
   agently-context: inline
-  model-preferences:
-    hints:
-      - name: openai_gpt-5.4
-    intelligencePriority: 0.9
-    speedPriority: 0.2
+model-preferences:
+  hints:
+    - name: openai_gpt-5.4
+  intelligencePriority: 0.9
+  speedPriority: 0.2
 allowed-tools: system/exec:execute
 ---
 

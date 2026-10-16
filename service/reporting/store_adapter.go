@@ -225,6 +225,7 @@ func encodeJob(input *ExportJob) *reportjobmodel.Record {
 	if len(input.Diagnostics) > 0 {
 		diagnostics, _ = json.Marshal(input.Diagnostics)
 	}
+	metadata := encodeExportJobMetadata(input.Metadata, input.ResourcePin, input)
 	return &reportjobmodel.Record{
 		JobID:             strings.TrimSpace(input.JobID),
 		ArtifactRef:       strings.TrimSpace(input.ArtifactRef),
@@ -241,7 +242,7 @@ func encodeJob(input *ExportJob) *reportjobmodel.Record {
 		ReportSpec:        cloneJSON(input.ReportSpec),
 		ReportFill:        cloneJSON(input.ReportFill),
 		ReportPrint:       cloneJSON(input.ReportPrint),
-		Metadata:          cloneJSON(input.Metadata),
+		Metadata:          cloneJSON(metadata),
 		ArtifactID:        strings.TrimSpace(input.ArtifactID),
 		Error:             strings.TrimSpace(input.Error),
 		Diagnostics:       diagnostics,
@@ -262,7 +263,13 @@ func decodeJob(input *reportjobmodel.Record) (*ExportJob, error) {
 			return nil, err
 		}
 	}
+	metadata, resourcePin, err := decodeExportJobMetadata(input.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	dependencyPins, dependencyToken := decodeExportDependencies(input.Metadata)
 	return &ExportJob{
+		DependencyPins: dependencyPins, DependencyToken: dependencyToken,
 		JobID:             strings.TrimSpace(input.JobID),
 		ArtifactRef:       strings.TrimSpace(input.ArtifactRef),
 		OwnerID:           strings.TrimSpace(input.OwnerID),
@@ -278,7 +285,8 @@ func decodeJob(input *reportjobmodel.Record) (*ExportJob, error) {
 		ReportSpec:        cloneJSON(input.ReportSpec),
 		ReportFill:        cloneJSON(input.ReportFill),
 		ReportPrint:       cloneJSON(input.ReportPrint),
-		Metadata:          cloneJSON(input.Metadata),
+		Metadata:          cloneJSON(metadata),
+		ResourcePin:       cloneResolvedResource(resourcePin),
 		ArtifactID:        strings.TrimSpace(input.ArtifactID),
 		Error:             strings.TrimSpace(input.Error),
 		Diagnostics:       cloneDiagnostics(diagnostics),
@@ -336,6 +344,7 @@ func encodeSharedArtifact(input *SharedArtifact) *reportshareartifactmodel.Recor
 	if input == nil {
 		return nil
 	}
+	metadata := encodeSharedArtifactMetadata(input.Metadata, input.Resource, input.sharedActorScope, input.ResourceDefinition)
 	return &reportshareartifactmodel.Record{
 		ArtifactID:       strings.TrimSpace(input.ArtifactID),
 		ArtifactRef:      strings.TrimSpace(input.ArtifactRef),
@@ -356,7 +365,7 @@ func encodeSharedArtifact(input *SharedArtifact) *reportshareartifactmodel.Recor
 		ReportFill:       cloneJSON(input.ReportFill),
 		ReportPrint:      cloneJSON(input.ReportPrint),
 		SavedViewOverlay: cloneJSON(input.SavedViewOverlay),
-		Metadata:         cloneJSON(input.Metadata),
+		Metadata:         cloneJSON(metadata),
 		CreatedAt:        input.CreatedAt,
 		UpdatedAt:        cloneTime(input.UpdatedAt),
 	}
@@ -366,29 +375,36 @@ func decodeSharedArtifact(input *reportshareartifactmodel.Record) (*SharedArtifa
 	if input == nil {
 		return nil, nil
 	}
+	metadata, resource, actorScope, definition, err := decodeSharedArtifactMetadata(input.Metadata)
+	if err != nil {
+		return nil, err
+	}
 	return &SharedArtifact{
-		ArtifactID:       strings.TrimSpace(input.ArtifactID),
-		ArtifactRef:      strings.TrimSpace(input.ArtifactRef),
-		OwnerID:          strings.TrimSpace(input.OwnerID),
-		OwnerRef:         strings.TrimSpace(input.OwnerRef),
-		Kind:             strings.TrimSpace(input.Kind),
-		Lifecycle:        strings.TrimSpace(input.Lifecycle),
-		Version:          input.Version,
-		ReportID:         strings.TrimSpace(input.ReportID),
-		Title:            strings.TrimSpace(input.Title),
-		SourceArtifactID: strings.TrimSpace(input.SourceArtifactID),
-		BaseArtifactRef:  strings.TrimSpace(input.BaseArtifactRef),
-		PolicyRef:        strings.TrimSpace(input.PolicyRef),
-		DocumentVersion:  input.DocumentVersion,
-		Document:         cloneJSON(input.Document),
-		ReportSpec:       cloneJSON(input.ReportSpec),
-		CompileState:     cloneJSON(input.CompileState),
-		ReportFill:       cloneJSON(input.ReportFill),
-		ReportPrint:      cloneJSON(input.ReportPrint),
-		SavedViewOverlay: cloneJSON(input.SavedViewOverlay),
-		Metadata:         cloneJSON(input.Metadata),
-		CreatedAt:        input.CreatedAt,
-		UpdatedAt:        cloneTime(input.UpdatedAt),
+		ArtifactID:         strings.TrimSpace(input.ArtifactID),
+		ArtifactRef:        strings.TrimSpace(input.ArtifactRef),
+		OwnerID:            strings.TrimSpace(input.OwnerID),
+		OwnerRef:           strings.TrimSpace(input.OwnerRef),
+		Kind:               strings.TrimSpace(input.Kind),
+		Lifecycle:          strings.TrimSpace(input.Lifecycle),
+		Version:            input.Version,
+		ReportID:           strings.TrimSpace(input.ReportID),
+		Title:              strings.TrimSpace(input.Title),
+		SourceArtifactID:   strings.TrimSpace(input.SourceArtifactID),
+		BaseArtifactRef:    strings.TrimSpace(input.BaseArtifactRef),
+		PolicyRef:          strings.TrimSpace(input.PolicyRef),
+		DocumentVersion:    input.DocumentVersion,
+		Document:           cloneJSON(input.Document),
+		ReportSpec:         cloneJSON(input.ReportSpec),
+		CompileState:       cloneJSON(input.CompileState),
+		ReportFill:         cloneJSON(input.ReportFill),
+		ReportPrint:        cloneJSON(input.ReportPrint),
+		SavedViewOverlay:   cloneJSON(input.SavedViewOverlay),
+		Metadata:           cloneJSON(metadata),
+		Resource:           resource,
+		ResourceDefinition: definition,
+		sharedActorScope:   actorScope,
+		CreatedAt:          input.CreatedAt,
+		UpdatedAt:          cloneTime(input.UpdatedAt),
 	}, nil
 }
 

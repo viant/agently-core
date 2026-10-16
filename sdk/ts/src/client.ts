@@ -119,7 +119,7 @@ function isLegacyCompactPayloadSchemaRejection(error: unknown): boolean {
     return body.includes('invalidEnvelope')
         && body.includes('conversation-v1.schema.json')
         && /additional\s*properties?/i.test(body)
-        && body.includes('includeModelPayloads');
+        && (body.includes('includeModelPayloads') || body.includes('includeToolPayloads'));
 }
 
 export class AgentlyClient {
@@ -255,6 +255,9 @@ export class AgentlyClient {
         const q = new URLSearchParams();
         if (input.conversationId) q.set('conversationId', input.conversationId);
         if (input.agentId) q.set('agentId', input.agentId);
+        for (const key of ['namespace', 'cursor'] as const) { if (input[key]) q.set(key, input[key]!); }
+        if (input.limit !== undefined) q.set('limit', String(input.limit));
+        for (const key of ['nameTerms', 'descriptionTerms', 'keywords'] as const) { for (const term of input[key] || []) q.append(key, term); }
         return this.get('/skills', q);
     }
 
@@ -370,6 +373,7 @@ export class AgentlyClient {
         if (input.since) q.set('since', input.since);
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
         if (input.includeModelPayloads !== undefined) q.set('includeModelPayloads', String(input.includeModelPayloads));
+        if (input.includeToolPayloads !== undefined) q.set('includeToolPayloads', String(input.includeToolPayloads));
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
         if (input.includeFeeds) q.set('includeFeeds', 'true');
         const selectors = { ...(options?.selectors ?? {}) } as Record<string, QuerySelector>;
@@ -402,6 +406,7 @@ export class AgentlyClient {
         const q = new URLSearchParams();
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
         if (input.includeModelPayloads !== undefined) q.set('includeModelPayloads', String(input.includeModelPayloads));
+        if (input.includeToolPayloads !== undefined) q.set('includeToolPayloads', String(input.includeToolPayloads));
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
         if (input.includeFeeds) q.set('includeFeeds', 'true');
         if (options?.selectors && Object.keys(options.selectors).length > 0) {
@@ -423,9 +428,10 @@ export class AgentlyClient {
             mode:'transcript', since:input.since, includeModelCalls:input.includeModelCalls === true,
             includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
             includeModelPayloads:input.includeModelPayloads,
+            includeToolPayloads:input.includeToolPayloads,
             selectors:this.transcriptSelectors(options),
         }); }
-        catch (error) { if ((error as {status?:number})?.status === 403 || input.includeModelPayloads === false && isLegacyCompactPayloadSchemaRejection(error)) return this.readConversationHistory(input, options); throw error; }
+        catch (error) { if ((error as {status?:number})?.status === 403 || (input.includeModelPayloads === false || input.includeToolPayloads === false) && isLegacyCompactPayloadSchemaRejection(error)) return this.readConversationHistory(input, options); throw error; }
     }
 
     async getLiveState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
@@ -433,9 +439,10 @@ export class AgentlyClient {
             mode:'live', includeModelCalls:input.includeModelCalls === true,
             includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
             includeModelPayloads:input.includeModelPayloads,
+            includeToolPayloads:input.includeToolPayloads,
             selectors:this.transcriptSelectors(options),
         }); }
-        catch (error) { if ((error as {status?:number})?.status === 403 || input.includeModelPayloads === false && isLegacyCompactPayloadSchemaRejection(error)) return this.readApplicationState(input, options); throw error; }
+        catch (error) { if ((error as {status?:number})?.status === 403 || (input.includeModelPayloads === false || input.includeToolPayloads === false) && isLegacyCompactPayloadSchemaRejection(error)) return this.readApplicationState(input, options); throw error; }
     }
 
     // ── Query ────────────────────────────────────────────────────────────────
@@ -1135,11 +1142,19 @@ export class AgentlyClient {
         if (!key) throw new Error('window key is required');
         const query = targetContextQuery(input.targetContext);
         query.set('applyPermission', 'true');
+        if (input.clientId) query.set('clientId', String(input.clientId).trim());
+        if (input.windowId) query.set('windowId', String(input.windowId).trim());
+        if (input.resolvedResource) query.set('resolvedResource', JSON.stringify(input.resolvedResource));
+        if (input.expectedResource) query.set('expectedResource', JSON.stringify(input.expectedResource));
+        if (input.authorizationSchemaVersion !== undefined) {
+            if (input.authorizationSchemaVersion !== 1 && input.authorizationSchemaVersion !== 2) throw new Error('authorization schema version must be 1 or 2');
+            query.set('authorizationSchemaVersion', String(input.authorizationSchemaVersion));
+        }
         const conversationId = String(input?.conversationId || '').trim();
         if (conversationId) query.set('conversationId', conversationId);
         if (input?.resource && Object.keys(input.resource).length > 0) query.set('resource', JSON.stringify(input.resource));
         if (input.windowParams) query.set('windowParams', JSON.stringify(input.windowParams));
-        const decoded = await this.get<JSONValue>(`/api/agently/forge/window/${enc(key)}`, query);
+        const decoded = await this.get<JSONValue>(`/api/agently/forge/window/${enc(key)}`, query, input.bridgeSessionId ? {'Mcp-Session-Id': input.bridgeSessionId} : {});
         if (isJSONObject(decoded) && Object.prototype.hasOwnProperty.call(decoded, 'data')) {
             return decoded.data as JSONValue;
         }
@@ -1153,6 +1168,8 @@ export class AgentlyClient {
         const id = String(input?.id || '').trim();
         if (!id) throw new Error('datasource id is required');
         const body: JSONObject = {};
+        if (input.resource) body.resource = input.resource as unknown as JSONObject;
+        if (input.windowParameters) body.windowParameters = input.windowParameters;
         if (input.inputs) body.inputs = input.inputs;
         if (input.cache) body.cache = input.cache as JSONObject;
         const conversationId = input.conversationId?.trim();
@@ -1495,10 +1512,10 @@ export class AgentlyClient {
 
     // ── Internal HTTP ────────────────────────────────────────────────────────
 
-    private async get<T = APIResponse>(path: string, params?: URLSearchParams): Promise<T> {
+    private async get<T = APIResponse>(path: string, params?: URLSearchParams, extraHeaders: Record<string,string> = {}): Promise<T> {
         const qs = params?.toString();
         const url = qs ? `${this.baseURL}${path}?${qs}` : `${this.baseURL}${path}`;
-        return this.request<T>('GET', url);
+        return this.request<T>('GET', url, undefined, extraHeaders);
     }
 
     private async post<T = APIResponse>(path: string, body: RequestBody): Promise<T> {

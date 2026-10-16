@@ -35,7 +35,7 @@ func (c *liveFeedClient) StreamEvents(ctx context.Context, input *StreamEventsIn
 }
 func TestAGUIFeedSubscriptionObservesLiveUpdatesWithoutChatMutation(t *testing.T) {
 	server, _, _ := atomicGoalFixture(t)
-	store := aguistore.New(server)
+	store := observeSubscriptionCommits(aguistore.New(server))
 	ctx := context.Background()
 	record := atomicGoalRecord(t, store, "feed.subscribe", "feed-subscription", json.RawMessage(`{"id":"feed","durationSeconds":1}`))
 	before, err := store.GetThread(ctx, "owner", "goal-thread")
@@ -43,19 +43,22 @@ func TestAGUIFeedSubscriptionObservesLiveUpdatesWithoutChatMutation(t *testing.T
 	client := &liveFeedClient{bus: streaming.NewMemoryBus(32), data: json.RawMessage(`{"rows":[{"n":1}]}`)}
 	observer, cancel := context.WithCancel(ctx)
 	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- observeAGUIFeed(observer, client, store, record, "feed", 3*time.Second) }()
+	done := startSubscriptionObserver(t, cancel, func() error { return observeAGUIFeed(observer, client, store, record, "feed", 3*time.Second) })
 	require.Eventually(t, func() bool {
-		events, _ := store.Replay(ctx, "owner", "goal-thread", record.RunID, 0, 1000)
-		return len(events) >= 2
+		return store.afterCommit(func() bool {
+			events, _ := store.Replay(ctx, "owner", "goal-thread", record.RunID, 0, 1000)
+			return len(events) >= 2
+		})
 	}, time.Second, 10*time.Millisecond)
 	client.mu.Lock()
 	client.data = json.RawMessage(`{"rows":[{"n":9007199254740993}]}`)
 	client.mu.Unlock()
 	require.NoError(t, client.bus.Publish(ctx, &streaming.Event{Type: streaming.EventTypeToolFeedActive, ConversationID: "goal-thread", StreamID: "goal-thread", FeedID: "feed"}))
 	require.Eventually(t, func() bool {
-		events, _ := store.Replay(ctx, "owner", "goal-thread", record.RunID, 0, 1000)
-		return len(events) >= 3
+		return store.afterCommit(func() bool {
+			events, _ := store.Replay(ctx, "owner", "goal-thread", record.RunID, 0, 1000)
+			return len(events) >= 3
+		})
 	}, time.Second, 10*time.Millisecond)
 	cancel()
 	require.NoError(t, <-done)

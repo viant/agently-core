@@ -36,6 +36,12 @@ func (s *stateAdmissionCollisionStore) GetThread(ctx context.Context, principal,
 	return s.Store.GetThread(ctx, principal, threadID)
 }
 func (s *stateAdmissionCollisionStore) Append(ctx context.Context, principal, threadID, runID string, revision int64, events []json.RawMessage, change *store.Change) (*store.Run, error) {
+	if err := s.injectBeforeAppend(ctx, principal, threadID, runID, events); err != nil {
+		return nil, err
+	}
+	return s.Store.Append(ctx, principal, threadID, runID, revision, events, change)
+}
+func (s *stateAdmissionCollisionStore) injectBeforeAppend(ctx context.Context, principal, threadID, runID string, events []json.RawMessage) error {
 	hasState := false
 	hasTextStart := false
 	for _, raw := range events {
@@ -58,22 +64,43 @@ func (s *stateAdmissionCollisionStore) Append(ctx context.Context, principal, th
 			input := rawAGUI(map[string]any{"threadId": threadID, "runId": id, "messages": []any{}, "forwardedProps": map[string]any{"agently": map[string]any{"version": "1", "operation": "conversation.bootstrap", "requestId": id, "payload": map[string]any{}}}})
 			peer, _, err := s.Store.Admit(ctx, store.Admission{Principal: principal, ThreadID: threadID, RunID: id, Input: input})
 			if err != nil {
-				return nil, err
+				return err
 			}
 			if s.peerState != nil {
 				thread, err := s.Store.GetThread(ctx, principal, threadID)
 				if err != nil {
-					return nil, err
+					return err
 				}
 				_, err = s.Store.Append(ctx, principal, threadID, id, peer.Revision, []json.RawMessage{rawAGUI(map[string]any{"type": "RUN_STARTED", "threadId": threadID, "runId": id}), rawAGUI(map[string]any{"type": "STATE_SNAPSHOT", "snapshot": s.peerState}), rawAGUI(map[string]any{"type": "RUN_FINISHED", "threadId": threadID, "runId": id, "outcome": map[string]any{"type": "success"}})}, &store.Change{State: s.peerState, ExpectedThreadRevision: thread.Revision})
 				if err != nil {
-					return nil, err
+					return err
 				}
 			}
 		}
 	}
-	return s.Store.Append(ctx, principal, threadID, runID, revision, events, change)
+	return nil
 }
+
+// Peer admission happens before the atomic preparation takes its native lock.
+// Fault fixtures retain their ordinary CAS path to exercise rollback behavior.
+func (s *stateAdmissionCollisionStore) AppendPrepared(ctx context.Context, principal, threadID, runID string, revision int64, prepare store.AppendPreparation) (*store.Run, error) {
+	if s.failThread || s.textCollision {
+		thread, err := s.GetThread(ctx, principal, threadID)
+		if err != nil {
+			return nil, err
+		}
+		events, change, err := prepare(thread)
+		if err != nil {
+			return nil, err
+		}
+		return s.Append(ctx, principal, threadID, runID, revision, events, change)
+	}
+	if err := s.injectBeforeAppend(ctx, principal, threadID, runID, []json.RawMessage{rawAGUI(map[string]any{"type": "STATE_SNAPSHOT"})}); err != nil {
+		return nil, err
+	}
+	return s.Store.(store.PreparedAppender).AppendPrepared(ctx, principal, threadID, runID, revision, prepare)
+}
+
 func stateEchoHTTPFixture(t *testing.T) (*durableAGUIClient, *httptest.Server, *stateAdmissionCollisionStore) {
 	t.Helper()
 	ctx := context.Background()
@@ -234,4 +261,9 @@ func TestAGUIMessageStartCASRollbackDoesNotRetainUncommittedOpenLane(t *testing.
 	collision.mu.Lock()
 	require.True(t, collision.injected["text-fresh-text-collision"])
 	collision.mu.Unlock()
+}
+
+func (s *stateAdmissionCollisionStore) OwnsPreparedAppend(caller store.Store) bool {
+	self, ok := caller.(*stateAdmissionCollisionStore)
+	return ok && self == s && !s.failThread && !s.textCollision
 }

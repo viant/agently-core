@@ -73,6 +73,10 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 		return nil
 	}
 
+	if !s.continuationContractMatches(ctx, conversationID, anchorID) {
+		return nil
+	}
+
 	// Collect tool-call messages mapped to this anchor. User messages
 	// are already part of the anchored context and do not participate
 	// in continuation-by-anchor.

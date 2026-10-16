@@ -33,6 +33,8 @@ type Elicitation struct {
 	// form submission so both LLM- and tool-initiated prompts share
 	// a unified posting contract.
 	CallbackURL string `json:"callbackURL,omitempty"`
+	// Deadline is the live waiter deadline; late answers may still resume the turn.
+	Deadline string `json:"deadline,omitempty"`
 }
 
 // IsEmpty reports whether the elicitation is effectively empty (i.e. there is

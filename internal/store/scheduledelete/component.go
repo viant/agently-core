@@ -24,8 +24,10 @@ import (
 var ErrScheduleNotFound = errors.New("schedule not found")
 var ErrScheduledRunNotFound = errors.New("scheduled run not found")
 
+// Cascade children require immediate graph visibility within the parent unit.
+// Imperative composition preserves the same parent-owned transaction.
 type Component struct {
-	Contract xdatly.Component[Input, Output] `component:"ScheduleCascadeDelete,path=/v1/internal/agently/scheduler/delete,method=POST,handler=NewDelete,internal=true"`
+	Contract xdatly.Component[Input, Output] `component:"ScheduleCascadeDelete,path=/v1/internal/agently/scheduler/delete,method=POST,handler=NewDelete,internal=true" componentCallPolicy:"imperative"`
 }
 type Input struct {
 	ID      string `parameter:"ID,kind=body,in=id,required=true"`
