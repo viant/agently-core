@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	callbackhttp "github.com/viant/agently-core/adapter/http/callback"
+	"github.com/viant/agently-core/protocol/mcp/manager"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/scheduler"
@@ -35,11 +36,12 @@ type handlerConfig struct {
 	uiBridgeHandler  http.Handler
 	reportRunHandler http.Handler
 
-	mcpUIResourceReader MCPUIResourceReader
-	mcpUIToolCaller     MCPUIToolCaller
-	mcpAppsHost         *AGUIMCPAppsHost
-	aguiDemoBackends    []AGUIDemoBackend
-	aguiDemoRegistry    *aguiDemoRegistry
+	mcpUIResourceReader        MCPUIResourceReader
+	mcpUIResourceContextBinder MCPUIResourceContextBinder
+	mcpUIToolCaller            MCPUIToolCaller
+	mcpAppsHost                *AGUIMCPAppsHost
+	aguiDemoBackends           []AGUIDemoBackend
+	aguiDemoRegistry           *aguiDemoRegistry
 }
 
 // SchedulerOptions controls scheduler behavior at the SDK level.
@@ -164,6 +166,7 @@ func NewHandlerWithContext(ctx context.Context, client Backend, opts ...HandlerO
 
 	var handler http.Handler = mux
 	handler = withDebugHeaders(handler)
+	handler = manager.WithRequestCatalog(handler)
 	if cfg.authCfg != nil && cfg.authCfg.Enabled && cfg.authSessions != nil {
 		handler = svcauth.Protect(cfg.authCfg, cfg.authSessions)(handler)
 	}
@@ -230,7 +233,7 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 	mux.HandleFunc("GET /v1/application-events", handleApplicationEvents(client, cfg.authCfg))
 
 	mux.HandleFunc("POST /v1/turns/{id}/cancel", handleCancelTurn(client))
-	mux.HandleFunc("POST /v1/elicitations/{conversationId}/{elicitationId}/resolve", handleResolveElicitation(client))
+	mux.HandleFunc("POST /v1/elicitations/{conversationId}/{elicitationId}/resolve", handleResolveElicitation(client, cfg.authCfg))
 	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/steer", handleSteerTurn(client))
 	mux.HandleFunc("DELETE /v1/conversations/{id}/turns/{turnId}", handleDeleteQueuedTurn(client))
 	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/move", handleMoveQueuedTurn(client, cfg.authCfg))
@@ -309,6 +312,9 @@ func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {
 	}
 	if cfg.mcpUIResourceReader != nil {
 		mux.HandleFunc("GET /v1/api/mcp-ui/resources/read", handleMCPUIResourceRead(cfg.mcpUIResourceReader))
+		if cfg.mcpUIResourceContextBinder != nil {
+			mux.HandleFunc("POST /v1/api/mcp-ui/resources/read", handleMCPUIResourceContextRead(cfg.mcpUIResourceReader, cfg.mcpUIResourceContextBinder))
+		}
 	}
 	if cfg.mcpUIToolCaller != nil {
 		mux.HandleFunc("POST /v1/api/mcp-ui/tools/call", handleMCPUIToolCall(cfg.mcpUIToolCaller))

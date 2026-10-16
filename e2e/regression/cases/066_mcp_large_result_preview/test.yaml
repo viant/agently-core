@@ -1,120 +1,234 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-large-result
+      email: e2e-large-result@example.test
   setupTurn1:
     when: $sdkKey != ''
     action: http/runner:send
     TimeoutMs: 240000
-    description: "mcp large result preview - first turn should call custom MCP tool"
+    description: mcp large result preview - first turn should call custom MCP tool
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 066_mcp_large_result_preview-setupTurn1
+        query:
+          agentID: mcp_large_result_probe
+          query: Produce the large MCP result.
+          model: openai_gpt4o_mini_responses_preview
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: mcp_large_result_probe
-          UserId: e2e-large-result
-          Query: Produce the large MCP result.
-          ModelOverride: openai_gpt4o_mini_responses_preview
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@messageId": true
-            content: LARGE_RESULT_OK
-
+          '@exists@identity.nativeConversationId': true
+          '@exists@rootTurn.assistant.final.messageId': true
+          rootTurn:
+            assistant:
+              final:
+                content: LARGE_RESULT_OK
   verifyToolTurn1:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "mcp large result preview - first turn should persist a tool_op"
+    description: mcp large result preview - first turn should persist a tool_op
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&types=tool_op
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Rows[0]": true
-          Body: '/LARGE_RESULT_SENTINEL/'
-
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.identity.nativeConversationId}&types=tool_op
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@Rows[0]': true
+        Body: /LARGE_RESULT_SENTINEL/
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   probeTurn2:
     when: $sdkKey != ''
     action: http/runner:send
     TimeoutMs: 240000
-    description: "mcp large result preview - second turn should see prior tool call and skip new tool use"
+    description: mcp large result preview - second turn should see prior tool call
+      and skip new tool use
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 066_mcp_large_result_preview-probeTurn2
+        query:
+          agentID: tool_exposure_probe
+          conversationID: ${setupTurn1.Responses[0].JSONBody.identity.nativeConversationId}
+          query: probe
+          toolCallExposure: conversation
+          model: openai_gpt4o_mini_responses_preview
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: tool_exposure_probe
-          ConversationID: ${setupTurn1.Responses[0].JSONBody.conversationId}
-          UserId: e2e-large-result
-          Query: probe
-          ToolCallExposure: conversation
-          ModelOverride: openai_gpt4o_mini_responses_preview
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@messageId": true
-            content: SKIPPED
-
+          '@exists@rootTurn.assistant.final.messageId': true
+          rootTurn:
+            assistant:
+              final:
+                content: SKIPPED
   turn2Message:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "mcp large result preview - resolve turn2 id from response message id"
+    description: mcp large result preview - resolve turn2 id from response message
+      id
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&id=${probeTurn2.Responses[0].JSONBody.messageId}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Rows[0].TurnId": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.identity.nativeConversationId}&id=${probeTurn2.Responses[0].JSONBody.rootTurn.assistant.final.messageId}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@Rows[0].turnId': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+  validateTurn2ModelSelection:
+    when: $sdkKey != ''
+    action: validator:assert
+    description: bind the original second-turn first model request to exact native identities
+    # The original extraction selected the first model request after this exact
+    # turn. Select its typed root page/model step and verify the identity chain;
+    # the independent transcript below is indexed by IDs, never array position.
+    actual: ${probeTurn2.Responses[0].JSONBody.rootTurn}
+    expect:
+      turnId: ${turn2Message.Responses[0].JSONBody.Rows[0].turnId}
+      assistant:
+        final:
+          messageId: ${turn2Message.Responses[0].JSONBody.Rows[0].id}
+  validateTurn2ModelPage:
+    when: $sdkKey != ''
+    action: validator:assert
+    actual: ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0]}
+    expect:
+      pageId: '@exists@'
+      turnId: ${turn2Message.Responses[0].JSONBody.Rows[0].turnId}
+      assistantMessageId: ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0].assistantMessageId}
+  validateTurn2ModelStep:
+    when: $sdkKey != ''
+    action: validator:assert
+    actual: ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0]}
+    expect:
+      modelCallId: '@exists@'
+      requestPayloadId: '@exists@'
+      assistantMessageId: ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].assistantMessageId}
   transcriptTurn2:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "mcp large result preview - fetch transcript and extract second turn model request payload id"
+    description: verify the exact second turn model request in the independent transcript
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${setupTurn1.Responses[0].JSONBody.conversationId}/transcript?includeModelCalls=true&includeToolCalls=true
-        extract:
-          - key: requestPayloadId
-            regExpr: '(?s)"turnId":"${turn2Message.Responses[0].JSONBody.Rows[0].TurnId}".*?"requestPayloadId":"([^"]+)"'
-            required: true
-        Expect:
-          Code: 200
-
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations/${setupTurn1.Responses[0].JSONBody.identity.nativeConversationId}/transcript?includeModelCalls=true&includeToolCalls=true
+      Expect:
+        Code: 200
+        JSONBody:
+          conversation:
+            conversationId: ${setupTurn1.Responses[0].JSONBody.identity.nativeConversationId}
+            turns:
+              '@indexBy@': turnId
+              ${turn2Message.Responses[0].JSONBody.Rows[0].turnId}:
+                turnId: ${turn2Message.Responses[0].JSONBody.Rows[0].turnId}
+                assistant:
+                  final:
+                    messageId: ${turn2Message.Responses[0].JSONBody.Rows[0].id}
+                execution:
+                  pages:
+                    '@indexBy@': pageId
+                    ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].pageId}:
+                      pageId: ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].pageId}
+                      turnId: ${turn2Message.Responses[0].JSONBody.Rows[0].turnId}
+                      assistantMessageId: ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].assistantMessageId}
+                      modelSteps:
+                        '@indexBy@': modelCallId
+                        ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0].modelCallId}:
+                          modelCallId: ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0].modelCallId}
+                          assistantMessageId: ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0].assistantMessageId}
+                          requestPayloadId: ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0].requestPayloadId}
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   turn2RequestPayloadOverflow:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "mcp large result preview - second turn request payload should contain overflow marker"
+    description: mcp large result preview - second turn request payload should contain
+      overflow marker
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/api/payload/${transcriptTurn2.Data.requestPayloadId}?inline=1
-        Expect:
-          Code: 200
-          JSONBody:
-            Id: ${transcriptTurn2.Data.requestPayloadId}
-            "@exists@InlineBody": true
-          Body: /overflow:[[:space:]]true/
-
+    - Method: GET
+      URL: ${authServerURL}/v1/api/payload/${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0].requestPayloadId}?inline=1
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          Id: ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0].requestPayloadId}
+          '@exists@InlineBody': true
+    - Method: GET
+      URL: ${authServerURL}/v1/api/payload/${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0].requestPayloadId}?raw=1
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@messages': true
   turn2RequestPayloadShowTool:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "mcp large result preview - second turn request payload should expose message-show helper"
+    description: mcp large result preview - second turn request payload should expose
+      message-show helper
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/api/payload/${transcriptTurn2.Data.requestPayloadId}?inline=1
-        Expect:
-          Code: 200
-          Body: /useToolToSeeMore:[[:space:]]message-show/
-
+    - Method: GET
+      URL: ${aguiProbeURL}/preview-metadata/066_mcp_large_result_preview-probeTurn2?requestPayloadId=${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0].requestPayloadId}&messageId=${verifyToolTurn1.Responses[0].JSONBody.Rows[0].id}
+      Expect:
+        Code: 200
+        JSONBody:
+          requestPayloadId: ${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0].requestPayloadId}
+          preview:
+            messageId: ${verifyToolTurn1.Responses[0].JSONBody.Rows[0].id}
+            '@exists@returned': true
+            '@exists@remaining': true
+            '@exists@bodyBytes': true
+            continuation:
+              hasMore: true
+              '@exists@returned': true
+              '@exists@remaining': true
+              nextRange:
+                bytes:
+                  '@exists@offset': true
+                  '@exists@length': true
+            nextArgs:
+              messageId: ${verifyToolTurn1.Responses[0].JSONBody.Rows[0].id}
+              byteRange:
+                '@exists@from': true
+                '@exists@to': true
+            continuationHint: /message-show/
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   turn2RequestPayloadNoRawLargeBody:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "mcp large result preview - second turn request payload should not carry the raw 128k MCP result"
+    description: mcp large result preview - second turn request payload should not
+      carry the raw 128k MCP result
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/api/payload/${transcriptTurn2.Data.requestPayloadId}?inline=1
-        Expect:
-          Code: 200
-          Body: '!/CHUNK-1500 LARGE_RESULT_SENTINEL/'
+    - Method: GET
+      URL: ${authServerURL}/v1/api/payload/${probeTurn2.Responses[0].JSONBody.rootTurn.execution.pages[0].modelSteps[0].requestPayloadId}?raw=1
+      Expect:
+        Code: 200
+        Body: '!/CHUNK-1500 LARGE_RESULT_SENTINEL/'
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

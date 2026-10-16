@@ -1,72 +1,107 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+    claimsMap:
+      sub: e2e-turn-queue-controls
+      email: e2e-turn-queue-controls@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "turn queue controls - create conversation"
+    description: turn queue controls - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        AgentID: simple
+        Title: turn-queue-controls-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: simple
-          Title: turn-queue-controls-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
   steerMissingTurn:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "turn queue controls - steer missing turn returns conflict"
+    description: turn queue controls - steer missing turn returns conflict
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/turns/missing-turn/steer
-        JSONBody:
-          content: hello
-          role: user
-        Expect:
-          Code: 409
-
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}/turns/missing-turn/steer
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        content: hello
+        role: user
+      Expect:
+        Code: 409
   moveMissingTurn:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "turn queue controls - move missing turn returns conflict"
+    description: turn queue controls - move missing turn returns conflict
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/turns/missing-turn/move
-        JSONBody:
-          direction: down
-        Expect:
-          Code: 409
-
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}/turns/missing-turn/move
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        direction: down
+      Expect:
+        Code: 409
   editMissingTurn:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "turn queue controls - edit missing turn returns conflict"
+    description: turn queue controls - edit missing turn returns conflict
     requests:
-      - Method: PATCH
-        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/turns/missing-turn
-        JSONBody:
-          content: edited content
-        Expect:
-          Code: 409
-
+    - Method: PATCH
+      URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}/turns/missing-turn
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        content: edited content
+      Expect:
+        Code: 409
   deleteMissingTurn:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "turn queue controls - delete missing turn returns conflict"
+    description: turn queue controls - delete missing turn returns conflict
     requests:
-      - Method: DELETE
-        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/turns/missing-turn
-        Expect:
-          Code: 409
-
+    - Method: DELETE
+      URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}/turns/missing-turn
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      Expect:
+        Code: 409
   forceSteerMissingTurn:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "turn queue controls - force-steer missing turn returns conflict"
+    description: turn queue controls - force-steer missing turn returns conflict
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/turns/missing-turn/force-steer
-        Expect:
-          Code: 409
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}/turns/missing-turn/force-steer
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      Expect:
+        Code: 409
+  moveWithoutPrincipal:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: authenticated move denies absent principal before queue handling
+    requests:
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}/turns/missing-turn/move
+      JSONBody:
+        direction: down
+      Expect:
+        Code: 401

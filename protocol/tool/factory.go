@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"context"
 	"fmt"
 
 	internal "github.com/viant/agently-core/internal/tool/registry"
@@ -9,6 +10,32 @@ import (
 	toolprotection "github.com/viant/agently-core/protocol/tool/protection"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 )
+
+// SetAuthorizationGuard installs a pre-dispatch backend action check on the
+// default registry. Custom registries must expose the same setter explicitly.
+func SetAuthorizationGuard(reg Registry, guard func(context.Context, string, map[string]interface{}) error) bool {
+	type setter interface {
+		SetAuthorizationGuard(func(context.Context, string, map[string]interface{}) error)
+	}
+	target, ok := reg.(setter)
+	if !ok {
+		return false
+	}
+	target.SetAuthorizationGuard(guard)
+	return true
+}
+
+// SetResultReuseDisabled prevents cached tool results from crossing account
+// contexts in an authz host. Custom registries must support this explicitly.
+func SetResultReuseDisabled(reg Registry, disabled bool) bool {
+	type setter interface{ SetResultReuseDisabled(bool) }
+	target, ok := reg.(setter)
+	if !ok {
+		return false
+	}
+	target.SetResultReuseDisabled(disabled)
+	return true
+}
 
 // NewDefaultRegistry constructs the default MCP-backed tool registry with built-ins.
 func NewDefaultRegistry(mgr *manager.Manager) (Registry, error) { return internal.NewWithManager(mgr) }

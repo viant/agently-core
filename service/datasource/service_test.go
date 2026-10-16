@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	dsproto "github.com/viant/agently-core/protocol/datasource"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	"github.com/viant/agently-core/service/datasource"
 	"github.com/viant/forge/backend/types"
 )
@@ -151,6 +153,34 @@ func TestFetch_Miss_RunsBackendAndProjects(t *testing.T) {
 	}
 }
 
+func TestFetchTimingSeparatesBackendFromCachedRead(t *testing.T) {
+	svc, _, _ := setup(t)
+	var events []observe.Event
+	ctx := observe.WithObserver(aliceCtx(), observe.ObserverFunc(func(event observe.Event) {
+		events = append(events, event)
+	}))
+	for range 2 {
+		_, err := svc.Fetch(ctx, "account", map[string]interface{}{"q": "sensitive-query"}, datasource.FetchOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	counts := map[observe.Phase]int{}
+	for _, event := range events {
+		counts[event.Phase]++
+		if event.Outcome != observe.OK || event.Kind != "datasource" {
+			t.Fatalf("unexpected timing event: %+v", event)
+		}
+	}
+	if counts[observe.Phase("datasource.service.fetch")] != 2 || counts[observe.Phase("datasource.service.backend")] != 1 {
+		t.Fatalf("timing phases = %+v", counts)
+	}
+	raw, err := json.Marshal(events)
+	if err != nil || strings.Contains(string(raw), "sensitive-query") {
+		t.Fatalf("timings exposed inputs or could not encode: %v", err)
+	}
+}
+
 // T2 — Fetch hit: no additional MCP call.
 func TestFetch_Hit_NoExtraMCPCall(t *testing.T) {
 	svc, exec, _ := setup(t)
@@ -165,6 +195,53 @@ func TestFetch_Hit_NoExtraMCPCall(t *testing.T) {
 	}
 	if !res.Cache.Hit {
 		t.Fatalf("want cache hit flag")
+	}
+}
+
+func TestFetchReauthorizesBeforeServingCachedResult(t *testing.T) {
+	store := datasource.NewMemoryStore()
+	store.Put(newAdvertiserDS())
+	exec := &stubExecutor{}
+	allowed := true
+	checks := 0
+	svc := datasource.New(datasource.Options{Store: store, Executor: exec, Authorize: func(_ context.Context, id string, _ map[string]interface{}) error {
+		checks++
+		if id != "account" {
+			t.Fatalf("unexpected datasource %q", id)
+		}
+		if !allowed {
+			return errors.New("revoked")
+		}
+		return nil
+	}})
+	inputs := map[string]interface{}{"q": "acm"}
+	if _, err := svc.Fetch(aliceCtx(), "account", inputs, datasource.FetchOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	allowed = false
+	if _, err := svc.Fetch(aliceCtx(), "account", inputs, datasource.FetchOptions{}); err == nil {
+		t.Fatal("cached result survived revocation")
+	}
+	if checks != 2 || exec.calls.Load() != 1 {
+		t.Fatalf("checks=%d backend calls=%d", checks, exec.calls.Load())
+	}
+}
+
+func TestAccountBoundModeDoesNotReuseUserScopedDatasourceResults(t *testing.T) {
+	store := datasource.NewMemoryStore()
+	store.Put(newAdvertiserDS())
+	exec := &stubExecutor{}
+	checks := 0
+	svc := datasource.New(datasource.Options{Store: store, Executor: exec, DisableCache: true, Authorize: func(context.Context, string, map[string]interface{}) error { checks++; return nil }})
+	ctx := aliceCtx() // one user can select different verified accounts over time
+	for i := 0; i < 2; i++ {
+		result, err := svc.Fetch(ctx, "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+		if err != nil || result.Cache != nil {
+			t.Fatalf("protected fetch=%+v err=%v", result, err)
+		}
+	}
+	if checks != 2 || exec.calls.Load() != 2 {
+		t.Fatalf("protected cache reuse: checks=%d backend calls=%d", checks, exec.calls.Load())
 	}
 }
 

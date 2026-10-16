@@ -359,6 +359,38 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `applyPermission forwards v2 and preserves opaque string identifiers`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"data":{"id":"advertiser","authorizationSnapshot":{"schemaVersion":2,"resources":{"9007199254740993":{"type":"advertiser","id":"9007199254740993","capabilities":{"read":true}}}}}}"""))
+        server.start()
+        val client = client()
+
+        val result = client.applyPermission(
+            "advertiser",
+            ApplyPermissionInput(
+                conversationId = "conv-1",
+                resource = mapOf("advertiserId" to JsonPrimitive("9007199254740993")),
+                windowParams = mapOf("AdvertiserId" to JsonArray(listOf(JsonPrimitive("9007199254740993")))),
+                authorizationSchemaVersion = 2
+            )
+        )
+        assertEquals("9007199254740993", result.jsonObject["authorizationSnapshot"]!!.jsonObject["resources"]!!.jsonObject["9007199254740993"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+        val request = server.takeRequest().requestUrl!!
+        assertEquals("2", request.queryParameter("authorizationSchemaVersion"))
+        assertTrue(request.queryParameter("resource")!!.contains("9007199254740993"))
+        assertTrue(request.queryParameter("windowParams")!!.contains("9007199254740993"))
+    }
+
+    @Test
+    fun `applyPermission rejects unsupported authorization schema version before dispatch`() = runBlocking {
+        server.start()
+        val client = client()
+        assertFailsWith<IllegalArgumentException> {
+            client.applyPermission("advertiser", ApplyPermissionInput(conversationId = "conv-1", resource = emptyMap(), authorizationSchemaVersion = 3))
+        }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
     fun `getForgeWindowMetadata aliases fetch helper for cross sdk naming parity`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"data":{"view":{"content":{"containers":[]}}}}"""))
         server.start()

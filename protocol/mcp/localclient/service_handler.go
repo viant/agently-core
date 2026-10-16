@@ -79,7 +79,7 @@ func NewServiceClient(ctx context.Context, s svc.Service, opts ...ServiceHandler
 	if err != nil {
 		return nil, err
 	}
-	return srv.AsClient(ctx), nil
+	return &serviceClient{Interface: srv.AsClient(ctx), handler: h}, nil
 }
 
 func (h *serviceHandler) init() {
@@ -223,6 +223,7 @@ func (h *serviceHandler) CallTool(ctx context.Context, req *jsonrpc.TypedRequest
 		outVal = &struct{}{}
 	}
 	if err := exec(ctx, inVal, outVal); err != nil {
+		h.preserveError(ctx, err)
 		msg := err.Error()
 		isErr := true
 		return &mcpschema.CallToolResult{

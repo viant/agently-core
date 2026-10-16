@@ -33,6 +33,8 @@ import (
 )
 
 type ManageComponent struct {
+	// Child writers must drain their prefix before the coordinator reads it.
+	// Imperative composition retains the same parent-owned transaction.
 	Contract xdatly.Component[store.Request, store.Response] `component:"Manage,path=/v1/internal/agently/ag-ui/manage,method=POST,connector=agently,handler=NewManage,internal=true" componentCallPolicy:"imperative"`
 }
 
@@ -65,7 +67,7 @@ func (*Manage) Exec(ctx context.Context, session handler.Session, input *store.R
 	if deps.Invoker == nil {
 		return fmt.Errorf("AG-UI component capability is unavailable")
 	}
-	mutation := input.Operation == "admit" || input.Operation == "admitPendingRecovery" || input.Operation == "append" || input.Operation == "claim" || input.Operation == "renew" || input.Operation == "promote"
+	mutation := input.Operation == "preparedAppend" || input.Operation == "admit" || input.Operation == "admitPendingRecovery" || input.Operation == "append" || input.Operation == "claim" || input.Operation == "renew" || input.Operation == "promote"
 	snapshotRead := input.Operation == "replay" || input.Operation == "pending" || input.Operation == "active" || input.Operation == "turnruns" || input.Operation == "feedfacts"
 	if mutation || snapshotRead {
 		ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
@@ -100,6 +102,27 @@ func (*Manage) Exec(ctx context.Context, session handler.Session, input *store.R
 		return tx.claim(input, output)
 	case "admit":
 		return tx.admit(input, output)
+	case "preparedAppend":
+		capability := struct {
+			Prepare store.AppendPreparation `bind:"kind=aguiAppendPreparation,required"`
+		}{}
+		if err := session.Binder().Bind(ctx, &capability); err != nil {
+			return err
+		}
+		thread, err := tx.thread()
+		if err != nil {
+			return err
+		}
+		if thread == nil {
+			return store.ErrNotFound
+		}
+		events, change, err := capability.Prepare(projectThread(thread))
+		if err != nil {
+			return err
+		}
+		prepared := *input
+		prepared.Events, prepared.Change = events, change
+		return tx.append(&prepared, output)
 	case "admitPendingRecovery":
 		return tx.admitPendingRecovery(input, output)
 	case "append":

@@ -98,7 +98,7 @@ func (s *Service) InspectResolution(ctx context.Context, conversationID, id, act
 		return nil, err
 	}
 	if receipt != nil && !sameReceipt(receipt, input) {
-		return nil, fmt.Errorf("elicitation was already resolved with a different answer")
+		return nil, fmt.Errorf("%w: elicitation was already resolved with a different answer", ErrConflict)
 	}
 	return receipt, nil
 }
@@ -161,7 +161,7 @@ func (a *receiptApplier) Apply(ctx context.Context, invoker dexec.ComponentInvok
 		return nil, err
 	} else if existing != nil {
 		if !sameReceipt(existing, input) {
-			return nil, fmt.Errorf("elicitation answer receipt conflict")
+			return nil, fmt.Errorf("%w: elicitation answer receipt conflict", ErrConflict)
 		}
 		return existing, nil
 	}
@@ -170,11 +170,11 @@ func (a *receiptApplier) Apply(ctx context.Context, invoker dexec.ComponentInvok
 		return nil, err
 	}
 	if target.authoritative == nil {
-		return nil, fmt.Errorf("elicitation request unavailable")
+		return nil, ErrNotFound
 	}
 	status := strings.ToLower(strings.TrimSpace(stringValue(target.authoritative.Status)))
 	if status != "pending" && status != "waiting_for_user" {
-		return nil, fmt.Errorf("resolved elicitation has no exact original answer receipt")
+		return nil, fmt.Errorf("%w: resolved elicitation has no exact original answer receipt", ErrConflict)
 	}
 	var payload map[string]interface{}
 	if len(input.Payload) > 0 {

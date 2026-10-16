@@ -2,14 +2,11 @@ package skill
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
@@ -45,7 +42,7 @@ func (s *Service) HasMCPSource() bool {
 	}
 	for _, name := range names {
 		cfg, err := s.mcpSource.Options(ctx, name)
-		if err == nil && cfg != nil && cfg.SkillDiscovery != nil && cfg.SkillDiscovery.Enabled {
+		if err == nil && cfg != nil && (cfg.SkillDiscovery != nil && cfg.SkillDiscovery.Enabled || s.delivery != nil && cfg.PrimitiveProviderIdentity != "") {
 			return true
 		}
 	}
@@ -80,6 +77,10 @@ func positive(v, fallback int) int {
 }
 
 func visibleRemote(agent *agentmdl.Agent, ref skillproto.Ref) bool {
+	return visibleRemoteResource(agent, ref, "")
+}
+
+func visibleRemoteResource(agent *agentmdl.Agent, ref skillproto.Ref, uri string) bool {
 	if agent == nil {
 		return false
 	}
@@ -88,7 +89,7 @@ func visibleRemote(agent *agentmdl.Agent, ref skillproto.Ref) bool {
 		if strings.HasPrefix(pattern, "!") {
 			continue
 		}
-		if skillPatternMatch(ref.URI(), pattern) || skillPatternMatch(ref.ServerID+"/"+ref.Name, pattern) || skillPatternMatch(ref.Name, pattern) {
+		if (uri != "" && skillPatternMatch(uri, pattern)) || skillPatternMatch(ref.URI(), pattern) || skillPatternMatch(ref.ServerID+"/"+ref.Name, pattern) || skillPatternMatch(ref.Name, pattern) {
 			selected = true
 		}
 	}
@@ -97,7 +98,7 @@ func visibleRemote(agent *agentmdl.Agent, ref skillproto.Ref) bool {
 			continue
 		}
 		pattern = strings.TrimPrefix(pattern, "!")
-		if skillPatternMatch(ref.URI(), pattern) || skillPatternMatch(ref.ServerID+"/"+ref.Name, pattern) || skillPatternMatch(ref.Name, pattern) {
+		if (uri != "" && skillPatternMatch(uri, pattern)) || skillPatternMatch(ref.URI(), pattern) || skillPatternMatch(ref.ServerID+"/"+ref.Name, pattern) || skillPatternMatch(ref.Name, pattern) {
 			return false
 		}
 	}
@@ -171,29 +172,11 @@ func (s *Service) remoteClient(ctx context.Context, server string, cfg *mcpcfg.M
 	if err != nil {
 		return ctx, nil, nil, err
 	}
-	bridge := func() (context.Context, mcpclient.Interface, []mcpclient.RequestOption, error) {
-		tools, bridgeErr := resolveSkillToolBridge(ctx, cli, cfg, opts)
-		if bridgeErr == nil {
-			return ctx, &toolSkillBridge{Interface: cli, tools: tools}, opts, nil
-		}
-		return ctx, nil, nil, bridgeErr
+	if initialized == nil {
+		return ctx, nil, nil, fmt.Errorf("MCP skills extension not advertised")
 	}
-	if initialized != nil && initialized.ProtocolVersion != "" && initialized.ProtocolVersion < "2026-07-28" {
-		return bridge()
-	}
-	discovery, ok := cli.(mcpclient.DiscoveryInterface)
-	if !ok {
-		return bridge()
-	}
-	info, err := discovery.Discover(ctx, opts...)
-	if err != nil {
-		return ctx, nil, nil, err
-	}
-	if info == nil || info.Capabilities.Resources == nil {
-		return bridge()
-	}
-	if _, ok := info.Capabilities.Extensions[schema.SkillsExtension]; !ok {
-		return bridge()
+	if _, advertised := initialized.Capabilities.Extensions[schema.SkillsExtension]; !advertised {
+		return ctx, nil, nil, fmt.Errorf("MCP skills extension not advertised")
 	}
 	if _, ok := cli.(manager.SkillsClient); !ok {
 		return ctx, nil, nil, fmt.Errorf("MCP client lacks skills support")
@@ -219,7 +202,7 @@ func (s *Service) listRemoteServer(ctx context.Context, agent *agentmdl.Agent, s
 		if err != nil {
 			return nil, err
 		}
-		if res == nil || res.ResultType != "complete" || res.TtlMs == nil || (res.CacheScope != "public" && res.CacheScope != "private") {
+		if res == nil || res.ResultType != "complete" {
 			return nil, fmt.Errorf("empty resource response")
 		}
 		for _, r := range res.Skills {
@@ -269,6 +252,9 @@ func markdownMIME(s string) bool {
 // for prompt binding so ordinary turns cause no remote discovery.
 func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]skillproto.Metadata, error) {
 	local, _ := s.Visible(agent)
+	if s.delivery != nil {
+		local = nil
+	}
 	entries, err := s.remoteEntries(ctx, agent, "")
 	if err != nil {
 		return nil, err
@@ -276,6 +262,11 @@ func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]ski
 	for _, entry := range entries {
 		local = append(local, entry.metadata)
 	}
+	generic, err := s.primitiveMetadata(ctx, agent)
+	if err != nil {
+		return nil, err
+	}
+	local = append(local, generic...)
 	sort.SliceStable(local, func(i, j int) bool {
 		a, b := local[i].URI, local[j].URI
 		if a == "" {
@@ -297,9 +288,12 @@ func (s *Service) GetVisible(ctx context.Context, agent *agentmdl.Agent, name st
 	}
 	if !strings.Contains(name, "/") && !strings.Contains(name, ":") {
 		if local, err := s.findVisibleSkill(agent, name); err == nil {
-			return local, nil
+			return s.getNativeLocal(ctx, local)
 		}
 		return nil, fmt.Errorf("skill not available; use a qualified reference for MCP skills")
+	}
+	if item, handled, err := s.getPrimitive(ctx, agent, name); handled {
+		return item, err
 	}
 	var ref skillproto.Ref
 	var err error
@@ -343,7 +337,7 @@ func (s *Service) readRemote(ctx context.Context, e remoteEntry) (*skillproto.Sk
 		return nil, err
 	}
 	fresh, err := cli.(manager.SkillsClient).GetSkill(ctx, e.uri, opts...)
-	if err != nil || fresh == nil || fresh.ResultType != "complete" || fresh.Skill.Uri != e.uri || fresh.TtlMs == nil || (fresh.CacheScope != "public" && fresh.CacheScope != "private") {
+	if err != nil || fresh == nil || fresh.ResultType != "complete" || fresh.Skill.Uri != e.uri {
 		return nil, fmt.Errorf("skill not available")
 	}
 	if err := skillformat.Validate(fresh.Skill); err != nil {
@@ -358,49 +352,16 @@ func (s *Service) readRemote(ctx context.Context, e remoteEntry) (*skillproto.Sk
 		ref.Revision = manifestRevision(e.entry)
 		e.metadata.URI = ref.URI()
 	}
-	if e.entry.Resources.Dynamic {
-		return nil, fmt.Errorf("dynamic remote skills are unsupported: content cannot be verified")
-	}
-	res, err := cli.ReadResource(ctx, &schema.ReadResourceRequestParams{Uri: e.uri}, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("skill not available")
-	}
-	if res == nil || len(res.Contents) != 1 {
-		return nil, fmt.Errorf("skill requires exactly one text document")
-	}
-	c := res.Contents[0]
-	if c.Uri != e.uri || c.Blob != "" || !utf8.ValidString(c.Text) || len(c.Text) > positive(e.config.SkillDiscovery.MaxSkillBytes, 16<<20) || (c.MimeType != nil && !markdownMIME(*c.MimeType)) {
-		return nil, fmt.Errorf("invalid skill document")
-	}
-	verified := false
-	for _, f := range e.entry.Resources.Files {
-		if f.Uri == e.uri {
-			verified = int64(len(c.Text)) == f.Size && fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(c.Text))) == f.Digest
-		}
-	}
-	front, err := skillformat.Frontmatter([]byte(c.Text))
-	if !verified || err != nil || !reflect.DeepEqual(front, e.entry.Frontmatter) {
-		return nil, fmt.Errorf("skill integrity verification failed")
-	}
-	item, diags, err := skillproto.Parse(e.uri, "", "mcp", c.Text)
+	item, err := ReadManifestDocument(ctx, fresh, e.uri, e.server, e.config.SkillDiscovery.MaxSkillBytes, func(ctx context.Context, uri string) (*schema.ReadResourceResult, error) {
+		return cli.ReadResource(ctx, &schema.ReadResourceRequestParams{Uri: uri}, opts...)
+	})
 	if err != nil {
 		return nil, err
 	}
-	for _, d := range diags {
-		if d.Level == "error" {
-			return nil, fmt.Errorf("invalid skill document: %s", d.Message)
-		}
-	}
-	if item == nil || item.Frontmatter.Name != e.metadata.Name {
+	if item.Frontmatter.Name != e.metadata.Name {
 		return nil, fmt.Errorf("skill name mismatch")
 	}
-	if item.Frontmatter.PreprocessEnabled() {
-		return nil, fmt.Errorf("remote skill preprocessing is unsupported")
-	}
 	item.CatalogURI = e.metadata.URI
-	item.ServerID = e.server
-	item.RemoteURI = e.uri
-	item.Manifest = &e.entry
 	return s.resolveRemoteTools(ctx, item)
 }
 

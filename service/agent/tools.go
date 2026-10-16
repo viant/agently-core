@@ -10,6 +10,7 @@ import (
 	"github.com/viant/agently-core/internal/auth/mcpauth"
 	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	toolctx "github.com/viant/agently-core/protocol/tool"
@@ -19,6 +20,7 @@ import (
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	agenttool "github.com/viant/agently-core/service/agent/tool"
 	"github.com/viant/agently-core/service/browsermcp"
+	intakesvc "github.com/viant/agently-core/service/intake"
 )
 
 // Small utilities for tool name resolution and filtering.
@@ -35,6 +37,18 @@ type resolvedToolSurface struct {
 //     and do not gate by agent patterns (explicit allow-list).
 //   - Otherwise, resolve tools from agent patterns.
 func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm.Tool, err error) {
+	// Clarification is a conversational outcome, not an execution attempt.
+	// Resolve no profiles or remote catalogs until the missing input is supplied.
+	if qi != nil {
+		if tc := intakesvc.FromContext(qi.Context); tc != nil && tc.Routing.Mode == intakesvc.ModeClarify {
+			return nil, nil
+		}
+	}
+	if profile, loadErr := s.selectedPromptProfileAny(ctx, qi); loadErr != nil {
+		return nil, loadErr
+	} else if profile != nil {
+		ctx = withSelectedPromptProfile(ctx, profile)
+	}
 	defer func() {
 		if err != nil {
 			return
@@ -45,6 +59,23 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 		if !ok {
 			return
 		}
+		var visible map[string]bool
+		if batch, ok := s.registry.(interface {
+			MCPToolsVisible(context.Context, []string, string) (map[string]bool, error)
+		}); ok {
+			names := make([]string, 0, len(tools))
+			for _, tool := range tools {
+				if _, browser := browsermcp.Definitions(ctx)[mcpname2.Canonical(tool.Definition.Name)]; !browser {
+					names = append(names, tool.Definition.Name)
+				}
+			}
+			var checkErr error
+			visible, checkErr = batch.MCPToolsVisible(ctx, names, "model")
+			if checkErr != nil {
+				tools, err = nil, checkErr
+				return
+			}
+		}
 		filtered := make([]llm.Tool, 0, len(tools))
 		for _, tool := range tools {
 			// Browser definitions already passed the originating catalog's model
@@ -53,7 +84,11 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 				filtered = append(filtered, tool)
 				continue
 			}
-			allowed, checkErr := visibility.MCPToolVisible(ctx, tool.Definition.Name, "model")
+			allowed := visible[tool.Definition.Name]
+			var checkErr error
+			if visible == nil {
+				allowed, checkErr = visibility.MCPToolVisible(ctx, tool.Definition.Name, "model")
+			}
 			if checkErr != nil {
 				tools, err = nil, checkErr
 				return
@@ -151,7 +186,7 @@ func (s *Service) unresolvedTurnBundles(ctx context.Context, bundleIDs []string,
 	if len(bundleIDs) == 0 {
 		return nil, nil
 	}
-	bundles, err := s.loadBundles(ctx)
+	bundles, err := s.loadBundlesFor(ctx, bundleIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +221,10 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 	if qi == nil {
 		return agenttool.Selection{}, nil
 	}
-	hasVisibleSkills := s.hasVisibleSkills(qi.Agent)
+	hasVisibleSkills, err := s.hasVisibleSkills(ctx, qi.Agent)
+	if err != nil {
+		return agenttool.Selection{}, err
+	}
 	agentSelection := agenttool.FromAgentTool(agentmdlTool(qi.Agent))
 	if hasVisibleSkills {
 		agentSelection.Tools = append(agentSelection.Tools, skillproto.ListToolName, skillproto.GetToolName, skillproto.ActivateToolName)
@@ -199,9 +237,8 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 			Tools:   append([]string(nil), qi.ToolsAllowed...),
 		},
 	}
-	if qi.toolBundlesAutoSelected {
-		selections.Agent.Bundles = nil
-	}
+	// Intake/planner suggestions append to configured base capabilities.
+	// Auto-selection records provenance; it is not an implicit replacement.
 	profileDef, err := s.selectedPromptProfile(ctx, qi)
 	if err != nil {
 		return agenttool.Selection{}, err
@@ -218,14 +255,20 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 	return effective.Final, nil
 }
 
-func (s *Service) hasVisibleSkills(agent *agentmdl.Agent) bool {
+func (s *Service) hasVisibleSkills(ctx context.Context, agent *agentmdl.Agent) (bool, error) {
 	if s == nil || s.skillSvc == nil {
-		return false
+		return false, nil
 	}
-	if agent != nil && len(agent.Skills) > 0 && s.skillSvc.HasMCPSource() {
-		return true
+	if len(s.skillSvc.VisibleSkillsByName(agent, configuredAgentSkills(agent))) > 0 {
+		return true, nil
 	}
-	return len(s.skillSvc.VisibleSkillsByName(agent, configuredAgentSkills(agent))) > 0
+	if agent == nil || len(agent.Skills) == 0 || !s.skillSvc.HasMCPSource() {
+		return false, nil
+	}
+	// A primitive connection may publish windows or datasources without skills.
+	// Use the owning producers' existing visible catalog, not connection presence.
+	visible, err := s.skillSvc.ListVisible(ctx, agent)
+	return len(visible) > 0, err
 }
 
 func withoutSkillControlSelection(in agenttool.Selection) agenttool.Selection {
@@ -386,7 +429,8 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 	if s == nil || s.registry == nil {
 		return &resolvedToolSurface{}, nil
 	}
-	bundles, err := s.loadBundles(ctx)
+	ctx = mcpmgr.WithToolCatalogReadSnapshot(ctx)
+	bundles, err := s.loadBundlesFor(ctx, bundleIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -476,6 +520,16 @@ func (s *Service) resolveDirectBundleDefinitions(ctx context.Context, bundleID s
 }
 
 func (s *Service) loadBundles(ctx context.Context) (map[string]*toolbundle.Bundle, error) {
+	if profile := selectedPromptProfileFromContext(ctx); profile != nil && profile.ResourceURI != "" {
+		own := indexBundlesByID(profile.ToolBundleDefinitions)
+		for _, id := range profile.ToolBundles {
+			if own[strings.ToLower(strings.TrimSpace(id))] == nil {
+				return nil, fmt.Errorf("admitted intent lacks declared tool bundle %q", id)
+			}
+		}
+		return own, nil
+	}
+
 	if s.toolBundles == nil {
 		if s.toolBundleRepo == nil {
 			return nil, nil
@@ -497,6 +551,45 @@ func (s *Service) loadBundles(ctx context.Context) (map[string]*toolbundle.Bundl
 		return nil, nil
 	}
 	return indexBundlesByID(list), nil
+}
+
+// loadBundlesFor preserves an admitted intent's own declared attachments while
+// allowing the trusted runtime to add independently selected toolfeed bundles.
+// A missing bundle declared by the intent can never fall back to the host.
+func (s *Service) loadBundlesFor(ctx context.Context, requested []string) (map[string]*toolbundle.Bundle, error) {
+	bundles, err := s.loadBundles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profile := selectedPromptProfileFromContext(ctx)
+	if profile == nil || profile.ResourceURI == "" {
+		return bundles, nil
+	}
+	missing := false
+	for _, id := range requested {
+		if bundles[strings.ToLower(strings.TrimSpace(id))] == nil {
+			missing = true
+			break
+		}
+	}
+	if !missing {
+		return bundles, nil
+	}
+	var ambient []*toolbundle.Bundle
+	if s.toolBundles != nil {
+		ambient, err = s.toolBundles(ctx)
+	} else if s.toolBundleRepo != nil {
+		ambient, err = s.toolBundleRepo.LoadAll(ctx)
+	}
+	if err != nil {
+		return nil, err
+	}
+	for id, bundle := range indexBundlesByID(ambient) {
+		if bundles[id] == nil {
+			bundles[id] = bundle
+		}
+	}
+	return bundles, nil
 }
 
 func indexBundlesByID(in []*toolbundle.Bundle) map[string]*toolbundle.Bundle {

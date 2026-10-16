@@ -13,6 +13,7 @@ import (
 	dsadapter "github.com/viant/agently-core/service/datasource/adapter"
 	oversvc "github.com/viant/agently-core/service/lookup/overlay"
 	policy "github.com/viant/agently-core/service/policy"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	"github.com/viant/agently-core/workspace/repository/forgedatasource"
 	"github.com/viant/agently-core/workspace/repository/forgelookup"
@@ -41,23 +42,29 @@ func (c *backendClient) bootstrapDatasourceStack(rt *executor.Runtime) error {
 	overlayStore := oversvc.NewMemoryStore()
 	c.overlayStore = overlayStore
 
-	if err := c.refreshDatasourceStack(ctx); err != nil {
-		return err
+	if c.primitiveProviders == nil {
+		if err := c.refreshDatasourceStack(ctx); err != nil {
+			return err
+		}
 	}
 
 	// Build the datasource service. Executor stays nil when the runtime
 	// has no tool registry — inline / feed_ref backends continue to work;
 	// mcp_tool backends return a clear error at Fetch time.
-	opts := dssvc.Options{Store: dsStore}
+	opts := dssvc.Options{NewDeliveryPreparer: rt.DatasourceNewDeliveryPreparer, ReadSequence: rt.DatasourceReadSequence, ReadContext: resourcesvc.ReadContext, ProviderExecute: rt.DatasourceProviderExecutor, ExecutionContext: rt.ExecutionContext, PermissionResolver: rt.PermittedResolver, ComponentDispatcher: rt.ComponentDispatcher, Store: dsStore, ResolveDefinition: rt.DatasourceDefinitionResolver, ResolveResource: rt.DatasourceResourceRevalidator, AuthorizeDefinition: rt.DatasourceDefinitionAuthorizer, Authorize: rt.DatasourceAuthorizer, DisableCache: rt.DatasourceDisableCache}
 	if rt.Registry != nil {
 		if reg, ok := rt.Registry.(dsadapter.ToolRegistry); ok {
 			opts.Executor = dsadapter.FromRegistry(reg)
-			c.permittedRuntime = permittedview.NewRuntime(&permittedview.MCPResolver{
-				Executor: reg,
-				ToolName: rt.AuthorizationTool,
-			})
-			permittedview.SetDefaultRuntime(c.permittedRuntime)
+			if rt.PermittedResolver == nil {
+				c.permittedRuntime = permittedview.NewRuntime(&permittedview.MCPResolver{Executor: reg, ToolName: rt.AuthorizationTool})
+			}
 		}
+	}
+	if rt.PermittedResolver != nil {
+		c.permittedRuntime = permittedview.NewRuntime(rt.PermittedResolver)
+	}
+	if c.permittedRuntime != nil {
+		permittedview.SetDefaultRuntime(c.permittedRuntime)
 	}
 	dsService := dssvc.New(opts)
 
@@ -88,7 +95,7 @@ func (c *backendClient) refreshDatasourceStack(ctx context.Context) error {
 }
 
 func (c *backendClient) refreshForgeDatasources(ctx context.Context) error {
-	if c == nil || c.store == nil || c.datasourceStore == nil {
+	if c == nil || c.primitiveProviders != nil || c.store == nil || c.datasourceStore == nil {
 		return nil
 	}
 	repo := forgedatasource.NewWithStore(c.store)

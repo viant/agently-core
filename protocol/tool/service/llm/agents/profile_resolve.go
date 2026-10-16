@@ -45,6 +45,10 @@ func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *agentsvc
 		return fmt.Errorf("intentProfileId %q: not found", profileID)
 	}
 
+	if profile.ResourceURI != "" {
+		qi.SetIntentProfileID(profile.ResourceURI)
+	}
+
 	// 1. Render profile messages (local text/URI or MCP source).
 	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	msgs, err := profile.Render(ctx, s.mcpMgr, &intent.RenderOptions{ConversationID: convID})

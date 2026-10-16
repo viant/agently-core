@@ -3,6 +3,8 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	authctx "github.com/viant/agently-core/internal/auth"
+	mcpclient "github.com/viant/mcp/client"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,7 +14,15 @@ import (
 	schema "github.com/viant/mcp-protocol/schema"
 )
 
-type outputSchemaManager struct{ outputCaptureManager }
+type outputSchemaManager struct {
+	outputCaptureManager
+	namesCalls int
+}
+
+func (m *outputSchemaManager) Names(ctx context.Context) ([]string, error) {
+	m.namesCalls++
+	return []string{"service"}, nil
+}
 
 func (m *outputSchemaManager) Options(ctx context.Context, server string) (*mcpcfg.MCPClient, error) {
 	if server != "service" {
@@ -54,4 +64,20 @@ func TestOutputArtifactAuthoringProjectsOnlyConfiguredLiteralIdentity(t *testing
 	definitions := reg.MatchDefinitionWithContext(context.Background(), "service:Download")
 	require.Len(t, definitions, 1)
 	require.Contains(t, definitions[0].OutputSchema, "properties")
+}
+
+func TestInternalToolArtifactProjectionDoesNotDiscoverRemoteCatalogs(t *testing.T) {
+	mgr := &outputSchemaManager{}
+	reg := newReconnectTestRegistry(&mgr.scriptedReconnectManager)
+	reg.mgr = mgr
+	if reg.internal == nil {
+		reg.internal = map[string]mcpclient.Interface{}
+	}
+	reg.internal["ui/window"] = nil
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	for _, name := range []string{"ui/window/open", "ui/window:open", "ui_window-open"} {
+		definition := &llm.ToolDefinition{Name: name}
+		require.Same(t, definition, reg.projectOutputArtifactDefinition(ctx, definition))
+	}
+	require.Zero(t, mgr.namesCalls, "internal tool authoring must not enumerate unrelated authenticated servers")
 }

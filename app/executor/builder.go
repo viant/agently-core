@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/service/reporting/catalog"
 	"log"
 	"net/http"
 	"os"
@@ -33,6 +35,7 @@ import (
 	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
 	resourcessvc "github.com/viant/agently-core/protocol/tool/service/resources"
 	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
+	windowprotocol "github.com/viant/agently-core/protocol/window"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/augmenter"
@@ -40,14 +43,18 @@ import (
 	callbacksvc "github.com/viant/agently-core/service/callback"
 	"github.com/viant/agently-core/service/core"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
+	dssvc "github.com/viant/agently-core/service/datasource"
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	goalsys "github.com/viant/agently-core/service/goal"
 	intakesvc "github.com/viant/agently-core/service/intake"
 	policy "github.com/viant/agently-core/service/policy"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
 	reportingrunsvc "github.com/viant/agently-core/service/reportingrun"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 	skillsvc "github.com/viant/agently-core/service/skill"
+	"github.com/viant/agently-core/service/ui/permittedview"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
 	"github.com/viant/agently-core/workspace/hotswap"
@@ -56,48 +63,76 @@ import (
 	callbackrepo "github.com/viant/agently-core/workspace/repository/callback"
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
+	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
+	"github.com/viant/authz"
 	"github.com/viant/datly/standalone"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgetypes "github.com/viant/forge/backend/types"
 	protoclient "github.com/viant/mcp-protocol/client"
 )
 
 type Runtime struct {
-	registryWarmupMu     sync.Mutex
-	registryWarmupCancel context.CancelFunc
-	registryWarmupDone   chan struct{}
-	registryRefreshDone  chan struct{}
-	closed               bool
-	ownedNative          *standalone.Server
-	ownedAugmenter       *augmenter.Service
-	ownedReportingCancel context.CancelFunc
-	ownedReportingWorker *reportingsvc.Worker
-	closeOnce            sync.Once
-	closeError           error
-	Defaults             *config.Defaults
+	publicPrimitiveDefault    bool
+	NativeLayoutSource        *resourcesvc.CapturedLayoutSource
+	ExecutionContext          func(context.Context) context.Context
+	registryWarmupMu          sync.Mutex
+	registryWarmupCancel      context.CancelFunc
+	registryWarmupDone        chan struct{}
+	registryRefreshDone       chan struct{}
+	closed                    bool
+	ownedNative               *standalone.Server
+	ownedAugmenter            *augmenter.Service
+	ownedReportingCancel      context.CancelFunc
+	ownedReportingWorker      *reportingsvc.Worker
+	closeOnce                 sync.Once
+	closeError                error
+	RawResourceBoundary       *workspace.RawResourceBoundary
+	ComponentDispatcher       windowprotocol.ComponentDispatcher
+	ComponentAuthority        policy.AuthoritySnapshotResolver
+	PrimitiveProviders        *resourcesvc.Gateway
+	PrimitiveWindows          *resourcesvc.CompositeWindowCatalog
+	LocalPrimitiveProvider    *resourcesvc.LocalProvider
+	NativeHostDocuments       *resourcesvc.HostDocuments
+	localPrimitiveRegistered  bool
+	mcpDefinitions            *mcpDefinitionRuntime
+	standaloneDSConfigured    bool
+	nativeDocumentOnlyGateway bool
+	Defaults                  *config.Defaults
 	// AuthorizationTool is the workspace-configured MCP adapter for permitted
 	// Forge views.
-	AuthorizationTool   string
-	AuthorizationPolicy *policy.Runtime
-	Native              *standalone.Server
-	Conversation        conversation.Client
-	Data                data.Service
-	Registry            tool.Registry
-	Core                *core.Service
-	Augmenter           *augmenter.Service
-	Agent               *agentsvc.Service
-	MCPManager          *mcpmgr.Manager
-	CancelRegistry      cancels.Registry
-	ElicitationRouter   elicrouter.ElicitationRouter
-	Elicitation         *elicsvc.Service
-	Streaming           streaming.Bus
-	HotSwap             *hotswap.Manager
-	Skills              *skillsvc.Service
-	SkillWatcher        *skillsvc.Watcher
-	CallbackDispatch    *callbacksvc.Service
-	Reporting           *reportingsvc.Service
-	ReportRuns          *reportingrunsvc.Service
+	AuthorizationTool              string
+	AuthorizationPolicy            *policy.Runtime
+	PermittedResolver              permittedview.Resolver
+	DatasourceAuthorizer           func(context.Context, string, map[string]interface{}) error
+	DatasourceNewDeliveryPreparer  dssvc.NewDeliveryPreparer
+	DatasourceResourceRevalidator  dssvc.ResourceRevalidator
+	DatasourceReadSequence         func(context.Context) (context.Context, func() error, error)
+	DatasourceReadFactsScope       resourcesvc.ReadFactsScope
+	DatasourceDefinitionAuthorizer dssvc.DefinitionAuthorizer
+	DatasourceDefinitionResolver   dssvc.ResourceDefinitionResolver
+	DatasourceProviderExecutor     dssvc.ProviderExecutor
+	DatasourceDisableCache         bool
+	ToolAuthorizer                 func(context.Context, string, map[string]interface{}) error
+	Native                         *standalone.Server
+	Conversation                   conversation.Client
+	Data                           data.Service
+	Registry                       tool.Registry
+	Core                           *core.Service
+	Augmenter                      *augmenter.Service
+	Agent                          *agentsvc.Service
+	MCPManager                     *mcpmgr.Manager
+	CancelRegistry                 cancels.Registry
+	ElicitationRouter              elicrouter.ElicitationRouter
+	Elicitation                    *elicsvc.Service
+	Streaming                      streaming.Bus
+	HotSwap                        *hotswap.Manager
+	Skills                         *skillsvc.Service
+	SkillWatcher                   *skillsvc.Watcher
+	CallbackDispatch               *callbacksvc.Service
+	Reporting                      *reportingsvc.Service
+	ReportingClient                reportstore.Client // host-owned persistence lookup for dynamic authorization mappings
+	ReportRuns                     *reportingrunsvc.Service
 	// GoalStore retains the resolved injected or native store for agent/tool sharing.
 	GoalStore       goalsys.Store
 	ReportingWorker *reportingsvc.Worker
@@ -130,37 +165,138 @@ func resolveScratchpadTemplate() string {
 }
 
 type Builder struct {
-	defaults               *config.Defaults
-	conversation           conversation.Client
-	data                   data.Service
-	goalStore              goalsys.Store
-	skipRegistryInitialize bool
-	native                 *standalone.Server
-	registry               tool.Registry
-	core                   *core.Service
-	agentSvc               *agentsvc.Service
-	agentFinder            agentmodel.Finder
-	agentLoader            agentmodel.Loader
-	modelFinder            llm.Finder
-	modelLoader            *modelloader.Service
-	embedderFinder         embedder.Finder
-	embedderLoader         *embedderloader.Service
-	augmenter              *augmenter.Service
-	mcpManager             *mcpmgr.Manager
-	mcpAuthRTProvider      mcpmgr.AuthRTProvider
-	mcpJarProvider         mcpmgr.JarProvider
-	mcpUserIDFn            mcpmgr.UserIDExtractor
-	cancelRegistry         cancels.Registry
-	elicRouter             elicrouter.ElicitationRouter
-	streamPub              modelcallctx.StreamPublisher
-	streamBus              streaming.Bus
-	hotSwapEnabled         bool
-	store                  workspace.Store
-	knowledgeStore         workspace.KnowledgeStore
-	stateStore             workspace.StateStore
-	tokenProvider          token.Provider
-	reportingService       *reportingsvc.Service
-	mcpDelegatedAuth       *svcauth.DelegatedMCPAuth
+	nativeWindowDefaults           []resourcesvc.NativeFrameworkWindowBinding
+	nativeWindowAliases            map[string]string
+	nativeHTTPWindowURIs           []string
+	nativeLayoutDefault            []byte
+	nativeComponentServices        []string
+	componentDispatcher            windowprotocol.ComponentDispatcher
+	reportCatalog                  catalog.Provider
+	reportResourceResolver         reportingsvc.ResourceResolver
+	reportResourceService          primitive.ResourceAuthoring
+	authorizationProviders         map[string]AuthorizationProvider
+	capabilityMappings             map[string]permittedview.CapabilityMapping
+	capabilityMappingsV2           map[string]permittedview.CapabilityMappingV2
+	uiBridge                       *forgeuisvc.Service
+	defaults                       *config.Defaults
+	conversation                   conversation.Client
+	data                           data.Service
+	goalStore                      goalsys.Store
+	skipRegistryInitialize         bool
+	native                         *standalone.Server
+	registry                       tool.Registry
+	core                           *core.Service
+	agentSvc                       *agentsvc.Service
+	agentFinder                    agentmodel.Finder
+	agentDirectoryProvider         func() []llmagents.ListItem
+	agentLoader                    agentmodel.Loader
+	modelFinder                    llm.Finder
+	modelLoader                    *modelloader.Service
+	embedderFinder                 embedder.Finder
+	embedderLoader                 *embedderloader.Service
+	augmenter                      *augmenter.Service
+	mcpManager                     *mcpmgr.Manager
+	primitiveActor                 resourcesvc.ActorResolver
+	primitiveVerifier              resourcesvc.ActorVerifier
+	primitiveLocalIdentity         string
+	primitiveGatewayIdentity       string
+	newDatasourceDeliveryPreparer  dssvc.NewDeliveryPreparer
+	pinnedDatasourceRevalidator    dssvc.ResourceRevalidator
+	pinnedDatasourceResolver       dssvc.ResourceDefinitionResolver
+	pinnedDatasourceAuthorizer     dssvc.DefinitionAuthorizer
+	primitiveTargetProof           forgetypes.WindowTargetProof
+	primitiveReportDependencyProof forgetypes.WindowTargetProof
+	localPrimitiveProvider         *resourcesvc.LocalProvider
+	mcpAuthRTProvider              mcpmgr.AuthRTProvider
+	mcpJarProvider                 mcpmgr.JarProvider
+	mcpUserIDFn                    mcpmgr.UserIDExtractor
+	cancelRegistry                 cancels.Registry
+	elicRouter                     elicrouter.ElicitationRouter
+	streamPub                      modelcallctx.StreamPublisher
+	streamBus                      streaming.Bus
+	hotSwapEnabled                 bool
+	store                          workspace.Store
+	knowledgeStore                 workspace.KnowledgeStore
+	stateStore                     workspace.StateStore
+	tokenProvider                  token.Provider
+	reportingService               *reportingsvc.Service
+	mcpDelegatedAuth               *svcauth.DelegatedMCPAuth
+}
+
+// AuthorizationProvider is registered by the host, not workspace YAML.
+type AuthorizationProvider struct {
+	DatasourceReadFactsScope      resourcesvc.ReadFactsScope
+	WindowReadDecisionScope       forgeuisvc.WindowReadDecisionScope
+	ExecutionContext              func(context.Context) context.Context
+	AuthoritySnapshot             policy.AuthoritySnapshotResolver
+	ComponentAuthoritySnapshot    policy.AuthoritySnapshotResolver
+	DatasourceResourceRevalidator dssvc.ResourceRevalidator
+	DatasourceDefinitionAuthorize dssvc.DefinitionAuthorizer
+	DatasourceDefinitionResolver  dssvc.ResourceDefinitionResolver
+	Service                       *authz.Service
+	Account                       func(context.Context, authz.Facts) (string, error)
+	AuthorityRevision             func(context.Context, authz.Facts, string) (string, time.Time, error)
+	AccountProjection             permittedview.AccountProjection
+	EntityPermission              func(context.Context, authz.Facts, authz.Entity, string) (bool, error)
+	EntityPermissionWithLease     func(context.Context, authz.Facts, authz.Entity, string) (bool, time.Time, error)
+	EntityRoles                   func(context.Context, authz.Facts, authz.Entity) ([]string, error)
+	Gate                          policy.GateCheck
+	GateEvaluator                 policy.EvaluatorBridge
+	DatasourceAuthorize           func(context.Context, string, map[string]interface{}) error
+	ToolAuthorize                 func(context.Context, string, map[string]interface{}) error
+	PolicyVersion                 string
+	PolicyResource                func(context.Context, string, policy.Candidate) (authz.Resource, string, error)
+	WindowAuthorize               func(context.Context, string) (bool, error)
+}
+
+func (b *Builder) WithAuthorizationProvider(ref string, provider AuthorizationProvider) *Builder {
+	if provider.Gate == nil {
+		provider.Gate = policy.GateFromEvaluator(provider.GateEvaluator)
+	}
+	if b.authorizationProviders == nil {
+		b.authorizationProviders = map[string]AuthorizationProvider{}
+	}
+	b.authorizationProviders[ref] = provider
+	return b
+}
+
+func (b *Builder) WithCapabilityMapping(ref string, mapping permittedview.CapabilityMapping) *Builder {
+	if b.capabilityMappings == nil {
+		b.capabilityMappings = map[string]permittedview.CapabilityMapping{}
+	}
+	b.capabilityMappings[ref] = mapping
+	return b
+}
+
+func (b *Builder) WithCapabilityMappingV2(ref string, mapping permittedview.CapabilityMappingV2) *Builder {
+	if b.capabilityMappingsV2 == nil {
+		b.capabilityMappingsV2 = map[string]permittedview.CapabilityMappingV2{}
+	}
+	b.capabilityMappingsV2[ref] = mapping
+	return b
+}
+
+// WithNewDatasourceDeliveryPreparer installs trusted server preparation for new
+// datasource interactions. The host verifies original selection and current
+// credentials; normal read/write permission remains with the managing MCP.
+// This callback is optional, never serialized, and never invoked at startup.
+func (b *Builder) WithNewDatasourceDeliveryPreparer(preparer dssvc.NewDeliveryPreparer) *Builder {
+	b.newDatasourceDeliveryPreparer = preparer
+	return b
+}
+
+// WithUIBridge supplies a host-configured Forge bridge.
+func (b *Builder) WithUIBridge(bridge *forgeuisvc.Service) *Builder {
+	b.uiBridge = bridge
+	return b
+}
+
+// WithPinnedDatasourceDefinitions installs a host-owned definition boundary.
+// The authorizer must make a fresh execution decision; pins alone grant no data
+// access. This boundary is independent of the selected permission provider.
+func (b *Builder) WithPinnedDatasourceDefinitions(revalidate dssvc.ResourceRevalidator, resolve dssvc.ResourceDefinitionResolver, authorize dssvc.DefinitionAuthorizer) *Builder {
+	b.pinnedDatasourceRevalidator, b.pinnedDatasourceResolver, b.pinnedDatasourceAuthorizer = revalidate, resolve, authorize
+	return b
 }
 
 func resolveReportingStoreDefaults(defaults *config.Defaults) config.ReportingStoreDefaults {
@@ -223,6 +359,23 @@ func (b *Builder) WithGoalStore(store goalsys.Store) *Builder {
 	return b
 }
 
+// WithNativeWindowDefaults declares trusted linked framework source loaders.
+// Workspace window entry points retain the original first-loader precedence.
+func (b *Builder) WithNativeWindowDefaults(entries []resourcesvc.NativeFrameworkWindowBinding) *Builder {
+	b.nativeWindowDefaults = append([]resourcesvc.NativeFrameworkWindowBinding(nil), entries...)
+	for i := range b.nativeWindowDefaults {
+		b.nativeWindowDefaults[i].Resource.Targets = append([]forgetypes.WindowTarget(nil), entries[i].Resource.Targets...)
+	}
+	return b
+}
+
+// WithNativeLayoutDefault supplies trusted process-owned authored layout bytes.
+// The configured workspace layout retains precedence over this startup fallback.
+func (b *Builder) WithNativeLayoutDefault(raw []byte) *Builder {
+	b.nativeLayoutDefault = append([]byte(nil), raw...)
+	return b
+}
+
 // WithNativeRuntime supplies the one linked Datly runtime shared by migrated
 // application callers. Its connector pools and shutdown belong to the caller.
 func (b *Builder) WithNativeRuntime(server *standalone.Server) *Builder {
@@ -236,10 +389,52 @@ func (b *Builder) WithRegistry(v tool.Registry) *Builder           { b.registry 
 func (b *Builder) WithCore(v *core.Service) *Builder               { b.core = v; return b }
 func (b *Builder) WithAgentService(v *agentsvc.Service) *Builder   { b.agentSvc = v; return b }
 func (b *Builder) WithAgentFinder(v agentmodel.Finder) *Builder    { b.agentFinder = v; return b }
-func (b *Builder) WithModelFinder(v llm.Finder) *Builder           { b.modelFinder = v; return b }
-func (b *Builder) WithEmbedderFinder(v embedder.Finder) *Builder   { b.embedderFinder = v; return b }
-func (b *Builder) WithAugmenter(v *augmenter.Service) *Builder     { b.augmenter = v; return b }
-func (b *Builder) WithMCPManager(v *mcpmgr.Manager) *Builder       { b.mcpManager = v; return b }
+
+// WithAgentDirectoryProvider supplies host-assembled external/MCP entries in
+// addition to the configured local catalog. Explicit entries retain precedence.
+func (b *Builder) WithAgentDirectoryProvider(provider func() []llmagents.ListItem) *Builder {
+	b.agentDirectoryProvider = provider
+	return b
+}
+func (b *Builder) WithModelFinder(v llm.Finder) *Builder         { b.modelFinder = v; return b }
+func (b *Builder) WithEmbedderFinder(v embedder.Finder) *Builder { b.embedderFinder = v; return b }
+func (b *Builder) WithAugmenter(v *augmenter.Service) *Builder   { b.augmenter = v; return b }
+func (b *Builder) WithMCPManager(v *mcpmgr.Manager) *Builder     { b.mcpManager = v; return b }
+
+// WithPrimitiveAuthority registers verified host identity for delegated
+// discovery. Namespace restrictions belong to MCP connections, not here.
+func (b *Builder) WithPrimitiveAuthority(actor resourcesvc.ActorResolver, verify resourcesvc.ActorVerifier, localProviderIdentity string) *Builder {
+	b.primitiveActor, b.primitiveVerifier, b.primitiveLocalIdentity = actor, verify, localProviderIdentity
+	return b
+}
+
+// WithPrimitiveGatewayIdentity excludes an aggregate/self proxy identity.
+// The distinct local authoritative YAML source may still be a provider.
+func (b *Builder) WithPrimitiveGatewayIdentity(identity string) *Builder {
+	b.primitiveGatewayIdentity = identity
+	return b
+}
+
+// WithPrimitiveReportDependencyProof installs the startup proof verifier for
+// canonical report datasource dependencies without enabling delegated windows.
+func (b *Builder) WithPrimitiveReportDependencyProof(proof forgetypes.WindowTargetProof) *Builder {
+	b.primitiveReportDependencyProof = proof
+	return b
+}
+
+// WithPrimitiveWindows enables delegated windows on the existing host open
+// path. Provider namespaces and resources are discovered from MCP connections.
+func (b *Builder) WithPrimitiveWindows(proof forgetypes.WindowTargetProof) *Builder {
+	b.primitiveTargetProof = proof
+	return b
+}
+
+// WithLocalPrimitiveProvider installs the local authoritative YAML provider.
+// The MCP server exposes it separately from federated registry tools.
+func (b *Builder) WithLocalPrimitiveProvider(provider *resourcesvc.LocalProvider) *Builder {
+	b.localPrimitiveProvider = provider
+	return b
+}
 func (b *Builder) WithMCPAuthRTProvider(v mcpmgr.AuthRTProvider) *Builder {
 	b.mcpAuthRTProvider = v
 	return b
@@ -291,17 +486,39 @@ func (b *Builder) WithTokenProvider(v token.Provider) *Builder {
 	b.tokenProvider = v
 	return b
 }
+
+// WithReportResources connects existing report tools to the shared namespaced
+// catalog and operation-specific revision resolver.
+func (b *Builder) WithReportResources(provider catalog.Provider, resolve reportingsvc.ResourceResolver) *Builder {
+	b.reportCatalog = provider
+	b.reportResourceResolver = resolve
+	return b
+}
+
+func (b *Builder) WithReportResourceService(service primitive.ResourceAuthoring) *Builder {
+	b.reportResourceService = service
+	return b
+}
+
 func (b *Builder) WithReportingService(v *reportingsvc.Service) *Builder {
 	b.reportingService = v
 	return b
 }
 
 func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
+	if b.pinnedDatasourceResolver != nil && (b.pinnedDatasourceRevalidator == nil || b.pinnedDatasourceAuthorizer == nil) || b.pinnedDatasourceResolver == nil && (b.pinnedDatasourceRevalidator != nil || b.pinnedDatasourceAuthorizer != nil) {
+		return nil, fmt.Errorf("pinned datasource definitions require revalidation, resolution and execution authorization")
+	}
 	if b.modelFinder == nil {
 		return nil, errors.New("executor builder requires llm model finder")
 	}
 	if b.agentFinder == nil {
 		return nil, errors.New("executor builder requires agent finder")
+	}
+	if preloader, ok := b.agentFinder.(interface{ Preload(context.Context) error }); ok {
+		if err := preloader.Preload(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	// Ensure store defaults.
@@ -316,13 +533,22 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 
 	out := &Runtime{
-		Defaults:       b.defaults,
-		Native:         b.native,
-		MCPManager:     b.mcpManager,
-		Store:          b.store,
-		KnowledgeStore: b.knowledgeStore,
-		StateStore:     b.stateStore,
-		UIBridge:       forgeuisvc.NewService(&forgeuisvc.Config{}),
+		DatasourceNewDeliveryPreparer:  b.newDatasourceDeliveryPreparer,
+		DatasourceResourceRevalidator:  b.pinnedDatasourceRevalidator,
+		DatasourceDefinitionResolver:   b.pinnedDatasourceResolver,
+		DatasourceDefinitionAuthorizer: b.pinnedDatasourceAuthorizer,
+		LocalPrimitiveProvider:         b.localPrimitiveProvider,
+		Defaults:                       b.defaults,
+		ComponentDispatcher:            b.componentDispatcher,
+		Native:                         b.native,
+		MCPManager:                     b.mcpManager,
+		Store:                          b.store,
+		KnowledgeStore:                 b.knowledgeStore,
+		StateStore:                     b.stateStore,
+		UIBridge:                       b.uiBridge,
+	}
+	if out.UIBridge == nil {
+		out.UIBridge = forgeuisvc.NewService(&forgeuisvc.Config{})
 	}
 	if out.Defaults == nil {
 		out.Defaults = &config.Defaults{}
@@ -444,20 +670,55 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			log.Printf("[warn] tool execution protection is enabled but the configured custom registry does not support the standard concrete registry guard")
 		}
 	}
-	if !b.skipRegistryInitialize && !shouldSkipRegistryInitialize() {
-		out.Registry.Initialize(ctx)
-	}
 	workspaceConfig, err := wscfg.Load(workspace.Root())
 	if err != nil {
 		return nil, err
 	}
 	if workspaceConfig != nil {
-		out.AuthorizationTool = workspaceConfig.AuthorizationTool()
-		toolName := workspaceConfig.PolicyAuthorizationMCPTool()
+		uiSettings := workspaceConfig.UIAuthorizationSettings()
+		policySettings := workspaceConfig.PolicyAuthorizationSettings()
+		toolAuthorizerRef := ""
+		if policySettings.Mode != "" && policySettings.Mode != "legacy-mcp" && policySettings.Mode != "authz" {
+			return nil, fmt.Errorf("unsupported policy.authorization mode %q", policySettings.Mode)
+		}
+		switch uiSettings.Mode {
+		case "", "legacy-mcp":
+			if uiSettings.ProviderRef != "" || uiSettings.CapabilityMappingRef != "" {
+				return nil, fmt.Errorf("ui.authorization legacy mode cannot configure authz references")
+			}
+			out.AuthorizationTool = uiSettings.LegacyTool
+		case "authz":
+			if uiSettings.LegacyTool != "" || uiSettings.ProviderRef == "" {
+				return nil, fmt.Errorf("ui.authorization authz mode requires providerRef without tool")
+			}
+			provider, found := b.authorizationProviders[uiSettings.ProviderRef]
+			if !found || provider.Service == nil || provider.Service.Provider == nil || provider.PolicyVersion == "" {
+				return nil, fmt.Errorf("ui.authorization principal provider is not registered")
+			}
+			if provider.AuthoritySnapshot == nil {
+				return nil, fmt.Errorf("ui.authorization requires a trusted authority snapshot for the UI session")
+			}
+			out.PermittedResolver = &permittedview.AuthzResolver{Service: provider.Service, Version: provider.PolicyVersion}
+			out.ComponentAuthority = provider.ComponentAuthoritySnapshot
+			out.ExecutionContext = provider.ExecutionContext
+			out.UIBridge.ConfigureWindowReadDecisionScope(provider.WindowReadDecisionScope)
+			out.UIBridge.ConfigureNamespaceResolver(trustedUINamespace(provider.AuthoritySnapshot, provider.ExecutionContext), provider.ExecutionContext)
+			out.DatasourceDefinitionAuthorizer = provider.DatasourceDefinitionAuthorize
+			out.DatasourceDefinitionResolver = provider.DatasourceDefinitionResolver
+			out.DatasourceResourceRevalidator = provider.DatasourceResourceRevalidator
+			out.DatasourceReadFactsScope = provider.DatasourceReadFactsScope
+			out.DatasourceDisableCache = true
+			if provider.ToolAuthorize != nil {
+				out.ToolAuthorizer, toolAuthorizerRef = provider.ToolAuthorize, uiSettings.ProviderRef
+			}
+		default:
+			return nil, fmt.Errorf("unsupported ui.authorization mode %q", uiSettings.Mode)
+		}
+		if err := b.configurePrimitiveProviders(out); err != nil {
+			return nil, err
+		}
 		var operations []string
 		for section, operation := range map[string]string{
-			"ui":            policy.OperationWindowView,
-			"reports":       policy.OperationReportView,
 			"starterPrompt": policy.OperationStarterPromptView,
 			"intent":        policy.OperationIntentView,
 		} {
@@ -466,11 +727,43 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			}
 		}
 		if len(operations) > 0 {
-			if strings.TrimSpace(toolName) == "" {
-				return nil, fmt.Errorf("policy.authorization.mcpTool is required when an authorization section is enabled")
+			switch policySettings.Mode {
+			case "", "legacy-mcp":
+				if policySettings.ProviderRef != "" {
+					return nil, fmt.Errorf("policy.authorization legacy mode cannot configure providerRef")
+				}
+				if policySettings.LegacyTool == "" {
+					return nil, fmt.Errorf("policy.authorization.mcpTool is required when an authorization section is enabled")
+				}
+				out.AuthorizationPolicy = policy.NewRuntime(&policy.MCPResolver{Executor: out.Registry, ToolName: policySettings.LegacyTool}, operations...)
+			case "authz":
+				if policySettings.LegacyTool != "" || policySettings.ProviderRef == "" {
+					return nil, fmt.Errorf("policy.authorization authz mode requires providerRef without mcpTool")
+				}
+				provider, found := b.authorizationProviders[policySettings.ProviderRef]
+				if !found || provider.Service == nil || provider.Account == nil || provider.Gate == nil || provider.PolicyResource == nil || provider.PolicyVersion == "" {
+					return nil, fmt.Errorf("policy.authorization providerRef is not registered")
+				}
+				out.DatasourceDisableCache = true
+
+				if provider.ToolAuthorize != nil {
+					if toolAuthorizerRef != "" && toolAuthorizerRef != policySettings.ProviderRef {
+						return nil, fmt.Errorf("conflicting authz tool authorization providers")
+					}
+					out.ToolAuthorizer, toolAuthorizerRef = provider.ToolAuthorize, policySettings.ProviderRef
+				}
+				out.AuthorizationPolicy = policy.NewRuntime(&policy.AuthzResolver{Service: provider.Service, PolicyVersion: provider.PolicyVersion, Resource: provider.PolicyResource, Account: provider.Account, Gate: provider.Gate}, operations...)
+				out.AuthorizationPolicy.ExactIDs = true
+			default:
+				return nil, fmt.Errorf("unsupported policy.authorization mode %q", policySettings.Mode)
 			}
-			out.AuthorizationPolicy = policy.NewRuntime(&policy.MCPResolver{Executor: out.Registry, ToolName: toolName}, operations...)
 		}
+	}
+	if out.DatasourceDisableCache && !tool.SetResultReuseDisabled(out.Registry, true) {
+		return nil, fmt.Errorf("authz mode requires a tool registry without cross-account result reuse")
+	}
+	if out.ToolAuthorizer != nil && !tool.SetAuthorizationGuard(out.Registry, out.ToolAuthorizer) {
+		return nil, fmt.Errorf("configured authz tool guard is unsupported by registry")
 	}
 	skillsvc.ExecFn = out.Registry.Execute
 	out.Skills = skillsvc.New(out.Defaults, out.Conversation, b.agentFinder)
@@ -488,6 +781,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if out.Core == nil {
 		out.Core = core.New(b.modelFinder, out.Registry, out.Conversation)
 	}
+	out.Core.SetContinuationAuthority(b.primitiveActor, b.primitiveVerifier)
 
 	aug := b.augmenter
 	if aug == nil {
@@ -563,7 +857,13 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			agentOpts = append(agentOpts, agentsvc.WithDataService(out.Data))
 		}
 		promptRepo := intakerepo.NewWithStore(out.Store)
+		if out.PrimitiveProviders != nil {
+			promptRepo = intakerepo.NewWithReader(defaultIntentReader(out))
+		}
 		templateRepo := tplrepo.NewWithStore(out.Store)
+		if out.PrimitiveProviders != nil {
+			templateRepo = tplrepo.NewWithReader(resourcesvc.NewTemplateReader(out.PrimitiveProviders))
+		}
 		bundleRepo := toolbundlerepo.NewWithStore(out.Store)
 		intakeSvc := intakesvc.New(out.Core,
 			intakesvc.WithConversationClient(out.Conversation),
@@ -572,6 +872,11 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			intakesvc.WithBundleRepo(bundleRepo),
 		)
 		agentOpts = append(agentOpts, agentsvc.WithIntakeService(intakeSvc))
+		templateBundles := tplbundlerepo.NewWithStore(out.Store)
+		if out.PrimitiveProviders != nil {
+			templateBundles = tplbundlerepo.NewWithReader(resourcesvc.NewTemplateBundleReader(out.PrimitiveProviders))
+		}
+		agentOpts = append(agentOpts, agentsvc.WithAuthoredDefinitions(promptRepo, templateRepo, templateBundles))
 		agentOpts = append(agentOpts, agentsvc.WithSkillService(out.Skills))
 		out.Agent = agentsvc.New(out.Core, b.agentFinder, aug, out.Registry, out.Defaults, out.Conversation, agentOpts...)
 	}
@@ -593,9 +898,19 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			return nil, err
 		}
 	}
+	if out.PermittedResolver == nil && out.AuthorizationTool != "" {
+		execute, ok := any(out.Registry).(permittedview.ToolExecutor)
+		if !ok {
+			return nil, fmt.Errorf("configured MCP permission executor is unavailable")
+		}
+		out.PermittedResolver = &permittedview.MCPResolver{Executor: execute, ToolName: out.AuthorizationTool}
+	}
+	b.configureWindowUIProjection(out)
+	if err := b.configureComponentTransport(out); err != nil {
+		return nil, err
+	}
 	if out.Reporting == nil && b.reportingService != nil {
 		out.Reporting = b.reportingService
-		out.Reporting.SetAuthorizationPolicy(out.AuthorizationPolicy)
 	}
 	scratchpadsvc.RegisterProvider()
 	if out.Reporting == nil && out.Defaults != nil && out.Defaults.Reporting.Enabled {
@@ -624,6 +939,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 				reportAudit = reportsql.NewAuditSink(sqlStore)
 			}
 		}
+		out.ReportingClient = reportClient
 		var activeRunResolver reportingsvc.ActiveReportRunResolver
 		if out.Defaults.Reporting.BrowserRunPersistenceEnabled() {
 			runClient, ok := reportClient.(reportstore.RunClient)
@@ -646,8 +962,23 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			TokenProvider:               b.tokenProvider,
 			ExportFromRunEnabled:        out.Defaults.Reporting.ExportFromRunEnabled(),
 			ConversationAdoptionEnabled: out.Defaults.Reporting.ConversationAdoptionEnabled(),
-			AuthorizationPolicy:         out.AuthorizationPolicy,
 		})
+	}
+	if b.reportCatalog != nil || b.reportResourceResolver != nil {
+		if b.reportCatalog == nil || b.reportResourceResolver == nil || out.Reporting == nil {
+			return nil, fmt.Errorf("report resource catalog, resolver and reporting service are required")
+		}
+		out.Reporting.SetReportResourceService(b.reportResourceService)
+		out.Reporting.SetReportCatalog(b.reportCatalog)
+		out.Reporting.SetResourceResolver(b.reportResourceResolver)
+		if out.ReportRuns != nil {
+			out.ReportRuns.RequireCanonicalExecution()
+		}
+		// Custom service/catalog contracts retain their caller-owned executor.
+		_, knownCatalog := b.reportCatalog.(*catalog.ReportCatalogService)
+		if b.reportingService == nil || knownCatalog {
+			out.Reporting.SetResourceDatasetExecutor(reportingsvc.NewResourceDatasetExecutorWithProvider(out.Registry, out.Reporting.AuthorizeResourceDataset, out.providerReportDatasource, out.ComponentDispatcher))
+		}
 	}
 	if out.Registry != nil && out.Reporting != nil {
 		if err := tool.AddInternalService(out.Registry, out.Reporting); err != nil {
@@ -674,19 +1005,27 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 	}
 	out.Augmenter = aug
+	if out.UIBridge != nil && out.UIBridge.UsesWindowResourceResolution() || out.Reporting != nil && out.Reporting.UsesResourceResolution() {
+		out.RawResourceBoundary = workspace.NewRawResourceBoundary(out.Store.Root())
+	}
 	if resourcesSvc := resourcessvc.New(aug,
 		resourcessvc.WithMCPManager(out.MCPManager),
 		resourcessvc.WithConversationClient(out.Conversation),
 		resourcessvc.WithAgentFinder(b.agentFinder),
 		resourcessvc.WithDefaultEmbedder(out.Defaults.Embedder),
 		resourcessvc.WithSkillService(out.Skills),
+		resourcessvc.WithRawResourceBoundary(out.RawResourceBoundary),
 	); resourcesSvc != nil {
 		if err := tool.AddInternalService(out.Registry, resourcesSvc); err != nil {
 			return nil, err
 		}
 	}
 	promptRepo := intakerepo.NewWithStore(out.Store)
+	if out.PrimitiveProviders != nil {
+		promptRepo = intakerepo.NewWithReader(defaultIntentReader(out))
+	}
 	if err := tool.AddInternalService(out.Registry, llmagents.New(out.Agent,
+		llmagents.WithDirectoryProvider(localAgentDirectory(b.agentFinder, b.agentDirectoryProvider)),
 		llmagents.WithConversationClient(out.Conversation),
 		llmagents.WithDataService(out.Data),
 		llmagents.WithPromptRepo(promptRepo),
@@ -728,6 +1067,22 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		out.CallbackDispatch = callbacksvc.New(callbackRepo, out.Registry, cbOpts...)
 	}
 
+	if err := b.configurePrimitiveProviders(out); err != nil {
+		return nil, err
+	}
+	b.configureDefaultUIOwner(out)
+	if out.Agent != nil && out.NativeHostDocuments != nil {
+		out.Agent.SetHostDocuments(out.NativeHostDocuments)
+	}
+	if err := b.configurePrimitiveSkills(ctx, out); err != nil {
+		return nil, err
+	}
+	if err := b.bindMCPDefinitions(out); err != nil {
+		return nil, fmt.Errorf("MCP definition loading: %w", err)
+	}
+	if !b.skipRegistryInitialize && !shouldSkipRegistryInitialize() {
+		out.Registry.Initialize(ctx)
+	}
 	if b.hotSwapEnabled {
 		mgr, err := initHotSwap(ctx, b)
 		if err != nil {
@@ -817,6 +1172,12 @@ func (r *Runtime) Close(ctx context.Context) error {
 		return nil
 	}
 	r.closeOnce.Do(func() {
+		if r.mcpDefinitions != nil {
+			r.mcpDefinitions.gateway.Close()
+		}
+		if r.PrimitiveProviders != nil {
+			r.PrimitiveProviders.Close()
+		}
 		r.registryWarmupMu.Lock()
 		r.closed = true
 		cancelWarmup, warmupDone := r.registryWarmupCancel, r.registryWarmupDone
@@ -902,4 +1263,11 @@ func (r *Runtime) InitializeRegistryAsync(ctx context.Context, timeout time.Dura
 		}
 	}()
 	return done
+}
+
+// WithComponentDispatcher explicitly registers exact producer-supported
+// component transport for both report runs and the public datasource stack.
+func (b *Builder) WithComponentDispatcher(dispatcher windowprotocol.ComponentDispatcher) *Builder {
+	b.componentDispatcher = dispatcher
+	return b
 }

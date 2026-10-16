@@ -56,8 +56,7 @@ func normalizeFeedConfigValue(value interface{}) interface{} {
 
 func handleListFeeds(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if backend, ok := client.(interface{ ListFeedSpecs() []*FeedSpec }); ok {
-			specs := backend.ListFeedSpecs()
+		if specs, err := listClientFeedSpecs(r.Context(), client); err == nil {
 			if specs == nil {
 				httpJSON(w, http.StatusOK, map[string]interface{}{"feeds": []interface{}{}})
 				return
@@ -71,12 +70,12 @@ func handleListFeeds(client Client) http.HandlerFunc {
 			}
 			result := make([]feedSummary, 0, len(specs))
 			for _, s := range specs {
-				result = append(result, feedSummary{ID: s.ID, Title: s.Title, DeveloperOnly: s.DeveloperOnly, Presentation: normalizedFeedPresentation(s), Match: s.Match})
+				result = append(result, feedSummary{ID: feedIdentity(s), Title: s.Title, DeveloperOnly: s.DeveloperOnly, Presentation: normalizedFeedPresentation(s), Match: s.Match})
 			}
 			httpJSON(w, http.StatusOK, map[string]interface{}{"feeds": result})
 			return
 		}
-		httpJSON(w, http.StatusOK, map[string]interface{}{"feeds": []interface{}{}})
+		httpError(w, http.StatusServiceUnavailable, fmt.Errorf("feed definitions unavailable"))
 	}
 }
 
@@ -89,29 +88,18 @@ func handleGetFeedData(client Client) http.HandlerFunc {
 			return
 		}
 		backend, ok := client.(interface {
-			ListFeedSpecs() []*FeedSpec
 			GetTranscript(ctx context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error)
 		})
 		if !ok {
 			httpError(w, http.StatusNotFound, fmt.Errorf("feed %q not found", feedID))
 			return
 		}
-		specs := backend.ListFeedSpecs()
-		if specs == nil {
-			httpError(w, http.StatusNotFound, fmt.Errorf("feed %q not found", feedID))
+		spec, err := getClientFeedSpec(r.Context(), client, feedID)
+		if err != nil {
+			httpError(w, http.StatusNotFound, err)
 			return
 		}
-		var spec *FeedSpec
-		for _, s := range specs {
-			if s.ID == feedID {
-				spec = s
-				break
-			}
-		}
-		if spec == nil {
-			httpError(w, http.StatusNotFound, fmt.Errorf("feed %q not found", feedID))
-			return
-		}
+		feedID = feedIdentity(spec)
 		transcript, err := backend.GetTranscript(r.Context(), &GetTranscriptInput{
 			ConversationID:    convID,
 			IncludeModelCalls: true,
@@ -139,7 +127,8 @@ func handleGetFeedData(client Client) http.HandlerFunc {
 			}
 		}
 		httpJSON(w, http.StatusOK, map[string]interface{}{
-			"feedId":        spec.ID,
+			"feedId": feedIdentity(spec),
+			"id":     spec.ID, "uri": spec.URI, "providerIdentity": spec.ProviderIdentity,
 			"title":         spec.Title,
 			"developerOnly": spec.DeveloperOnly,
 			"presentation":  normalizedFeedPresentation(spec),

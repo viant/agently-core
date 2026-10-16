@@ -101,10 +101,8 @@ func handleGetConversation(client Client, configs ...*svcauth.Config) http.Handl
 		}
 		var out *conversation.Conversation
 		var err error
-		if reader, ok := client.(interface {
-			getConversationHeader(context.Context, string) (*conversation.Conversation, error)
-		}); ok && r.URL.Query().Get("includeTranscript") == "false" {
-			out, err = reader.getConversationHeader(r.Context(), id)
+		if r.URL.Query().Get("includeTranscript") == "false" {
+			out, err = readConversationHeader(r.Context(), client, id)
 		} else {
 			out, err = client.GetConversation(r.Context(), id)
 		}
@@ -208,6 +206,9 @@ func handleGetTranscript(client Client) http.HandlerFunc {
 			for name, selector := range decoded {
 				opts = append(opts, WithTranscriptSelector(name, selector))
 			}
+		}
+		if q.Get("includeToolPayloads") == "false" {
+			opts = append(opts, WithIncludeToolPayloads(false))
 		}
 		if q.Get("includeModelPayloads") == "false" {
 			opts = append(opts, WithIncludeModelPayloads(false))
@@ -384,6 +385,9 @@ func handleGetLiveState(client Client) http.HandlerFunc {
 		}
 		q := r.URL.Query()
 		var opts []TranscriptOption
+		if q.Get("includeToolPayloads") == "false" {
+			opts = append(opts, WithIncludeToolPayloads(false))
+		}
 		if q.Get("includeModelPayloads") == "false" {
 			opts = append(opts, WithIncludeModelPayloads(false))
 		}

@@ -2,6 +2,7 @@ package tool_test
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
-type internalExecutionTestService struct{}
+type internalExecutionTestService struct{ calls int }
 
 func (s *internalExecutionTestService) Name() string { return "test/service" }
 
@@ -25,6 +26,7 @@ func (s *internalExecutionTestService) Methods() svc.Signatures {
 
 func (s *internalExecutionTestService) Method(name string) (svc.Executable, error) {
 	return func(ctx context.Context, input, output interface{}) error {
+		s.calls++
 		out, ok := output.(*map[string]string)
 		if !ok {
 			return svc.NewInvalidOutputError(output)
@@ -32,6 +34,26 @@ func (s *internalExecutionTestService) Method(name string) (svc.Executable, erro
 		*out = map[string]string{"method": name}
 		return nil
 	}, nil
+}
+
+func TestRegistryAuthorizationGuardBlocksRegisteredMutation(t *testing.T) {
+	mgr, err := manager.New(nil)
+	require.NoError(t, err)
+	reg, err := registry.NewWithManager(mgr)
+	require.NoError(t, err)
+	service := &internalExecutionTestService{}
+	require.NoError(t, reg.AddInternalService(service))
+	denied := errors.New("mutation denied")
+	reg.SetAuthorizationGuard(func(_ context.Context, name string, _ map[string]interface{}) error {
+		if name == "test/service:list" {
+			return denied
+		}
+		return nil
+	})
+	_, err = reg.Execute(context.Background(), "test/service:list", map[string]interface{}{})
+	if !errors.Is(err, denied) || service.calls != 0 {
+		t.Fatalf("registered tool ran before authorization: calls=%d err=%v", service.calls, err)
+	}
 }
 
 func TestRegistry_Execute_BlocksInternalMethodsOutsidePlanMode(t *testing.T) {

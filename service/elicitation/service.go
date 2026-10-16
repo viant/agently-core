@@ -31,6 +31,7 @@ type Refiner interface {
 type Service struct {
 	client         apiconv.Client
 	refiner        Refiner
+	contextRefiner func(context.Context, *schema.ElicitRequestParamsRequestedSchema) error
 	router         elicrouter.ElicitationRouter
 	awaiterFactory func() Awaiter
 	streamPub      streaming.Publisher
@@ -81,7 +82,7 @@ func (s *Service) emitElicitationRequested(ctx context.Context, turn *runtimereq
 	// Marshal the full ElicitRequestParams (schema, mode, url) into elicData
 	// so the UI can detect OOB elicitations and render the correct form/URL dialog.
 	elicData := map[string]interface{}{}
-	if raw, err := json.Marshal(elic.ElicitRequestParams); err == nil {
+	if raw, err := json.Marshal(elic); err == nil {
 		_ = json.Unmarshal(raw, &elicData)
 		logx.Infof("conversation", "[elicit-data] raw=%s", string(raw))
 	}
@@ -164,6 +165,22 @@ func (s *Service) emitElicitationResolved(ctx context.Context, convID, elicitati
 	}
 }
 
+// ConfigureContextRefiner installs a startup-only instance presentation refiner.
+// Its context belongs to the current operation; it does not authorize tool data.
+func (s *Service) ConfigureContextRefiner(refine func(context.Context, *schema.ElicitRequestParamsRequestedSchema) error) {
+	if s != nil {
+		s.contextRefiner = refine
+	}
+}
+
+func (s *Service) RefineRequestedSchemaContext(ctx context.Context, rs *schema.ElicitRequestParamsRequestedSchema) error {
+	if s != nil && s.contextRefiner != nil {
+		return s.contextRefiner(ctx, rs)
+	}
+	s.RefineRequestedSchema(rs)
+	return nil
+}
+
 func (s *Service) RefineRequestedSchema(rs *schema.ElicitRequestParamsRequestedSchema) {
 	if rs == nil {
 		return
@@ -177,11 +194,19 @@ func (s *Service) RefineRequestedSchema(rs *schema.ElicitRequestParamsRequestedS
 
 // Record persists an elicitation control message and returns its message id.
 func (s *Service) Record(ctx context.Context, turn *runtimerequestctx.TurnMeta, role string, elic *execution.Elicitation) (*apiconv.MutableMessage, error) {
+	if elic != nil && elic.Deadline == "" {
+		if deadline, ok := ctx.Deadline(); ok {
+			elic.Deadline = deadline.UTC().Format(time.RFC3339Nano)
+		}
+	}
+
 	if strings.TrimSpace(elic.ElicitationId) == "" {
 		elic.ElicitationId = uuid.New().String()
 	}
 	logx.Infof("conversation", "elicitation record start convo=%q turn=%q elicitation_id=%q role=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(elic.ElicitationId), strings.TrimSpace(role))
-	s.RefineRequestedSchema(&elic.RequestedSchema)
+	if err := s.RefineRequestedSchemaContext(ctx, &elic.RequestedSchema); err != nil {
+		return nil, err
+	}
 	// Provide a unified callback URL when not already set
 	if strings.TrimSpace(elic.CallbackURL) == "" && turn != nil {
 		elic.CallbackURL = fmt.Sprintf("/v1/api/conversations/%s/elicitation/%s", turn.ConversationID, elic.ElicitationId)
@@ -321,6 +346,10 @@ func (s *Service) Wait(ctx context.Context, convID, elicitationID string) (strin
 
 	select {
 	case <-ctx.Done():
+		// Stop advertising a live waiter before the last persisted-answer check.
+		// A callback that won delivery before removal is already committed and
+		// will be read below; a later callback gets the deferred disposition.
+		s.router.RemoveByElicitation(convID, elicitationID)
 		if msg, err := s.client.GetMessageByElicitation(context.Background(), convID, elicitationID); err == nil && msg != nil {
 			status := ""
 			if msg.Status != nil {
@@ -506,7 +535,7 @@ func (s *Service) resolveElicitationTarget(ctx context.Context, convID, elicitat
 		return nil, err
 	}
 	if msg == nil {
-		return nil, fmt.Errorf("elicitation message not found")
+		return nil, ErrNotFound
 	}
 	target := &elicitationResolutionTarget{submitted: msg, authoritative: msg}
 	if msg.LinkedConversationId != nil {

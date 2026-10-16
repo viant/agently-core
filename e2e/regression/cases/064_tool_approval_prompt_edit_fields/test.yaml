@@ -1,86 +1,173 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-prompt-edit
+      email: e2e-prompt-edit@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt edit fields - create conversation"
+    description: tool approval prompt edit fields - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: chatter_system_os_prompt_edit
+        Title: prompt-approval-edit-fields-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: chatter_system_os_prompt_edit
-          Title: prompt-approval-edit-fields-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   startPromptQuery:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt edit fields - start query"
+    description: tool approval prompt edit fields - start query
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 064_tool_approval_prompt_edit_fields-startPromptQuery
+        query:
+          conversationID: ${createConversation.Responses[0].JSONBody.id}
+          agentID: chatter_system_os_prompt_edit
+          query: What are my HOME, SHELL, and PATH environment variables?
+      Expect:
+        Code: 200
         JSONBody:
-          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-          AgentID: chatter_system_os_prompt_edit
-          UserId: e2e-prompt-edit
-          Query: What are my HOME, SHELL, and PATH environment variables?
-
+          outcome:
+            type: interrupt
   waitForElicitation:
     when: $sdkKey != ''
     action: nop
     sleepTimeMs: 3000
-
   listPendingElicitations:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt edit fields - verify elicitation appeared"
+    description: tool approval prompt edit fields - verify elicitation appeared
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/elicitations?conversationId=${createConversation.Responses[0].JSONBody.Id}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@rows[0]": true
-            "@exists@rows[0].elicitationId": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/elicitations?conversationId=${createConversation.Responses[0].JSONBody.id}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@rows[0]': true
+          '@exists@rows[0].elicitationId': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+  captureOriginalPrompt:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: pin the original pending elicitation and linked native tool before accepting edits
+    requests:
+    - Method: GET
+      URL: ${aguiProbeURL}/prompt-approval-capture/064_tool_approval_prompt_edit_fields-startPromptQuery?id=${listPendingElicitations.Responses[0].JSONBody.rows[0].elicitationId}
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          sameOwner: true
+          originalRequest:
+            nameCount: 3
+            '@length@names': 3
+            names:
+              HOME: '@exists@'
+              PATH: '@exists@'
+              SHELL: '@exists@'
   acceptEditedApproval:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt edit fields - accept with HOME and PATH only"
+    description: tool approval prompt edit fields - accept with HOME and PATH only
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/elicitations/${createConversation.Responses[0].JSONBody.Id}/${listPendingElicitations.Responses[0].JSONBody.rows[0].elicitationId}/resolve
+    - Method: POST
+      URL: ${authServerURL}/v1/elicitations/${createConversation.Responses[0].JSONBody.id}/${listPendingElicitations.Responses[0].JSONBody.rows[0].elicitationId}/resolve
+      JSONBody:
+        action: accept
+        payload:
+          editedFields:
+            names:
+            - HOME
+            - PATH
+      Expect:
+        Code: 200
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+  verifyOriginalNativeCompletion:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: await the same original native turn after the accepted edit
+    requests:
+    - Method: GET
+      URL: ${aguiProbeURL}/await-native/064_tool_approval_prompt_edit_fields-startPromptQuery
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
         JSONBody:
-          action: accept
-          payload:
+          nativeStatus: completed
+          identity:
+            nativeConversationId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeConversationId}
+            nativeTurnId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeTurnId}
+          rootTurn:
+            turnId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeTurnId}
+            status: completed
+            assistant:
+              final:
+                messageId: '@exists@'
+                content: '@exists@'
+  verifyOriginalPromptEffect:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: verify the accepted edit and exact original committed tool result without imposing prose formatting
+    requests:
+    - Method: GET
+      URL: ${aguiProbeURL}/prompt-approval-receipt/064_tool_approval_prompt_edit_fields-startPromptQuery?id=${captureOriginalPrompt.Responses[0].JSONBody.tuple.approvalId}
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          sameOwner: true
+          nativeStatus: completed
+          elicitationStatus: accepted
+          effectCount: 1
+          tuple:
+            approvalId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.approvalId}
+            nativeConversationId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeConversationId}
+            nativeTurnId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeTurnId}
+            nativeOperationId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeOperationId}
+            queueParentMessageId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.queueParentMessageId}
+            effectMessageId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.effectMessageId}
+            requestPayloadId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.requestPayloadId}
+          acceptedResponse:
             editedFields:
-              names:
-                - HOME
-                - PATH
-        Expect:
-          Code: 200
-
-  waitForCompletion:
-    when: $sdkKey != ''
-    action: nop
-    sleepTimeMs: 3000
-
-  verifyFilteredResult:
-    when: $sdkKey != ''
-    action: exec:run
-    description: "tool approval prompt edit fields - verify final response excludes SHELL"
-    checkError: true
-    commands:
-      - |
-        body=$(curl -fsS "${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/live-state" | jq -r '.conversation.turns[0].assistant.final.content // ""')
-        echo "$body" | grep '"HOME"'
-        echo "$body" | grep '"PATH"'
-        if echo "$body" | grep -q '"SHELL"'; then
-          echo "unexpected SHELL in final response"
-          echo "$body"
-          exit 1
-        fi
+              '@length@names': 2
+              names: [HOME, PATH]
+          originalRequest:
+            nameCount: 3
+            '@length@names': 3
+            names:
+              HOME: '@exists@'
+              PATH: '@exists@'
+              SHELL: '@exists@'
+          actualResponse:
+            valueKeyCount: 2
+            '@length@values': 2
+            values:
+              HOME: '@exists@'
+              PATH: '@exists@'
+              SHELL: '@!exists@'

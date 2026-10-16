@@ -198,6 +198,8 @@ func cloneMemorySharedArtifact(input *SharedArtifact) *SharedArtifact {
 		return nil
 	}
 	out := *input
+	out.Resource = cloneResolvedResource(input.Resource)
+	out.sharedActorScope = cloneSharedReportActorScope(input.sharedActorScope)
 	if len(input.Document) > 0 {
 		out.Document = cloneJSON(input.Document)
 	}

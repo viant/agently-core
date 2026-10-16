@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Run `parameter:"Data,kind=output,in=view,dataType=[]*Run" view:"reader,type=Run,rowLock=run c,table=run,selectorNoLimit=true" sql:"uri=cleanup_run_read_reader:sql/reader.sql"`
+	Data []*Run `parameter:"Data,kind=output,in=view,dataType=[]*Run" view:"reader,type=Run,rowLock=run c,table=run,selectorNoLimit=true" json:"data" sql:"uri=cleanup_run_read_reader:sql/reader.sql"`
 }

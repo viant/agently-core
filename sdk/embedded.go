@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	primitive "github.com/viant/agently-core/protocol/primitive"
+	identity "github.com/viant/agently-core/protocol/resource"
+	resourcesvc "github.com/viant/agently-core/service/resource"
+	"github.com/viant/forge/backend/types"
 	"sort"
 	"strings"
 	"sync"
@@ -85,28 +89,31 @@ type turnQueuePatcher interface {
 }
 
 type backendClient struct {
-	approvalRecoveryMu     sync.Mutex
-	approvalRecoveryCursor string
-	approvalTokenProvider  token.Provider
-	approvalMCPHost        *AGUIMCPAppsHost
-	agent                  *agentsvc.Service
-	conv                   conversation.Client
-	data                   data.Service
-	goalRepo               goalsys.Repository
-	goalInvoker            dexec.ComponentInvoker
-	registry               tool.Registry
-	mcpMgr                 *mcpmgr.Manager
-	toolPolicy             *tool.Policy
-	cancelRegistry         cancels.Registry
-	elicRouter             elicrouter.ElicitationRouter
-	elicSvc                *elicsvc.Service
-	streaming              streaming.Bus
-	store                  workspace.Store
-	a2aSvc                 *a2a.Service
-	schedulerSvc           *scheduler.Service
-	asyncManager           *asynccfg.Manager
-	feeds                  *FeedRegistry
-	skills                 skillBackend
+	approvalRecoveryMu            sync.Mutex
+	approvalRecoveryCursor        string
+	approvalTokenProvider         token.Provider
+	approvalMCPHost               *AGUIMCPAppsHost
+	agent                         *agentsvc.Service
+	conv                          conversation.Client
+	data                          data.Service
+	goalRepo                      goalsys.Repository
+	goalInvoker                   dexec.ComponentInvoker
+	registry                      tool.Registry
+	mcpMgr                        *mcpmgr.Manager
+	toolPolicy                    *tool.Policy
+	cancelRegistry                cancels.Registry
+	elicRouter                    elicrouter.ElicitationRouter
+	elicSvc                       *elicsvc.Service
+	streaming                     streaming.Bus
+	store                         workspace.Store
+	rawResourceBoundary           *workspace.RawResourceBoundary
+	a2aSvc                        *a2a.Service
+	schedulerSvc                  *scheduler.Service
+	asyncManager                  *asynccfg.Manager
+	feeds                         *FeedRegistry
+	primitiveProviders            *resourcesvc.Gateway
+	prepareNativePresentationRead func(context.Context, *identity.ResolvedResource, *types.WindowTarget) (*identity.ResolvedResource, *types.WindowTarget, error)
+	skills                        skillBackend
 	// Installed by SetDatasourceStack; nil until runtime bootstrap wires
 	// them. See sdk/embedded_datasources.go.
 	datasourceSvc *dssvc.Service
@@ -179,6 +186,10 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 	c.elicSvc = rt.Elicitation
 	c.streaming = rt.Streaming
 	c.store = rt.Store
+	c.rawResourceBoundary = rt.RawResourceBoundary
+	if c.rawResourceBoundary == nil && c.store != nil && (rt.UIBridge != nil && rt.UIBridge.UsesWindowResourceResolution() || rt.Reporting != nil && rt.Reporting.UsesResourceResolution()) {
+		c.rawResourceBoundary = workspace.NewRawResourceBoundary(c.store.Root())
+	}
 	if rt.Agent != nil {
 		c.asyncManager = rt.Agent.AsyncManager()
 	}
@@ -192,7 +203,10 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 			}
 		}
 	}
-	c.feeds = NewFeedRegistry()
+	c.primitiveProviders = rt.PrimitiveProviders
+	if rt.UIBridge != nil {
+		c.prepareNativePresentationRead = rt.UIBridge.PrepareNativePresentationRead
+	}
 	c.skills = rt.Skills
 	// Wire the datasource + overlay stack. Loads any datasources/ and
 	// lookups/ YAML from the workspace and installs the refiner hook. If
@@ -221,8 +235,12 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 func (c *backendClient) Mode() Mode { return ModeEmbedded }
 
 func (c *backendClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
-	if c.feeds != nil && c.streaming != nil {
-		ctx = toolexec.WithFeedNotifier(ctx, newFeedNotifier(c.feeds, c.streaming))
+	if (c.feeds != nil || c.primitiveProviders != nil) && c.streaming != nil {
+		notifier := newFeedNotifier(c.feeds, c.streaming)
+		if c.primitiveProviders != nil {
+			notifier.resolve = c.matchFeedSpecsContext
+		}
+		ctx = toolexec.WithFeedNotifier(ctx, notifier)
 	}
 	out := &agentsvc.QueryOutput{}
 	if err := c.agent.Query(ctx, input, out); err != nil {
@@ -1154,6 +1172,30 @@ func (c *backendClient) ListSkills(ctx context.Context, input *ListSkillsInput) 
 	if input == nil || (strings.TrimSpace(input.ConversationID) == "" && strings.TrimSpace(input.AgentID) == "") {
 		return nil, errors.New("conversation ID or agent ID is required")
 	}
+	if input.Limit != 0 || input.Cursor != "" || input.Namespace != "" || len(input.NameTerms)+len(input.DescriptionTerms)+len(input.Keywords) != 0 {
+		paging, ok := c.skills.(interface {
+			ListPageForSelection(context.Context, string, string, primitive.CatalogQuery) (*primitive.CatalogPage[skillproto.Metadata], []string, error)
+		})
+		if !ok {
+			return nil, errors.New("skill catalog paging unavailable")
+		}
+		page, diags, err := paging.ListPageForSelection(ctx, strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.AgentID), input.CatalogQuery)
+		if err != nil {
+			return nil, err
+		}
+		out := &ListSkillsOutput{Diagnostics: diags, NextCursor: page.NextCursor, Complete: page.Complete, Total: page.Total}
+		for _, item := range page.Items {
+			name := item.Name
+			if item.URI != "" {
+				name = item.URI
+			}
+			if item.LocalSelector != "" {
+				name = item.LocalSelector
+			}
+			out.Items = append(out.Items, SkillItem{Name: name, URI: item.URI, Description: item.Description})
+		}
+		return out, nil
+	}
 	var items []skillproto.Metadata
 	var diags []string
 	var err error
@@ -1171,9 +1213,16 @@ func (c *backendClient) ListSkills(ctx context.Context, input *ListSkillsInput) 
 	if err != nil {
 		return nil, err
 	}
-	out := &ListSkillsOutput{Diagnostics: diags}
+	out := &ListSkillsOutput{Diagnostics: diags, Complete: true, Total: len(items)}
 	for _, item := range items {
-		out.Items = append(out.Items, SkillItem{Name: item.Name, Description: item.Description})
+		name := item.Name
+		if item.URI != "" {
+			name = item.URI
+		}
+		if item.LocalSelector != "" {
+			name = item.LocalSelector
+		}
+		out.Items = append(out.Items, SkillItem{Name: name, URI: item.URI, Description: item.Description})
 	}
 	return out, nil
 }
@@ -1281,6 +1330,7 @@ func (c *backendClient) ListTemplates(ctx context.Context, input *ListTemplatesI
 	out := &ListTemplatesOutput{Items: make([]TemplateListItem, 0, len(raw.Items))}
 	for _, item := range raw.Items {
 		out.Items = append(out.Items, TemplateListItem{
+			URI:         item.URI,
 			Name:        item.Name,
 			Description: item.Description,
 			Format:      item.Format,
@@ -1332,6 +1382,10 @@ func (c *backendClient) templateService() *templatesvc.Service {
 		fs := afs.New()
 		templates = tplrepo.New(fs)
 		bundles = tplbundlerepo.New(fs)
+	}
+	if c != nil && c.primitiveProviders != nil {
+		templates = tplrepo.NewWithReader(resourcesvc.NewTemplateReader(c.primitiveProviders))
+		bundles = tplbundlerepo.NewWithReader(resourcesvc.NewTemplateBundleReader(c.primitiveProviders))
 	}
 	opts := []func(*templatesvc.Service){}
 	if c != nil && c.conv != nil {

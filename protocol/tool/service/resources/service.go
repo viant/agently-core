@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/workspace"
 	"reflect"
 	"strings"
 	"sync"
@@ -22,11 +23,12 @@ const Name = "resources"
 
 // Service exposes resource roots, listing, reading and semantic match over filesystem and MCP
 type Service struct {
-	augmenter *aug.Service
-	mcpMgr    *mcpmgr.Manager
-	defaults  ResourcesDefaults
-	conv      apiconv.Client
-	aFinder   agmodel.Finder
+	rawResourceBoundary *workspace.RawResourceBoundary
+	augmenter           *aug.Service
+	mcpMgr              *mcpmgr.Manager
+	defaults            ResourcesDefaults
+	conv                apiconv.Client
+	aFinder             agmodel.Finder
 	// defaultEmbedder is used when MatchInput.Embedder/Model is not provided.
 	defaultEmbedder string
 	skillSvc        *skillsvc.Service
@@ -161,4 +163,8 @@ func (s *Service) runAugmentDocs(ctx context.Context, input *aug.AugmentDocsInpu
 		return fmt.Errorf("augmenter service is not configured")
 	}
 	return s.augmenter.AugmentDocs(ctx, input, output)
+}
+
+func WithRawResourceBoundary(boundary *workspace.RawResourceBoundary) func(*Service) {
+	return func(s *Service) { s.rawResourceBoundary = boundary }
 }

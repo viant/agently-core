@@ -111,7 +111,7 @@ func TestNewClientDelegatedRequiresResolver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if _, err := mgr.newClient(context.Background(), "conv-1", "viant-mcp-dev6"); err == nil {
+	if _, err := mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6"); err == nil {
 		t.Fatalf("delegated config without installed resolver must fail closed")
 	} else if !strings.Contains(err.Error(), "credential resolver") {
 		t.Fatalf("unexpected error: %v", err)
@@ -124,7 +124,7 @@ func TestNewClientDelegatedKillSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, err = mgr.newClient(context.Background(), "conv-1", "viant-mcp-dev6")
+	_, err = mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6")
 	if err == nil || !strings.Contains(err.Error(), "provider_disabled") {
 		t.Fatalf("MCP-level kill switch must fail with provider_disabled, got %v", err)
 	}
@@ -139,7 +139,7 @@ func TestNewClientDelegatedRequiresRegistryForProviderRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, err = mgr.newClient(context.Background(), "conv-1", "viant-mcp-dev6")
+	_, err = mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6")
 	if err == nil || !strings.Contains(err.Error(), "provider registry") {
 		t.Fatalf("providerRef without an installed registry must fail fast, got %v", err)
 	}
@@ -157,7 +157,7 @@ func TestNewClientDelegatedNormalizesLegacyUseIdToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, err = mgr.newClient(context.Background(), "conv-1", "viant-mcp-dev6")
+	_, err = mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6")
 	if err == nil || !strings.Contains(err.Error(), "useIdToken") {
 		t.Fatalf("conflicting useIdToken/tokenType must fail validation, got %v", err)
 	}
@@ -209,7 +209,7 @@ func TestNewClientDelegatedInlineProviderRegistrationFailureFailsClosed(t *testi
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, err = mgr.newClient(context.Background(), "conv-1", "viant-mcp-dev6")
+	_, err = mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6")
 	if err == nil || !strings.Contains(err.Error(), "conflicts") {
 		t.Fatalf("inline registration conflict must fail client creation, got %v", err)
 	}
@@ -226,7 +226,7 @@ func TestNewClientDelegatedRejectsConflictingLegacyAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if _, err := mgr.newClient(context.Background(), "conv-1", "viant-mcp-dev6"); err == nil {
+	if _, err := mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6"); err == nil {
 		t.Fatalf("delegated mode combined with legacy oauth2ConfigURL must fail validation")
 	}
 }

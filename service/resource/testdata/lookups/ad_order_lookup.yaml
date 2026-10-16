@@ -1,0 +1,40 @@
+id: ad_order_lookup
+priority: 10
+bindings:
+  - match:
+      fieldName: order_id
+      type: integer
+    lookup:
+      dataSource: ad_order_lookup
+      dialogId: adOrderPicker
+      outputs:
+        - location: adOrderId
+          name: order_id
+        - location: adOrderName
+          name: ad_order_name
+        - location: campaignName
+          name: campaign_name
+      display: "${adOrderName} | ${campaignName}"
+    named:
+      name: order
+      title: Order list
+      queryInput: AdOrderName
+      resolveInput: AdOrderId
+      required: true
+      store: "${adOrderId}"
+      display: "${adOrderName} | ${campaignName}"
+      modelForm: "${id}"
+  - match:
+      fieldName: ad_order_id
+      type: integer
+    lookup:
+      dataSource: ad_order_lookup
+      dialogId: adOrderPicker
+      outputs:
+        - location: adOrderId
+          name: ad_order_id
+        - location: adOrderName
+          name: ad_order_name
+        - location: campaignName
+          name: campaign_name
+      display: "${adOrderName} | ${campaignName}"

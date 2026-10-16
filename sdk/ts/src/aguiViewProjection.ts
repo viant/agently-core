@@ -209,8 +209,12 @@ export class AgUiViewProjection {
         }
         if(kind==='STEP_STARTED'||kind==='STEP_FINISHED'){
             const step=string(event.stepName)??'';if(kind==='STEP_STARTED')this.steps.set(step,lane);
-            const found={...this.steps.get(step),...lane,presentation:metadata??this.steps.get(step)?.presentation};
-            this.emit({type:kind==='STEP_STARTED'?'model_started':'model_completed',modelCallId:metadata?.modelCallId??step,status:kind==='STEP_STARTED'?'running':'completed'},found);
+            const held=this.steps.get(step);
+            // Native terminal closures can omit presentation. Retain the exact
+            // started lane; absent terminal fields must not move it to a parent.
+            const presentation=metadata?.modelCallId?metadata:held?.presentation??metadata;
+            const found:Lane={presentation,owner:owner??held?.owner,parent:parent??held?.parent,pageId:presentation?.pageId??held?.pageId??lane.pageId};
+            this.emit({type:kind==='STEP_STARTED'?'model_started':'model_completed',modelCallId:found.presentation?.modelCallId??step,status:kind==='STEP_STARTED'?'running':'completed'},found);
         }
         if(kind==='CUSTOM'&&this.options.profile==='agently'){
             if(event.name==='agently.usage'){const usage=readAgentlyUsage(event.value);if(usage)this.emit({type:'usage',modelCallId:usage.modelCallId,turnId:usage.nativeTurnId,usage:{...usage.usage,scope:usage.scope} as SSEEvent['usage']},lane);}
@@ -256,7 +260,7 @@ export class AgUiViewProjection {
                     content: message.content,
                     contentMode: 'snapshot',
                     ...(message.role === 'assistant' && this.options.profile === 'agently' ? {renderedContent} : {}),
-                    ...(snapshotAssistant ? {patch: {role: 'assistant'}} : {}),
+                    ...(snapshotAssistant ? {patch: {role: 'assistant', ...(p?.mode ? {mode: p.mode} : {})}} : {}),
                     protocolMessageId: message.id,
                     pageId: standalone ? undefined : p?.pageId ?? lane.pageId ?? p?.nativeMessageId ?? `${this.runId}/message/${message.id}`,
                 }, lane);
@@ -318,7 +322,7 @@ export class AgUiViewProjection {
         if(message.activityType==='agently.rendered-content'&&content?.version==='1'&&object(content.renderedContent)){
             const id=lane.presentation?.nativeMessageId??message.id.replace(/\/activity$/,'');
             const text=this.messages.find(m=>m.id===id&&m.role==='assistant');
-            this.emit({type:'assistant',patch:{role:'assistant'},messageId:id,assistantMessageId:id,content:typeof text?.content==='string'?text.content:'',contentMode:'snapshot',renderedContent:content.renderedContent as unknown as CanonicalRenderedContent,protocolMessageId:message.id,pageId:lane.presentation?.pageId??`${this.runId}/message/${id}`},lane,`rich:${message.id}`);
+            this.emit({type:'assistant',patch:{role:'assistant'},messageId:id,assistantMessageId:id,content:typeof text?.content==='string'?text.content:'',contentMode:'snapshot',renderedContent:content.renderedContent as unknown as CanonicalRenderedContent,protocolMessageId:message.id,pageId:lane.presentation?.pageId??lane.presentation?.nativeMessageId??`${this.runId}/message/${id}`},lane,`rich:${message.id}`);
         }else if(message.activityType==='mcp-apps'&&this.hostEffects)this.descriptor(`activity:${message.id}`,{kind:'host-activity',message:structuredClone(message),hostEffectsAllowed:true});
         else this.descriptor(`activity:${message.id}`,{kind:'unsupported-activity',messageId:message.id,activityType:message.activityType,hostEffectsAllowed:false});
     }

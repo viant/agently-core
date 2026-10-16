@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*NativeIdentity `parameter:"Data,kind=output,in=view,dataType=[]*NativeIdentity" view:"reader,type=NativeIdentity,rowLock=conversation c,table=conversation" sql:"uri=thread_native_read_reader:sql/reader.sql"`
+	Data []*NativeIdentity `parameter:"Data,kind=output,in=view,dataType=[]*NativeIdentity" view:"reader,type=NativeIdentity,rowLock=conversation c,table=conversation" json:"data" sql:"uri=thread_native_read_reader:sql/reader.sql"`
 }

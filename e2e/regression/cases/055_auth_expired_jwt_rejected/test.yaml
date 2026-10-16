@@ -1,41 +1,49 @@
 pipeline:
   mintExpired:
     action: secret:signJWT
-    description: "auth - mint an already-expired JWT"
+    description: auth - mint an already-expired JWT
     expiryInSec: 1
     PrivateKey:
       URL: ${jwtPrivKey}
     claimsMap:
       sub: expired-user
       email: expired@test.com
-
   waitExpiry:
     action: nop
-    description: "wait for token to expire"
+    description: wait for token to expire
     sleepTimeMs: 2000
-
   conversationsExpiredJWT:
     action: http/runner:send
-    description: "auth - expired JWT should return 401"
+    description: auth - expired JWT should return 401
     requests:
-      - Method: GET
-        URL: ${authServerURL}/v1/conversations
-        Header:
-          Authorization: ["Bearer ${mintExpired.TokenString}"]
-        Expect:
-          Code: 401
-
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations
+      Header:
+        Authorization:
+        - Bearer ${mintExpired.TokenString}
+      Expect:
+        Code: 401
   queryExpiredJWT:
     action: http/runner:send
-    description: "auth - expired JWT query should return 401"
+    description: auth - expired JWT query should return 401
     requests:
-      - Method: POST
-        URL: ${authServerURL}/v1/agent/query
-        Header:
-          Authorization: ["Bearer ${mintExpired.TokenString}"]
-        JSONBody:
-          AgentID: simple
-          Query: "Hello"
-          UserId: "e2e-test"
-        Expect:
-          Code: 401
+    - Method: POST
+      URL: ${authServerURL}/v1/ag-ui/run
+      Header:
+        Authorization:
+        - Bearer ${mintExpired.TokenString}
+      JSONBody:
+        threadId: auth-expired-thread
+        runId: auth-expired-run
+        messages:
+        - id: auth-expired-message
+          role: user
+          content: Hello
+        forwardedProps:
+          agently:
+            version: "1"
+            operation: chat
+            payload:
+              agentId: simple
+      Expect:
+        Code: 401

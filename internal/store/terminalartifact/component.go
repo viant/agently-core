@@ -11,8 +11,10 @@ import (
 	"github.com/viant/xdatly/handler"
 )
 
+// Repair/classification consumes each child execution result before continuing.
+// Imperative composition preserves the same parent-owned transaction.
 type CleanupComponent struct {
-	Contract xdatly.Component[Input, Output] `component:"TerminalArtifactCleanup,path=/v1/internal/agently/terminal-artifacts/cleanup,method=POST,handler=NewCleanup,internal=true"`
+	Contract xdatly.Component[Input, Output] `component:"TerminalArtifactCleanup,path=/v1/internal/agently/terminal-artifacts/cleanup,method=POST,handler=NewCleanup,internal=true" componentCallPolicy:"imperative"`
 }
 type Cleanup struct{}
 

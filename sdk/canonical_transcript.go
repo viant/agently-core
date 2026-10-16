@@ -156,13 +156,13 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		}
 		ts.Assistant.Narration = latestNarration
 	}
-	if latestFinal := latestTranscriptAssistantFinal(turn.Message); latestFinal != nil {
+	if latestFinal := latestTranscriptAssistantFinal(ts, turn.Message); latestFinal != nil {
 		if ts.Assistant == nil {
 			ts.Assistant = &AssistantState{}
 		}
-		if ts.Assistant.Final == nil {
-			ts.Assistant.Final = latestFinal
-		}
+		// Execution pages summarize content without the stored final timestamp.
+		// Preserve the actual primary message's identity and chronology.
+		ts.Assistant.Final = latestFinal
 	}
 
 	return ts
@@ -203,6 +203,9 @@ func buildElicitationState(msg *conversationmodel.MessageView) *ElicitationState
 		if schema, ok := msg.Elicitation["requestedSchema"]; ok {
 			es.RequestedSchema = marshalToRawJSON(schema)
 		}
+		if deadline, ok := msg.Elicitation["deadline"].(string); ok {
+			es.Deadline = strings.TrimSpace(deadline)
+		}
 		if cb, ok := msg.Elicitation["callbackUrl"].(string); ok {
 			es.CallbackURL = strings.TrimSpace(cb)
 		}
@@ -224,6 +227,9 @@ func buildElicitationState(msg *conversationmodel.MessageView) *ElicitationState
 			es.URL, _ = payload["url"].(string)
 			if schema, ok := payload["requestedSchema"]; ok {
 				es.RequestedSchema = marshalToRawJSON(schema)
+			}
+			if deadline, ok := payload["deadline"].(string); ok {
+				es.Deadline = strings.TrimSpace(deadline)
 			}
 			if cb, ok := payload["callbackUrl"].(string); ok {
 				es.CallbackURL = strings.TrimSpace(cb)
@@ -271,12 +277,17 @@ func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageSt
 			if msg == nil {
 				continue
 			}
-			if !isPrimaryAssistantFinalMessage(msg) {
+			if !isTranscriptAssistantFinalMessage(ts, msg) {
 				continue
 			}
 			content := visibleContentOrEmpty(msg.Content)
 			if content == "" {
 				continue
+			}
+			// Model-owned content is already attached to its own page. Do not
+			// move an earlier model's message onto the current active page.
+			if msg.ModelCall != nil {
+				break
 			}
 			lastPage.Sequence = intValue(msg.Sequence)
 			lastPage.Content = content
@@ -410,6 +421,21 @@ func isPrimaryAssistantFinalMessage(message *conversationmodel.MessageView) bool
 		return false
 	}
 	if message.Mode != nil && strings.EqualFold(strings.TrimSpace(*message.Mode), "exec") {
+		return false
+	}
+	return true
+}
+
+// Active execution owns only its actual model messages. Public messages added
+// independently (for example by message/add) remain standalone while the turn
+// runs. Terminal and execution-free legacy final messages keep their existing
+// compatibility path.
+func isTranscriptAssistantFinalMessage(turn *TurnState, message *conversationmodel.MessageView) bool {
+	if !isPrimaryAssistantFinalMessage(message) {
+		return false
+	}
+	if turn != nil && turn.Execution != nil && len(turn.Execution.Pages) > 0 &&
+		(turn.Status == TurnStatusRunning || turn.Status == TurnStatusWaitingForUser) && message.ModelCall == nil {
 		return false
 	}
 	return true
@@ -912,13 +938,13 @@ func extractAssistantState(pages []*ExecutionPageState) *AssistantState {
 	return as
 }
 
-func latestTranscriptAssistantFinal(messages []*conversationmodel.MessageView) *AssistantMessageState {
+func latestTranscriptAssistantFinal(turn *TurnState, messages []*conversationmodel.MessageView) *AssistantMessageState {
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		if msg == nil {
 			continue
 		}
-		if !isPrimaryAssistantFinalMessage(msg) {
+		if !isTranscriptAssistantFinalMessage(turn, msg) {
 			continue
 		}
 		content := visibleContentOrEmpty(msg.Content)

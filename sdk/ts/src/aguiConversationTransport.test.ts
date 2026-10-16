@@ -130,11 +130,12 @@ describe('native web conversation orchestration', () => {
 
     it('resolves snapshot binding with an authenticated header-only read before compact bootstrap', async () => {
         const f = fixture([], undefined, [], undefined, () => [], 'opaque-wire');
-        await f.transport.readSnapshot('thread', { mode: 'transcript', includeModelPayloads: false });
+        await f.transport.readSnapshot('thread', { mode: 'transcript', includeModelPayloads: false, includeToolPayloads: false });
         expect(f.bindingRequests).toEqual(['/v1/conversations/thread?includeTranscript=false']);
         expect(f.posted).toHaveLength(1);
         expect(f.posted[0].threadId).toBe('opaque-wire');
         expect(f.posted[0].forwardedProps.agently.payload.includeModelPayloads).toBe(false);
+        expect(f.posted[0].forwardedProps.agently.payload.includeToolPayloads).toBe(false);
         await f.transport.refresh('thread');
         expect(f.bindingRequests).toHaveLength(1);
         f.host.resetAgUiInteractions(); f.transport.reset();

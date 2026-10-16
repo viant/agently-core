@@ -58,19 +58,21 @@ func TestForgePDFExporter_RejectsUnsupportedFormatsAndInvalidPrints(t *testing.T
 }
 
 func TestForgePDFExporter_PassesOptionContextToSharedRenderer(t *testing.T) {
+	// Compare option rendering, not the wall-clock second of each PDF build.
+	created := time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC)
 	request := &RenderRequest{
 		Format:      ExportFormatPDF,
 		ReportPrint: json.RawMessage(validRenderableTestReportPrintJSON()),
 		Metadata:    json.RawMessage(`{"reportOptions":[{"name":"exposurePerspective","label":"First vs. Last Exposure"}],"options":{"exposurePerspective":"First"}}`),
 	}
-	result, err := NewForgePDFExporter(nil).Export(context.Background(), request)
+	result, err := NewForgePDFExporter(&ForgePDFExporterOptions{CreationDate: created}).Export(context.Background(), request)
 	require.NoError(t, err)
 	report, err := reportprint.DecodeJSON(request.ReportPrint)
 	require.NoError(t, err)
-	expected, err := forgepdf.Render(report, forgepdf.Options{Metadata: request.Metadata})
+	expected, err := forgepdf.Render(report, forgepdf.Options{Metadata: request.Metadata, CreationDate: created})
 	require.NoError(t, err)
 	require.Equal(t, expected.Bytes, result.Data)
-	without, err := forgepdf.Render(report, forgepdf.Options{})
+	without, err := forgepdf.Render(report, forgepdf.Options{CreationDate: created})
 	require.NoError(t, err)
 	require.NotEqual(t, without.Bytes, result.Data)
 }

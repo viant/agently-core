@@ -193,7 +193,7 @@ func TestGenerateInputInit_PreservesCurrentUserMessageIDForContinuationReplay(t 
 	svc := &Service{}
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1"})
 	req := &llm.GenerateRequest{Messages: append([]llm.Message(nil), in.Message...)}
-	cont := svc.BuildContinuationRequest(ctx, req, &in.Binding.History)
+	cont := scopedTestContinuation(t, svc, ctx, req, &in.Binding.History)
 	if assert.NotNil(t, cont) {
 		require.Len(t, cont.Messages, 1)
 		assert.Equal(t, llm.RoleUser, cont.Messages[0].Role)

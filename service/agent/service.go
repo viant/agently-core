@@ -32,6 +32,7 @@ import (
 	intakesvc "github.com/viant/agently-core/service/intake"
 	planner "github.com/viant/agently-core/service/planner"
 	policy "github.com/viant/agently-core/service/policy"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/agently-core/service/reactor"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
@@ -41,24 +42,26 @@ import (
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	bundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	"github.com/viant/datly/standalone"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
 
 // Option customises Service instances.
 type Option func(*Service)
 
 type Service struct {
-	evidenceFactory      evidence.Factory
-	proactiveCompactions sync.Map // conversation -> last eligible original-history signature
-	ownedNative          *standalone.Server
-	closeNativeOnce      sync.Once
-	closeNativeError     error
-	llm                  *core.Service
-	registry             tool.Registry
-	fs                   afs.Service
-	agentFinder          agent.Finder
-	augmenter            *augmenter.Service
-	orchestrator         *reactor.Service
+	hostDocuments              HostDocumentReader
+	toolBundlesConfigured      bool
+	plannerContractsConfigured bool
+	evidenceFactory            evidence.Factory
+	proactiveCompactions       sync.Map // conversation -> last eligible original-history signature
+	ownedNative                *standalone.Server
+	closeNativeOnce            sync.Once
+	closeNativeError           error
+	llm                        *core.Service
+	registry                   tool.Registry
+	fs                         afs.Service
+	agentFinder                agent.Finder
+	augmenter                  *augmenter.Service
+	orchestrator               *reactor.Service
 
 	defaults *config.Defaults
 
@@ -218,12 +221,21 @@ func WithCancelRegistry(reg cancels.Registry) Option {
 	return func(s *Service) { s.cancelReg = reg }
 }
 
+// WithAuthoredDefinitions binds main-worker reads to the same host readers as intake/tools.
+func WithAuthoredDefinitions(profiles *intakerepo.Repository, templates *tplrepo.Repository, templateBundles *tplbundlerepo.Repository) Option {
+	return func(s *Service) {
+		s.promptRepo = profiles
+		s.templateRepo = templates
+		s.templateBundleRepo = templateBundles
+	}
+}
+
 // WithMCPManager attaches an MCP Manager to resolve resources via MCP servers.
 func WithMCPManager(m *mcpmgr.Manager) Option { return func(s *Service) { s.mcpMgr = m } }
 
 // WithToolBundles configures a provider returning global tool bundles.
 func WithToolBundles(provider func(ctx context.Context) ([]*toolbundle.Bundle, error)) Option {
-	return func(s *Service) { s.toolBundles = provider }
+	return func(s *Service) { s.toolBundles = provider; s.toolBundlesConfigured = provider != nil }
 }
 
 // WithTokenProvider injects a token provider for auth token lifecycle management.
@@ -266,7 +278,7 @@ func WithSkillService(svc *skillsvc.Service) Option {
 }
 
 func WithPlannerContractResolver(resolver planner.Resolver) Option {
-	return func(s *Service) { s.plannerContracts = resolver }
+	return func(s *Service) { s.plannerContracts = resolver; s.plannerContractsConfigured = resolver != nil }
 }
 
 func WithAuthorizationPolicy(runtime *policy.Runtime) Option {
@@ -457,7 +469,7 @@ func (s *Service) ResolveElicitation(ctx context.Context, conversationID, elicit
 	if s == nil || s.elicitation == nil {
 		return fmt.Errorf("elicitation service not configured")
 	}
-	return s.elicitation.Resolve(ctx, conversationID, elicitationID, action, payload, "")
+	return s.resolveElicitationAndContinue(ctx, conversationID, elicitationID, action, payload)
 }
 
 // Close releases persistence opened by the standalone service constructor.

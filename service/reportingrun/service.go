@@ -34,20 +34,22 @@ var waitTerminalBackoff = [...]time.Duration{
 }
 
 type Options struct {
-	ReportAdmissions evidence.ReportAdmissions
-	Store            reportstore.RunClient
-	Now              func() time.Time
-	NewID            func() string
+	RequireCanonicalExecution bool
+	ReportAdmissions          evidence.ReportAdmissions
+	Store                     reportstore.RunClient
+	Now                       func() time.Time
+	NewID                     func() string
 }
 
 // Service owns durable browser report-run lifecycle invariants. It is called
 // from the authenticated UI HTTP boundary and is deliberately not a tool
 // service.
 type Service struct {
-	reportAdmissions evidence.ReportAdmissions
-	store            reportstore.RunClient
-	now              func() time.Time
-	newID            func() string
+	requireCanonicalExecution bool
+	reportAdmissions          evidence.ReportAdmissions
+	store                     reportstore.RunClient
+	now                       func() time.Time
+	newID                     func() string
 }
 
 func New(opts Options) *Service {
@@ -62,7 +64,7 @@ func New(opts Options) *Service {
 	if newID == nil {
 		newID = uuid.NewString
 	}
-	return &Service{store: opts.Store, now: now, newID: newID, reportAdmissions: opts.ReportAdmissions}
+	return &Service{requireCanonicalExecution: opts.RequireCanonicalExecution, store: opts.Store, now: now, newID: newID, reportAdmissions: opts.ReportAdmissions}
 }
 
 // ConfigureReportAdmissions installs the shared backend before serving requests.
@@ -135,6 +137,9 @@ type AdoptionResult struct {
 }
 
 func (s *Service) Begin(ctx context.Context, input *BeginInput) (*BeginResult, error) {
+	if s.requireCanonicalExecution {
+		return nil, invalid("canonical reports require server run_report execution")
+	}
 	ownerID, err := authenticatedOwner(ctx)
 	if err != nil {
 		return nil, err
@@ -229,6 +234,9 @@ func (s *Service) beginResult(ctx context.Context, run *reportrunmodel.Record) *
 }
 
 func (s *Service) Complete(ctx context.Context, input *CompleteInput) (*reportrunmodel.Record, error) {
+	if s.requireCanonicalExecution {
+		return nil, invalid("canonical reports require server run_report execution")
+	}
 	if input == nil || strings.TrimSpace(input.ReportRunID) == "" {
 		return nil, invalid("reportRunId is required")
 	}
@@ -800,5 +808,12 @@ func translateStoreError(err error) error {
 		return ErrConflict
 	default:
 		return err
+	}
+}
+
+// RequireCanonicalExecution disables legacy browser-authored run snapshots. Configure at host startup.
+func (s *Service) RequireCanonicalExecution() {
+	if s != nil {
+		s.requireCanonicalExecution = true
 	}
 }

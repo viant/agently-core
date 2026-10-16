@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	dsproto "github.com/viant/agently-core/protocol/datasource"
 	"io"
 	"log"
 	"net"
@@ -21,7 +22,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/viant/afs"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/auth/mcpauth"
@@ -38,7 +38,6 @@ import (
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	"github.com/viant/agently-core/runtime/mcpapps"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 
@@ -94,7 +93,9 @@ func (r *Registry) isDelegatedAuthServer(ctx context.Context, serverName string)
 // Registry bridges per-server MCP tools and internal services to the generic
 // tool.Registry interface so that callers can use dependency injection.
 type Registry struct {
-	debugWriter io.Writer
+	debugWriter         io.Writer
+	authorizationGuard  func(context.Context, string, map[string]interface{}) error
+	resultReuseDisabled bool
 
 	// virtual tool overlay (id → definition)
 	virtualDefs map[string]llm.ToolDefinition
@@ -141,9 +142,6 @@ type Registry struct {
 	discoverySurfaceTimeout time.Duration
 	discoveryStrictTTL      time.Duration
 	discoveryFailTTL        time.Duration
-	discoveryToolsTTL       time.Duration
-	discoveryTools          map[string]discoveryToolsCacheEntry
-	discoveryVisibility     map[string]string
 	discoveryScopeSeq       uint64
 }
 
@@ -161,15 +159,11 @@ type timeoutSupport struct {
 }
 
 type discoveryIdentity struct {
-	userID  string
-	tokenFP string
-	useID   bool
-	seenAt  time.Time
-}
-
-type discoveryToolsCacheEntry struct {
-	tools     []mcpschema.Tool
-	expiresAt time.Time
+	userID      string
+	tokenFP     string
+	useID       bool
+	seenAt      time.Time
+	catalogSeen bool
 }
 
 const (
@@ -209,10 +203,16 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		discoverySurfaceTimeout: 3 * time.Second,
 		discoveryStrictTTL:      30 * time.Second,
 		discoveryFailTTL:        30 * time.Second,
-		discoveryToolsTTL:       5 * time.Minute,
-		discoveryTools:          map[string]discoveryToolsCacheEntry{},
-		discoveryVisibility:     map[string]string{},
 	}
+	mgr.OnCatalogChange(func(server string) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		for name, entry := range r.cache {
+			if entry != nil && entry.def.Name == server+"/"+entry.mcpDef.Name {
+				delete(r.cache, name)
+			}
+		}
+	})
 	// Internal MCP services are app-owned plugins; registries start empty.
 	return r, nil
 }
@@ -224,6 +224,28 @@ func (r *Registry) SetExecutionProtection(guard toolprotection.Guard) {
 	}
 	r.mu.Lock()
 	r.executionProtection = guard
+	r.mu.Unlock()
+}
+
+// SetAuthorizationGuard installs a host-owned check before tool dispatch,
+// duplicate suppression and cached results are considered.
+func (r *Registry) SetAuthorizationGuard(guard func(context.Context, string, map[string]interface{}) error) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.authorizationGuard = guard
+	r.mu.Unlock()
+}
+
+// SetResultReuseDisabled disables execution-result memoization for hosts whose
+// verified account can change within one user/conversation cache scope.
+func (r *Registry) SetResultReuseDisabled(disabled bool) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.resultReuseDisabled = disabled
 	r.mu.Unlock()
 }
 
@@ -667,6 +689,9 @@ func (r *Registry) rawMatchDefinitionWithContextResult(ctx context.Context, patt
 		}
 		for _, t := range tools {
 			full := qualifiedToolName(svc, strings.TrimSpace(t.Name))
+			if r.isInternalServer(svc) {
+				full = legacyInternalQualifiedToolName(svc, strings.TrimSpace(t.Name))
+			}
 			if tmatch.Match(pattern, full) {
 				def := llm.ToolDefinitionFromMcpTool(&t)
 				if def == nil {
@@ -783,6 +808,9 @@ func (r *Registry) GetRawDefinitionWithContext(ctx context.Context, name string)
 			if tool != nil {
 				r.mu.Lock()
 				fullSlash := qualifiedToolName(svc, strings.TrimSpace(t.Name))
+				if r.internal[svc] != nil {
+					fullSlash = legacyInternalQualifiedToolName(svc, strings.TrimSpace(t.Name))
+				}
 				methods := r.internalCacheable[svc]
 				tool.Name = fullSlash
 				_ = maybeInjectTimeoutMs(tool, injectTimeoutMs)
@@ -868,7 +896,17 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	protectionAmbiguous := false
 	r.mu.RLock()
 	guard := r.executionProtection
+	authGuard := r.authorizationGuard
+	reuseAllowed := authGuard == nil && !r.resultReuseDisabled
+	if exactJSONScope(ctx) != nil {
+		reuseAllowed = false
+	}
 	r.mu.RUnlock()
+	if authGuard != nil {
+		if err := authGuard(ctx, baseName, callArgs); err != nil {
+			return "", err
+		}
+	}
 	if guard != nil {
 		claim, err := guard.Claim(ctx, baseName, callArgs)
 		if err != nil {
@@ -926,14 +964,24 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return r.applySelector(out, selector)
 	}
 	serviceName, literalMethod, resolvedIdentity := scopeServer, scopeTool, hostScoped
+	exactQualified := false
 	if !hostScoped {
-		var identityErr error
-		serviceName, literalMethod, resolvedIdentity, identityErr = r.discoveredMCPIdentity(ctx, baseName)
-		if identityErr != nil {
-			return "", identityErr
+		if i := strings.IndexByte(baseName, ':'); i > 0 && i < len(baseName)-1 {
+			// A configured datasource already names its server and literal method.
+			// Forward it to that MCP; the server owns execution authorization.
+			// Re-listing the entire tool catalog on every data read is both costly
+			// and can block an otherwise valid request during discovery refresh.
+			serviceName, literalMethod = baseName[:i], baseName[i+1:]
+			resolvedIdentity, exactQualified = true, true
+		} else {
+			var identityErr error
+			serviceName, literalMethod, resolvedIdentity, identityErr = r.discoveredMCPIdentity(ctx, baseName)
+			if identityErr != nil {
+				return "", identityErr
+			}
 		}
 	}
-	if resolvedIdentity {
+	if resolvedIdentity && !exactQualified {
 		audience := "model"
 		if hostScoped {
 			audience = "app"
@@ -962,7 +1010,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			requestScopedAuth = strings.TrimSpace(authctx.MCPAuthToken(ctx, r.mgr.UseIDToken(ctx, serviceName))) != ""
 		}
 		r.mu.RLock()
-		if e, ok := r.cache[baseName]; ok && e.exec != nil && !requestScopedAuth {
+		if e, ok := r.cache[baseName]; ok && e.exec != nil && !requestScopedAuth && reuseAllowed {
 			r.mu.RUnlock()
 			executionArgs, sanitize, resolveErr := dispatchpayload.ResolveDispatchPayload(ctx, baseName, callArgs)
 			if resolveErr != nil {
@@ -984,6 +1032,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	}
 
 	server := serviceName
+	if err := r.validateExactJSONRequest(ctx, server, callArgs); err != nil {
+		return "", err
+	}
 	if server == "" {
 		r.debugf("Execute: invalid tool name (no server): %s", baseName)
 		return "", fmt.Errorf("invalid tool name: %s", name)
@@ -1077,9 +1128,14 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	if protected || mcpapps.Active(ctx) || artifactDispatch {
 		maxAttempts = 1
 	}
-	appBinding, appActivity, appErr := r.resolveMCPAppBinding(ctx, server, method)
-	if appErr != nil {
-		return "", appErr
+	var appBinding *mcpapps.AppBinding
+	appActivity := false
+	var appErr error
+	if exactJSONScope(ctx) == nil {
+		appBinding, appActivity, appErr = r.resolveMCPAppBinding(ctx, server, method)
+		if appErr != nil {
+			return "", appErr
+		}
 	}
 	encodedArgs, _ := json.Marshal(callArgs)
 	var res *mcpschema.CallToolResult
@@ -1189,6 +1245,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			}
 			if res.IsError != nil && *res.IsError {
 				terr := toolError(res)
+				if status := numericMCPAuthorizationStatus(res); status != 0 {
+					terr = &dsproto.UpstreamAuthorizationError{Status: status, Cause: terr}
+				}
 				if mcpapps.Active(ctx) || appActivity {
 					terr = errors.New("MCP app tool returned an error")
 				}
@@ -1286,6 +1345,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		}
 	}
 	if res.StructuredContent != nil {
+		if err := validateExactStructuredCursor(ctx, res.StructuredContent); err != nil {
+			return "", err
+		}
 		if out, ok := structuredContentString(res.StructuredContent); ok {
 			debugMCPExecf("registry compose structured-string server=%s base=%s elapsed=%s resultBytes=%d", server, baseName, time.Since(execStart).Round(time.Millisecond), len(out))
 			if selector != "" {
@@ -1338,12 +1400,15 @@ func (r *Registry) PreflightCredential(ctx context.Context, name string) error {
 	if i := strings.Index(baseName, "|"); i >= 0 {
 		baseName = strings.TrimSpace(baseName[:i])
 	}
-	server, _, resolved, identityErr := r.discoveredMCPIdentity(ctx, baseName)
-	if identityErr != nil {
-		return identityErr
-	}
-	if !resolved {
-		server, _ = splitToolName(baseName)
+	server, _ := splitToolName(baseName)
+	if !strings.Contains(baseName, ":") {
+		resolvedServer, _, resolved, identityErr := r.discoveredMCPIdentity(ctx, baseName)
+		if identityErr != nil {
+			return identityErr
+		}
+		if resolved {
+			server = resolvedServer
+		}
 	}
 	if server == "" || !r.isDelegatedAuthServer(ctx, server) {
 		return nil
@@ -1943,10 +2008,7 @@ func (r *Registry) shouldWarmServer(ctx context.Context, server string) bool {
 	if r.isInternalServer(server) {
 		return true
 	}
-	if !r.canAutoProbeToolCatalog(ctx, server) {
-		return false
-	}
-	return r.toolCatalogVisibility(ctx, server) != mcpcfg.ToolsListVisibilityPrivate
+	return r.toolCatalogVisibility(ctx, server) == mcpcfg.ToolsListVisibilityPublic
 }
 
 func (r *Registry) isPublicToolCatalog(ctx context.Context, server string) bool {
@@ -1976,14 +2038,6 @@ func (r *Registry) isInternalServer(server string) bool {
 	return ok
 }
 
-func (r *Registry) canAutoProbeToolCatalog(ctx context.Context, server string) bool {
-	if r == nil || r.mgr == nil || strings.TrimSpace(server) == "" {
-		return false
-	}
-	cfg, err := r.mgr.Options(ctx, strings.TrimSpace(server))
-	return err == nil && cfg != nil
-}
-
 func (r *Registry) toolCatalogVisibility(ctx context.Context, server string) string {
 	server = strings.TrimSpace(server)
 	if server == "" {
@@ -1993,30 +2047,21 @@ func (r *Registry) toolCatalogVisibility(ctx context.Context, server string) str
 		if cfg, err := r.mgr.Options(ctx, server); err == nil && cfg != nil {
 			switch strings.ToLower(strings.TrimSpace(cfg.ToolsListVisibility)) {
 			case mcpcfg.ToolsListVisibilityPublic:
+				if scope, ok := r.mgr.(interface {
+					IsToolsListPublic(context.Context, string) bool
+				}); ok && !scope.IsToolsListPublic(ctx, server) {
+					return mcpcfg.ToolsListVisibilityPrivate
+				}
+				if cfg.ClientOptions != nil && (cfg.Auth != nil || cfg.CookieJar != nil) {
+					return mcpcfg.ToolsListVisibilityPrivate
+				}
 				return mcpcfg.ToolsListVisibilityPublic
 			case mcpcfg.ToolsListVisibilityPrivate:
 				return mcpcfg.ToolsListVisibilityPrivate
 			}
 		}
 	}
-	r.mu.RLock()
-	visibility := r.discoveryVisibility[strings.ToLower(server)]
-	r.mu.RUnlock()
-	return visibility
-}
-
-func (r *Registry) setLearnedToolCatalogVisibility(server, visibility string) {
-	server = strings.ToLower(strings.TrimSpace(server))
-	visibility = strings.ToLower(strings.TrimSpace(visibility))
-	if server == "" || (visibility != mcpcfg.ToolsListVisibilityPublic && visibility != mcpcfg.ToolsListVisibilityPrivate) {
-		return
-	}
-	r.mu.Lock()
-	if r.discoveryVisibility == nil {
-		r.discoveryVisibility = map[string]string{}
-	}
-	r.discoveryVisibility[server] = visibility
-	r.mu.Unlock()
+	return ""
 }
 
 func (r *Registry) hasCachedServerTools(server string) bool {
@@ -2231,6 +2276,11 @@ func serverFromPattern(pattern string) string {
 
 // splitToolName returns service path and method given a name like "service/path:method".
 func splitToolName(name string) (service, method string) {
+	// Explicit datasource delivery is unambiguous; the literal method can
+	// contain hyphens, dots or slashes and must not be canonical-split again.
+	if i := strings.IndexByte(name, ':'); i > 0 && i < len(name)-1 {
+		return name[:i], name[i+1:]
+	}
 	can := mcpname.Canonical(name)
 	n := mcpname.Name(can)
 	return n.Service(), n.Method()
@@ -2238,26 +2288,31 @@ func splitToolName(name string) (service, method string) {
 
 func qualifiedToolName(server, raw string) string {
 	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	if svc, method := splitToolName(raw); svc != "" && method != "" {
-		return raw
-	}
 	server = strings.TrimSpace(server)
-	if server == "" {
+	if raw == "" || server == "" {
 		return raw
 	}
+	// This call site already knows the catalog's actual server; raw is the
+	// remote literal name, never another inferred server identifier.
 	return server + "/" + raw
 }
 
-func displayToolName(server, raw string) string {
-	qualified := qualifiedToolName(server, raw)
-	svc, method := splitToolName(qualified)
-	if svc == "" || method == "" {
-		return strings.TrimSpace(qualified)
+func legacyInternalQualifiedToolName(server, raw string) string {
+	raw = strings.TrimSpace(raw)
+	server = strings.TrimSpace(server)
+	if strings.HasPrefix(raw, server+":") || strings.HasPrefix(raw, server+"/") {
+		return raw
 	}
-	return svc + ":" + method
+	return qualifiedToolName(server, raw)
+}
+
+func displayToolName(server, raw string) string {
+	server = strings.TrimSpace(server)
+	raw = strings.TrimSpace(raw)
+	if server == "" || raw == "" {
+		return raw
+	}
+	return server + ":" + raw
 }
 
 func cacheToolAliases(cache map[string]*toolCacheEntry, entry *toolCacheEntry, name string) {
@@ -2340,21 +2395,16 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	}
 	visibility := r.toolCatalogVisibility(ctx, server)
 	publicCatalog := visibility == mcpcfg.ToolsListVisibilityPublic
-	privateCatalog := visibility == mcpcfg.ToolsListVisibilityPrivate
 	backgroundDiscovery := runtimediscovery.BackgroundFromContext(ctx) || authctx.EffectiveUserID(ctx) == ""
-	anonymousProbe := backgroundDiscovery && visibility == "" && r.canAutoProbeToolCatalog(ctx, server)
-	if backgroundDiscovery && !publicCatalog && !anonymousProbe {
+	if backgroundDiscovery && !publicCatalog {
 		return nil, nil
 	}
-	if backgroundDiscovery && privateCatalog {
-		return nil, nil
-	}
-	if !publicCatalog && !anonymousProbe {
+	if !publicCatalog {
 		ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	}
 	useID := r.mgr.UseIDToken(ctx, server)
 	token := ""
-	if !publicCatalog && !anonymousProbe {
+	if !publicCatalog {
 		token = authctx.MCPAuthToken(ctx, useID)
 	}
 	if r.isDelegatedAuthServer(ctx, server) {
@@ -2363,13 +2413,8 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		token = ""
 	}
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
-	scope := r.discoveryClientScope(ctx, server)
+	scope := r.discoveryClientScope(ctx, server, token, publicCatalog)
 	r.observeSharedDiscoveryIdentity(server, scope, userID, token, useID)
-	if !publicCatalog {
-		if tools, ok := r.loadPrincipalDiscoveryTools(server, userID, token, useID); ok {
-			return tools, nil
-		}
-	}
 	if err := r.discoveryFailureFor(server, scope); err != nil {
 		if r.shouldBypassDiscoveryCooldown(server, scope) {
 			r.clearDiscoveryFailure(server, scope)
@@ -2385,15 +2430,10 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	var cli mcpclient.Interface
 	err := r.waitDiscoveryStage(ctx, server, "manager_get", func(callCtx context.Context) error {
 		var getErr error
-		cli, getErr = r.mgr.Get(callCtx, scope, server)
+		cli, getErr = r.mgr.Get(callCtx, r.metadataConnectionScope(callCtx, scope, server), server)
 		return getErr
 	})
 	if err != nil {
-		if anonymousProbe && isToolCatalogAuthorizationError(err) {
-			r.setLearnedToolCatalogVisibility(server, mcpcfg.ToolsListVisibilityPrivate)
-			r.clearDiscoveryFailure(server, scope)
-			return nil, nil
-		}
 		r.noteDiscoveryFailure(server, scope, err)
 		if shouldSkipBestEffortToolSurfaceDiscoveryError(ctx, err) {
 			return nil, nil
@@ -2420,18 +2460,10 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 					return nil, err
 				}
 				r.clearDiscoveryFailure(server, scope)
-				if anonymousProbe && len(retried) > 0 {
-					r.setLearnedToolCatalogVisibility(server, mcpcfg.ToolsListVisibilityPublic)
-				}
 				return retried, nil
 			} else {
 				err = retryErr
 			}
-		}
-		if anonymousProbe && isToolCatalogAuthorizationError(err) {
-			r.setLearnedToolCatalogVisibility(server, mcpcfg.ToolsListVisibilityPrivate)
-			r.clearDiscoveryFailure(server, scope)
-			return nil, nil
 		}
 		r.noteDiscoveryFailure(server, scope, err)
 		if shouldSkipBestEffortToolSurfaceDiscoveryError(ctx, err) {
@@ -2444,89 +2476,13 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		return nil, err
 	}
 	r.clearDiscoveryFailure(server, scope)
-	if anonymousProbe {
-		// An empty anonymous response does not establish catalog visibility.
-		if len(tools) > 0 {
-			r.setLearnedToolCatalogVisibility(server, mcpcfg.ToolsListVisibilityPublic)
-		}
-	} else if !publicCatalog {
-		r.storePrincipalDiscoveryTools(server, userID, token, useID, tools)
-	}
-	return tools, nil
-}
-
-func isToolCatalogAuthorizationError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if _, required := mcpauth.FromError(err); required {
-		return true
-	}
-	message := strings.ToLower(strings.TrimSpace(err.Error()))
-	for _, marker := range []string{
-		"401", "403", "unauthorized", "forbidden", "authorization required",
-		"authentication required", "missing token", "token is missing", "oauth link required",
-	} {
-		if strings.Contains(message, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *Registry) principalDiscoveryToolsKey(server, userID, token string, useID bool) string {
-	server = strings.ToLower(strings.TrimSpace(server))
-	userID = strings.TrimSpace(userID)
-	if server == "" || userID == "" {
-		return ""
-	}
-	return strings.Join([]string{server, userID, strconv.FormatBool(useID), tokenFingerprint(token)}, "\x1f")
-}
-
-func (r *Registry) loadPrincipalDiscoveryTools(server, userID, token string, useID bool) ([]mcpschema.Tool, bool) {
-	if r == nil {
-		return nil, false
-	}
-	key := r.principalDiscoveryToolsKey(server, userID, token, useID)
-	if key == "" {
-		return nil, false
-	}
-	now := time.Now()
-	r.mu.RLock()
-	entry, ok := r.discoveryTools[key]
-	r.mu.RUnlock()
-	if !ok || entry.expiresAt.IsZero() || !entry.expiresAt.After(now) {
-		if ok {
-			r.mu.Lock()
-			delete(r.discoveryTools, key)
-			r.mu.Unlock()
-		}
-		return nil, false
-	}
-	return append([]mcpschema.Tool(nil), entry.tools...), true
-}
-
-func (r *Registry) storePrincipalDiscoveryTools(server, userID, token string, useID bool, tools []mcpschema.Tool) {
-	if r == nil {
-		return
-	}
-	key := r.principalDiscoveryToolsKey(server, userID, token, useID)
-	if key == "" {
-		return
-	}
-	ttl := r.discoveryToolsTTL
-	if ttl <= 0 {
-		ttl = 5 * time.Minute
-	}
 	r.mu.Lock()
-	if r.discoveryTools == nil {
-		r.discoveryTools = map[string]discoveryToolsCacheEntry{}
-	}
-	r.discoveryTools[key] = discoveryToolsCacheEntry{
-		tools:     append([]mcpschema.Tool(nil), tools...),
-		expiresAt: time.Now().Add(ttl),
-	}
+	identityKey := discoveryIdentityKey(server, scope)
+	observed := r.discoveryShared[identityKey]
+	observed.catalogSeen = true
+	r.discoveryShared[identityKey] = observed
 	r.mu.Unlock()
+	return tools, nil
 }
 
 func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, server string, opts []mcpclient.RequestOption) ([]mcpschema.Tool, error) {
@@ -2535,7 +2491,7 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 	}
 	log.Printf("[warn][mcp-discovery] reconnect requested server=%q scope=%q scope_type=%s reason=list_tools_retry",
 		server, scope, discoveryScopeType(scope, server))
-	if _, err := r.mgr.Reconnect(ctx, scope, server); err != nil {
+	if _, err := r.mgr.Reconnect(ctx, r.metadataConnectionScope(ctx, scope, server), server); err != nil {
 		r.noteDiscoveryFailure(server, scope, err)
 		log.Printf("[warn][mcp-discovery] reconnect failed server=%q scope=%q scope_type=%s err=%v",
 			server, scope, discoveryScopeType(scope, server), err)
@@ -2544,7 +2500,7 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 	var cli mcpclient.Interface
 	err := r.waitDiscoveryStage(ctx, server, "manager_get_retry", func(callCtx context.Context) error {
 		var getErr error
-		cli, getErr = r.mgr.Get(callCtx, scope, server)
+		cli, getErr = r.mgr.Get(callCtx, r.metadataConnectionScope(callCtx, scope, server), server)
 		return getErr
 	})
 	if err != nil {
@@ -2701,9 +2657,18 @@ func shouldSkipBestEffortToolSurfaceDiscoveryError(ctx context.Context, err erro
 	return bestEffortToolSurfaceDiscovery(ctx) && classifyDiscoveryError(err) == "transport"
 }
 
-func (r *Registry) discoveryClientScope(ctx context.Context, server string) string {
+func (r *Registry) discoveryClientScope(ctx context.Context, server, token string, publicCatalog bool) string {
 	if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
-		return convID
+		// Browser and in-process catalogs may depend on conversation state.
+		// Ordinary configured MCP metadata is shared only within its public or
+		// authenticated-user partition; tool execution keeps its own scope.
+		if r.mgr == nil || r.isInternalServer(server) {
+			return convID
+		}
+		options, err := r.mgr.Options(ctx, server)
+		if err != nil || options == nil || options.ClientOptions == nil || options.Transport.Type == "" || options.IsBrowserExecution() {
+			return convID
+		}
 	}
 	server = strings.TrimSpace(server)
 	if server == "" {
@@ -2712,6 +2677,15 @@ func (r *Registry) discoveryClientScope(ctx context.Context, server string) stri
 	if runtimediscovery.BackgroundFromContext(ctx) {
 		scope := fmt.Sprintf("mcp-discovery:%s:background", server)
 		return scope
+	}
+	if publicCatalog {
+		return fmt.Sprintf("mcp-discovery:%s:public", server)
+	}
+	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
+		// Metadata operations need one reusable transport per user and credential,
+		// never one client per datasource fetch or a cross-user catalog.
+		key := sha256.Sum256([]byte(userID + "\x00" + tokenFingerprint(token)))
+		return fmt.Sprintf("mcp-discovery:%s:principal:%x", server, key[:8])
 	}
 	seq := atomic.AddUint64(&r.discoveryScopeSeq, 1)
 	scope := fmt.Sprintf("mcp-discovery:%s:%d", server, seq)
@@ -2728,6 +2702,12 @@ func discoveryScopeType(scope, server string) string {
 	}
 	if strings.EqualFold(scope, "mcp-discovery:"+server+":background") {
 		return "background"
+	}
+	if strings.EqualFold(scope, "mcp-discovery:"+server+":public") {
+		return "public"
+	}
+	if strings.HasPrefix(scope, "mcp-discovery:"+server+":principal:") {
+		return "principal"
 	}
 	if strings.HasPrefix(scope, "mcp-discovery:"+server+":") {
 		return "synthetic_seq"
@@ -2996,6 +2976,7 @@ func (r *Registry) observeSharedDiscoveryIdentity(server, scope, userID, token s
 	if r.discoveryShared == nil {
 		r.discoveryShared = map[string]discoveryIdentity{}
 	}
+	cur.catalogSeen = prev.catalogSeen
 	r.discoveryShared[identityKey] = cur
 	r.mu.Unlock()
 
@@ -3155,30 +3136,18 @@ func (r *Registry) warnDiscoveryf(key, format string, args ...interface{}) {
 	}
 }
 
-// listServers returns MCP client names from the workspace repository.
+// listServers uses the shared manager inventory plus explicitly registered servers.
 func (r *Registry) listServers(ctx context.Context) ([]string, error) {
-	repo := mcprepo.New(afs.New())
-	names, _ := repo.List(ctx)
-	// Filter out malformed MCP configs to avoid nil pointer panics downstream.
-	validNames := make([]string, 0, len(names))
-	for _, n := range names {
-		cfgPath, pathErr := repo.ResolveFilename(ctx, n)
-		if pathErr != nil {
-			r.warnf("mcp config path resolution failed: %s: %v", n, pathErr)
-			continue
-		}
-		cfg, err := repo.Load(ctx, n)
+	var names []string
+	if inventory, ok := r.mgr.(interface {
+		Names(context.Context) ([]string, error)
+	}); ok {
+		var err error
+		names, err = inventory.Names(ctx)
 		if err != nil {
-			r.warnf("mcp config load failed: %s: %v", cfgPath, err)
-			continue
+			return nil, err
 		}
-		if cfg == nil || cfg.ClientOptions == nil || strings.TrimSpace(cfg.Name) == "" {
-			r.warnf("mcp config invalid (missing name/transport): %s", cfgPath)
-			continue
-		}
-		validNames = append(validNames, n)
 	}
-	names = validNames
 	// Optional override to force discovery of specific servers (comma-separated)
 	if extra := strings.TrimSpace(os.Getenv("AGENTLY_MCP_SERVERS")); extra != "" {
 		for _, s := range strings.Split(extra, ",") {

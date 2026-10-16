@@ -426,11 +426,12 @@ func TestStream_ObserverDeltaFailureStillFinalizesModelCall(t *testing.T) {
 	ch, err := c.Stream(ctx, &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("hi")}})
 	require.NoError(t, err)
 
+	// Err delivery precedes deferred finalization. Channel closure is the
+	// completion boundary before reading observer-owned state.
 	var gotErr error
 	for ev := range ch {
-		if ev.Err != nil {
+		if ev.Err != nil && gotErr == nil {
 			gotErr = ev.Err
-			break
 		}
 	}
 	require.Error(t, gotErr)
@@ -949,4 +950,68 @@ func newLocalServerOrSkip(t *testing.T, handler http.Handler) *httptest.Server {
 		}
 	}()
 	return httptest.NewServer(handler)
+}
+
+type barrierEndObserver struct {
+	recordingObserver
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (o *barrierEndObserver) OnCallEnd(ctx context.Context, info mcbuf.Info) error {
+	close(o.entered)
+	<-o.release
+	return o.recordingObserver.OnCallEnd(ctx, info)
+}
+
+func TestStream_ObserverFailureFinalizesBeforeChannelClosure(t *testing.T) {
+	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "event: response.output_text.delta\ndata: {\"item_id\":\"msg_1\",\"delta\":\"Hi\"}\n\ndata: [DONE]\n")
+	}))
+	defer srv.Close()
+	observer := &barrierEndObserver{recordingObserver: recordingObserver{deltaErr: fmt.Errorf("observer delta failed")}, entered: make(chan struct{}), release: make(chan struct{})}
+	defer func() {
+		select {
+		case <-observer.release:
+		default:
+			close(observer.release)
+		}
+	}()
+	c := &Client{APIKey: "test"}
+	c.BaseURL = srv.URL
+	c.HTTPClient = srv.Client()
+	c.Model = "gpt-5.4"
+	ctx, cancel := context.WithTimeout(mcbuf.WithObserver(context.Background(), observer), 2*time.Second)
+	defer cancel()
+	events, err := c.Stream(ctx, &llm.GenerateRequest{Messages: []llm.Message{llm.NewUserMessage("hi")}})
+	require.NoError(t, err)
+	var failure llm.StreamEvent
+	select {
+	case failure = <-events:
+	case <-ctx.Done():
+		t.Fatal("stream error was not delivered")
+	}
+	require.ErrorContains(t, failure.Err, "observer OnStreamDelta failed")
+	select {
+	case <-observer.entered:
+	case <-ctx.Done():
+		t.Fatal("finalizer did not run")
+	}
+	// While OnCallEnd is held, observing channel closure would incorrectly let
+	// callers read incomplete model-call state.
+	select {
+	case _, open := <-events:
+		if !open {
+			t.Fatal("stream closed before observer finalization")
+		}
+		t.Fatal("unexpected event during finalization")
+	default:
+	}
+	close(observer.release)
+	for event := range events {
+		require.NoError(t, event.Err)
+	}
+	require.Equal(t, 1, observer.endCount)
+	require.False(t, observer.last.CompletedAt.IsZero())
 }

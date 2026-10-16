@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/workspace"
 	"io"
 	"net/http"
 	"os"
@@ -14,9 +16,13 @@ import (
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
+	identity "github.com/viant/agently-core/protocol/resource"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	svcauth "github.com/viant/agently-core/service/auth"
+	resourcepolicy "github.com/viant/agently-core/service/policy"
+	"github.com/viant/authz"
+	"github.com/viant/jsonrpc"
 )
 
 func handleListToolDefinitions(client Client) http.HandlerFunc {
@@ -36,7 +42,9 @@ func handleListToolDefinitions(client Client) http.HandlerFunc {
 
 func handleListSkills(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		out, err := client.ListSkills(r.Context(), &ListSkillsInput{
+			CatalogQuery:   primitive.CatalogQuery{Namespace: r.URL.Query().Get("namespace"), NameTerms: r.URL.Query()["nameTerms"], DescriptionTerms: r.URL.Query()["descriptionTerms"], Keywords: r.URL.Query()["keywords"], Cursor: r.URL.Query().Get("cursor"), Limit: limit},
 			AgentID:        strings.TrimSpace(r.URL.Query().Get("agentId")),
 			ConversationID: strings.TrimSpace(r.URL.Query().Get("conversationId")),
 		})
@@ -115,7 +123,7 @@ func handleExecuteTool(client Client) http.HandlerFunc {
 		result, err := client.ExecuteTool(ctx, name, args)
 		debugMCPExecf("http execute done name=%s elapsed=%s resultBytes=%d err=%v", name, time.Since(start).Round(time.Millisecond), len(result), err)
 		if err != nil {
-			httpErrorWithResult(w, statusForToolExecuteError(err), err, result)
+			writeToolExecuteError(w, err, result)
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"result": result})
@@ -149,7 +157,7 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 		result, err := client.ExecuteTool(ctx, name, req.Args)
 		debugMCPExecf("http execute-by-name done name=%s elapsed=%s resultBytes=%d err=%v", name, time.Since(start).Round(time.Millisecond), len(result), err)
 		if err != nil {
-			httpErrorWithResult(w, statusForToolExecuteError(err), err, result)
+			writeToolExecuteError(w, err, result)
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"result": result})
@@ -318,8 +326,22 @@ func statusForToolApprovalErr(err error) int {
 }
 
 func statusForToolExecuteError(err error) int {
+	// Identity errors can also wrap a policy denial; preserve that distinction.
+	if errors.Is(err, authz.ErrIdentityDenied) || errors.Is(err, resourcepolicy.ErrIdentityRejected) {
+		return http.StatusUnauthorized
+	}
+	if errors.Is(err, authz.ErrDenied) || errors.Is(err, resourcepolicy.ErrDenied) || errors.Is(err, identity.ErrResourceDenied) {
+		return http.StatusForbidden
+	}
+	if errors.Is(err, authz.ErrUnavailable) {
+		return http.StatusServiceUnavailable
+	}
 	if toolpolicy.IsPolicyError(err) {
 		return http.StatusConflict
+	}
+	var rpcError *jsonrpc.Error
+	if errors.As(err, &rpcError) && isAuthStatus(rpcError.Code) {
+		return rpcError.Code
 	}
 	if status, ok := upstreamAuthStatusFromError(err); ok {
 		return status
@@ -340,6 +362,24 @@ func statusForToolExecuteError(err error) int {
 	return http.StatusInternalServerError
 }
 
+func writeToolExecuteError(w http.ResponseWriter, err error, result string) {
+	status := statusForToolExecuteError(err)
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		// Partial definitions/data cannot accompany failed authorization.
+		result = ""
+		var rpcError *jsonrpc.Error
+		if errors.As(err, &rpcError) && isAuthStatus(rpcError.Code) {
+			// Managing-server error messages/data can contain private payloads.
+			if status == http.StatusUnauthorized {
+				err = errors.New("managing server requires authentication")
+			} else {
+				err = errors.New("managing server denied access")
+			}
+		}
+	}
+	httpErrorWithResult(w, status, err, result)
+}
+
 func ensureDirectToolPolicy(ctx context.Context) context.Context {
 	if toolpolicy.FromContext(ctx) != nil {
 		return ctx
@@ -352,7 +392,7 @@ func handleListResources(client Client) http.HandlerFunc {
 		kind := r.URL.Query().Get("kind")
 		out, err := client.ListResources(r.Context(), &ListResourcesInput{Kind: kind})
 		if err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
@@ -368,7 +408,7 @@ func handleGetResource(client Client) http.HandlerFunc {
 		}
 		out, err := client.GetResource(r.Context(), ref)
 		if err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
@@ -388,7 +428,7 @@ func handleSaveResource(client Client) http.HandlerFunc {
 			return
 		}
 		if err := client.SaveResource(r.Context(), &SaveResourceInput{Kind: ref.Kind, Name: ref.Name, Data: body}); err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -403,7 +443,7 @@ func handleDeleteResource(client Client) http.HandlerFunc {
 			return
 		}
 		if err := client.DeleteResource(r.Context(), ref); err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -419,7 +459,7 @@ func handleExportResources(client Client) http.HandlerFunc {
 		}
 		out, err := client.ExportResources(r.Context(), &input)
 		if err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
@@ -435,9 +475,16 @@ func handleImportResources(client Client) http.HandlerFunc {
 		}
 		out, err := client.ImportResources(r.Context(), &input)
 		if err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
 	}
+}
+
+func workspaceResourceErrorStatus(err error) int {
+	if errors.Is(err, workspace.ErrCanonicalResourceAccess) {
+		return http.StatusForbidden
+	}
+	return http.StatusInternalServerError
 }

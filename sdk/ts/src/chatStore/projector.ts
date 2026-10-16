@@ -156,6 +156,7 @@ export interface ElicitationRenderView extends HostTrust {
     status?: ClientElicitation['status'];
     message?: string;
     requestedSchema?: ClientElicitation['requestedSchema'];
+    deadline?: string;
     callbackUrl?: ClientElicitation['callbackUrl'];
     responsePayload?: ClientElicitation['responsePayload'];
 }
@@ -664,6 +665,7 @@ function projectElicitation(elicitation: ClientElicitation | null | undefined): 
         status: elicitation.status,
         message: elicitation.message,
         requestedSchema: elicitation.requestedSchema,
+        deadline: elicitation.deadline,
         callbackUrl: elicitation.callbackUrl,
         responsePayload: elicitation.responsePayload,
     };

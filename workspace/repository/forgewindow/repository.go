@@ -10,19 +10,29 @@ import (
 )
 
 // Repository provides CRUD over workspace dynamic window descriptors.
+type Reader interface {
+	LoadAll(context.Context) ([]*viewproto.Spec, error)
+}
+
 type Repository struct {
+	reader Reader
 	*base.Repository[viewproto.Spec]
 }
 
 func New(fs afs.Service) *Repository {
-	return &Repository{base.New[viewproto.Spec](fs, workspace.KindForgeWindow)}
+	return &Repository{Repository: base.New[viewproto.Spec](fs, workspace.KindForgeWindow)}
 }
 
 func NewWithStore(store workspace.Store) *Repository {
-	return &Repository{base.NewWithStore[viewproto.Spec](store, workspace.KindForgeWindow)}
+	return &Repository{Repository: base.NewWithStore[viewproto.Spec](store, workspace.KindForgeWindow)}
 }
 
+func NewWithReader(reader Reader) *Repository { return &Repository{reader: reader} }
+
 func (r *Repository) LoadAll(ctx context.Context) ([]*viewproto.Spec, error) {
+	if r.reader != nil {
+		return r.reader.LoadAll(ctx)
+	}
 	names, err := r.List(ctx)
 	if err != nil {
 		return nil, err

@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 )
 
 func postUIRPC(t *testing.T, bridge *forgeuisvc.Service, method string, params map[string]interface{}) map[string]interface{} {
@@ -89,6 +89,7 @@ func TestSetValueFallsBackToExactWindowIDWhenClientIDIsStale(t *testing.T) {
 		},
 	})
 
+	postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "active-client", "timeoutMs": 1})
 	svc := New(bridge)
 	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
 	done := make(chan error, 1)

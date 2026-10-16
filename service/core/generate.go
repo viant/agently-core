@@ -124,6 +124,10 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	if err != nil {
 		return err
 	}
+	ctx, err = s.prepareContinuationContract(ctx, request, input, model)
+	if err != nil {
+		return err
+	}
 	toolCount := 0
 	if request.Options != nil {
 		toolCount = len(request.Options.Tools)
@@ -175,6 +179,9 @@ func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *Ge
 	logx.Infof("conversation", "core.Generate model.Generate start convo=%q turn=%q total_elapsed=%s model=%q",
 		conversationID, turnID, time.Since(start), strings.TrimSpace(input.Model))
 	for attempt := 0; attempt < 3; attempt++ {
+		if err = s.verifyContinuationRelease(ctx); err != nil {
+			return err
+		}
 		response, err = model.Generate(ctx, request)
 		if err == nil {
 			break

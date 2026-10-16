@@ -28,6 +28,9 @@ func (r *MCPResolver) Resolve(ctx context.Context, request *Request) (*Snapshot,
 	if toolName == "" {
 		return nil, fmt.Errorf("permitted view: authorization tool is not configured")
 	}
+	if request != nil && request.SchemaVersion == 2 {
+		return nil, fmt.Errorf("permitted view: v2 string IDs are unsupported by the legacy MCP resolver")
+	}
 	args := map[string]interface{}{
 		"ResourceType":                request.ResourceType,
 		"ResourceIDs":                 request.ResourceIDs,
@@ -82,6 +85,19 @@ func (r *Runtime) Apply(ctx context.Context, bound *BoundView) (*Result, error) 
 	}
 	if snapshot.ExpiresAt.IsZero() || !now.Before(snapshot.ExpiresAt) {
 		return nil, fmt.Errorf("permitted view: authorization snapshot is expired")
+	}
+	if bound.SchemaVersion == 2 {
+		if snapshot.SchemaVersion != 2 {
+			return nil, fmt.Errorf("permitted view: v2 authorization snapshot is required")
+		}
+		if bound.ResourceIDString != "" {
+			resource := snapshot.Resources[bound.ResourceIDString]
+			if resource == nil || resource.IDString != bound.ResourceIDString || !strings.EqualFold(resource.Type, bound.ResourceType) {
+				return nil, fmt.Errorf("permitted view: authorization resource identity mismatch")
+			}
+		}
+	} else if snapshot.SchemaVersion == 2 {
+		return nil, fmt.Errorf("permitted view: v1 authorization snapshot is required")
 	}
 	if bound.ResourceID > 0 {
 		resource := snapshot.Resources[fmt.Sprint(bound.ResourceID)]
@@ -161,4 +177,22 @@ func DefaultRuntime() *Runtime {
 	defaultRuntimeState.RLock()
 	defer defaultRuntimeState.RUnlock()
 	return defaultRuntimeState.runtime
+}
+
+// ResolvePresentation forwards authored UI facts inputs to their configured MCP.
+// Its response controls presentation only; no capability admits resource reads.
+func (r *MCPResolver) ResolvePresentation(ctx context.Context, bound *BoundView) (*Snapshot, error) {
+	selected, err := BindResource(bound.Window, bound.WindowID, bound.ConversationID, bound.WindowForm, bound.ResourceData)
+	if err != nil {
+		return nil, err
+	}
+	*bound = *selected
+	request, err := ResolveRequest(bound)
+	if err != nil {
+		return nil, err
+	}
+	if request == nil {
+		return r.Resolve(ctx, &Request{IncludePrincipal: true})
+	}
+	return r.Resolve(ctx, request)
 }

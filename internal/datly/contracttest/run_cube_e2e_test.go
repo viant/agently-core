@@ -100,7 +100,7 @@ func runCubeRuntime(t *testing.T, db *sql.DB, subject, mode string, internal boo
 	resources := resource.New()
 	must(t, resources.Register(cube.ReaderDatlyResourceNamespace, cube.ReaderDatlyResources))
 	base := payloadArtifact(t, resources, reflect.TypeFor[cube.ReaderComponent](), reflect.TypeFor[cube.RunReportInput](), reflect.TypeFor[cube.RunReportOutput]())
-	compiled, err := report.NewProjectCompiler(report.ProjectConfig{}).CompileArtifacts([]bootstrap.ArtifactInput{{Component: base.Component, InputType: reflect.TypeFor[cube.RunReportInput](), OutputType: reflect.TypeFor[cube.RunReportOutput](), Resources: resources}})
+	compiled, err := report.NewProjectCompiler(report.ProjectConfig{}).CompileArtifacts(linkedCubeArtifactInputs[cube.ReaderCubeComponent, cube.ReaderCubeInput, cube.ReaderCubeOutput](t, resources, base, reflect.TypeFor[cube.RunReportInput](), reflect.TypeFor[cube.RunReportOutput](), cube.NewReaderCube))
 	must(t, err)
 	providers := []locator.Provider{provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &subject, true, nil }), ordinaryAccess("runaccess", func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 		if name == "reportMode" {
@@ -109,7 +109,7 @@ func runCubeRuntime(t *testing.T, db *sql.DB, subject, mode string, internal boo
 		return internal, true, nil
 	})}
 	registered, err := compiled.RuntimeComponents(context.Background(), report.RuntimeConfigureFunc(func(_ context.Context, artifact *report.ComponentArtifact) (report.RuntimeCapabilities, error) {
-		if artifact.IsReport() {
+		if artifact.IsReport() || artifact.ReaderCompilation() == nil {
 			return report.RuntimeCapabilities{Providers: providers}, nil
 		}
 		reader, err := artifact.ReaderCompilation().NewExecution(bootstrap.ReaderRuntimeConfig{SQL: &dsql.SQLComponent{DB: db}})

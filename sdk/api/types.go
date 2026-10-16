@@ -1,6 +1,7 @@
 package api
 
 import (
+	primitive "github.com/viant/agently-core/protocol/primitive"
 	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	"time"
 
@@ -313,6 +314,7 @@ type HostedWorkspaceRestoreState struct {
 type ListTemplatesInput struct{}
 
 type TemplateListItem struct {
+	URI         string `json:"uri,omitempty"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Format      string `json:"format,omitempty"`
@@ -339,16 +341,21 @@ type GetTemplateOutput struct {
 }
 
 type ListSkillsInput struct {
+	primitive.CatalogQuery
 	AgentID        string `json:"agentId,omitempty"`
 	ConversationID string `json:"conversationId,omitempty"`
 }
 
 type SkillItem struct {
+	URI         string `json:"uri,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 }
 
 type ListSkillsOutput struct {
+	NextCursor  string      `json:"nextCursor,omitempty"`
+	Complete    bool        `json:"complete"`
+	Total       int         `json:"total,omitempty"`
 	Items       []SkillItem `json:"items,omitempty"`
 	Diagnostics []string    `json:"diagnostics,omitempty"`
 }
@@ -679,6 +686,7 @@ type GetTranscriptInput struct {
 	IncludeModelCalls    bool
 	IncludeToolCalls     bool
 	IncludeModelPayloads *bool `json:"includeModelPayloads,omitempty"`
+	IncludeToolPayloads  *bool `json:"includeToolPayloads,omitempty"`
 }
 
 type QuerySelector struct {

@@ -13,6 +13,7 @@ import (
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	"github.com/viant/agently-core/app/store/data"
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
+	iauth "github.com/viant/agently-core/internal/auth"
 	authsvc "github.com/viant/agently-core/service/auth"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
 	"github.com/viant/agently-core/workspace"
@@ -124,7 +125,7 @@ func TestBuilderBuild_RegistersReportingServiceFromSQLStoreDefaults(t *testing.T
 	require.NoError(t, err)
 	require.NotNil(t, rt.Reporting)
 
-	ctx := authsvc.InjectUser(context.Background(), "sql-builder-user")
+	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "sql-builder-user"), "sql-builder-user"), "fixture-oauth")
 	saveRaw, err := rt.Registry.Execute(ctx, "reporting:save_report", map[string]interface{}{
 		"reportId":       "forecasting_q3",
 		"title":          "Forecasting Q3",
@@ -148,6 +149,9 @@ func TestBuilderBuild_RegistersReportingServiceFromSQLStoreDefaults(t *testing.T
 }
 
 func TestBuilderBuild_ReportingRegistryExportsSavedReportViaUnifiedReportSource(t *testing.T) {
+	previousRoot := workspace.Root()
+	workspace.SetRoot(t.TempDir())
+	t.Cleanup(func() { workspace.SetRoot(previousRoot) })
 	rt, err := executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
@@ -158,7 +162,7 @@ func TestBuilderBuild_ReportingRegistryExportsSavedReportViaUnifiedReportSource(
 	require.NoError(t, err)
 	require.NotNil(t, rt.Reporting)
 
-	ctx := authsvc.InjectUser(context.Background(), "builder-user")
+	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "builder-user"), "builder-user"), "fixture-oauth")
 	saveRaw, err := rt.Registry.Execute(ctx, "reporting:save_report", map[string]interface{}{
 		"reportId":    "forecastingQ3",
 		"title":       "Forecasting Q3",
@@ -190,7 +194,7 @@ func TestBuilderBuild_ReportingRegistryExportsSavedReportViaUnifiedReportSource(
 
 	artifact, err := rt.Reporting.GetArtifact(ctx, completed.ArtifactID)
 	require.NoError(t, err)
-	require.Equal(t, "scratchpad://artifact/"+completed.ArtifactID, artifact.SourceURL)
+	require.Empty(t, artifact.SourceURL) // Pinned resource exports use guarded download, not raw scratchpad URLs.
 	require.NotEmpty(t, artifact.Data)
 }
 

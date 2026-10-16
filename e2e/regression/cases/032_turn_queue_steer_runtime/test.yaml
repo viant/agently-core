@@ -1,67 +1,121 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-test
+      email: e2e-test@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "queue+steer runtime - create conversation"
+    description: queue+steer runtime - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: tool_forcer_exec_sleep
+        Title: queue-steer-runtime-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: tool_forcer_exec_sleep
-          Title: queue-steer-runtime-e2e
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+  roundTrip:
+    multiAction: true
+    startSleepTurn:
+      when: $sdkKey != ''
+      action: http/runner:send
+      async: true
+      description: queue+steer runtime - start active sleep turn asynchronously
+      requests:
+      - Method: POST
+        URL: ${aguiProbeURL}/run
+        Header:
+          Connection:
+          - close
+          Authorization:
+          - Bearer ${mintCanonicalOwner.TokenString}
+        JSONBody:
+          target: ${authServerURL}
+          probeId: 032_turn_queue_steer_runtime-startSleepTurn
+          query:
+            conversationID: ${createConversation.Responses[0].JSONBody.id}
+            agentID: tool_forcer_exec_sleep
+            messageID: e2e-queue-running-turn
+            query: run sleep tool
+    waitForTurnActivation:
+      when: $sdkKey != ''
+      action: nop
+      sleepTimeMs: 500
+    observeActiveTurn:
+      action: http/runner:send
+      requests:
+      - Method: GET
+        URL: ${aguiProbeURL}/observe/032_turn_queue_steer_runtime-startSleepTurn
+        Header:
+          Authorization:
+          - Bearer ${mintCanonicalOwner.TokenString}
         Expect:
           Code: 200
           JSONBody:
-            "@exists@Id": true
-
-  startSleepTurn:
-    when: $sdkKey != ''
-    action: http/runner:send
-    Async: true
-    description: "queue+steer runtime - start active sleep turn asynchronously"
-    requests:
+            '@exists@identity.nativeTurnId': true
+    enqueueSecondTurn:
+      when: $sdkKey != ''
+      action: http/runner:send
+      async: true
+      description: queue+steer runtime - second query should enqueue
+      requests:
       - Method: POST
-        URL: ${serverURL}/v1/agent/query
+        URL: ${aguiProbeURL}/run
         Header:
-          Connection: [close]
+          Connection:
+          - close
+          Authorization:
+          - Bearer ${mintCanonicalOwner.TokenString}
         JSONBody:
-          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-          AgentID: tool_forcer_exec_sleep
-          MessageID: e2e-queue-running-turn
-          UserId: e2e-test
-          Query: run sleep tool
-
-  waitForTurnActivation:
-    when: $sdkKey != ''
-    action: nop
-    sleepTimeMs: 500
-
-  enqueueSecondTurn:
-    when: $sdkKey != ''
-    action: http/runner:send
-    description: "queue+steer runtime - second query should enqueue"
-    requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
-        JSONBody:
-          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-          AgentID: simple
-          MessageID: e2e-queue-queued-turn
-          UserId: e2e-test
-          Query: This turn should be queued while previous turn is active.
+          target: ${authServerURL}
+          probeId: 032_turn_queue_steer_runtime-enqueueSecondTurn
+          query:
+            conversationID: ${createConversation.Responses[0].JSONBody.id}
+            agentID: simple
+            messageID: e2e-queue-queued-turn
+            query: This turn should be queued while previous turn is active.
         Expect:
           Code: 200
           JSONBody:
-            conversationId: ${createConversation.Responses[0].JSONBody.Id}
-
-  cancelLongTurn:
-    when: $sdkKey != ''
-    action: http/runner:send
-    description: "queue+steer runtime - cancel running turn to avoid bleed into following tests"
-    requests:
-      - Method: POST
-        URL: ${serverURL}/v1/turns/e2e-queue-running-turn/cancel
+            identity:
+              nativeConversationId: ${createConversation.Responses[0].JSONBody.id}
+    waitForQueueObservation:
+      action: nop
+      sleepTimeMs: 500
+    observeQueuedTurn:
+      action: http/runner:send
+      requests:
+      - Method: GET
+        URL: ${aguiProbeURL}/observe/032_turn_queue_steer_runtime-enqueueSecondTurn
+        Header:
+          Authorization:
+          - Bearer ${mintCanonicalOwner.TokenString}
         Expect:
           Code: 200
+          JSONBody:
+            identity:
+              nativeConversationId: ${createConversation.Responses[0].JSONBody.id}
+            '@exists@queue.turnId': true
+    cancelLongTurn:
+      when: $sdkKey != ''
+      action: http/runner:send
+      description: queue+steer runtime - cancel running turn to avoid bleed into following
+        tests
+      requests:
+      - Method: POST
+        URL: ${authServerURL}/v1/turns/${observeActiveTurn.Responses[0].JSONBody.identity.nativeTurnId}/cancel
+        Expect:
+          Code: 200
+        Header:
+          Authorization:
+          - Bearer ${mintCanonicalOwner.TokenString}

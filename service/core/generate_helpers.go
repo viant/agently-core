@@ -82,6 +82,13 @@ func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm
 	}
 	var lastResp *llm.GenerateResponse
 	for _, anchor := range order {
+		origin := traces[anchor]
+		if origin == nil {
+			return nil, false, nil
+		}
+		if !s.continuationContractMatches(ctx, turn.ConversationID, anchor) {
+			return nil, false, nil
+		}
 		msgs := groups[anchor]
 		sub := &llm.GenerateRequest{}
 		if request.Options != nil {
@@ -90,6 +97,9 @@ func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm
 		}
 		sub.Messages = append(currentContinuationContext(request.Messages), msgs...)
 		sub.PreviousResponseID = anchor
+		if err := s.verifyContinuationRelease(ctx); err != nil {
+			return nil, true, err
+		}
 		resp, gerr := model.Generate(ctx, sub)
 		if gerr != nil {
 			if isContextLimitError(gerr) {

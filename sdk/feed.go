@@ -189,7 +189,7 @@ func emitFeedActive(ctx context.Context, bus streaming.Bus, convID, turnID strin
 		TurnID:            turnID,
 		MessageID:         messageID,
 		Type:              streaming.EventTypeToolFeedActive,
-		FeedID:            spec.ID,
+		FeedID:            feedIdentity(spec),
 		FeedTitle:         spec.Title,
 		FeedDeveloperOnly: spec.DeveloperOnly,
 		FeedIcon:          feedPresentationIcon(spec),

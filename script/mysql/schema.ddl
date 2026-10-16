@@ -135,6 +135,7 @@ CREATE TABLE turn
     model_override_provider TEXT,
     model_override          TEXT,
     model_params_override   TEXT,
+    run_id                  VARCHAR(255) NULL,
 
     CONSTRAINT fk_turn_conversation
         FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE
@@ -185,10 +186,14 @@ CREATE TABLE `message`
     role                   VARCHAR(255) NOT NULL,
     `type`                 VARCHAR(255) NOT NULL DEFAULT 'text',
     content                MEDIUMTEXT,
+    preamble               TEXT NULL,
+    raw_content            MEDIUMTEXT NULL,
     summary                TEXT,
     context_summary        TEXT,
     tags                   TEXT,
     interim                BIGINT       NOT NULL DEFAULT 0,
+    iteration              BIGINT NULL,
+    phase                  VARCHAR(255) NULL,
     elicitation_id         VARCHAR(255),
     parent_message_id      VARCHAR(255),
     superseded_by          VARCHAR(255),

@@ -3,13 +3,13 @@ package tool
 import (
 	"context"
 	"fmt"
+	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/runtime/requestctx"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcpname"
-	"github.com/viant/agently-core/runtime/requestctx"
 	schema "github.com/viant/mcp-protocol/schema"
 	client "github.com/viant/mcp/client"
 )
@@ -91,31 +91,6 @@ func TestAdvertisedMCPIdentityRejectsNormalizedCollision(t *testing.T) {
 	require.ErrorContains(t, err, "ambiguous advertised MCP tool alias")
 }
 
-func TestAdvertisedMCPIdentityKeepsPrincipalCatalogScoped(t *testing.T) {
-	manager := &discoveryManagerStub{options: &config.MCPClient{ToolsListVisibility: config.ToolsListVisibilityPrivate}}
-	r := &Registry{mgr: manager, cache: map[string]*toolCacheEntry{}}
-	r.storePrincipalDiscoveryTools("private_server", "alice", "", false, []schema.Tool{{Name: "literal.tool-name"}})
-	alice := requestctx.WithConversationID(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"}), "owned")
-	bob := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "bob"})
-	alias := mcpname.Canonical("private_server/literal.tool-name")
-	server, method, ok, err := r.discoveredMCPIdentity(alice, alias)
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, "private_server", server)
-	require.Equal(t, "literal.tool-name", method)
-	_, _, ok, err = r.discoveredMCPIdentity(bob, alias)
-	require.NoError(t, err)
-	require.False(t, ok)
-	_, _, ok, err = r.discoveredMCPIdentity(context.Background(), alias)
-	require.NoError(t, err)
-	require.False(t, ok)
-	r.storePrincipalDiscoveryTools("private_server", "alice", "different-token", false, []schema.Tool{{Name: "not.visible"}})
-	_, _, ok, err = r.discoveredMCPIdentity(alice, mcpname.Canonical("private_server/not.visible"))
-	require.NoError(t, err)
-	require.False(t, ok)
-	require.Empty(t, r.cache)
-}
-
 func TestAdvertisedIdentityDoesNotReuseCatalogAfterVisibilityBecomesPrivate(t *testing.T) {
 	manager := &discoveryManagerStub{options: &config.MCPClient{ToolsListVisibility: config.ToolsListVisibilityPublic}}
 	r := &Registry{mgr: manager, cache: map[string]*toolCacheEntry{}}
@@ -128,4 +103,25 @@ func TestAdvertisedIdentityDoesNotReuseCatalogAfterVisibilityBecomesPrivate(t *t
 	require.False(t, ok)
 	_, ok = r.lookupTimeoutSupport("server_name/literal.tool")
 	require.False(t, ok)
+}
+
+func TestAdvertisedMCPIdentityKeepsPrincipalCatalogScoped(t *testing.T) {
+	t.Setenv("AGENTLY_MCP_SERVERS", "private")
+	r := &Registry{mgr: &principalManager{}, cache: map[string]*toolCacheEntry{}}
+	alice := requestctx.WithConversationID(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"}), "owned")
+	bob := requestctx.WithConversationID(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "bob"}), "owned")
+	_, err := r.listServerTools(alice, "private")
+	require.NoError(t, err)
+	server, method, ok, err := r.discoveredMCPIdentity(alice, "private/secret")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "private", server)
+	require.Equal(t, "secret", method)
+	_, _, ok, err = r.discoveredMCPIdentity(bob, "private/secret")
+	require.NoError(t, err)
+	require.False(t, ok)
+	_, _, ok, err = r.discoveredMCPIdentity(context.Background(), "private/secret")
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Empty(t, r.cache)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,9 +15,13 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	convdata "github.com/viant/agently-core/app/store/data"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
+	identity "github.com/viant/agently-core/protocol/resource"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
 	dssvc "github.com/viant/agently-core/service/datasource"
+	"github.com/viant/agently-core/service/ui/permittedview"
+	"github.com/viant/authz"
+	"github.com/viant/authz/gating"
 )
 
 type delayedCampaignMutationExecutor struct {
@@ -356,5 +361,185 @@ func TestHandleListLookupRegistry_ReturnsEntries(t *testing.T) {
 	}
 	if len(out.Entries) != 1 || out.Entries[0].Name != "account" {
 		t.Fatalf("entries mismatch: %+v", out.Entries)
+	}
+}
+
+type scopedDatasourceDeniedBackend struct{ Backend }
+
+func (scopedDatasourceDeniedBackend) FetchDatasource(context.Context, *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
+	return nil, dsproto.ErrDatasourceDenied
+}
+func TestHandleFetchDatasourcePreservesServerScopedDenialWithoutRows(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/rows/fetch", strings.NewReader(`{}`))
+	req.SetPathValue("id", "rows")
+	writer := httptest.NewRecorder()
+	handleFetchDatasource(scopedDatasourceDeniedBackend{})(writer, req)
+	var body map[string]any
+	if json.Unmarshal(writer.Body.Bytes(), &body) != nil || writer.Code != 403 || body["code"] != "datasource_denied" || body["scope"] != "dataset" || body["rows"] != nil {
+		t.Fatal(writer.Code, writer.Body.String())
+	}
+}
+
+func TestHandleFetchDatasource_TypedAdmissionFailuresStayRetryableWithoutDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+		redact bool
+	}{
+		{"timeout", fmt.Errorf("sensitive authority payload: %w", context.DeadlineExceeded), 504, true},
+		{"unavailable", fmt.Errorf("sensitive authority payload: %w", permittedview.ErrUnavailable), 503, true},
+		{"generic authz unavailable", fmt.Errorf("sensitive authority payload: %w", authz.ErrUnavailable), 503, true},
+		{"generic gate unavailable", fmt.Errorf("sensitive authority payload: %w", gating.ErrUnavailable), 503, true},
+		{"unauthorized", &dsproto.UpstreamAuthorizationError{Status: 401, Cause: errors.New("sensitive authority payload")}, 401, true},
+		{"forbidden", identity.ErrResourceDenied, 403, false},
+		{"revoke", dsproto.ErrDatasourceDenied, 403, false},
+		{"denial wins over outage", errors.Join(identity.ErrResourceDenied, permittedview.ErrUnavailable), 403, false},
+		{"authz denial wins over outage", errors.Join(authz.ErrDenied, permittedview.ErrUnavailable), 403, false},
+		{"availability text is not a trusted status", errors.New("dependency unavailable"), 500, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := dssvc.NewMemoryStore()
+			store.Put(&dsproto.DataSource{ID: "change", Backend: &dsproto.Backend{Kind: dsproto.BackendMCPTool, Service: "arbitrary", Method: "Patch"}})
+			dispatches := 0
+			service := dssvc.New(dssvc.Options{Store: store, AuthorizeDefinition: func(context.Context, *dsproto.DataSource, map[string]interface{}) error { return tc.err }, Executor: datasourceErrorExecutor(func(context.Context, string, map[string]interface{}) (string, error) { dispatches++; return "{}", nil })})
+			backend := datasourceServiceBackend{service: service}
+			for attempt := 0; attempt < 2; attempt++ {
+				req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/change/fetch", strings.NewReader(`{"inputs":{}}`))
+				req.SetPathValue("id", "change")
+				writer := httptest.NewRecorder()
+				handleFetchDatasource(backend)(writer, req)
+				if writer.Code != tc.status {
+					t.Fatalf("want%d got%d: %s", tc.status, writer.Code, writer.Body.String())
+				}
+				if tc.redact && strings.Contains(writer.Body.String(), "sensitive authority payload") {
+					t.Fatalf("authority payload leaked: %s", writer.Body.String())
+				}
+			}
+			if dispatches != 0 {
+				t.Fatalf("admission failure dispatched%d mutations", dispatches)
+			}
+		})
+	}
+}
+
+type datasourceErrorExecutor func(context.Context, string, map[string]interface{}) (string, error)
+
+func (f datasourceErrorExecutor) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	return f(ctx, name, args)
+}
+
+type scopedFetchErrorBackend struct {
+	Backend
+	err error
+}
+
+func (b scopedFetchErrorBackend) FetchDatasource(context.Context, *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
+	return nil, b.err
+}
+
+func TestFetchDatasourceErrorSeparatesWindowArtifactFromManagingData(t *testing.T) {
+	for _, tc := range []struct {
+		name, uri, code, scope string
+		err                    error
+		status                 int
+	}{
+		{"artifact", "window://team/detail", "resource_denied", "window", identity.ErrResourceDenied, 403},
+		{"stale artifact", "window://team/detail", "resource_denied", "window", identity.ErrResourceStale, 403},
+		{"artifact beats local denial", "window://team/detail", "resource_denied", "window", errors.Join(identity.ErrResourceDenied, dsproto.ErrDatasourceDenied), 403},
+		{"managed dataset", "window://team/detail", "datasource_denied", "dataset", dsproto.ErrDatasourceDenied, 403},
+		{"unclassified managing denial", "window://team/detail", "", "", &dsproto.UpstreamAuthorizationError{Status: 403}, 403},
+		{"identity", "window://team/detail", "", "", &dsproto.UpstreamAuthorizationError{Status: 401}, 401},
+		{"different artifact kind", "report://team/detail", "", "", identity.ErrResourceDenied, 403},
+		{"no artifact", "", "", "", identity.ErrResourceDenied, 403},
+		{"message is not scope", "window://team/detail", "", "", errors.New("resource revision denied"), 500},
+		{"availability", "window://team/detail", "", "", permittedview.ErrUnavailable, 503},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := api.FetchDatasourceInput{}
+			if tc.uri != "" {
+				input.Resource = &identity.ResolvedResource{URI: tc.uri}
+			}
+			body, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/rows/fetch", strings.NewReader(string(body)))
+			r.SetPathValue("id", "rows")
+			w := httptest.NewRecorder()
+			handleFetchDatasource(scopedFetchErrorBackend{err: tc.err})(w, r)
+			var result map[string]string
+			if json.Unmarshal(w.Body.Bytes(), &result) != nil || w.Code != tc.status || result["code"] != tc.code || result["scope"] != tc.scope {
+				t.Fatal(w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// The HTTP handler must preserve IDs in both the signed selection and the
+// execution inputs, rather than rounding them before host fidelity checks.
+type exactFetchBackend struct {
+	Backend
+	calls int
+	input *api.FetchDatasourceInput
+}
+
+func (b *exactFetchBackend) FetchDatasource(_ context.Context, in *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
+	b.calls++
+	b.input = in
+	return &api.FetchDatasourceOutput{}, nil
+}
+
+func TestHandleFetchDatasourcePreservesExactNestedNumbers(t *testing.T) {
+	body := `{"inputs":{"id":9007199254740993,"nested":[{"ratio":1.25,"id":9007199254740995}]},"windowParameters":{"ids":[9007199254740993],"parent":{"id":9007199254740995}}}`
+	backend := &exactFetchBackend{}
+	r := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/rows/fetch", strings.NewReader(body))
+	r.SetPathValue("id", "rows")
+	w := httptest.NewRecorder()
+	handleFetchDatasource(backend)(w, r)
+	if w.Code != http.StatusOK || backend.calls != 1 {
+		t.Fatalf("status=%d calls=%d", w.Code, backend.calls)
+	}
+	encoded, err := json.Marshal(backend.input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var original, received map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(body), &original); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(encoded, &received); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"inputs", "windowParameters"} {
+		var want, got interface{}
+		wantDecoder := json.NewDecoder(strings.NewReader(string(original[key])))
+		wantDecoder.UseNumber()
+		gotDecoder := json.NewDecoder(strings.NewReader(string(received[key])))
+		gotDecoder.UseNumber()
+		if err := wantDecoder.Decode(&want); err != nil {
+			t.Fatal(err)
+		}
+		if err := gotDecoder.Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		wantJSON, _ := json.Marshal(want)
+		gotJSON, _ := json.Marshal(got)
+		if string(wantJSON) != string(gotJSON) {
+			t.Fatalf("%s changed: %s", key, gotJSON)
+		}
+	}
+}
+
+func TestHandleFetchDatasourceRejectsTrailingJSONBeforeDispatch(t *testing.T) {
+	for _, body := range []string{`{"inputs":{"id":9007199254740993}} {}`, `{"inputs":`} {
+		backend := &exactFetchBackend{}
+		r := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/rows/fetch", strings.NewReader(body))
+		r.SetPathValue("id", "rows")
+		w := httptest.NewRecorder()
+		handleFetchDatasource(backend)(w, r)
+		if w.Code != http.StatusBadRequest || backend.calls != 0 {
+			t.Fatalf("status=%d calls=%d", w.Code, backend.calls)
+		}
 	}
 }

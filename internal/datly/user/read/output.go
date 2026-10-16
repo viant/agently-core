@@ -9,6 +9,6 @@ import (
 // UserOutput is the generated output scaffold for reader.
 type UserOutput struct {
 	response.Status `parameter:",kind=output,in=status"`
-	Metrics         response.Metrics `parameter:",kind=output,in=metrics"`
-	Data            []*UserView      `parameter:"Data,kind=output,in=view,dataType=[]*UserView" view:"reader,type=UserView,table=users" sql:"uri=datly_user_read_reader:sql/reader.sql"`
+	Metrics         response.Metrics `parameter:",kind=output,in=metrics" json:"metrics"`
+	Data            []*UserView      `parameter:"Data,kind=output,in=view,dataType=[]*UserView" view:"reader,type=UserView,table=users" json:"data" sql:"uri=datly_user_read_reader:sql/reader.sql"`
 }

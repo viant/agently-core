@@ -1220,6 +1220,7 @@ function onElicitation(state: ClientConversationState, event: SSEEvent): ClientC
     if (event.callbackUrl) writeField(e, 'callbackUrl', event.callbackUrl, 'event');
     if (typeof event.elicitationData?.mode === 'string') writeField(e, 'mode', event.elicitationData.mode, 'event');
     if (typeof event.elicitationData?.url === 'string') writeField(e, 'url', event.elicitationData.url, 'event');
+    if (typeof event.elicitationData?.deadline === 'string') writeField(e, 'deadline', event.elicitationData.deadline, 'event');
     if (typeof event.content === 'string' && event.content.trim() !== '') {
         writeField(e, 'message', event.content, 'event');
     }
@@ -1522,6 +1523,16 @@ export function applyTranscript(
         const turn = state.turns.find(item => item.turnId === snapshotTurn.turnId);
         if (turn) applyHostTrust(turn,snapshotTurn);
     }
+    // A live submit may precede the initial history response. Preserve the
+    // server's declared transcript order, then retain newer event/local turns
+    // absent from that response in their existing relative order. Reorder only
+    // the existing objects; event-owned messages, pages and render keys survive.
+    const byTurnId = new Map(state.turns.map(turn => [turn.turnId, turn]));
+    const orderedTurns = (snapshot.turns ?? [])
+        .map(turn => byTurnId.get(turn.turnId))
+        .filter((turn): turn is ClientTurnState => !!turn);
+    const declared = new Set(orderedTurns);
+    state.turns = [...declared, ...state.turns.filter(turn => !declared.has(turn))];
     return state;
 }
 
@@ -1943,7 +1954,7 @@ function mergeTranscriptElicitation(
     const transcriptStatus = normalizeElicitationStatus(snapshot.status);
     if (transcriptStatus) {
         const currentStatus = normalizeElicitationStatus(e.status);
-        if (getFieldProvenance(e, 'status') === 'event' && currentStatus === 'pending' && transcriptStatus === 'canceled') {
+        if (getFieldProvenance(e, 'status') === 'event' && currentStatus === 'pending' && ['accepted', 'declined', 'canceled'].includes(transcriptStatus)) {
             forceTranscriptRefinement(e, 'status', transcriptStatus);
         } else {
             writeField(e, 'status', transcriptStatus, 'transcript');
@@ -1954,6 +1965,7 @@ function mergeTranscriptElicitation(
     if (snapshot.callbackUrl) writeField(e, 'callbackUrl', snapshot.callbackUrl, 'transcript');
     if (snapshot.mode) writeField(e, 'mode', snapshot.mode, 'transcript');
     if (snapshot.url) writeField(e, 'url', snapshot.url, 'transcript');
+    if (snapshot.deadline) writeField(e, 'deadline', snapshot.deadline, 'transcript');
     if (snapshot.responsePayload !== undefined) writeField(e, 'responsePayload', snapshot.responsePayload as ClientElicitation['responsePayload'], 'transcript');
     syncPrimaryElicitation(turn, 'transcript');
 }

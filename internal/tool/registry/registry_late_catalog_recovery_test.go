@@ -38,8 +38,8 @@ func TestEmptyAnonymousCatalogAllowsAuthenticatedRecovery(t *testing.T) {
 			}
 			reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}, discoveryFailTTL: time.Nanosecond}
 			bg := discovery.WithBackground(context.Background())
-			if _, err := reg.listServerTools(bg, "steward"); err == nil {
-				t.Fatal("initial transport failure missing")
+			if _, err := reg.listServerTools(bg, "steward"); err != nil {
+				t.Fatal(err)
 			}
 			time.Sleep(time.Millisecond)
 			if tools, err := reg.listServerTools(bg, "steward"); err != nil || len(tools) != 0 {

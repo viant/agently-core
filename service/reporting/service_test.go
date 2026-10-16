@@ -16,23 +16,60 @@ import (
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
 	tokenctx "github.com/viant/agently-core/internal/auth/token"
 	authsvc "github.com/viant/agently-core/service/auth"
-	policy "github.com/viant/agently-core/service/policy"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
 
-type reportPolicyResolver struct{}
+type sharedListingOutageStore struct{ Store }
 
-func (reportPolicyResolver) Resolve(context.Context, *policy.Request) (*policy.Decision, error) {
-	return &policy.Decision{PolicyVersion: "v1", ExpiresAt: time.Now().Add(time.Minute), Allow: true, AllowedIDs: []string{"visible"}}, nil
+func (sharedListingOutageStore) ListSharedArtifacts(context.Context) ([]*SharedArtifact, error) {
+	return nil, errors.New("shared store unavailable")
 }
 
-func TestFilterAuthorizedReports(t *testing.T) {
-	service := &Service{authorizationPolicy: policy.NewRuntime(reportPolicyResolver{}, policy.OperationReportView)}
-	got, err := service.filterAuthorizedReports(context.Background(), []*ReportSummary{{ReportID: "visible"}, {ReportID: "hidden"}})
+// This standalone service owns its storage. Configured runtimes instead use the
+// same owning MCP source through the gateway; neither path installs consumer ACLs.
+func TestOwningReportStoreRetainsCurrentOwnerAndInputs(t *testing.T) {
+	service := New(Options{Store: NewStoreAdapter(reportmemory.New())})
+	alice := authsvc.InjectUser(context.Background(), "alice")
+	bob := authsvc.InjectUser(context.Background(), "bob")
+	input := &SaveReportRequest{ReportID: "orders", Title: "Orders", ReportDocument: json.RawMessage(`{"kind":"reportDocument","id":"orders"}`), ReportSpec: json.RawMessage(validTestReportSpecJSON())}
+	before, err := json.Marshal(input)
 	require.NoError(t, err)
-	require.Len(t, got, 1)
-	require.Equal(t, "visible", got[0].ReportID)
+	saved, err := service.SaveReport(alice, input)
+	require.NoError(t, err)
+	after, err := json.Marshal(input)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	_, err = service.GetSharedArtifact(bob, saved.ArtifactID)
+	require.ErrorIs(t, err, ErrNotFound)
+	listed, err := service.ListReports(bob, &ListReportsInput{})
+	require.NoError(t, err)
+	require.Empty(t, listed.Reports)
+	_, err = service.UpdateReport(bob, &UpdateReportRequest{ArtifactID: saved.ArtifactID, Title: "Foreign"})
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.DeleteReport(bob, &DeleteReportRequest{ArtifactID: saved.ArtifactID})
+	require.ErrorIs(t, err, ErrNotFound)
+	current, err := service.GetSharedArtifact(alice, saved.ArtifactID)
+	require.NoError(t, err)
+	require.Equal(t, "Orders", current.Title)
+	_, err = service.UpdateReport(alice, &UpdateReportRequest{ArtifactID: saved.ArtifactID, Title: "Changed"})
+	require.NoError(t, err)
+	_, err = service.DeleteReport(alice, &DeleteReportRequest{ArtifactID: saved.ArtifactID})
+	require.NoError(t, err)
+	_, err = service.GetSharedArtifact(alice, saved.ArtifactID)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestSharedArtifactLookupOutageStopsLifecycleMutation(t *testing.T) {
+	store := sharedListingOutageStore{Store: NewStoreAdapter(reportmemory.New())}
+	svc := New(Options{Store: store})
+	ctx := authsvc.InjectUser(context.Background(), "owner")
+	if _, err := svc.ShareArtifact(ctx, &ShareArtifactRequest{ArtifactRef: "report://source"}); err == nil || !strings.Contains(err.Error(), "shared store unavailable") {
+		t.Fatalf("share continued after lookup outage: %v", err)
+	}
+	if _, err := svc.TransitionArtifact(ctx, &TransitionArtifactRequest{ArtifactRef: "report://source", To: "published"}); err == nil || !strings.Contains(err.Error(), "shared store unavailable") {
+		t.Fatalf("publication continued after lookup outage: %v", err)
+	}
 }
 
 type compileRecorder struct {

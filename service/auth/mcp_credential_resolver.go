@@ -904,7 +904,8 @@ func (r *DelegatedCredentialResolver) RefreshStoredDelegatedToken(ctx context.Co
 	if providerregistry.GloballyDisabled() {
 		return &providerregistry.DisabledError{Ref: providerRef}
 	}
-	provider, err := r.registry.ResolveProvider(ctx, providerRef)
+	lookupCtx := providerregistry.WithInlineLookupOwner(ctx, canonical)
+	provider, err := r.registry.ResolveProvider(lookupCtx, providerRef)
 	if err != nil {
 		if providerregistry.IsNotFound(err) {
 			// Inline MCP providers register into the runtime overlay when their

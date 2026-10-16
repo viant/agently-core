@@ -2,12 +2,15 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	svcauth "github.com/viant/agently-core/service/auth"
+	"github.com/viant/agently-core/service/elicitation"
 )
 
 func conversationAndTurnIDs(r *http.Request) (string, string, error) {
@@ -32,6 +35,10 @@ func handleCancelTurn(client Client) http.HandlerFunc {
 }
 
 func handleSteerTurn(client Client) http.HandlerFunc {
+	return handleSteerTurnWithTimeout(client, 15*time.Second)
+}
+
+func handleSteerTurnWithTimeout(client Client, timeout time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conversationID, turnID, err := conversationAndTurnIDs(r)
 		if err != nil {
@@ -45,8 +52,16 @@ func handleSteerTurn(client Client) http.HandlerFunc {
 		}
 		input.ConversationID = conversationID
 		input.TurnID = turnID
-		out, err := client.SteerTurn(context.WithoutCancel(r.Context()), &input)
+		// Keep an accepted steer alive across a browser disconnect, but never
+		// let a synchronous acceptance request wait for the whole agent turn.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), timeout)
+		defer cancel()
+		out, err := client.SteerTurn(ctx, &input)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				httpError(w, http.StatusGatewayTimeout, fmt.Errorf("steering was not accepted in time: %w", context.DeadlineExceeded))
+				return
+			}
 			if isConflictError(err) {
 				httpError(w, http.StatusConflict, err)
 				return
@@ -160,7 +175,7 @@ func handleForceSteerQueuedTurn(client Client) http.HandlerFunc {
 	}
 }
 
-func handleResolveElicitation(client Client) http.HandlerFunc {
+func handleResolveElicitation(client Client, authConfig ...*svcauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conversationID := strings.TrimSpace(r.PathValue("conversationId"))
 		elicitationID := strings.TrimSpace(r.PathValue("elicitationId"))
@@ -186,9 +201,22 @@ func handleResolveElicitation(client Client) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("action is required"))
 			return
 		}
+		var ok bool
+		r, ok = applicationRequestPrincipal(w, r, "", authConfig)
+		if !ok {
+			return
+		}
 		if err := client.ResolveElicitation(r.Context(), in); err != nil {
 			log.Printf("[resolve-elicitation] convID=%s elicitID=%s error: %v", conversationID, elicitationID, err)
-			httpError(w, http.StatusInternalServerError, err)
+			status := http.StatusInternalServerError
+			if strings.Contains(strings.ToLower(err.Error()), "not owned by caller") {
+				status = http.StatusForbidden
+			} else if errors.Is(err, elicitation.ErrNotFound) {
+				status = http.StatusNotFound
+			} else if errors.Is(err, elicitation.ErrConflict) {
+				status = http.StatusConflict
+			}
+			httpError(w, status, err)
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"status": "ok"})

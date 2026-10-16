@@ -23,12 +23,28 @@ func (s *Service) appendToolPlaybooks(ctx context.Context, defs []*llm.ToolDefin
 	if docs == nil {
 		return nil
 	}
+	appendToolApprovalGuidance(ctx, defs, docs)
 	_, services := collectToolPresence(defs)
 	if !services["webdriver"] {
 		return nil
 	}
-	repo := toolplaybook.New(s.fs)
-	content, uri, err := repo.Load(ctx, "webdriver.md")
+	var content, uri string
+	var err error
+	if s.hostDocuments != nil {
+		for _, name := range []string{"tools/instructions/webdriver.md", "tools/webdriver.md"} {
+			candidate := s.hostDocuments.RootURI() + "/" + name
+			if !s.hostDocuments.ContainsURI(candidate) {
+				continue
+			}
+			raw, readErr := s.hostDocuments.ReadURI(ctx, candidate)
+			content, uri, err = string(raw), candidate, readErr
+			break
+		}
+	} else {
+		repo := toolplaybook.New(s.fs)
+		content, uri, err = repo.Load(ctx, "webdriver.md")
+	}
+
 	if err != nil {
 		return err
 	}
@@ -432,7 +448,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		if len(toolCalls) > s.defaults.ToolCallMaxResults && s.defaults.ToolCallMaxResults > 0 {
 			toolCalls = toolCalls[len(toolCalls)-s.defaults.ToolCallMaxResults:]
 		}
-		limit := s.messagePreviewLimit(turnIdx, totalTurns, applyAging, true)
+		limit := stricterToolResultLimit(s.messagePreviewLimit(turnIdx, totalTurns, applyAging, true), s.selectedModelToolResultLimit(input))
 		for _, m := range toolCalls {
 			tcView := messageToolCall(m)
 			if tcView == nil {
@@ -441,9 +457,12 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 			canonicalName := mcpname2.Canonical(tcView.ToolName)
 			args := m.ToolCallArguments()
 			// Prepare result content for LLM: derive preview from message content with per-turn limit
-			result := ""
-			if body := s.messageToolResultBody(ctx, m); body != "" && limit > 0 {
-				preview, overflow := buildOverflowPreview(body, limit, m.Id, allowContinuation)
+			// A disabled preview limit preserves the already recorded tool result,
+			// including producer continuation/artifact references. It must not
+			// discard the result or reload original uncaptured output.
+			result := s.messageToolResultBody(ctx, m)
+			if body := result; body != "" && limit > 0 {
+				preview, overflow := s.presentRecordedToolResult(ctx, input, body, m.Id, limit, allowContinuation)
 				if overflow {
 					overflowFound = true
 					if size := len(body); size > maxOverflowBytes {

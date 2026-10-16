@@ -4,5 +4,5 @@ package read
 
 // LinkStateOutput is the generated output scaffold for reader.
 type LinkStateOutput struct {
-	Data []*LinkStateView `parameter:"Data,kind=output,in=view,dataType=[]*LinkStateView" view:"reader,type=LinkStateView,table=oauth_link_state" sql:"uri=oauth_linkstate_read_reader:sql/reader.sql"`
+	Data []*LinkStateView `parameter:"Data,kind=output,in=view,dataType=[]*LinkStateView" view:"reader,type=LinkStateView,table=oauth_link_state" json:"data" sql:"uri=oauth_linkstate_read_reader:sql/reader.sql"`
 }

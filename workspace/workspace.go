@@ -23,6 +23,8 @@ const (
 )
 
 var (
+	// pathsMu protects process-wide workspace path configuration and caches.
+	pathsMu sync.Mutex
 	// explicitRoot holds a workspace root set via SetRoot (e.g. from CLI args).
 	// When non-empty it takes precedence over the environment variable.
 	explicitRoot string
@@ -88,6 +90,8 @@ func SetRoot(path string) {
 	if strings.TrimSpace(path) == "" {
 		return
 	}
+	pathsMu.Lock()
+	defer pathsMu.Unlock()
 	explicitRoot = abs(path)
 	// Invalidate cached values so they are recomputed from the new root.
 	cachedRoot = ""
@@ -103,13 +107,21 @@ func SetRoot(path string) {
 //
 // The result is cached for the lifetime of the process.
 func Root() string {
+	pathsMu.Lock()
+	root := rootLocked()
+	pathsMu.Unlock()
+	// Bootstrap hooks can resolve paths themselves; do not hold pathsMu here.
+	ensureDefaults(root)
+	return root
+}
+
+func rootLocked() string {
 	if cachedRoot != "" {
 		// If a different AGENTLY_WORKSPACE is now set, update the cache so subsequent
 		// calls (e.g. in tests) see the correct location.
 		if env := os.Getenv(envKey); env != "" && abs(env) != cachedRoot && explicitRoot == "" {
 			cachedRoot = abs(env)
 			ensureWorkspaceDir(cachedRoot)
-			ensureDefaults(cachedRoot)
 			return cachedRoot
 		}
 		return cachedRoot
@@ -118,14 +130,12 @@ func Root() string {
 	if explicitRoot != "" {
 		cachedRoot = explicitRoot
 		ensureWorkspaceDir(cachedRoot)
-		ensureDefaults(cachedRoot)
 		return cachedRoot
 	}
 
 	if env := os.Getenv(envKey); env != "" {
 		cachedRoot = abs(env)
 		ensureWorkspaceDir(cachedRoot)
-		ensureDefaults(cachedRoot)
 		return cachedRoot
 	}
 
@@ -139,16 +149,25 @@ func Root() string {
 	cachedRoot = abs(filepath.Join(home, defaultRootDir))
 	ensureWorkspaceDir(cachedRoot)
 
-	// lazily create default resources once the root directory is ready
-	ensureDefaults(cachedRoot)
 	return cachedRoot
 }
 
 // RuntimeRoot returns the runtime root path. It defaults to the workspace root
 // unless overridden via AGENTLY_RUNTIME_ROOT or SetRuntimeRoot.
 func RuntimeRoot() string {
+	pathsMu.Lock()
+	path := runtimeRootLocked()
+	root := cachedRoot
+	pathsMu.Unlock()
+	if root != "" {
+		ensureDefaults(root)
+	}
+	return path
+}
+
+func runtimeRootLocked() string {
 	if env := os.Getenv("AGENTLY_RUNTIME_ROOT"); strings.TrimSpace(env) != "" {
-		resolved := abs(resolveTemplate(env, false))
+		resolved := abs(resolveTemplateLocked(env, false))
 		if cachedRuntime == "" || cachedRuntime != resolved {
 			cachedRuntime = resolved
 			ensureWorkspaceDir(cachedRuntime)
@@ -156,7 +175,7 @@ func RuntimeRoot() string {
 		}
 		return cachedRuntime
 	}
-	root := Root()
+	root := rootLocked()
 	if cachedRuntime == "" || cachedRuntime != root {
 		cachedRuntime = root
 		cachedState = ""
@@ -166,15 +185,26 @@ func RuntimeRoot() string {
 
 // StateRoot returns the state root path. It defaults to RuntimeRoot()/state unless overridden.
 func StateRoot() string {
+	pathsMu.Lock()
+	path := stateRootLocked()
+	root := cachedRoot
+	pathsMu.Unlock()
+	if root != "" {
+		ensureDefaults(root)
+	}
+	return path
+}
+
+func stateRootLocked() string {
 	if env := os.Getenv("AGENTLY_STATE_PATH"); strings.TrimSpace(env) != "" {
-		resolved := abs(resolveTemplate(env, true))
+		resolved := abs(resolveTemplateLocked(env, true))
 		if cachedState == "" || cachedState != resolved {
 			cachedState = resolved
 			ensureWorkspaceDir(cachedState)
 		}
 		return cachedState
 	}
-	resolved := filepath.Join(RuntimeRoot(), "state")
+	resolved := filepath.Join(runtimeRootLocked(), "state")
 	if cachedState == "" || cachedState != resolved {
 		cachedState = resolved
 		ensureWorkspaceDir(cachedState)
@@ -187,10 +217,16 @@ func SetRuntimeRoot(path string) {
 	if strings.TrimSpace(path) == "" {
 		return
 	}
-	cachedRuntime = abs(resolveTemplate(path, false))
+	pathsMu.Lock()
+	cachedRuntime = abs(resolveTemplateLocked(path, false))
 	ensureWorkspaceDir(cachedRuntime)
 	// reset derived state root so it can be recomputed
 	cachedState = ""
+	root := cachedRoot
+	pathsMu.Unlock()
+	if root != "" {
+		ensureDefaults(root)
+	}
 }
 
 // SetStateRoot overrides the state root path for this process.
@@ -198,8 +234,14 @@ func SetStateRoot(path string) {
 	if strings.TrimSpace(path) == "" {
 		return
 	}
-	cachedState = abs(resolveTemplate(path, true))
+	pathsMu.Lock()
+	cachedState = abs(resolveTemplateLocked(path, true))
 	ensureWorkspaceDir(cachedState)
+	root := cachedRoot
+	pathsMu.Unlock()
+	if root != "" {
+		ensureDefaults(root)
+	}
 }
 
 // ResolvePathTemplate expands supported macros in a path template.
@@ -209,15 +251,26 @@ func ResolvePathTemplate(value string) string {
 }
 
 func resolveTemplate(value string, includeRuntime bool) string {
+	pathsMu.Lock()
+	path := resolveTemplateLocked(value, includeRuntime)
+	root := cachedRoot
+	pathsMu.Unlock()
+	if root != "" {
+		ensureDefaults(root)
+	}
+	return path
+}
+
+func resolveTemplateLocked(value string, includeRuntime bool) string {
 	v := strings.TrimSpace(value)
 	if v == "" {
 		return v
 	}
 	if strings.Contains(v, "${workspaceRoot}") {
-		v = strings.ReplaceAll(v, "${workspaceRoot}", Root())
+		v = strings.ReplaceAll(v, "${workspaceRoot}", rootLocked())
 	}
 	if includeRuntime && strings.Contains(v, "${runtimeRoot}") {
-		v = strings.ReplaceAll(v, "${runtimeRoot}", RuntimeRoot())
+		v = strings.ReplaceAll(v, "${runtimeRoot}", runtimeRootLocked())
 	}
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
 		v = strings.ReplaceAll(v, "${home}", home)

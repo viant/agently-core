@@ -11,6 +11,7 @@ import (
 	iauth "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/agui"
 	"github.com/viant/agently-core/protocol/agui/extensions"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	"github.com/viant/agently-core/runtime/aguistate"
 	"github.com/viant/agently-core/runtime/streaming"
 )
@@ -21,6 +22,7 @@ type AGUIConversationBootstrapInput struct {
 	IncludeModelCalls    *bool                     `json:"includeModelCalls,omitempty"`
 	IncludeToolCalls     *bool                     `json:"includeToolCalls,omitempty"`
 	IncludeModelPayloads *bool                     `json:"includeModelPayloads,omitempty"`
+	IncludeToolPayloads  *bool                     `json:"includeToolPayloads,omitempty"`
 	IncludeFeeds         *bool                     `json:"includeFeeds,omitempty"`
 	Selectors            map[string]*QuerySelector `json:"selectors,omitempty"`
 }
@@ -60,7 +62,9 @@ func aguiConversationBootstrapAvailable(client Client) bool {
 	return ok && configured.aguiConversationBootstrapAvailable()
 }
 
-func dispatchAGUIConversationBootstrap(ctx context.Context, client Client, store aguistore.Store, record *aguistore.Run, payload json.RawMessage) (*AGUIConversationBootstrapResult, error) {
+func dispatchAGUIConversationBootstrap(ctx context.Context, client Client, store aguistore.Store, record *aguistore.Run, payload json.RawMessage) (output *AGUIConversationBootstrapResult, resultErr error) {
+	total := observe.Start(ctx, "history.bootstrap", observe.Labels{})
+	defer func() { total.End(observe.OutcomeFor(resultErr), observe.CacheUnknown) }()
 	if client == nil || store == nil || record == nil || record.ConversationID == "" || record.TurnID != "" || iauth.EffectiveUserID(ctx) != record.Principal {
 		return nil, fmt.Errorf("authorized independent conversation bootstrap scope is required")
 	}
@@ -69,7 +73,9 @@ func dispatchAGUIConversationBootstrap(ctx context.Context, client Client, store
 	}
 	// Recheck the original native conversation at dispatch, not a protocol thread
 	// created by command admission. The existing service remains the authority.
-	conversation, err := client.GetConversation(ctx, record.ConversationID)
+	headerTiming := observe.Start(ctx, "history.header", observe.Labels{})
+	conversation, err := readConversationHeader(ctx, client, record.ConversationID)
+	headerTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil || conversation == nil || conversation.Id != record.ConversationID || conversation.CreatedByUserId == nil || *conversation.CreatedByUserId != record.Principal {
 		return nil, fmt.Errorf("conversation unavailable")
 	}
@@ -93,34 +99,45 @@ func dispatchAGUIConversationBootstrap(ctx context.Context, client Client, store
 	for name, selector := range input.Selectors {
 		options = append(options, WithTranscriptSelector(name, selector))
 	}
+	if input.IncludeToolPayloads != nil {
+		options = append(options, WithIncludeToolPayloads(*input.IncludeToolPayloads))
+	}
 	if input.IncludeModelPayloads != nil {
 		options = append(options, WithIncludeModelPayloads(*input.IncludeModelPayloads))
 	}
+	transcriptTiming := observe.Start(ctx, "history.transcript", observe.Labels{})
 	var transcript *ConversationStateResponse
 	if input.Mode == "live" {
 		transcript, err = client.GetLiveState(ctx, record.ConversationID, options...)
 	} else {
 		transcript, err = client.GetTranscript(ctx, &GetTranscriptInput{ConversationID: record.ConversationID, Since: input.Since, IncludeModelCalls: include(input.IncludeModelCalls), IncludeToolCalls: include(input.IncludeToolCalls)}, options...)
 	}
+	transcriptTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, err
 	}
 	if transcript == nil || transcript.Conversation == nil || transcript.Conversation.ConversationID != record.ConversationID {
 		return nil, fmt.Errorf("canonical conversation snapshot scope mismatch")
 	}
+	threadTiming := observe.Start(ctx, "history.protocol_thread", observe.Labels{})
 	thread, err := store.GetThread(ctx, record.Principal, record.ThreadID)
+	threadTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, err
 	}
 	if thread.ProtocolOnly {
 		return nil, fmt.Errorf("original native conversation unavailable")
 	}
+	projectionTiming := observe.Start(ctx, "history.projection", observe.Labels{})
 	projection, err := aguistate.New(thread.State, thread.Messages)
+	projectionTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, err
 	}
 	result := &AGUIConversationBootstrapResult{Version: "1", ThreadID: record.ThreadID, Transcript: transcript, State: projection.State, Runs: []AGUIConversationRun{}, Projection: AGUIBootstrapProjection{Lossless: true, UnavailableMessageIDs: []string{}}}
+	aliasTiming := observe.Start(ctx, "history.identity_correlation", observe.Labels{})
 	aliases := aguiBootstrapUserAliases(ctx, store, record, transcript, projection.Messages)
+	aliasTiming.End(observe.OK, observe.CacheUnknown)
 	result.Messages, result.Projection = aguiBootstrapMessagesWithAliases(ctx, client, transcript, projection.Messages, aliases)
 	result.HostActivities, result.UnavailableHostActivityIDs = aguiBootstrapHostActivities(ctx, client, store, record, projection.Messages)
 	pending, err := store.ListPending(ctx, record.Principal, record.ThreadID)
@@ -172,6 +189,8 @@ func dispatchAGUIConversationBootstrap(ctx context.Context, client Client, store
 		result.Runs = append(result.Runs, AGUIConversationRun{Kind: aguiBootstrapRunKind(run), ThreadID: run.ThreadID, RunID: run.RunID, ParentRunID: run.ParentRunID, Status: run.Status, Revision: run.Revision, LastSequence: run.LastSequence})
 	}
 	sort.Slice(result.Runs, func(i, j int) bool { return result.Runs[i].RunID < result.Runs[j].RunID })
+	validationTiming := observe.Start(ctx, "history.validation", observe.Labels{})
+	defer func() { validationTiming.End(observe.OutcomeFor(resultErr), observe.CacheUnknown) }()
 	if err := agui.ValidateEvent(rawAGUI(map[string]any{"type": "MESSAGES_SNAPSHOT", "messages": result.Messages})); err != nil {
 		return nil, err
 	}

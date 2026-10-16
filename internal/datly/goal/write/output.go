@@ -9,5 +9,5 @@ import (
 // Output is the generated output scaffold for writer.
 type Output struct {
 	response.Status `parameter:",kind=output,in=status"`
-	Data            []*Goal `parameter:"Data,kind=output,in=body,dataType=[]*Goal"`
+	Data            []*Goal `parameter:"Data,kind=output,in=body,dataType=[]*Goal" json:"data,omitempty"`
 }

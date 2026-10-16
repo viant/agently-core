@@ -1,12 +1,13 @@
 package window
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 
-	"github.com/viant/afs"
 	lookupProto "github.com/viant/agently-core/protocol/lookup/overlay"
 	"github.com/viant/agently-core/workspace"
 	wsmeta "github.com/viant/agently-core/workspace/service/meta"
@@ -25,18 +26,46 @@ import (
 // to a workspace asset must resolve to an attached asset, otherwise the load
 // fails with the missing assignments spelled out.
 func MergeWorkspaceForgeAssets(ctx context.Context, window *forgeTypes.Window, assignment *ResourceAssignment) error {
+	return mergeWorkspaceForgeAssetsAt(ctx, workspace.Root(), window, assignment, enrichWorkspaceWindow)
+}
+
+// MergeWorkspaceForgeAssetsAt uses the same explicit workspace root as the
+// window definition, including every assigned datasource and model lookup.
+func MergeWorkspaceForgeAssetsAt(ctx context.Context, workspaceRoot string, window *forgeTypes.Window, assignment *ResourceAssignment) error {
+	return mergeWorkspaceForgeAssetsAt(ctx, workspaceRoot, window, assignment, nil)
+}
+
+// MergeWorkspaceForgeAssetsWithEnricherAt also binds a host-owned extension
+// callback without consulting the process-global legacy enricher.
+func MergeWorkspaceForgeAssetsWithEnricherAt(ctx context.Context, workspaceRoot string, window *forgeTypes.Window, assignment *ResourceAssignment, enricher WorkspaceWindowEnricher) error {
+	return mergeWorkspaceForgeAssetsAt(ctx, workspaceRoot, window, assignment, enricher)
+}
+
+func mergeWorkspaceForgeAssetsAt(ctx context.Context, workspaceRoot string, window *forgeTypes.Window, assignment *ResourceAssignment, enricher WorkspaceWindowEnricher) error {
+	return mergeWorkspaceForgeAssetsWithOptionsAt(ctx, workspaceRoot, window, assignment, enricher, LoaderOptions{})
+}
+
+func mergeWorkspaceForgeAssetsWithOptionsAt(ctx context.Context, workspaceRoot string, window *forgeTypes.Window, assignment *ResourceAssignment, enricher WorkspaceWindowEnricher, options LoaderOptions) (failure error) {
+	defer func() {
+		if err := options.check(); err != nil {
+			failure = err
+		}
+	}()
 	if window == nil {
 		return nil
 	}
-	svc := wsmeta.New(afs.New(), workspace.Root())
-	catalog, err := loadWorkspaceCatalog(ctx, svc)
+	if strings.TrimSpace(workspaceRoot) == "" {
+		return fmt.Errorf("workspace root is required")
+	}
+	svc := wsmeta.New(options.filesystem(), workspaceRoot)
+	catalog, err := options.catalog(ctx, workspaceRoot, svc)
 	if err != nil {
 		return err
 	}
 	resolver := newAssignmentResolver(window, catalog)
 	normalized := assignment.Normalized()
 	if containsChat(window.View.Content) {
-		if err := attachNamedLookupReferences(ctx, svc, normalized); err != nil {
+		if err := attachNamedLookupReferences(ctx, svc, normalized, window); err != nil {
 			return err
 		}
 	}
@@ -45,8 +74,36 @@ func MergeWorkspaceForgeAssets(ctx context.Context, window *forgeTypes.Window, a
 	if err := resolver.attach(); err != nil {
 		return err
 	}
-	if err := enrichWorkspaceWindow(ctx, window); err != nil {
-		return err
+	if options.SourceFileSelected != nil {
+		selected := map[string]bool{}
+		for id := range resolver.dataSources {
+			selected[catalog.dataSourcePaths[id]] = true
+		}
+		for id := range resolver.dialogs {
+			selected[catalog.dialogs[id].path] = true
+		}
+		for name := range resolver.models {
+			if entry, ok := catalog.models[name]; ok {
+				selected[catalog.registries[entry.registry].path] = true
+			}
+		}
+		for name := range resolver.schemas {
+			if entry, ok := catalog.schemas[name]; ok {
+				selected[catalog.registries[entry.registry].path] = true
+			}
+		}
+		for file := range selected {
+			if file != "" {
+				if err := options.SourceFileSelected(ctx, file); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if enricher != nil {
+		if err := enricher(ctx, window); err != nil {
+			return err
+		}
 	}
 	// Host extensions (including report builders) add datasource references.
 	// Validate the complete window, while keeping missing datasources non-fatal.
@@ -272,7 +329,11 @@ func (r *assignmentResolver) attach() error {
 		if _, exists := window.DataSource[id]; exists {
 			continue
 		}
-		window.DataSource[id] = r.catalog.dataSources[id]
+		value, err := cloneStaticValue(r.catalog.dataSources[id])
+		if err != nil {
+			return err
+		}
+		window.DataSource[id] = value
 	}
 	if len(r.schemas) > 0 && window.Schemas == nil {
 		window.Schemas = map[string]forgeTypes.ResourceSchema{}
@@ -282,7 +343,11 @@ func (r *assignmentResolver) attach() error {
 			log.Printf("workspace forge: ignoring workspace resource schema %q because window %s owns that name", name, windowIdentity(window))
 			continue
 		}
-		window.Schemas[name] = r.catalog.schemas[name].schema
+		value, err := cloneStaticValue(r.catalog.schemas[name].schema)
+		if err != nil {
+			return err
+		}
+		window.Schemas[name] = value
 	}
 	if len(r.models) > 0 && window.ResourceModels == nil {
 		window.ResourceModels = map[string]forgeTypes.ResourceModel{}
@@ -292,7 +357,11 @@ func (r *assignmentResolver) attach() error {
 			log.Printf("workspace forge: ignoring workspace resource model %q because window %s owns that name", name, windowIdentity(window))
 			continue
 		}
-		window.ResourceModels[name] = r.catalog.models[name].model
+		value, err := cloneStaticValue(r.catalog.models[name].model)
+		if err != nil {
+			return err
+		}
+		window.ResourceModels[name] = value
 	}
 	for _, id := range sortedKeys(r.dialogs) {
 		asset := r.catalog.dialogs[id]
@@ -306,7 +375,11 @@ func (r *assignmentResolver) attach() error {
 			log.Printf("workspace forge: skipping invalid workspace dialog %s (%s) required by window %s: %v", id, workspaceAssetPath(asset.path), windowIdentity(window), err)
 			continue
 		}
-		window.Dialogs = append(window.Dialogs, asset.dialog)
+		value, err := cloneStaticValue(asset.dialog)
+		if err != nil {
+			return err
+		}
+		window.Dialogs = append(window.Dialogs, value)
 	}
 	return nil
 }
@@ -424,7 +497,7 @@ func containsChat(container *forgeTypes.Container) bool {
 	return false
 }
 
-func attachNamedLookupReferences(ctx context.Context, svc *wsmeta.Service, assignment *ResourceAssignment) error {
+func attachNamedLookupReferences(ctx context.Context, svc *wsmeta.Service, assignment *ResourceAssignment, window *forgeTypes.Window) error {
 	paths, err := svc.ListRecursive(ctx, workspace.KindForgeLookup)
 	if err != nil {
 		return nil
@@ -440,6 +513,23 @@ func attachNamedLookupReferences(ctx context.Context, svc *wsmeta.Service, assig
 		// Agent-specific overlays require an explicit owning-window assignment.
 		if definition.Target.ID != "" || definition.Target.IDGlob != "" {
 			continue
+		}
+		// The original selected overlay is presentation metadata owned by this
+		// compiled chat definition. Retain it alongside its datasource/dialog
+		// closure so execution never needs an ambient workspace overlay store.
+		raw, err := json.Marshal(&definition)
+		if err != nil {
+			return err
+		}
+		present := false
+		for _, original := range window.LookupOverlays {
+			if bytes.Equal(original, raw) {
+				present = true
+				break
+			}
+		}
+		if !present {
+			window.LookupOverlays = append(window.LookupOverlays, raw)
 		}
 		for _, binding := range definition.Bindings {
 			if binding.Named == nil || binding.Named.Name == "" {

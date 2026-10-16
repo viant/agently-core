@@ -5,6 +5,10 @@ package reporting
 import (
 	"context"
 	"encoding/json"
+	"github.com/viant/agently-core/protocol/primitive"
+	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/agently-core/service/reporting/catalog"
+	shared "github.com/viant/forge/backend/reporting/engine"
 	"strings"
 	"time"
 )
@@ -40,18 +44,7 @@ const (
 
 // Diagnostic is the structured backend diagnostic shape used across compile
 // and export operations.
-type Diagnostic struct {
-	Code         string `json:"code,omitempty"`
-	Severity     string `json:"severity,omitempty"`
-	Path         string `json:"path,omitempty"`
-	Message      string `json:"message,omitempty"`
-	SuggestedFix string `json:"suggestedFix,omitempty"`
-	// Cause contains the underlying operational error when a diagnostic is
-	// produced from a failed integration step. It is intentionally optional so
-	// existing diagnostics remain compact and do not expose implementation
-	// details unless the producer explicitly opts in.
-	Cause string `json:"cause,omitempty"`
-}
+type Diagnostic = shared.Diagnostic
 
 const (
 	SourceKindReportSpec = "reportSpec"
@@ -127,37 +120,31 @@ type CompileAndExportForgeUIRequest struct {
 type CompileAndExportForgeUIResult = CompileAndExportFencedReportResult
 
 // CompileRequest carries an authored artifact into the backend compile seam.
-type CompileRequest struct {
-	ArtifactRef string          `json:"artifactRef,omitempty"`
-	SourceKind  string          `json:"sourceKind,omitempty"`
-	Document    json.RawMessage `json:"document,omitempty"`
-}
+type CompileRequest = shared.CompileRequest
 
 // CompileResult is the canonical compile response.
-type CompileResult struct {
-	ArtifactRef string          `json:"artifactRef,omitempty"`
-	ReportSpec  json.RawMessage `json:"reportSpec,omitempty"`
-	Diagnostics []Diagnostic    `json:"diagnostics,omitempty"`
-	CompiledAt  time.Time       `json:"compiledAt,omitempty"`
-}
+type CompileResult = shared.CompileResult
 
 // RenderRequest is the worker-facing canonical export payload handed to the
 // backend exporter boundary.
 type RenderRequest struct {
-	JobID             string          `json:"jobId,omitempty"`
-	ArtifactRef       string          `json:"artifactRef,omitempty"`
-	OwnerID           string          `json:"ownerId,omitempty"`
-	ConversationID    string          `json:"conversationId,omitempty"`
-	WorkspaceID       string          `json:"workspaceId,omitempty"`
-	AuthContextRef    string          `json:"authContextRef,omitempty"`
-	Format            ExportFormat    `json:"format,omitempty"`
-	Scope             ExportScope     `json:"scope,omitempty"`
-	ReportRunID       string          `json:"reportRunId,omitempty"`
-	ReportRunRevision int64           `json:"reportRunRevision,omitempty"`
-	ReportSpec        json.RawMessage `json:"reportSpec,omitempty"`
-	ReportFill        json.RawMessage `json:"reportFill,omitempty"`
-	ReportPrint       json.RawMessage `json:"reportPrint,omitempty"`
-	Metadata          json.RawMessage `json:"metadata,omitempty"`
+	// Set only by the canonical worker after scoped job and resource admission.
+	resourceDatasourceRequests bool
+	JobID                      string                     `json:"jobId,omitempty"`
+	ArtifactRef                string                     `json:"artifactRef,omitempty"`
+	OwnerID                    string                     `json:"ownerId,omitempty"`
+	ConversationID             string                     `json:"conversationId,omitempty"`
+	WorkspaceID                string                     `json:"workspaceId,omitempty"`
+	AuthContextRef             string                     `json:"authContextRef,omitempty"`
+	Format                     ExportFormat               `json:"format,omitempty"`
+	Scope                      ExportScope                `json:"scope,omitempty"`
+	ReportRunID                string                     `json:"reportRunId,omitempty"`
+	ReportRunRevision          int64                      `json:"reportRunRevision,omitempty"`
+	ResourcePin                *identity.ResolvedResource `json:"-"`
+	ReportSpec                 json.RawMessage            `json:"reportSpec,omitempty"`
+	ReportFill                 json.RawMessage            `json:"reportFill,omitempty"`
+	ReportPrint                json.RawMessage            `json:"reportPrint,omitempty"`
+	Metadata                   json.RawMessage            `json:"metadata,omitempty"`
 }
 
 // RenderResult is the exporter output consumed by agently-core artifact
@@ -171,22 +158,28 @@ type RenderResult struct {
 
 // SubmitExportRequest queues an export job against canonical reporting models.
 type SubmitExportRequest struct {
-	ArtifactRef         string               `json:"artifactRef,omitempty"`
-	Format              ExportFormat         `json:"format,omitempty"`
-	Scope               ExportScope          `json:"scope,omitempty"`
-	ConversationID      string               `json:"conversationId,omitempty"`
-	WorkspaceID         string               `json:"workspaceId,omitempty"`
-	Source              *ExportSource        `json:"source,omitempty"`
-	ReportSpec          json.RawMessage      `json:"reportSpec,omitempty"`
-	ReportFill          json.RawMessage      `json:"reportFill,omitempty"`
-	ReportPrint         json.RawMessage      `json:"reportPrint,omitempty"`
-	Metadata            json.RawMessage      `json:"metadata,omitempty"`
-	ReportExportRequest *ReportExportRequest `json:"reportExportRequest,omitempty"`
+	DependencyPins      map[string]identity.ResolvedResource `json:"dependencyPins,omitempty"`
+	DependencyToken     string                               `json:"dependencyToken,omitempty"`
+	ArtifactRef         string                               `json:"artifactRef,omitempty"`
+	Format              ExportFormat                         `json:"format,omitempty"`
+	Scope               ExportScope                          `json:"scope,omitempty"`
+	ConversationID      string                               `json:"conversationId,omitempty"`
+	WorkspaceID         string                               `json:"workspaceId,omitempty"`
+	Source              *ExportSource                        `json:"source,omitempty"`
+	ReportSpec          json.RawMessage                      `json:"reportSpec,omitempty"`
+	ReportFill          json.RawMessage                      `json:"reportFill,omitempty"`
+	ReportPrint         json.RawMessage                      `json:"reportPrint,omitempty"`
+	Metadata            json.RawMessage                      `json:"metadata,omitempty"`
+	ReportExportRequest *ReportExportRequest                 `json:"reportExportRequest,omitempty"`
 	// ReportRunID selects the T2 run-reference mode.
 	// ExportRequestID is deliberately absent: trusted runtime/host context
 	// supplies it outside the model-visible arguments. The backend loads and
 	// records the authoritative completed run revision.
-	ReportRunID string `json:"reportRunId,omitempty"`
+	ReportRunID      string                     `json:"reportRunId,omitempty"`
+	Resource         *identity.ResourceRef      `json:"resource,omitempty"`
+	ResolvedResource *identity.ResolvedResource `json:"resolvedResource,omitempty"`
+	Parameters       map[string]interface{}     `json:"parameters,omitempty"`
+	execution        *ExecuteResourceResult
 
 	runModeHasAlternateFields bool
 }
@@ -227,13 +220,15 @@ type RecordAuditEventInput struct {
 // ShareArtifactRequest creates or returns a shared reporting artifact through
 // the reporting persistence boundary.
 type ShareArtifactRequest struct {
-	ArtifactRef         string               `json:"artifactRef,omitempty"`
-	Version             int                  `json:"version,omitempty"`
-	Lifecycle           string               `json:"lifecycle,omitempty"`
-	ReportDocument      json.RawMessage      `json:"reportDocument,omitempty"`
-	ReportExportRequest *ReportExportRequest `json:"reportExportRequest,omitempty"`
-	SavedViewOverlay    json.RawMessage      `json:"savedViewOverlay,omitempty"`
-	Metadata            json.RawMessage      `json:"metadata,omitempty"`
+	Resource            *identity.ResourceRef      `json:"resource,omitempty"`
+	ResolvedResource    *identity.ResolvedResource `json:"resolvedResource,omitempty"`
+	ArtifactRef         string                     `json:"artifactRef,omitempty"`
+	Version             int                        `json:"version,omitempty"`
+	Lifecycle           string                     `json:"lifecycle,omitempty"`
+	ReportDocument      json.RawMessage            `json:"reportDocument,omitempty"`
+	ReportExportRequest *ReportExportRequest       `json:"reportExportRequest,omitempty"`
+	SavedViewOverlay    json.RawMessage            `json:"savedViewOverlay,omitempty"`
+	Metadata            json.RawMessage            `json:"metadata,omitempty"`
 }
 
 // TransitionArtifactRequest mutates or materializes a lifecycle transition
@@ -295,29 +290,32 @@ type FailExportRequest struct {
 
 // ExportJob is the persisted async export job state.
 type ExportJob struct {
-	JobID             string          `json:"jobId,omitempty"`
-	ArtifactRef       string          `json:"artifactRef,omitempty"`
-	OwnerID           string          `json:"ownerId,omitempty"`
-	ConversationID    string          `json:"conversationId,omitempty"`
-	WorkspaceID       string          `json:"workspaceId,omitempty"`
-	AuthContextRef    string          `json:"authContextRef,omitempty"`
-	Format            ExportFormat    `json:"format,omitempty"`
-	Scope             ExportScope     `json:"scope,omitempty"`
-	Status            JobStatus       `json:"status,omitempty"`
-	ReportRunID       string          `json:"reportRunId,omitempty"`
-	ReportRunRevision int64           `json:"-"`
-	ExportRequestID   string          `json:"-"`
-	ReportSpec        json.RawMessage `json:"reportSpec,omitempty"`
-	ReportFill        json.RawMessage `json:"reportFill,omitempty"`
-	ReportPrint       json.RawMessage `json:"reportPrint,omitempty"`
-	Metadata          json.RawMessage `json:"metadata,omitempty"`
-	ArtifactID        string          `json:"artifactId,omitempty"`
-	Error             string          `json:"error,omitempty"`
-	Diagnostics       []Diagnostic    `json:"diagnostics,omitempty"`
-	SubmittedAt       time.Time       `json:"submittedAt,omitempty"`
-	StartedAt         *time.Time      `json:"startedAt,omitempty"`
-	CompletedAt       *time.Time      `json:"completedAt,omitempty"`
-	RetentionTTL      time.Duration   `json:"retentionTtl,omitempty"`
+	DependencyPins    map[string]identity.ResolvedResource `json:"-"`
+	DependencyToken   string                               `json:"-"`
+	JobID             string                               `json:"jobId,omitempty"`
+	ArtifactRef       string                               `json:"artifactRef,omitempty"`
+	OwnerID           string                               `json:"ownerId,omitempty"`
+	ConversationID    string                               `json:"conversationId,omitempty"`
+	WorkspaceID       string                               `json:"workspaceId,omitempty"`
+	AuthContextRef    string                               `json:"authContextRef,omitempty"`
+	Format            ExportFormat                         `json:"format,omitempty"`
+	Scope             ExportScope                          `json:"scope,omitempty"`
+	Status            JobStatus                            `json:"status,omitempty"`
+	ReportRunID       string                               `json:"reportRunId,omitempty"`
+	ReportRunRevision int64                                `json:"-"`
+	ResourcePin       *identity.ResolvedResource           `json:"-"`
+	ExportRequestID   string                               `json:"-"`
+	ReportSpec        json.RawMessage                      `json:"reportSpec,omitempty"`
+	ReportFill        json.RawMessage                      `json:"reportFill,omitempty"`
+	ReportPrint       json.RawMessage                      `json:"reportPrint,omitempty"`
+	Metadata          json.RawMessage                      `json:"metadata,omitempty"`
+	ArtifactID        string                               `json:"artifactId,omitempty"`
+	Error             string                               `json:"error,omitempty"`
+	Diagnostics       []Diagnostic                         `json:"diagnostics,omitempty"`
+	SubmittedAt       time.Time                            `json:"submittedAt,omitempty"`
+	StartedAt         *time.Time                           `json:"startedAt,omitempty"`
+	CompletedAt       *time.Time                           `json:"completedAt,omitempty"`
+	RetentionTTL      time.Duration                        `json:"retentionTtl,omitempty"`
 }
 
 // ExportJobStatus is the compact public lifecycle view of an export job.
@@ -357,31 +355,44 @@ type Artifact struct {
 // SharedArtifact is the persisted saved-view / published-snapshot shell owned
 // by agently-core. Payload fields remain opaque JSON at this boundary.
 type SharedArtifact struct {
-	ArtifactID       string          `json:"artifactId,omitempty"`
-	ArtifactRef      string          `json:"artifactRef,omitempty"`
-	OwnerID          string          `json:"ownerId,omitempty"`
-	OwnerRef         string          `json:"ownerRef,omitempty"`
-	Kind             string          `json:"kind,omitempty"`
-	Lifecycle        string          `json:"lifecycle,omitempty"`
-	Version          int             `json:"version,omitempty"`
-	ReportID         string          `json:"reportId,omitempty"`
-	Title            string          `json:"title,omitempty"`
-	SourceArtifactID string          `json:"sourceArtifactId,omitempty"`
-	BaseArtifactRef  string          `json:"baseArtifactRef,omitempty"`
-	PolicyRef        string          `json:"policyRef,omitempty"`
-	DocumentVersion  int             `json:"documentVersion,omitempty"`
-	Document         json.RawMessage `json:"document,omitempty"`
-	ReportSpec       json.RawMessage `json:"reportSpec,omitempty"`
-	CompileState     json.RawMessage `json:"compileState,omitempty"`
-	ReportFill       json.RawMessage `json:"reportFill,omitempty"`
-	ReportPrint      json.RawMessage `json:"reportPrint,omitempty"`
-	SavedViewOverlay json.RawMessage `json:"savedViewOverlay,omitempty"`
-	Metadata         json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt        time.Time       `json:"createdAt,omitempty"`
-	UpdatedAt        *time.Time      `json:"updatedAt,omitempty"`
+	RowEtag            int64                      `json:"rowEtag,omitempty"`
+	DraftRevision      int64                      `json:"draftRevision,omitempty"`
+	LatestStamp        int64                      `json:"latestStamp,omitempty"`
+	WorkspaceID        string                     `json:"workspaceId,omitempty"`
+	Resource           *identity.ResolvedResource `json:"resource,omitempty"`
+	ResourceDefinition json.RawMessage            `json:"resourceDefinition,omitempty"`
+	ArtifactID         string                     `json:"artifactId,omitempty"`
+	ArtifactRef        string                     `json:"artifactRef,omitempty"`
+	OwnerID            string                     `json:"ownerId,omitempty"`
+	OwnerRef           string                     `json:"ownerRef,omitempty"`
+	Kind               string                     `json:"kind,omitempty"`
+	Lifecycle          string                     `json:"lifecycle,omitempty"`
+	Version            int                        `json:"version,omitempty"`
+	ReportID           string                     `json:"reportId,omitempty"`
+	Title              string                     `json:"title,omitempty"`
+	SourceArtifactID   string                     `json:"sourceArtifactId,omitempty"`
+	BaseArtifactRef    string                     `json:"baseArtifactRef,omitempty"`
+	PolicyRef          string                     `json:"policyRef,omitempty"`
+	DocumentVersion    int                        `json:"documentVersion,omitempty"`
+	Document           json.RawMessage            `json:"document,omitempty"`
+	ReportSpec         json.RawMessage            `json:"reportSpec,omitempty"`
+	CompileState       json.RawMessage            `json:"compileState,omitempty"`
+	ReportFill         json.RawMessage            `json:"reportFill,omitempty"`
+	ReportPrint        json.RawMessage            `json:"reportPrint,omitempty"`
+	SavedViewOverlay   json.RawMessage            `json:"savedViewOverlay,omitempty"`
+	Metadata           json.RawMessage            `json:"metadata,omitempty"`
+	CreatedAt          time.Time                  `json:"createdAt,omitempty"`
+	UpdatedAt          *time.Time                 `json:"updatedAt,omitempty"`
+	sharedActorScope   *sharedReportActorScope
 }
 
 type SaveReportRequest struct {
+	WorkspaceID      string                     `json:"workspaceId,omitempty"`
+	Definition       json.RawMessage            `json:"definition,omitempty"`
+	Resource         *identity.ResourceRef      `json:"resource,omitempty"`
+	ResolvedResource *identity.ResolvedResource `json:"resolvedResource,omitempty"`
+	IdempotencyKey   string                     `json:"idempotencyKey,omitempty"`
+
 	ArtifactRef     string          `json:"artifactRef,omitempty"`
 	ReportID        string          `json:"reportId,omitempty"`
 	Title           string          `json:"title,omitempty"`
@@ -396,41 +407,53 @@ type SaveReportRequest struct {
 }
 
 type GetReportInput struct {
-	ArtifactID  string `json:"artifactId,omitempty"`
-	ArtifactRef string `json:"artifactRef,omitempty"`
-	ReportID    string `json:"reportId,omitempty"`
+	Resource         *identity.ResourceRef      `json:"resource,omitempty"`
+	ResolvedResource *identity.ResolvedResource `json:"resolvedResource,omitempty"`
+	ArtifactID       string                     `json:"artifactId,omitempty"`
+	ArtifactRef      string                     `json:"artifactRef,omitempty"`
+	ReportID         string                     `json:"reportId,omitempty"`
 }
 
 type ListReportsInput struct {
-	ArtifactRef string `json:"artifactRef,omitempty"`
-	ReportID    string `json:"reportId,omitempty"`
-	OrderID     string `json:"orderId,omitempty"`
-	Limit       int    `json:"limit,omitempty"`
+	Namespace       string `json:"namespace,omitempty"`
+	CurrentUserOnly bool   `json:"currentUserOnly,omitempty"`
+	Cursor          string `json:"cursor,omitempty"`
+	ArtifactRef     string `json:"artifactRef,omitempty"`
+	ReportID        string `json:"reportId,omitempty"`
+	OrderID         string `json:"orderId,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
 }
 
 // ReportSummary is the lightweight catalog projection. Full authored and
 // compiled payloads remain available through get_report.
 type ReportSummary struct {
-	ArtifactID       string     `json:"artifactId,omitempty"`
-	ArtifactRef      string     `json:"artifactRef,omitempty"`
-	ReportID         string     `json:"reportId,omitempty"`
-	Title            string     `json:"title,omitempty"`
-	OwnerID          string     `json:"ownerId,omitempty"`
-	ReportType       string     `json:"reportType,omitempty"`
-	BuilderRef       string     `json:"builderRef,omitempty"`
-	OrderIDs         []string   `json:"orderIds,omitempty"`
-	DefaultFrom      string     `json:"defaultFrom,omitempty"`
-	DefaultTo        string     `json:"defaultTo,omitempty"`
-	LastRunAt        *time.Time `json:"lastRunAt,omitempty"`
-	Lifecycle        string     `json:"lifecycle,omitempty"`
-	Version          int        `json:"version,omitempty"`
-	DocumentVersion  int        `json:"documentVersion,omitempty"`
-	SourceArtifactID string     `json:"sourceArtifactId,omitempty"`
-	CreatedAt        time.Time  `json:"createdAt,omitempty"`
-	UpdatedAt        *time.Time `json:"updatedAt,omitempty"`
+	Resource           *identity.ResolvedResource  `json:"resource,omitempty"`
+	ResourceURI        string                      `json:"resourceUri,omitempty"`
+	Namespace          string                      `json:"namespace,omitempty"`
+	Name               string                      `json:"name,omitempty"`
+	OwnedByCurrentUser bool                        `json:"ownedByCurrentUser"`
+	Capabilities       *catalog.ReportCapabilities `json:"capabilities,omitempty"`
+	ArtifactID         string                      `json:"artifactId,omitempty"`
+	ArtifactRef        string                      `json:"artifactRef,omitempty"`
+	ReportID           string                      `json:"reportId,omitempty"`
+	Title              string                      `json:"title,omitempty"`
+	OwnerID            string                      `json:"ownerId,omitempty"`
+	ReportType         string                      `json:"reportType,omitempty"`
+	BuilderRef         string                      `json:"builderRef,omitempty"`
+	OrderIDs           []string                    `json:"orderIds,omitempty"`
+	DefaultFrom        string                      `json:"defaultFrom,omitempty"`
+	DefaultTo          string                      `json:"defaultTo,omitempty"`
+	LastRunAt          *time.Time                  `json:"lastRunAt,omitempty"`
+	Lifecycle          string                      `json:"lifecycle,omitempty"`
+	Version            int                         `json:"version,omitempty"`
+	DocumentVersion    int                         `json:"documentVersion,omitempty"`
+	SourceArtifactID   string                      `json:"sourceArtifactId,omitempty"`
+	CreatedAt          time.Time                   `json:"createdAt,omitempty"`
+	UpdatedAt          *time.Time                  `json:"updatedAt,omitempty"`
 }
 
 type ListReportsResult struct {
+	NextCursor string           `json:"nextCursor,omitempty"`
 	Reports    []*ReportSummary `json:"reports,omitempty"`
 	TotalCount int              `json:"totalCount,omitempty"`
 }
@@ -449,6 +472,14 @@ type ExportSource struct {
 }
 
 type UpdateReportRequest struct {
+	ExpectedRowEtag            int64                      `json:"expectedRowEtag,omitempty"`
+	ExpectedDraftRevision      int64                      `json:"expectedDraftRevision,omitempty"`
+	ExpectedContentFingerprint string                     `json:"expectedContentFingerprint,omitempty"`
+	Definition                 json.RawMessage            `json:"definition,omitempty"`
+	Resource                   *identity.ResourceRef      `json:"resource,omitempty"`
+	ResolvedResource           *identity.ResolvedResource `json:"resolvedResource,omitempty"`
+	IdempotencyKey             string                     `json:"idempotencyKey,omitempty"`
+
 	ArtifactID      string          `json:"artifactId,omitempty"`
 	ArtifactRef     string          `json:"artifactRef,omitempty"`
 	ReportID        string          `json:"reportId,omitempty"`
@@ -464,6 +495,12 @@ type UpdateReportRequest struct {
 }
 
 type DuplicateReportRequest struct {
+	TargetURI         string                     `json:"targetUri,omitempty"`
+	TargetWorkspaceID string                     `json:"targetWorkspaceId,omitempty"`
+	Resource          *identity.ResourceRef      `json:"resource,omitempty"`
+	ResolvedResource  *identity.ResolvedResource `json:"resolvedResource,omitempty"`
+	IdempotencyKey    string                     `json:"idempotencyKey,omitempty"`
+
 	ArtifactID  string `json:"artifactId,omitempty"`
 	ArtifactRef string `json:"artifactRef,omitempty"`
 	ReportID    string `json:"reportId,omitempty"`
@@ -471,6 +508,11 @@ type DuplicateReportRequest struct {
 }
 
 type DeleteReportRequest struct {
+	ExpectedRowEtag  int64                      `json:"expectedRowEtag,omitempty"`
+	Resource         *identity.ResourceRef      `json:"resource,omitempty"`
+	ResolvedResource *identity.ResolvedResource `json:"resolvedResource,omitempty"`
+	IdempotencyKey   string                     `json:"idempotencyKey,omitempty"`
+
 	ArtifactID  string `json:"artifactId,omitempty"`
 	ArtifactRef string `json:"artifactRef,omitempty"`
 	ReportID    string `json:"reportId,omitempty"`
@@ -483,16 +525,17 @@ type DeleteReportResult struct {
 }
 
 type RecordReportRunRequest struct {
-	ArtifactID  string    `json:"artifactId,omitempty"`
-	ArtifactRef string    `json:"artifactRef,omitempty"`
-	ReportID    string    `json:"reportId,omitempty"`
-	RanAt       time.Time `json:"ranAt,omitempty"`
+	ArtifactID       string                     `json:"artifactId,omitempty"`
+	ArtifactRef      string                     `json:"artifactRef,omitempty"`
+	ReportID         string                     `json:"reportId,omitempty"`
+	RanAt            time.Time                  `json:"ranAt,omitempty"`
+	Resource         *identity.ResourceRef      `json:"resource,omitempty"`
+	ResolvedResource *identity.ResolvedResource `json:"resolvedResource,omitempty"`
+	Parameters       map[string]interface{}     `json:"parameters,omitempty"`
 }
 
 // Compiler lowers authored artifacts into canonical ReportSpec payloads.
-type Compiler interface {
-	Compile(ctx context.Context, request *CompileRequest) (*CompileResult, error)
-}
+type Compiler = shared.Compiler
 
 // Exporter turns canonical report artifacts into a persisted downloadable
 // artifact without re-interpreting authoring semantics.
@@ -528,19 +571,18 @@ type RunExportStore interface {
 }
 
 // AuditEvent is the generic reporting audit payload emitted by the service.
-type AuditEvent struct {
-	EventType   string                 `json:"eventType,omitempty"`
-	ArtifactRef string                 `json:"artifactRef,omitempty"`
-	Version     int                    `json:"version,omitempty"`
-	JobID       string                 `json:"jobId,omitempty"`
-	ArtifactID  string                 `json:"artifactId,omitempty"`
-	ActorID     string                 `json:"actorId,omitempty"`
-	ActorRef    string                 `json:"actorRef,omitempty"`
-	OccurredAt  time.Time              `json:"occurredAt,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-}
+type AuditEvent = shared.AuditEvent
 
-// AuditSink records reporting lifecycle events.
-type AuditSink interface {
-	Record(ctx context.Context, event *AuditEvent) error
+// AuditSink records reporting lifecycle events through the shared contract.
+type AuditSink = shared.AuditSink
+
+// StampReportRequest explicitly freezes the selected draft; ordinary saves never stamp.
+type StampReportRequest struct {
+	Resource              *identity.ResourceRef             `json:"resource"`
+	ResolvedResource      *identity.ResolvedResource        `json:"resolvedResource,omitempty"`
+	ExpectedRowEtag       int64                             `json:"expectedRowEtag,omitempty"`
+	ExpectedDraftRevision int64                             `json:"expectedDraftRevision"`
+	ContentFingerprint    string                            `json:"contentFingerprint"`
+	ExpectedDependencies  []primitive.ResourceDependencyPin `json:"expectedDependencies,omitempty"`
+	IdempotencyKey        string                            `json:"idempotencyKey"`
 }

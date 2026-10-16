@@ -131,6 +131,7 @@ describe('chatStore/projector — projectConversation', () => {
             turnId: 'tn_elicit',
             elicitationId: 'elic_A3',
             content: 'A3 critical dependency',
+            elicitationData: {deadline: '2026-10-06T17:59:00Z'},
             status: 'pending',
         } as SSEEvent));
         state = applyEvent(state, sse({
@@ -144,6 +145,7 @@ describe('chatStore/projector — projectConversation', () => {
         const rows = projectConversation(state);
         const it = rows[0] as IterationRenderRow;
         expect(it.elicitation?.elicitationId).toBe('elic_A3');
+        expect(it.elicitation?.deadline).toBe('2026-10-06T17:59:00Z');
         expect(it.elicitations?.map((elicitation) => elicitation.elicitationId)).toEqual(['elic_A3', 'elic_B3']);
     });
 

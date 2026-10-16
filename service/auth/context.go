@@ -29,6 +29,10 @@ func MCPAuthToken(ctx context.Context, useIDToken bool) string {
 	return iauth.MCPAuthToken(ctx, useIDToken)
 }
 
+// IDToken returns only the original ID token stored by trusted ingress. It
+// never falls back to an access token; user-info ACL facts require the former.
+func IDToken(ctx context.Context) string { return iauth.IDToken(ctx) }
+
 // InjectTokens stores OAuth tokens in context so that MCPAuthToken and
 // downstream MCP clients can forward the logged-in user's token.
 // External auth middleware (outside this module) should call this after
@@ -46,3 +50,11 @@ func InjectTokens(ctx context.Context, tokens *scyauth.Token) context.Context {
 	}
 	return ctx
 }
+
+// CanonicalUserID reads the canonical mapping populated by trusted ingress.
+// It never falls back to subject/email or injects identity authority.
+func CanonicalUserID(ctx context.Context) string { return iauth.CanonicalUserID(ctx) }
+
+// VerifiedProvider reads the provider name populated by trusted ingress after
+// credential verification. Token/user injection alone does not populate it.
+func VerifiedProvider(ctx context.Context) string { return iauth.Provider(ctx) }

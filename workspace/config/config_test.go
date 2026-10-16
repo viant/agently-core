@@ -332,6 +332,53 @@ policy:
 	}
 }
 
+func TestRootAuthzAuthorizationSettings(t *testing.T) {
+	root := &Root{}
+	if err := yaml.Unmarshal([]byte(`
+ui:
+  authorization:
+    mode: authz
+    providerRef: shared-authz
+    capabilityMappingRef: application-resources
+policy:
+  authorization:
+    mode: authz
+    providerRef: shared-authz
+    ui: {}
+`), root); err != nil {
+		t.Fatal(err)
+	}
+	ui := root.UIAuthorizationSettings()
+	policy := root.PolicyAuthorizationSettings()
+	if ui.Mode != "authz" || ui.ProviderRef != "shared-authz" || ui.CapabilityMappingRef != "application-resources" || policy.Mode != "authz" || policy.ProviderRef != "shared-authz" || !root.PolicyAuthorizationEnabled("ui") {
+		t.Fatalf("ui=%+v policy=%+v", ui, policy)
+	}
+}
+
+func TestLoadRejectsMalformedAuthorizationFieldTypes(t *testing.T) {
+	t.Setenv("AGENTLY_TEST_MISSING_AUTHZ_MODE", "")
+	for name, source := range map[string]string{
+		"ui mode boolean":      "ui:\n  authorization:\n    mode: true\n",
+		"ui mode null":         "ui:\n  authorization:\n    mode: null\n",
+		"ui mode empty":        "ui:\n  authorization:\n    mode: ''\n",
+		"ui mode missing env":  "ui:\n  authorization:\n    mode: ${AGENTLY_TEST_MISSING_AUTHZ_MODE}\n",
+		"policy mode number":   "policy:\n  authorization:\n    mode: 7\n",
+		"authorization scalar": "ui:\n  authorization: authz\n",
+		"provider number":      "ui:\n  authorization:\n    mode: authz\n    providerRef: 42\n",
+		"legacy tool list":     "policy:\n  authorization:\n    mcpTool: [legacy]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte(source), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(root); err == nil {
+				t.Fatalf("malformed authorization config was accepted: %s", source)
+			}
+		})
+	}
+}
+
 func TestGoalsEnabled(t *testing.T) {
 	testCases := []struct {
 		name     string

@@ -1,88 +1,200 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-queue-edit
+      email: e2e-queue-edit@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval queue edit fields - create conversation"
+    description: tool approval queue edit fields - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: chatter_system_os_queue_edit
+        Title: queue-approval-edit-fields-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: chatter_system_os_queue_edit
-          Title: queue-approval-edit-fields-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   startQueuedQuery:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval queue edit fields - start query"
+    description: tool approval queue edit fields - start query
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 065_tool_approval_queue_edit_fields-startQueuedQuery
+        query:
+          conversationID: ${createConversation.Responses[0].JSONBody.id}
+          agentID: chatter_system_os_queue_edit
+          query: What are my HOME, SHELL, and PATH environment variables?
+      Expect:
+        Code: 200
         JSONBody:
-          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-          AgentID: chatter_system_os_queue_edit
-          UserId: e2e-queue-edit
-          Query: What are my HOME, SHELL, and PATH environment variables?
-
+          outcome:
+            type: interrupt
   waitForQueue:
     when: $sdkKey != ''
     action: nop
     sleepTimeMs: 3000
-
   listPendingApprovals:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval queue edit fields - verify pending approval"
+    description: tool approval queue edit fields - verify pending approval
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/tool-approvals/pending?userId=e2e-queue-edit&conversationId=${createConversation.Responses[0].JSONBody.Id}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@rows[0]": true
-            "@exists@rows[0].metadata.approval.editors[0]": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/tool-approvals/pending?userId=e2e-queue-edit&conversationId=${createConversation.Responses[0].JSONBody.id}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@rows[0]': true
+          '@exists@rows[0].metadata.approval.editors[0]': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+  captureOriginalApproval:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: freeze the actual owned original operation before approval
+    requests:
+    - Method: GET
+      URL: ${aguiProbeURL}/approval-capture/065_tool_approval_queue_edit_fields-startQueuedQuery?id=${listPendingApprovals.Responses[0].JSONBody.rows[0].id}
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          tuple:
+            owner: e2e-queue-edit
+            approvalId: ${listPendingApprovals.Responses[0].JSONBody.rows[0].id}
+            nativeConversationId: ${createConversation.Responses[0].JSONBody.id}
+            nativeTurnId: ${startQueuedQuery.Responses[0].JSONBody.identity.nativeTurnId}
+            '@exists@nativeOperationId': true
+            '@exists@effectMessageId': true
+            '@exists@publicToolCallId': true
+            originalArgumentNames: [HOME, PATH, SHELL]
   approveEditedToolCall:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval queue edit fields - approve with HOME and PATH only"
+    description: tool approval queue edit fields - approve with HOME and PATH only
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/tool-approvals/${listPendingApprovals.Responses[0].JSONBody.rows[0].id}/decision
+    - Method: POST
+      URL: ${authServerURL}/v1/tool-approvals/${listPendingApprovals.Responses[0].JSONBody.rows[0].id}/decision
+      JSONBody:
+        action: approve
+        userId: e2e-queue-edit
+        editedFields:
+          names:
+          - HOME
+          - PATH
+      Expect:
+        Code: 200
         JSONBody:
-          action: approve
-          userId: e2e-queue-edit
-          editedFields:
-            names:
-              - HOME
-              - PATH
-        Expect:
-          Code: 200
-          JSONBody:
-            status: ok
-
-  waitForCompletion:
+          status: ok
+          protocol:
+            '@exists@continuationRunId': true
+            '@exists@remainingInterruptIds[0]': false
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+  collectApprovalContinuation:
     when: $sdkKey != ''
-    action: nop
-    sleepTimeMs: 3000
-
-  verifyFilteredResult:
+    action: http/runner:send
+    description: observe the successor owned by the actual HTTP approval command
+    requests:
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: approval-continuation-65
+        nativeConversationId: ${createConversation.Responses[0].JSONBody.id}
+        attach:
+          threadId: ${approveEditedToolCall.Responses[0].JSONBody.protocol.threadId}
+          runId: ${approveEditedToolCall.Responses[0].JSONBody.protocol.continuationRunId}
+      Expect:
+        Code: 200
+        JSONBody:
+          outcome:
+            type: success
+  verifyOriginalApprovedEffect:
     when: $sdkKey != ''
-    action: exec:run
-    description: "tool approval queue edit fields - verify final response excludes SHELL"
-    checkError: true
-    commands:
-      - |
-        body=$(curl -fsS "${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}/live-state" | jq -r '.conversation.turns[0].assistant.final.content // ""')
-        echo "$body" | grep '"HOME"'
-        echo "$body" | grep '"PATH"'
-        if echo "$body" | grep -q '"SHELL"'; then
-          echo "unexpected SHELL in final response"
-          echo "$body"
-          exit 1
-        fi
+    action: http/runner:send
+    description: verify exact original committed receipt and canonical result event
+    requests:
+    - Method: GET
+      URL: ${aguiProbeURL}/approval-receipt/065_tool_approval_queue_edit_fields-startQueuedQuery?id=${captureOriginalApproval.Responses[0].JSONBody.tuple.approvalId}&runProbe=approval-continuation-65&runId=${approveEditedToolCall.Responses[0].JSONBody.protocol.continuationRunId}
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          queueStatus: executed
+          decision: approve
+          effectCount: 1
+          originalResultEventCount: 1
+          recoveredTerminal: success
+          tuple:
+            owner: e2e-queue-edit
+            approvalId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.approvalId}
+            nativeConversationId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.nativeConversationId}
+            nativeTurnId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.nativeTurnId}
+            nativeOperationId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.nativeOperationId}
+            publicToolCallId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.publicToolCallId}
+            effectMessageId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.effectMessageId}
+          approvedRequest:
+            '@length@names': 2
+            names: [HOME, PATH]
+          actualResponse:
+            '@length@values': 2
+            values:
+              HOME: '@exists@'
+              PATH: '@exists@'
+              SHELL: '@!exists@'
+  observeOriginalFinalAssistant:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: observe completion and final content of the original approved native turn
+    requests:
+    - Method: GET
+      URL: ${aguiProbeURL}/await-native/approval-continuation-65
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          nativeStatus: completed
+          literalFinalContent: '@exists@'
+  verifyOriginalAssistantIdentity:
+    action: validator:assert
+    description: verify completion of the original approved turn without imposing a prose format
+    actual: ${observeOriginalFinalAssistant.Responses[0].JSONBody}
+    expect:
+      nativeStatus: completed
+      identity:
+        nativeConversationId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.nativeConversationId}
+        nativeTurnId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.nativeTurnId}
+      rootTurn:
+        turnId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.nativeTurnId}
+        status: completed
+        assistant:
+          final:
+            messageId: '@exists@'
+            content: '@exists@'

@@ -145,7 +145,7 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	if input.Select != nil || input.Options != nil || input.Cursor != "" {
 		return fmt.Errorf("specify a representation for structured selection/options")
 	}
-	target, err := s.resolveReadTarget(ctx, input, s.agentAllowed(ctx))
+	target, err := s.resolveReadTargetWithOwnedSkill(ctx, input, s.agentAllowed(ctx), true)
 	if err != nil {
 		logx.Debugf("resources", "read resolve error rootId=%q root=%q uri=%q err=%v", input.RootID, input.RootURI, input.URI, err)
 		return err
@@ -168,12 +168,23 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 					meta := observation.RecordRead(ctx, target.fullURI, []byte(body), true)
 					output.Observation = &meta
 					return nil
+				} else if s.skillSvc.OwnsNativePath(target.fullURI) {
+					return err
 				}
 			}
 		}
 	}
 	var data []byte
-	if strings.HasPrefix(target.fullURI, "scratchpad://") {
+	native := false
+	if s.skillSvc != nil {
+		data, native, err = s.skillSvc.ReadNativeFile(ctx, target.fullURI)
+		if err != nil {
+			return err
+		}
+	}
+	if native {
+		// The owned snapshot supplied exact bytes through fresh primitive Get.
+	} else if strings.HasPrefix(target.fullURI, "scratchpad://") {
 		a, err := s.loadAsset(ctx, input, input.ExpectedVersion)
 		if err != nil {
 			return err
@@ -341,6 +352,19 @@ type readTarget struct {
 }
 
 func (s *Service) resolveReadTarget(ctx context.Context, input *ReadInput, allowed []string) (*readTarget, error) {
+	return s.resolveReadTargetWithOwnedSkill(ctx, input, allowed, false)
+}
+
+func (s *Service) resolveReadTargetWithOwnedSkill(ctx context.Context, input *ReadInput, allowed []string, activateOwnedSkill bool) (*readTarget, error) {
+	check := func(uri string) error {
+		// Only the existing text-read activation path can deliver an exact
+		// startup-owned entrypoint via its fresh canonical skill adapter.
+		// Other raw read surfaces and unowned paths keep the boundary.
+		if activateOwnedSkill && s.skillSvc != nil && s.skillSvc.OwnsNativePath(uri) {
+			return nil
+		}
+		return s.checkRawResourceURI(uri, false)
+	}
 	uri := strings.TrimSpace(input.URI)
 	if uri == "" && (isAbsLikePath(input.Path) || isWindowsAbsPath(input.Path) || strings.Contains(input.Path, "://")) {
 		uri = strings.TrimSpace(input.Path)
@@ -348,6 +372,9 @@ func (s *Service) resolveReadTarget(ctx context.Context, input *ReadInput, allow
 	if uri != "" {
 		fullURI, err := s.normalizeFullURI(ctx, uri, allowed)
 		if err != nil {
+			return nil, err
+		}
+		if err := check(fullURI); err != nil {
 			return nil, err
 		}
 		return &readTarget{fullURI: fullURI}, nil
@@ -362,6 +389,9 @@ func (s *Service) resolveReadTarget(ctx context.Context, input *ReadInput, allow
 	}
 	fullURI, err := rootCtx.ResolvePath(pathPart)
 	if err != nil {
+		return nil, err
+	}
+	if err := check(fullURI); err != nil {
 		return nil, err
 	}
 	return &readTarget{fullURI: fullURI, normRoot: rootCtx.Base()}, nil

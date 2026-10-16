@@ -3,7 +3,8 @@ package invariant
 import (
 	"fmt"
 	"reflect"
-	"strings"
+
+	sqlxio "github.com/viant/sqlx/io"
 )
 
 // ValidateOrphanDetach checks business-only maintenance shape. The canonical
@@ -36,7 +37,7 @@ func ValidateOrphanDetach(entity, previous any, column string, allowedColumns []
 	fieldName := ""
 	for i := 0; i < value.NumField(); i++ {
 		field := value.Type().Field(i)
-		if strings.Split(field.Tag.Get("sqlx"), ",")[0] == column {
+		if sqlxio.ParseTag(field.Tag).Name() == column {
 			fieldName = field.Name
 			break
 		}

@@ -147,14 +147,14 @@ func turnCubeRuntime(t *testing.T, db *sql.DB, trusted, provided bool) *druntime
 	resources := resource.New()
 	must(t, resources.Register(cube.ReaderDatlyResourceNamespace, cube.ReaderDatlyResources))
 	base := payloadArtifact(t, resources, reflect.TypeFor[cube.ReaderComponent](), reflect.TypeFor[cube.TurnReportInput](), reflect.TypeFor[cube.TurnReportOutput]())
-	compiled, err := report.NewProjectCompiler(report.ProjectConfig{}).CompileArtifacts([]bootstrap.ArtifactInput{{Component: base.Component, InputType: reflect.TypeFor[cube.TurnReportInput](), OutputType: reflect.TypeFor[cube.TurnReportOutput](), Resources: resources}})
+	compiled, err := report.NewProjectCompiler(report.ProjectConfig{}).CompileArtifacts(linkedCubeArtifactInputs[cube.ReaderCubeComponent, cube.ReaderCubeInput, cube.ReaderCubeOutput](t, resources, base, reflect.TypeFor[cube.TurnReportInput](), reflect.TypeFor[cube.TurnReportOutput](), cube.NewReaderCube))
 	must(t, err)
 	providers := []locator.Provider{}
 	if provided {
 		providers = append(providers, ordinaryAccess("turnaccess", func(context.Context, reflect.Type, string) (any, bool, error) { return trusted, true, nil }))
 	}
 	registered, err := compiled.RuntimeComponents(context.Background(), report.RuntimeConfigureFunc(func(_ context.Context, artifact *report.ComponentArtifact) (report.RuntimeCapabilities, error) {
-		if artifact.IsReport() {
+		if artifact.IsReport() || artifact.ReaderCompilation() == nil {
 			return report.RuntimeCapabilities{Providers: providers}, nil
 		}
 		reader, err := artifact.ReaderCompilation().NewExecution(bootstrap.ReaderRuntimeConfig{SQL: &dsql.SQLComponent{DB: db}})

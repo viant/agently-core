@@ -1,34 +1,32 @@
 pipeline:
   create:
     action: http/runner:send
-    description: "conversation CRUD - create"
+    description: conversation CRUD - create
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${serverURL}/v1/conversations
+      JSONBody:
+        AgentID: simple
+        Title: e2e-crud-test
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: simple
-          Title: e2e-crud-test
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
   get:
     action: http/runner:send
-    description: "conversation CRUD - get"
+    description: conversation CRUD - get
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${create.Responses[0].JSONBody.Id}
-        Expect:
-          Code: 200
-          JSONBody:
-            Id: ${create.Responses[0].JSONBody.Id}
-
+    - Method: GET
+      URL: ${serverURL}/v1/conversations/${create.Responses[0].JSONBody.id}
+      Expect:
+        Code: 200
+        JSONBody:
+          id: ${create.Responses[0].JSONBody.id}
   list:
     action: http/runner:send
-    description: "conversation CRUD - list"
+    description: conversation CRUD - list
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations?agentId=simple
-        Expect:
-          Code: 200
+    - Method: GET
+      URL: ${serverURL}/v1/conversations?agentId=simple
+      Expect:
+        Code: 200

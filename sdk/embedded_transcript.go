@@ -155,8 +155,18 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 		Conversation:  state,
 		Usage:         usageSummaryFromConversation(conv),
 	}
-	if c.feeds != nil && state != nil && optState != nil && optState.includeFeeds {
+	if (c.feeds != nil || c.primitiveProviders != nil) && state != nil && optState != nil && optState.includeFeeds {
 		resp.Feeds = c.resolveActiveFeedsFromState(ctx, state)
+	}
+	includeToolPayloads := true
+	if input.IncludeToolPayloads != nil {
+		includeToolPayloads = *input.IncludeToolPayloads
+	}
+	if optState.includeToolPayloads != nil {
+		includeToolPayloads = *optState.includeToolPayloads
+	}
+	if !includeToolPayloads {
+		c.omitCanonicalToolPayloadsWithCatalog(state, ctx, optState.includeFeeds)
 	}
 	return resp, nil
 }

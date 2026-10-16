@@ -712,15 +712,28 @@ public struct GetTemplateOutput: Codable, Sendable {
 public struct ListSkillsInput: Codable, Sendable {
     public let conversationID: String?
     public let agentID: String?
+    public let namespace: String?
+    public let nameTerms: [String]?
+    public let descriptionTerms: [String]?
+    public let keywords: [String]?
+    public let cursor: String?
+    public let limit: Int?
 
     enum CodingKeys: String, CodingKey {
         case conversationID = "conversationId"
         case agentID = "agentId"
+        case namespace, nameTerms, descriptionTerms, keywords, cursor, limit
     }
 
-    public init(conversationID: String? = nil, agentID: String? = nil) {
+    public init(conversationID: String? = nil, agentID: String? = nil, namespace: String? = nil, nameTerms: [String]? = nil, descriptionTerms: [String]? = nil, keywords: [String]? = nil, cursor: String? = nil, limit: Int? = nil) {
         self.conversationID = conversationID
         self.agentID = agentID
+        self.namespace = namespace
+        self.nameTerms = nameTerms
+        self.descriptionTerms = descriptionTerms
+        self.keywords = keywords
+        self.cursor = cursor
+        self.limit = limit
     }
 }
 
@@ -737,10 +750,25 @@ public struct SkillItem: Codable, Sendable, Equatable {
 public struct ListSkillsOutput: Codable, Sendable {
     public let items: [SkillItem]
     public let diagnostics: [String]
+    public let nextCursor: String?
+    public let complete: Bool?
+    public let total: Int?
 
-    public init(items: [SkillItem] = [], diagnostics: [String] = []) {
+    public init(items: [SkillItem] = [], diagnostics: [String] = [], nextCursor: String? = nil, complete: Bool? = nil, total: Int? = nil) {
         self.items = items
         self.diagnostics = diagnostics
+        self.nextCursor = nextCursor
+        self.complete = complete
+        self.total = total
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        items = try values.decodeIfPresent([SkillItem].self, forKey: .items) ?? []
+        diagnostics = try values.decodeIfPresent([String].self, forKey: .diagnostics) ?? []
+        nextCursor = try values.decodeIfPresent(String.self, forKey: .nextCursor)
+        complete = try values.decodeIfPresent(Bool.self, forKey: .complete)
+        total = try values.decodeIfPresent(Int.self, forKey: .total)
     }
 }
 

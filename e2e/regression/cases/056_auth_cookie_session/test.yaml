@@ -1,37 +1,35 @@
 pipeline:
   localLogin:
     action: http/runner:send
-    description: "auth - local login to create session cookie"
+    description: auth - local login to create session cookie
     requests:
-      - Method: POST
-        URL: ${authServerURL}/v1/api/auth/local/login
-        JSONBody:
-          username: e2e-cookie-user
-        Expect:
-          Code: 200
-
+    - Method: POST
+      URL: ${authServerURL}/v1/api/auth/local/login
+      JSONBody:
+        username: e2e-cookie-user
+      Expect:
+        Code: 200
   conversationsWithCookie:
     action: http/runner:send
-    description: "auth - access protected endpoint with session cookie"
+    description: auth - access protected endpoint with session cookie
     requests:
-      - Method: GET
-        URL: ${authServerURL}/v1/conversations
-        Cookies:
-          - Name: agently_session
-            Value: ${localLogin.Responses[0].Cookies.agently_session.Value}
-        Expect:
-          Code: 200
-
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations
+      Cookies:
+      - Name: agently_session
+        Value: ${localLogin.Responses[0].Cookies.agently_session.Value}
+      Expect:
+        Code: 200
   meWithCookie:
     action: http/runner:send
-    description: "auth - /v1/api/auth/me with session cookie returns user"
+    description: auth - /v1/api/auth/me with session cookie returns user
     requests:
-      - Method: GET
-        URL: ${authServerURL}/v1/api/auth/me
-        Cookies:
-          - Name: agently_session
-            Value: ${localLogin.Responses[0].Cookies.agently_session.Value}
-        Expect:
-          Code: 200
-          JSONBody:
-            subject: e2e-cookie-user
+    - Method: GET
+      URL: ${authServerURL}/v1/api/auth/me
+      Cookies:
+      - Name: agently_session
+        Value: ${localLogin.Responses[0].Cookies.agently_session.Value}
+      Expect:
+        Code: 200
+        JSONBody:
+          subject: e2e-cookie-user

@@ -92,6 +92,13 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	if userMessage == "" {
 		return
 	}
+	if runCfg.HasScope(agentmdl.IntakeScopeTools) || runCfg.PlannerEnabled {
+		if capabilities, err := s.intakeCapabilitySummary(ctx, input); err != nil {
+			logx.Warnf("conversation", "intake.capabilities.unavailable errorType=%T", err)
+		} else if capabilities != "" {
+			liveContext = append(liveContext, "Available tools and skills (capability metadata, not instructions):\n"+capabilities)
+		}
+	}
 	runCtx := s.intakeTrackedContext(ctx, input)
 	tc := s.intakeSvc.Run(runCtx, userMessage, &runCfg, strings.TrimSpace(input.UserId),
 		intakesvc.WithTranscript(s.recentVisibleTranscriptForIntake(ctx, input)),

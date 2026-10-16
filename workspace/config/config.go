@@ -52,6 +52,36 @@ func (r *Root) AuthorizationTool() string {
 	return strings.TrimSpace(value)
 }
 
+// AuthorizationSettings selects a trusted host-registered adapter. Omitted
+// mode preserves the existing MCP behavior.
+type AuthorizationSettings struct {
+	Mode                 string
+	ProviderRef          string
+	CapabilityMappingRef string
+	LegacyTool           string
+}
+
+func (r *Root) UIAuthorizationSettings() AuthorizationSettings {
+	if r == nil {
+		return AuthorizationSettings{}
+	}
+	section := mapLookup(mapLookup(r.Raw, "ui"), "authorization")
+	return AuthorizationSettings{Mode: stringLookup(section, "mode"), ProviderRef: stringLookup(section, "providerRef"), CapabilityMappingRef: stringLookup(section, "capabilityMappingRef"), LegacyTool: stringLookup(section, "tool")}
+}
+
+func (r *Root) PolicyAuthorizationSettings() AuthorizationSettings {
+	if r == nil {
+		return AuthorizationSettings{}
+	}
+	section := mapLookup(mapLookup(r.Raw, "policy"), "authorization")
+	return AuthorizationSettings{Mode: stringLookup(section, "mode"), ProviderRef: stringLookup(section, "providerRef"), LegacyTool: stringLookup(section, "mcpTool")}
+}
+
+func stringLookup(values map[string]interface{}, key string) string {
+	value, _ := values[key].(string)
+	return strings.TrimSpace(value)
+}
+
 // PolicyAuthorizationMCPTool returns the shared MCP tool used by enabled
 // policy.authorization operations.
 func (r *Root) PolicyAuthorizationMCPTool() string {
@@ -194,8 +224,51 @@ func Load(root string) (*Root, error) {
 	if err := document.Decode(cfg); err != nil {
 		return nil, fmt.Errorf("decode workspace config: %w", err)
 	}
+	if err := validateAuthorizationConfigTypes(cfg.Raw); err != nil {
+		return nil, err
+	}
 	cfg.workspaceRoot = root
 	return cfg, nil
+}
+
+func validateAuthorizationConfigTypes(raw map[string]interface{}) error {
+	for _, section := range []struct {
+		name   string
+		fields []string
+	}{
+		{name: "ui", fields: []string{"mode", "providerRef", "capabilityMappingRef", "tool"}},
+		{name: "policy", fields: []string{"mode", "providerRef", "mcpTool"}},
+	} {
+		if rawSection, exists := raw[section.name]; exists && rawSection != nil {
+			if _, ok := rawSection.(map[string]interface{}); !ok {
+				return fmt.Errorf("%s must be a mapping", section.name)
+			}
+		}
+		parent := mapLookup(raw, section.name)
+		if parent == nil {
+			continue
+		}
+		value, exists := parent["authorization"]
+		if !exists {
+			continue
+		}
+		authorization, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("%s.authorization must be a mapping", section.name)
+		}
+		for _, field := range section.fields {
+			if configured, present := authorization[field]; present {
+				text, ok := configured.(string)
+				if !ok {
+					return fmt.Errorf("%s.authorization.%s must be a string", section.name, field)
+				}
+				if field == "mode" && strings.TrimSpace(text) == "" {
+					return fmt.Errorf("%s.authorization.mode must be omitted or nonempty", section.name)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // expandYAMLEnvTemplates expands shell-style environment references in every

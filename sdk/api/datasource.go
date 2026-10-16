@@ -1,11 +1,28 @@
 package api
 
+import (
+	"bytes"
+	"encoding/json"
+	"github.com/viant/agently-core/protocol/primitive"
+	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/forge/backend/types"
+)
+
 // FetchDatasourceInput is the wire request for POST /v1/api/datasources/{id}/fetch.
 type FetchDatasourceInput struct {
-	ID             string                 `json:"id"`
-	ConversationID string                 `json:"conversationId,omitempty"`
-	Inputs         map[string]interface{} `json:"inputs,omitempty"`
-	Cache          *DatasourceCacheHints  `json:"cache,omitempty"`
+	Reference        *identity.ResourceRef `json:"reference,omitempty"`
+	ProviderIdentity string                `json:"providerIdentity,omitempty"`
+	// SelectionBinding is original provenance for optional server NEW delivery preparation.
+	SelectionBinding *identity.SelectionBinding `json:"selectionBinding,omitempty"`
+	// WindowParameters select entities; the server independently authorizes them.
+	WindowParameters map[string]any             `json:"windowParameters,omitempty"`
+	ResourceProof    *primitive.ExecutionProof  `json:"resourceProof,omitempty"`
+	Target           *types.WindowTarget        `json:"target,omitempty"`
+	Resource         *identity.ResolvedResource `json:"resource,omitempty"`
+	ID               string                     `json:"id"`
+	ConversationID   string                     `json:"conversationId,omitempty"`
+	Inputs           map[string]interface{}     `json:"inputs,omitempty"`
+	Cache            *DatasourceCacheHints      `json:"cache,omitempty"`
 }
 
 // DatasourceCacheHints carries per-call overrides on cache behaviour.
@@ -39,23 +56,28 @@ type InvalidateDatasourceCacheInput struct {
 
 // ListLookupRegistryInput — GET /v1/api/lookups/registry?context=<target-kind>:<target-id>.
 type ListLookupRegistryInput struct {
-	Context string `json:"context"`
+	Context          string                `json:"context"`
+	Owner            *identity.ResourceRef `json:"owner,omitempty"`
+	ProviderIdentity string                `json:"providerIdentity,omitempty"`
 }
 
 // LookupRegistryEntry describes a single named-token binding available in a
 // render context.
 type LookupRegistryEntry struct {
-	Name       string            `json:"name"`
-	Title      string            `json:"title,omitempty"`
-	DataSource string            `json:"dataSource"`
-	DialogId   string            `json:"dialogId,omitempty"`
-	WindowId   string            `json:"windowId,omitempty"`
-	Trigger    string            `json:"trigger,omitempty"`
-	Required   bool              `json:"required,omitempty"`
-	Display    string            `json:"display,omitempty"`
-	Token      *TokenFormat      `json:"token,omitempty"`
-	Inputs     []LookupParameter `json:"inputs,omitempty"`
-	Outputs    []LookupParameter `json:"outputs,omitempty"`
+	DataSourceResource *identity.ResourceRef `json:"dataSourceResource,omitempty"`
+	PickerResource     *identity.ResourceRef `json:"pickerResource,omitempty"`
+	ProviderIdentity   string                `json:"providerIdentity,omitempty"`
+	Name               string                `json:"name"`
+	Title              string                `json:"title,omitempty"`
+	DataSource         string                `json:"dataSource"`
+	DialogId           string                `json:"dialogId,omitempty"`
+	WindowId           string                `json:"windowId,omitempty"`
+	Trigger            string                `json:"trigger,omitempty"`
+	Required           bool                  `json:"required,omitempty"`
+	Display            string                `json:"display,omitempty"`
+	Token              *TokenFormat          `json:"token,omitempty"`
+	Inputs             []LookupParameter     `json:"inputs,omitempty"`
+	Outputs            []LookupParameter     `json:"outputs,omitempty"`
 }
 
 // TokenFormat is the client-facing token template set.
@@ -79,4 +101,24 @@ type LookupParameter struct {
 // ListLookupRegistryOutput is the wire response.
 type ListLookupRegistryOutput struct {
 	Entries []LookupRegistryEntry `json:"entries"`
+}
+
+// UnmarshalJSON preserves exact numbers in datasource inputs and the complete
+// window selection. This decoder is specific to fetch requests; other SDK
+// request types keep their existing JSON behavior.
+func (in *FetchDatasourceInput) UnmarshalJSON(raw []byte) error {
+	type wire FetchDatasourceInput
+	var decoded wire
+	// Validate the entire value before decoding, including trailing data.
+	if !json.Valid(raw) {
+		var invalid wire
+		return json.Unmarshal(raw, &invalid)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	*in = FetchDatasourceInput(decoded)
+	return nil
 }

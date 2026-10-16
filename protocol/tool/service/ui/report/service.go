@@ -9,7 +9,7 @@ import (
 	"github.com/viant/agently-core/runtime/evidence"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 	"reflect"
 	"strings"
 	"time"

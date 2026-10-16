@@ -180,6 +180,7 @@ export interface GetTranscriptInput {
     includeModelCalls?: boolean;
     /** False omits model payload bodies while preserving model metadata and IDs. */
     includeModelPayloads?: boolean;
+    includeToolPayloads?: boolean;
     includeToolCalls?: boolean;
     /** Include resolved tool feed data in the response. */
     includeFeeds?: boolean;
@@ -930,8 +931,28 @@ export interface MetadataTargetContext {
     capabilities?: string[];
 }
 
+export interface ResolvedDefinitionResource {
+    providerIdentity?: string;
+    uri: string;
+    kind: 'working' | 'stamped';
+    revision?: string;
+    contentFingerprint: string;
+    authorityBinding: string;
+    validUntil: string;
+}
+
 export interface ApplyPermissionInput {
+    /** Optional routing for the admitted local framework chat instance. */
+    clientId?: string;
+    windowId?: string;
+    resolvedResource?: ResolvedDefinitionResource;
+    /** Integrity of the original frame for a fresh OPEN; supplies no authority. */
+    expectedResource?: Pick<ResolvedDefinitionResource, 'providerIdentity' | 'uri' | 'kind' | 'revision' | 'contentFingerprint'>;
+    /** Current negotiated UI transport, not resource authority. */
+    bridgeSessionId?: string;
     conversationId: string;
+    /** Assert the authored authorization contract version (1 numeric, 2 exact string IDs). */
+    authorizationSchemaVersion?: 1 | 2;
     resource?: JSONObject;
     windowParams?: JSONObject;
     targetContext?: MetadataTargetContext;
@@ -1035,6 +1056,8 @@ export interface DatasourceCacheMeta {
 }
 
 export interface FetchDatasourceInput {
+    resource?: ResolvedDefinitionResource;
+    windowParameters?: JSONObject;
     id: string;
     inputs?: JSONObject;
     cache?: DatasourceCacheHints;
@@ -1321,9 +1344,10 @@ export interface UpdateFeedDraftOutput {
 }
 
 /** Visible skill catalog for a draft agent or an existing conversation. */
-export interface ListSkillsInput { conversationId?: string; agentId?: string; }
-export interface SkillItem { name: string; description?: string; }
-export interface ListSkillsOutput { items?: SkillItem[]; diagnostics?: string[]; }
+export interface CatalogQuery { namespace?: string; nameTerms?: string[]; descriptionTerms?: string[]; keywords?: string[]; cursor?: string; limit?: number; }
+export interface ListSkillsInput extends CatalogQuery { conversationId?: string; agentId?: string; }
+export interface SkillItem { name: string; uri?: string; description?: string; }
+export interface ListSkillsOutput { items?: SkillItem[]; diagnostics?: string[]; nextCursor?: string; complete?: boolean; total?: number; }
 export interface ActivateSkillInput { name: string; conversationId: string; args?: string; }
 export interface ActivateSkillOutput { name: string; body: string; }
 

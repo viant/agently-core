@@ -834,6 +834,55 @@ func (index WriterHandlerCurrentWriterGroupedByUpdatedAt) Has(key time.Time) boo
 	_, ok := index[key]
 	return ok
 }
+func WriterHandlerCurrentWriterIndexByCompletedAtKey(value *CurrentWriterView) (time.Time, bool) {
+	var zero time.Time
+	if value == nil {
+		return zero, false
+	}
+	if value.CompletedAt == nil {
+		return zero, false
+	}
+	return *value.CompletedAt, true
+}
+
+type WriterHandlerCurrentWriterIndexedByCompletedAt map[time.Time]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByCompletedAt() (WriterHandlerCurrentWriterIndexedByCompletedAt, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByCompletedAt)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByCompletedAtKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByCompletedAt")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByCompletedAt) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByCompletedAt map[time.Time][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByCompletedAt() WriterHandlerCurrentWriterGroupedByCompletedAt {
+	result := make(WriterHandlerCurrentWriterGroupedByCompletedAt)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByCompletedAtKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByCompletedAt) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
 
 type WriterHandlerReadIndexes struct {
 	CurrentWriter     WriterHandlerCurrentWriterSlice
@@ -959,6 +1008,9 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("UpdatedAt") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.UpdatedAt")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("CompletedAt") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.CompletedAt")
 			}
 		}
 		cloned, err := (xshape.Runtime{}).CloneValue(rows, xshape.CloneOptions{})
