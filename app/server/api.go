@@ -28,10 +28,12 @@ import (
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	svcworkspace "github.com/viant/agently-core/service/workspace"
 	"github.com/viant/agently-core/workspace"
+	wsconfig "github.com/viant/agently-core/workspace/config"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
 type APIOptions struct {
+	ToolCatalogWarmup          ToolCatalogWarmOptions
 	MCPUIResourceReader        sdk.MCPUIResourceReader
 	MCPUIResourceContextBinder sdk.MCPUIResourceContextBinder
 	Version                    string
@@ -50,6 +52,18 @@ type APIOptions struct {
 }
 
 func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
+	if opts.ToolCatalogWarmup.ExcludedServers == nil {
+		root := workspace.Root()
+		if opts.Runtime.Store != nil {
+			root = opts.Runtime.Store.Root()
+		}
+		cfg, err := wsconfig.Load(root)
+		if err != nil {
+			return nil, err
+		}
+		opts.ToolCatalogWarmup.ExcludedServers = cfg.ToolCatalogWarmupExcludedServers()
+	}
+
 	metadataVersion := strings.TrimSpace(opts.Version)
 	if metadataVersion == "" {
 		metadataVersion = "agently-core"
@@ -166,6 +180,7 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		JWTService:    opts.AuthRuntime.JWTService(),
 		TokenProvider: opts.Runtime.TokenProvider,
 	})
+	sdkHandler = withAuthenticatedToolCatalogWarmup(ctx, sdkHandler, opts.Runtime.Registry, opts.Runtime.MCPManager, opts.ToolCatalogWarmup)
 	return svcauth.WithAuthExtensions(sdkHandler, opts.AuthRuntime), nil
 }
 

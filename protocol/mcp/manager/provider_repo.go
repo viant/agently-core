@@ -217,6 +217,16 @@ func (p *RepoProvider) preparedOptions(ctx context.Context, name string, routing
 	if routingOnly {
 		return cfg, nil
 	}
+	// Explicitly public, anonymous catalogs must remain anonymous. Attaching a
+	// per-user OAuth store manufactures an Auth configuration and prevents the
+	// shared manager from warming or sharing their public metadata.
+	if cfg.ToolsListVisibility == mcpcfg.ToolsListVisibilityPublic && cfg.Auth == nil {
+		for _, warning := range mcpcfg.ValidateResourceRoots(cfg.Metadata) {
+			log.Printf("mcp config %q: %s", name, warning)
+		}
+		return cfg, nil
+	}
+
 	if cfg.IsDelegatedAuth() {
 		// Delegated OAuth credentials live in the encrypted canonical token
 		// store owned by the credential resolver; never attach a per-user

@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"sort"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -179,4 +180,28 @@ func TestMatchDefinitionWithContext_ServicePatternUsesCachedDefinitionsWithoutDi
 	names := []string{defs[0].Name, defs[1].Name}
 	sort.Strings(names)
 	assert.Equal(t, []string{"analyst/ResourceTree", "analyst/TargetProfile"}, names)
+}
+
+type countedInternalCatalogClient struct {
+	fakeClient
+	calls atomic.Int64
+}
+
+func (c *countedInternalCatalogClient) ListTools(ctx context.Context, cursor *string, options ...mcpclient.RequestOption) (*mcpschema.ListToolsResult, error) {
+	c.calls.Add(1)
+	return c.fakeClient.ListTools(ctx, cursor, options...)
+}
+func TestDefinitionsReusesWarmedInternalCatalog(t *testing.T) {
+	mgr, err := manager.New(nil)
+	assert.NoError(t, err)
+	reg, err := NewWithManager(mgr)
+	assert.NoError(t, err)
+	client := &countedInternalCatalogClient{}
+	reg.internal = map[string]mcpclient.Interface{"local": client}
+	assert.Len(t, reg.Definitions(), 1)
+	assert.Len(t, reg.Definitions(), 1)
+	assert.EqualValues(t, 1, client.calls.Load(), "warm listings must not reconstruct internal MCP schemas")
+	assert.NoError(t, reg.refreshServerTools(context.Background(), "local"))
+	assert.Len(t, reg.Definitions(), 1)
+	assert.EqualValues(t, 2, client.calls.Load(), "background refresh remains responsible for updating the catalog")
 }
