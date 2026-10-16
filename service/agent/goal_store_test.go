@@ -37,10 +37,10 @@ func newLinkedGoalStore(t *testing.T, id, conversationID, objective, controller 
 	require.NoError(t, err)
 	server, err := standalone.New(ctx, standalone.Options{
 		Config: &config.Config{
-			BaseDir:     project,
+			BaseDir:     t.TempDir(), // Goal persistence must not require source discovery.
 			Connector:   "agently",
 			Connectors:  []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: dsn, MaxOpenConns: 2}},
-			GoBootstrap: &config.Packages{Packages: []string{"github.com/viant/agently-core/internal/datly/goal/..."}},
+			GoBootstrap: &config.Packages{Packages: []string{"github.com/viant/agently-core/internal/datly/goal/..."}, LinkedOnly: true},
 		},
 		RequireLinked: true,
 	})

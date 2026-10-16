@@ -25,10 +25,10 @@ func TestInProcessGoalReaderWriter(t *testing.T) {
 	ctx := context.Background()
 	server, err := standalone.New(ctx, standalone.Options{
 		Config: &config.Config{
-			BaseDir:     project,
+			BaseDir:     t.TempDir(), // Runtime contracts/resources come from the executable.
 			Connector:   "agently",
 			Connectors:  []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: dbPath + "?_foreign_keys=on"}},
-			GoBootstrap: &config.Packages{Packages: []string{"github.com/viant/agently-core/internal/datly/goal/..."}},
+			GoBootstrap: &config.Packages{Packages: []string{"github.com/viant/agently-core/internal/datly/goal/..."}, LinkedOnly: true},
 		},
 		RequireLinked: true,
 	})

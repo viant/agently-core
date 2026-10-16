@@ -33,14 +33,16 @@ func TestLinkedGoalExecutableStartsWithPrivateComponents(t *testing.T) {
 	data, err := json.Marshal(connectors)
 	must(t, err)
 	must(t, os.WriteFile(filepath.Join(deps, "agently.json"), data, 0600))
-	config := map[string]any{"BaseDir": project, "Connector": "agently", "DependencyURL": deps, "Endpoint": map[string]any{"Address": "127.0.0.1:0"}, "GoBootstrap": map[string]any{"Packages": []string{"github.com/viant/agently-core/internal/datly/goal/..."}}}
+	// Released linked execution must not depend on the checkout or its go.work.
+	noSource := t.TempDir()
+	config := map[string]any{"BaseDir": noSource, "Connector": "agently", "DependencyURL": deps, "Endpoint": map[string]any{"Address": "127.0.0.1:0"}, "GoBootstrap": map[string]any{"Packages": []string{"github.com/viant/agently-core/internal/datly/goal/..."}, "LinkedOnly": true}}
 	data, err = json.Marshal(config)
 	must(t, err)
 	configPath := filepath.Join(configDir, "datly.json")
 	must(t, os.WriteFile(configPath, data, 0600))
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	command := exec.CommandContext(ctx, binary, "run", "-conf", configPath)
-	command.Dir = project
+	command.Dir = noSource
 	stdout, err := command.StdoutPipe()
 	must(t, err)
 	var diagnostics bytes.Buffer
