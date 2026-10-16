@@ -578,6 +578,23 @@ export interface StreamEventsInput {
 
 // ─── Query ─────────────────────────────────────────────────────────────────────
 
+/** Untrusted UI hints captured at submit time; never identity or resource grants. */
+export type WorkspaceQueryContext = JSONObject & {
+    objectId?: string;
+    windowId?: string;
+    title?: string;
+    renderer?: string;
+    internalTabs?: Record<string, string | number | boolean>;
+    dataSources?: Record<string, JSONObject & {
+        filter?: JSONObject;
+        selectedKeys?: Record<string, string | number | boolean>;
+        /** Declared unique-key fields only, including composite keys. */
+        selectedIds?: Array<Record<string, string | number | boolean>>;
+    }>;
+};
+
+export type QueryContext = JSONObject & { workspace?: WorkspaceQueryContext };
+
 export interface QueryInput {
     conversationId?: string;
     messageId?: string;
@@ -588,7 +605,7 @@ export interface QueryInput {
     tools?: string[];
     toolBundles?: string[];
     autoSelectTools?: boolean;
-    context?: JSONObject;
+    context?: QueryContext;
     attachments?: QueryAttachment[];
     resourceURIs?: string[];
     reasoningEffort?: string;
