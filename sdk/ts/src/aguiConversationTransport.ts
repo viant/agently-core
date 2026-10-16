@@ -7,8 +7,9 @@ import { readAgentlyPresentation, readAgentlyPresentationActivity } from './agui
 import type { AgUiViewOutcome, AgUiViewDescriptor } from './aguiViewProjection';
 import { AgUiRunError, type AgUiSession } from './aguiSession';
 import type { AgentlyClient } from './client';
-import type { Conversation, QueryInput, QueryOutput, SSEEvent, TranscriptOutput } from './types';
+import type { ActiveFeed, Conversation, JSONValue, QueryInput, QueryOutput, SSEEvent, TranscriptOutput } from './types';
 import { transcriptDTO } from './wireDTO';
+import { feedActivationEventType, mergeFeedSnapshotActivation } from './feedActivation';
 
 export interface AgUiConversationHandlers {
     onOpen?: () => void;
@@ -68,6 +69,7 @@ interface Entry {
     bootstrap?: AgUiConversationBootstrapResult;
     loading?: Promise<AgUiConversationBootstrapResult>;
     bootstrapHandle?: { abortTransport(): void };
+    feedHydration?: { handle?: { abortTransport(): void }; superseded: Set<string> };
 }
 
 /**
@@ -97,6 +99,7 @@ export class AgUiConversationTransport {
             if (closed) return;
             closed = true;
             entry.listeners.delete(handlers);
+            if (!entry.listeners.size) this.invalidateFeedHydration(entry);
             this.closeBrowserIfIdle(entry);
             // A view subscription does not own the submitted request. Navigation
             // remounts the composer during admission; aborting here can prevent
@@ -170,11 +173,12 @@ export class AgUiConversationTransport {
     /** Explicit refresh on navigation, a domain action, or an availability notification. */
     reconcile(conversationId: string): Promise<AgUiConversationBootstrapResult> {
         const entry = this.entry(conversationId);
-        if (!entry.loading) return this.refresh(conversationId);
+        if (!entry.loading) { this.invalidateFeedHydration(entry); return this.refresh(conversationId); }
         return entry.loading.then(() => {
             if (!this.current(entry)) throw new Error('Conversation session was invalidated');
             // The in-flight read may predate the committed change that caused
             // this notification. Read again once; concurrent hints coalesce.
+            this.invalidateFeedHydration(entry);
             return this.refresh(conversationId);
         });
     }
@@ -198,11 +202,12 @@ export class AgUiConversationTransport {
         const runId = crypto.randomUUID();
         const commands = new AgUiCommands(this.host.agUiTransport());
         const pending = this.resolveProtocolThread(entry).then(threadId => {
-        const command = commands.start('conversation.bootstrap', { mode: 'live', includeModelCalls: true, includeToolCalls: true, includeFeeds: true, includeModelPayloads: false }, { threadId, runId, requestId: runId });
+        const command = commands.start('conversation.bootstrap', { mode: 'live', includeModelCalls: true, includeToolCalls: true, includeFeeds: false, includeModelPayloads: false, includeToolPayloads: false }, { threadId, runId, requestId: runId });
         entry.bootstrapHandle = command;
         return command.result;
         }).then(result => {
             if (!result || !this.current(entry) || result.transcript.conversation.conversationId !== entry.id || result.threadId !== entry.protocolThreadId) throw new Error('Conversation bootstrap was invalidated');
+            if (entry.bootstrap) result = this.withFeeds(result, entry.bootstrap.transcript);
             entry.bootstrap = result;
             entry.state = result.state ?? {};
             this.replaceHostActivities(entry, result);
@@ -214,12 +219,87 @@ export class AgUiConversationTransport {
                     this.attach(entry, run.runId, result.messages);
                 }
             }
+            if (entry.listeners.size) this.hydrateFeeds(entry, result);
             return result;
         }).finally(() => {
             if (entry.loading === pending) { entry.loading = undefined; entry.bootstrapHandle = undefined; }
         });
         entry.loading = pending;
         return pending;
+    }
+
+    /** Record already-authorized lifecycle events in the existing coordinator snapshot. */
+    noteFeedEvent(conversationId: string, event: SSEEvent) {
+        const entry = this.entries.get(conversationId);
+        if (!entry?.bootstrap || !event.type.startsWith('tool_feed_') || !event.feedId || event.conversationId !== conversationId) return;
+        entry.feedHydration?.superseded.add(event.feedId);
+        const previous = (entry.bootstrap.transcript.feeds ?? entry.bootstrap.transcript.conversation.feeds ?? []) as ActiveFeed[];
+        const prior = previous.find(feed => feed.feedId === event.feedId);
+        const feed: ActiveFeed = { ...prior, feedId: event.feedId, title: event.feedTitle ?? prior?.title ?? event.feedId,
+            itemCount: event.feedItemCount ?? prior?.itemCount ?? 0, updatedAt: Date.now(),
+            active: event.type === 'tool_feed_unknown' ? null : event.type === 'tool_feed_active',
+            activationKnown: event.type !== 'tool_feed_unknown',
+            ...(event.feedData !== undefined ? { data: event.feedData } : {}),
+            ...(event.turnId ? { turnId: event.turnId } : {}),
+            ...(event.feedDeveloperOnly !== undefined ? { developerOnly: event.feedDeveloperOnly } : {}),
+            presentation: { ...prior?.presentation, ...(event.feedIcon ? { icon: event.feedIcon } : {}),
+                ...(event.feedAccent ? { accent: event.feedAccent } : {}), ...(event.feedTarget ? { target: event.feedTarget } : {}) },
+        };
+        const feeds = [...previous.filter(feed => feed.feedId !== event.feedId), feed];
+        entry.bootstrap = this.withFeeds(entry.bootstrap, { ...entry.bootstrap.transcript, feeds,
+            conversation: { ...entry.bootstrap.transcript.conversation, feeds } });
+    }
+
+    private invalidateFeedHydration(entry: Entry) {
+        const hydration = entry.feedHydration;
+        entry.feedHydration = undefined;
+        hydration?.handle?.abortTransport();
+    }
+
+    private withFeeds(result: AgUiConversationBootstrapResult, feeds: AgUiConversationBootstrapResult['transcript']): AgUiConversationBootstrapResult {
+        return { ...result, transcript: { ...result.transcript, feeds: feeds.feeds,
+            conversation: { ...result.transcript.conversation, feeds: feeds.conversation.feeds } } };
+    }
+
+    private hydrateFeeds(entry: Entry, initial: AgUiConversationBootstrapResult) {
+        if (entry.feedHydration || !initial.transcript.conversation.turns?.some(turn =>
+            turn.execution?.pages?.some(page => page.toolSteps?.length))) return;
+        // One operation per subscribed coordinator lifecycle. Explicit native
+        // reconciliation, navigation and account reset invalidate this receipt.
+        const hydration: NonNullable<Entry['feedHydration']> = { superseded: new Set() };
+        entry.feedHydration = hydration;
+        void Promise.resolve().then(async () => {
+            if (!this.current(entry) || entry.feedHydration !== hydration) return;
+            const runId = crypto.randomUUID();
+            const command = new AgUiCommands(this.host.agUiTransport()).start('conversation.bootstrap', {
+                mode: 'transcript', includeModelCalls: true, includeToolCalls: true,
+                includeModelPayloads: false, includeToolPayloads: false, includeFeeds: true,
+            }, { threadId: initial.threadId, runId, requestId: runId });
+            hydration.handle = command;
+            const result = await command.result;
+            if (!this.current(entry) || entry.feedHydration !== hydration || !entry.bootstrap) return;
+            if (!result || result.threadId !== entry.protocolThreadId || result.transcript.conversation.conversationId !== entry.id) throw new Error('Conversation feed hydration was invalidated');
+            // Feed-bearing history must not replace newer text, protocol state,
+            // host activities or execution ownership with its older read.
+            const current = (entry.bootstrap.transcript.feeds ?? entry.bootstrap.transcript.conversation.feeds ?? []) as ActiveFeed[];
+            const incoming = mergeFeedSnapshotActivation((result.transcript.feeds ?? result.transcript.conversation.feeds ?? []) as ActiveFeed[], current)
+                .filter(feed => feed?.feedId && !hydration.superseded.has(feed.feedId));
+            const feeds = [...incoming, ...current.filter(feed => hydration.superseded.has(feed.feedId))];
+            entry.bootstrap = this.withFeeds(entry.bootstrap, { ...result.transcript, feeds, conversation: { ...result.transcript.conversation, feeds } });
+            for (const feed of incoming) {
+                if (!feed?.feedId) continue;
+                const event: SSEEvent = {
+                    type: feedActivationEventType(feed),
+                    conversationId: entry.id, feedId: feed.feedId, turnId: feed.turnId,
+                    feedTitle: feed.title || feed.feedId, feedDeveloperOnly: feed.developerOnly,
+                    feedIcon: feed.presentation?.icon, feedAccent: feed.presentation?.accent, feedTarget: feed.presentation?.target,
+                    feedItemCount: feed.itemCount ?? 0, feedData: (feed.data ?? null) as JSONValue,
+                };
+                for (const listener of entry.listeners) { listener.onEvent?.(event); listener.onFeedEvent?.(event); }
+            }
+        }).catch(error => {
+            if (this.current(entry) && entry.feedHydration === hydration) this.error(entry, error);
+        }).finally(() => { if (entry.feedHydration === hydration) hydration.handle = undefined; });
     }
 
     private async resolveProtocolThread(entry: Entry): Promise<string> {
@@ -237,6 +317,18 @@ export class AgUiConversationTransport {
     /** Selected history is a read result, never a replacement for full coordinator state. */
     async readSnapshot(conversationId: string, input: AgUiConversationBootstrapInput): Promise<TranscriptOutput> {
         const entry = this.entry(conversationId);
+        // Live is the same full native transcript plus an event cursor. Only
+        // this exact compact shape can share the coordinator's current read.
+        if (!input.since && (!input.selectors || !Object.keys(input.selectors).length)
+            && (input.mode === 'live' || input.mode === 'transcript')
+            && input.includeModelCalls === true && input.includeToolCalls === true
+            && input.includeFeeds === false && input.includeModelPayloads === false
+            && input.includeToolPayloads === false) {
+            const result = (await this.refresh(conversationId)).transcript;
+            const { feeds: _feeds, ...transcript } = result;
+            const { feeds: _conversationFeeds, ...conversation } = result.conversation;
+            return transcriptDTO({ ...transcript, conversation });
+        }
         const threadId = await this.resolveProtocolThread(entry);
         if (!this.current(entry)) throw new Error('Conversation session was invalidated');
         const runId = crypto.randomUUID();
@@ -258,6 +350,7 @@ export class AgUiConversationTransport {
         for (const entry of this.entries.values()) {
             entry.listeners.clear();
             entry.bootstrapHandle?.abortTransport();
+            this.invalidateFeedHydration(entry);
             for (const read of entry.reads) read.abortTransport();
             for (const run of entry.runs.values()) { run.stopProjection(); run.session.detach(); }
         }
@@ -398,6 +491,7 @@ export class AgUiConversationTransport {
                 for (const listener of entry.listeners) listener.onOutcome?.(outcome);
             }, onViewEvent: event => {
                 if (!this.current(entry)) return;
+                this.noteFeedEvent(entry.id, event);
                 if (event.turnId && !('subagentRunId' in event && event.subagentRunId) && event.conversationId === entry.id && ['turn_started', 'turn_queued'].includes(event.type)) slot.nativeTurnId = event.turnId;
                 onViewEvent?.(event);
                 if (event.turnId && entry.terminalTurns.has(event.turnId) && /^(turn_started|turn_queued|model_|tool_call_|text_delta|reasoning_delta)/.test(event.type)) return;

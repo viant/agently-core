@@ -147,7 +147,7 @@ describe('native web conversation orchestration', () => {
         expect(f.posted).toHaveLength(1);
         expect(f.posted[0].forwardedProps.agently.payload).toEqual({mode:'transcript',since:'previous',includeModelCalls:false,includeToolCalls:true,includeFeeds:false,selectors:{ExecutionGroup:{limit:5,offset:2}}});
         await f.transport.refresh('thread');
-        expect(f.posted[1].forwardedProps.agently.payload).toMatchObject({mode:'live',includeModelCalls:true,includeToolCalls:true,includeFeeds:true});
+        expect(f.posted[1].forwardedProps.agently.payload).toMatchObject({mode:'live',includeModelCalls:true,includeToolCalls:true,includeFeeds:false,includeModelPayloads:false,includeToolPayloads:false});
         f.host.resetAgUiInteractions(); f.transport.reset();
     });
     it('rejects selected history arriving after account reset', async () => {
