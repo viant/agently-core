@@ -18,7 +18,7 @@ func TestApprovalOutcomeGeneratedAliasPreservesBinaryAndNull(t *testing.T) {
 	if err = json.Unmarshal(raw, &wire); err != nil {
 		t.Fatal(err)
 	}
-	if len(wire) != 20 || string(wire["metadata"]) != "null" || string(wire["transitionAt"]) != "null" {
+	if len(wire) != 21 || string(wire["metadata"]) != "null" || string(wire["transitionAt"]) != "null" || string(wire["completedAt"]) != "null" {
 		t.Fatal("public nullable scalar shape changed")
 	}
 	var out OutcomeRowView

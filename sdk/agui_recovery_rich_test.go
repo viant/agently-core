@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,13 +20,15 @@ import (
 
 func TestAGUIOverflowRecoveryKeepsFragmentedForgeOutOfChat(t *testing.T) {
 	c := newDatlyObservedClient(t, 1)
-	c.store = &shortFirstLeaseStore{Store: c.store}
 	ctx := recoveryContext()
 	record, query := observerAdmission(t, c, observerInput())
 	prefix := "Intro\n```forge-data\n{\"id\":\"rows\",\"data\":[{\"secret_authoring_key\":"
 	suffix := "1}]}\n```\n```forge-ui\n{\"version\":1,\"blocks\":[]}\n```\nDone."
 	resume := make(chan struct{})
+	releaseNative := sync.OnceFunc(func() { close(resume) })
+	t.Cleanup(releaseNative)
 	nativeDone := make(chan error, 1)
+	nativeParked := make(chan struct{})
 	c.query = func(executionCtx context.Context, in *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
 		if err := nativeTestTurn(executionCtx, c, in.MessageID, "running"); err != nil {
 			return nil, err
@@ -38,6 +41,7 @@ func TestAGUIOverflowRecoveryKeepsFragmentedForgeOutOfChat(t *testing.T) {
 		for i := 0; i < 10000; i++ {
 			_ = c.bus.Publish(executionCtx, &streaming.Event{Type: streaming.EventTypeUsage, ConversationID: in.ConversationID, TurnID: in.MessageID})
 		}
+		close(nativeParked)
 		<-resume
 		offset := len(prefix)
 		for _, fragment := range []string{suffix[:10], suffix[10:25], suffix[25:]} {
@@ -56,9 +60,24 @@ func TestAGUIOverflowRecoveryKeepsFragmentedForgeOutOfChat(t *testing.T) {
 	}
 	err := runAGUIDurable(ctx, c, c, c.store, record, observerInputWithIdentity(record), query, aguiPending{}, nil)
 	require.ErrorIs(t, err, errAGUIObserverLost)
+	select {
+	case <-nativeParked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("native fixture did not reach the recovery boundary")
+	}
 	actual, err := c.store.GetRun(ctx, "owner", record.ThreadID, record.RunID)
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return actual.LeaseUntil != nil && !actual.LeaseUntil.After(time.Now()) }, 3*time.Second, 5*time.Millisecond)
+	require.Equal(t, aguistore.StatusRunning, actual.Status)
+	require.NotEmpty(t, actual.LeaseOwner)
+	// The observer has exited. Expire its persisted lease explicitly instead of
+	// coupling a two-second first lease to initialization and overflow timing.
+	// Reclaiming as that same owner preserves the real store's revision fence.
+	_, err = c.store.Claim(ctx, actual.Principal, actual.ThreadID, actual.RunID, actual.Revision, actual.LeaseOwner, time.Millisecond)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		actual, err = c.store.GetRun(ctx, "owner", record.ThreadID, record.RunID)
+		return err == nil && actual.LeaseUntil != nil && !actual.LeaseUntil.After(time.Now())
+	}, time.Second, time.Millisecond)
 	// The native task is stopped at a channel boundary, so replacing its bus
 	// before releasing it is synchronized and models attachment on a new process.
 	c.bus = streaming.NewMemoryBus(64)
@@ -66,7 +85,7 @@ func TestAGUIOverflowRecoveryKeepsFragmentedForgeOutOfChat(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- recoverAGUIDurable(ctx, c, c, c.store, actual) }()
 	require.Eventually(t, func() bool { return c.subscribed.Load() }, time.Second, time.Millisecond)
-	close(resume)
+	releaseNative()
 	require.NoError(t, <-nativeDone)
 	select {
 	case err := <-done:

@@ -15,6 +15,8 @@ import (
 	convstore "github.com/viant/agently-core/app/store/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/agui"
+	"github.com/viant/agently-core/protocol/agui/extensions"
+	"github.com/viant/agently-core/protocol/binding"
 	agentsvc "github.com/viant/agently-core/service/agent"
 )
 
@@ -303,5 +305,85 @@ func TestPrepareAGUIChatRejectsMissingOrForeignHeaderIdentity(t *testing.T) {
 				require.Equal(t, expected, calls, "identity mismatch must not retry or dispatch a run")
 			})
 		}
+	}
+}
+
+func TestPrepareAGUIChatUploadsInlineAttachmentsBeforeAdmission(t *testing.T) {
+	for _, mime := range []string{"image/png", "application/pdf"} {
+		t.Run(mime, func(t *testing.T) {
+			var uploads int
+			client := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "Bearer fixture-token", r.Header.Get("Authorization"))
+				switch r.URL.Path {
+				case "/v1/conversations/native":
+					_ = json.NewEncoder(w).Encode(map[string]string{"id": "native", "aguiThreadId": "wire"})
+				case "/v1/files":
+					uploads++
+					require.Equal(t, http.MethodPost, r.Method)
+					require.NoError(t, r.ParseMultipartForm(1<<20))
+					require.Equal(t, "native", r.FormValue("conversationId"))
+					require.Equal(t, mime, r.FormValue("contentType"))
+					file, _, err := r.FormFile("file")
+					require.NoError(t, err)
+					defer file.Close()
+					body, err := io.ReadAll(file)
+					require.NoError(t, err)
+					require.Equal(t, []byte("attachment-bytes-fixture"), body)
+					_ = json.NewEncoder(w).Encode(&UploadFileOutput{ID: "uploaded", URI: "/v1/files/uploaded?conversationId=native"})
+				default:
+					t.Errorf("unexpected request path %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			WithAuthToken("fixture-token")(client)
+			attachment := &binding.Attachment{Name: "fixture", Mime: mime, Data: []byte("attachment-bytes-fixture")}
+			prepared, err := client.PrepareAGUIChat(context.Background(), &agentsvc.QueryInput{ConversationID: "native", Query: "Read files", Attachments: []*binding.Attachment{attachment, {Name: "existing", URI: "/v1/files/existing?conversationId=native"}}})
+			require.NoError(t, err)
+			require.Equal(t, 1, uploads)
+			var props agui.ForwardedProps
+			require.NoError(t, json.Unmarshal(prepared.Input.ForwardedProps, &props))
+			require.Len(t, props.Agently.Payload.Attachments, 2)
+			require.Equal(t, "/v1/files/uploaded?conversationId=native", props.Agently.Payload.Attachments[0].URI)
+			require.Equal(t, mime, props.Agently.Payload.Attachments[0].Mime)
+			require.Equal(t, "/v1/files/existing?conversationId=native", props.Agently.Payload.Attachments[1].URI)
+			require.Empty(t, attachment.URI, "preparation must not mutate caller attachment")
+			wire, err := json.Marshal(prepared.Input)
+			require.NoError(t, err)
+			require.NotContains(t, string(wire), "attachment-bytes-fixture")
+			require.NotContains(t, string(wire), "YXR0YWNobWVudC1ieXRlcy1maXh0dXJl")
+			envelope, err := json.Marshal(props.Agently)
+			require.NoError(t, err)
+			require.NoError(t, extensions.ValidateExecutionEnvelope(envelope))
+		})
+	}
+}
+
+func TestPrepareAGUIChatRejectsFailedOrMissingAttachmentReferences(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		uri    string
+		data   []byte
+	}{
+		{name: "upload denied", status: http.StatusForbidden, data: []byte("fixture")},
+		{name: "upload missing reference", status: http.StatusOK, data: []byte("fixture")},
+		{name: "empty attachment"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/v1/conversations/native":
+					_ = json.NewEncoder(w).Encode(map[string]string{"id": "native"})
+				case "/v1/files":
+					w.WriteHeader(tc.status)
+					_ = json.NewEncoder(w).Encode(&UploadFileOutput{ID: "file", URI: tc.uri})
+				default:
+					t.Errorf("unexpected request path %s", r.URL.Path)
+				}
+			}))
+			prepared, err := client.PrepareAGUIChat(context.Background(), &agentsvc.QueryInput{ConversationID: "native", Query: "Read file", Attachments: []*binding.Attachment{{Data: tc.data}}})
+			require.Error(t, err)
+			require.Nil(t, prepared)
+		})
 	}
 }

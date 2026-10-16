@@ -93,7 +93,7 @@ applications:
 	require.NoError(t, err)
 	mgr, err := manager.New(nil)
 	require.NoError(t, err)
-	require.NoError(t, mgr.RegisterLocal(ctx, "navigation", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "menu-provider"}, func(context.Context) (mcpclient.Interface, error) { return resources.NewLocalMCPClient(provider) }))
+	require.NoError(t, mgr.RegisterLocal(ctx, "navigation", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "menu-provider", ResourceCacheScopes: map[string]string{"team/navigation": mcpcfg.ResourceCacheUser}}, func(context.Context) (mcpclient.Interface, error) { return resources.NewLocalMCPClient(provider) }))
 	gw := resources.NewGateway(mgr, resolve, verify, "host")
 	defer gw.Close()
 	reader := NewGatewayLayoutMenuReader(gw, []GatewayMenuSource{{Resource: identity.ResourceRef{URI: def.URI}, ProviderIdentity: "menu-provider"}})

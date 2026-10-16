@@ -49,6 +49,12 @@ const (
 // stubMCPProvider satisfies mcpmgr.Provider for tests that don't use MCP servers.
 type stubMCPProvider struct{}
 
+// Names declares that this fixture has no external MCP connections. Local
+// runtime providers still use the manager's normal collision checks.
+func (s *stubMCPProvider) Names(context.Context) ([]string, error) {
+	return nil, nil
+}
+
 func (s *stubMCPProvider) Options(_ context.Context, _ string) (*mcpcfg.MCPClient, error) {
 	return nil, fmt.Errorf("no MCP servers configured in test")
 }
@@ -173,6 +179,14 @@ func prepareWorkspaceForEmbeddedE2E(t *testing.T, testdataDir, workspaceDir stri
 	configFile := filepath.Join(workspaceDir, "config.yaml")
 	configBody := "models: []\nagents: []\n\ninternalMCP:\n  services:\n    - system/exec\n    - system/os\n"
 	require.NoError(t, os.WriteFile(configFile, []byte(configBody), 0o644), "write config")
+}
+
+// Bootstrap and local SDK access must work without invoking an LLM provider.
+func TestQueryLocalSDKBootstrap(t *testing.T) {
+	client := setupSDK(t)
+	conversations, err := client.ListConversations(context.Background(), &sdk.ListConversationsInput{})
+	require.NoError(t, err)
+	require.NotNil(t, conversations)
 }
 
 func TestQuerySimple(t *testing.T) {

@@ -118,7 +118,23 @@ func (c *HTTPClient) PrepareAGUIChat(ctx context.Context, input *agentsvc.QueryI
 		if attachment == nil {
 			return nil, fmt.Errorf("nil attachment")
 		}
-		payload.Attachments = append(payload.Attachments, agui.AttachmentRef{Name: attachment.Name, URI: attachment.URI, Mime: attachment.Mime, StagingFolder: attachment.StagingFolder})
+		ref := agui.AttachmentRef{Name: attachment.Name, URI: strings.TrimSpace(attachment.URI), Mime: attachment.Mime, StagingFolder: attachment.StagingFolder}
+		if len(attachment.Data) > 0 {
+			// Transfer bytes through the authenticated file service before admission.
+			// Execution payloads carry only the resulting persisted reference.
+			upload, err := c.UploadFile(ctx, &UploadFileInput{ConversationID: conversationID, Name: attachment.Name, ContentType: attachment.Mime, Data: attachment.Data})
+			if err != nil {
+				return nil, fmt.Errorf("upload chat attachment: %w", err)
+			}
+			if upload == nil {
+				return nil, fmt.Errorf("attachment upload returned no reference")
+			}
+			ref.URI = strings.TrimSpace(upload.URI)
+		}
+		if ref.URI == "" {
+			return nil, fmt.Errorf("attachment reference URI required")
+		}
+		payload.Attachments = append(payload.Attachments, ref)
 	}
 	messageID := input.MessageID
 	if messageID == "" {

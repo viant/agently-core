@@ -31,6 +31,7 @@ func newRawBoundaryFixture(t *testing.T) (*Service, string) {
 		"intent/forecast.yaml":                         "secret: CANONICAL_INTENT\n",
 		"skills/finance/SKILL.md":                      "# CANONICAL_SKILL\n",
 		"extension/forge/lookups/countries.yaml":       "kind: lookup\n",
+		"extension/forge/assets/readme.txt":            "ordinary asset\n",
 		"agents/alice/skills/external/SKILL.md":        "# Agent-owned skill\n",
 		"docs/readme.md":                               "ordinary workspace document\n",
 	}
@@ -126,11 +127,11 @@ func TestRawCanonicalBoundaryFiltersShallowListsAndRejectsRecursiveParentScans(t
 	var names []string
 	for _, item := range shallow.Items {
 		names = append(names, item.Name)
-		if strings.EqualFold(item.Name, "windows") || strings.EqualFold(item.Name, "reporting") {
+		if strings.EqualFold(item.Name, "windows") || strings.EqualFold(item.Name, "reporting") || strings.EqualFold(item.Name, "lookups") {
 			t.Fatalf("shallow list exposed protected directory: %+v", shallow.Items)
 		}
 	}
-	if !containsPath(names, "lookups") {
+	if !containsPath(names, "assets") {
 		t.Fatalf("allowed sibling disappeared from shallow list: %+v", shallow.Items)
 	}
 	for _, request := range []*ListInput{

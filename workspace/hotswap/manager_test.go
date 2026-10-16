@@ -38,18 +38,24 @@ func TestManager_AddOrUpdate(t *testing.T) {
 	}
 	defer mgr.Stop()
 
-	// fsnotify watcher startup is external and has no readiness callback.
-	time.Sleep(25 * time.Millisecond)
-
-	// Create a YAML file.
-	if err := os.WriteFile(filepath.Join(agentsDir, "simple.yaml"), []byte("id: simple"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	waitUntil(t, time.Second, 10*time.Millisecond, func() bool {
+	// Retry real writes until the asynchronous watcher has observed one. Quiet
+	// intervals exceed the debounce period, so startup scheduling cannot lose the
+	// test's only event or prevent a queued event from being delivered.
+	var lastWrite time.Time
+	waitUntil(t, 5*time.Second, 10*time.Millisecond, func() bool {
 		mu.Lock()
-		defer mu.Unlock()
-		return len(received) > 0
+		observed := len(received) > 0
+		mu.Unlock()
+		if observed {
+			return true
+		}
+		if time.Since(lastWrite) >= 200*time.Millisecond {
+			if err := os.WriteFile(filepath.Join(agentsDir, "simple.yaml"), []byte("id: simple"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			lastWrite = time.Now()
+		}
+		return false
 	}, "expected at least one AddOrUpdate change, got none")
 
 	mu.Lock()

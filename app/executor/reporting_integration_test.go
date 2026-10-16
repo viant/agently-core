@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/executor"
 	execconfig "github.com/viant/agently-core/app/executor/config"
@@ -21,15 +22,15 @@ import (
 )
 
 func TestBuilderBuild_RegistersReportingService(t *testing.T) {
+	isolateDefaultReportingWorkspace(t)
+
 	reportingSvc := reportingsvc.New(reportingsvc.Options{
 		Store: reportingsvc.NewStoreAdapter(reportmemory.New()),
 	})
-	rt, err := executor.NewBuilder().
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
-		WithReportingService(reportingSvc).
-		Build(context.Background())
-	require.NoError(t, err)
+		WithReportingService(reportingSvc), false)
 	require.NotNil(t, rt.Reporting)
 	require.Nil(t, rt.ReportRuns, "durable browser report runs must remain default closed")
 	require.Same(t, reportingSvc, rt.Reporting)
@@ -61,11 +62,11 @@ func TestBuilderBuild_RegistersReportingService(t *testing.T) {
 }
 
 func TestBuilderBuild_DoesNotRegisterReportingServiceByDefault(t *testing.T) {
-	rt, err := executor.NewBuilder().
+	isolateDefaultReportingWorkspace(t)
+
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
-		WithModelFinder(stubModelFinder{}).
-		Build(context.Background())
-	require.NoError(t, err)
+		WithModelFinder(stubModelFinder{}), false)
 	require.Nil(t, rt.Reporting)
 
 	defs := rt.Registry.MatchDefinition("reporting:*")
@@ -73,14 +74,14 @@ func TestBuilderBuild_DoesNotRegisterReportingServiceByDefault(t *testing.T) {
 }
 
 func TestBuilderBuild_RegistersReportingServiceFromDefaults(t *testing.T) {
-	rt, err := executor.NewBuilder().
+	isolateDefaultReportingWorkspace(t)
+
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(&execconfig.Defaults{
 			Reporting: execconfig.ReportingDefaults{Enabled: true},
-		}).
-		Build(context.Background())
-	require.NoError(t, err)
+		}), false)
 	require.NotNil(t, rt.Reporting)
 	require.Nil(t, rt.ReportRuns, "reporting.enabled alone must not open durable browser report runs")
 
@@ -104,11 +105,13 @@ func TestBuilderBuild_RegistersReportingServiceFromDefaults(t *testing.T) {
 }
 
 func TestBuilderBuild_RegistersReportingServiceFromSQLStoreDefaults(t *testing.T) {
+	isolateDefaultReportingWorkspace(t)
+
 	dao, err := data.NewRuntimeInMemory(context.Background())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dao.Shutdown(context.Background()) })
 
-	rt, err := executor.NewBuilder().
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithNativeRuntime(dao).
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
@@ -120,16 +123,16 @@ func TestBuilderBuild_RegistersReportingServiceFromSQLStoreDefaults(t *testing.T
 					ConnectorRef: "agently",
 				},
 			},
-		}).
-		Build(context.Background())
-	require.NoError(t, err)
+		}), false)
 	require.NotNil(t, rt.Reporting)
 
 	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "sql-builder-user"), "sql-builder-user"), "fixture-oauth")
+	// The in-memory native runtime shares its database across test invocations.
+	reportID := "forecasting_q3_" + uuid.NewString()
 	saveRaw, err := rt.Registry.Execute(ctx, "reporting:save_report", map[string]interface{}{
-		"reportId":       "forecasting_q3",
+		"reportId":       reportID,
 		"title":          "Forecasting Q3",
-		"reportDocument": map[string]interface{}{"kind": "reportDocument", "id": "forecasting_q3"},
+		"reportDocument": map[string]interface{}{"kind": "reportDocument", "id": reportID},
 	})
 	require.NoError(t, err)
 
@@ -152,14 +155,12 @@ func TestBuilderBuild_ReportingRegistryExportsSavedReportViaUnifiedReportSource(
 	previousRoot := workspace.Root()
 	workspace.SetRoot(t.TempDir())
 	t.Cleanup(func() { workspace.SetRoot(previousRoot) })
-	rt, err := executor.NewBuilder().
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(&execconfig.Defaults{
 			Reporting: execconfig.ReportingDefaults{Enabled: true},
-		}).
-		Build(context.Background())
-	require.NoError(t, err)
+		}), false)
 	require.NotNil(t, rt.Reporting)
 
 	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "builder-user"), "builder-user"), "fixture-oauth")
@@ -199,14 +200,14 @@ func TestBuilderBuild_ReportingRegistryExportsSavedReportViaUnifiedReportSource(
 }
 
 func TestBuilderBuild_ReportingRegistryExportsMaterializedPresetViaUnifiedPresetSource(t *testing.T) {
-	rt, err := executor.NewBuilder().
+	isolateDefaultReportingWorkspace(t)
+
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(&execconfig.Defaults{
 			Reporting: execconfig.ReportingDefaults{Enabled: true},
-		}).
-		Build(context.Background())
-	require.NoError(t, err)
+		}), false)
 	require.NotNil(t, rt.Reporting)
 
 	ctx := authsvc.InjectUser(context.Background(), "builder-user")
@@ -279,12 +280,10 @@ default:
 	require.Equal(t, "disabled", defaults.Reporting.TransitionalWithUI.ExportFromRun)
 	require.Equal(t, "disabled", defaults.Reporting.TransitionalWithUI.Orchestration)
 
-	rt, err := executor.NewBuilder().
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
-		WithDefaults(defaults).
-		Build(context.Background())
-	require.NoError(t, err)
+		WithDefaults(defaults), false)
 	require.NotNil(t, rt.Reporting)
 	require.NotNil(t, rt.ReportRuns)
 
@@ -331,15 +330,10 @@ default:
 	})
 	require.True(t, defaults.Reporting.Enabled)
 
-	buildCtx, cancelBuild := context.WithCancel(context.Background())
-	defer cancelBuild()
-
-	first, err := executor.NewBuilder().
+	first := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
-		WithDefaults(defaults).
-		Build(buildCtx)
-	require.NoError(t, err)
+		WithDefaults(defaults), false)
 	require.NotNil(t, first.Reporting)
 
 	ctx := authsvc.InjectUser(context.Background(), "persist-user")
@@ -354,12 +348,10 @@ default:
 	require.NoError(t, json.Unmarshal([]byte(submitRaw), &queued))
 	require.Equal(t, reportingsvc.JobStatusQueued, queued.Status)
 
-	second, err := executor.NewBuilder().
+	second := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
-		WithDefaults(defaults).
-		Build(buildCtx)
-	require.NoError(t, err)
+		WithDefaults(defaults), false)
 	require.NotNil(t, second.Reporting)
 
 	statusRaw, err := second.Registry.Execute(ctx, "reporting:get_export_status", map[string]interface{}{
@@ -374,15 +366,15 @@ default:
 }
 
 func TestBuilderBuild_ReportingRegistryRoundTrip(t *testing.T) {
+	isolateDefaultReportingWorkspace(t)
+
 	reportingSvc := reportingsvc.New(reportingsvc.Options{
 		Store: reportingsvc.NewStoreAdapter(reportmemory.New()),
 	})
-	rt, err := executor.NewBuilder().
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
-		WithReportingService(reportingSvc).
-		Build(context.Background())
-	require.NoError(t, err)
+		WithReportingService(reportingSvc), false)
 	require.NotNil(t, rt.Reporting)
 	require.Same(t, reportingSvc, rt.Reporting)
 
@@ -435,15 +427,15 @@ func TestBuilderBuild_ReportingRegistryRoundTrip(t *testing.T) {
 }
 
 func TestBuilderBuild_ReportingRegistryAcceptsCanonicalExportEnvelope(t *testing.T) {
+	isolateDefaultReportingWorkspace(t)
+
 	reportingSvc := reportingsvc.New(reportingsvc.Options{
 		Store: reportingsvc.NewStoreAdapter(reportmemory.New()),
 	})
-	rt, err := executor.NewBuilder().
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
-		WithReportingService(reportingSvc).
-		Build(context.Background())
-	require.NoError(t, err)
+		WithReportingService(reportingSvc), false)
 
 	ctx := authsvc.InjectUser(context.Background(), "builder-user")
 	submitRaw, err := rt.Registry.Execute(ctx, "reporting:submit_export", map[string]interface{}{
@@ -467,14 +459,12 @@ func TestBuilderBuild_DefaultReportingServiceRunsForgePDFExport(t *testing.T) {
 		workspace.SetRoot(prevRoot)
 	})
 
-	rt, err := executor.NewBuilder().
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(&execconfig.Defaults{
 			Reporting: execconfig.ReportingDefaults{Enabled: true},
-		}).
-		Build(context.Background())
-	require.NoError(t, err)
+		}), false)
 	require.NotNil(t, rt.Reporting)
 
 	ctx := authsvc.InjectUser(context.Background(), "builder-user")
@@ -504,14 +494,14 @@ func TestBuilderBuild_DefaultReportingServiceRunsForgePDFExport(t *testing.T) {
 }
 
 func TestBuilderBuild_DefaultReportingServiceRunsForgeCSVExport(t *testing.T) {
-	rt, err := executor.NewBuilder().
+	isolateDefaultReportingWorkspace(t)
+
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(&execconfig.Defaults{
 			Reporting: execconfig.ReportingDefaults{Enabled: true},
-		}).
-		Build(context.Background())
-	require.NoError(t, err)
+		}), false)
 	require.NotNil(t, rt.Reporting)
 
 	ctx := authsvc.InjectUser(context.Background(), "builder-user")
@@ -540,14 +530,14 @@ func TestBuilderBuild_DefaultReportingServiceRunsForgeCSVExport(t *testing.T) {
 }
 
 func TestBuilderBuild_DefaultReportingServiceRunsForgeXLSXExport(t *testing.T) {
-	rt, err := executor.NewBuilder().
+	isolateDefaultReportingWorkspace(t)
+
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(&execconfig.Defaults{
 			Reporting: execconfig.ReportingDefaults{Enabled: true},
-		}).
-		Build(context.Background())
-	require.NoError(t, err)
+		}), false)
 	require.NotNil(t, rt.Reporting)
 
 	ctx := authsvc.InjectUser(context.Background(), "builder-user")
@@ -575,6 +565,29 @@ func TestBuilderBuild_DefaultReportingServiceRunsForgeXLSXExport(t *testing.T) {
 	require.True(t, len(artifact.Data) > 100)
 }
 
+// Registration and explicit RunExport tests own queue execution. Stop and join
+// their automatic worker before submitting jobs; worker tests keep it running.
+// Every runtime closes before its workspace is restored or its DAO shuts down.
+func buildReportingIntegrationRuntime(t *testing.T, builder *executor.Builder, runWorker bool) *executor.Runtime {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	rt, err := builder.Build(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer closeCancel()
+		require.NoError(t, rt.Close(closeCtx))
+	})
+	if !runWorker {
+		cancel()
+		waitCtx, waitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer waitCancel()
+		require.NoError(t, rt.ReportingWorker.Wait(waitCtx))
+	}
+	return rt
+}
+
 func isolateDefaultReportingWorkspace(t *testing.T) {
 	t.Helper()
 	prevRoot := workspace.Root()
@@ -587,10 +600,7 @@ func isolateDefaultReportingWorkspace(t *testing.T) {
 func TestBuilderBuild_DefaultReportingServiceWorkerProcessesQueuedExports(t *testing.T) {
 	isolateDefaultReportingWorkspace(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	rt, err := executor.NewBuilder().
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(&execconfig.Defaults{
@@ -599,9 +609,7 @@ func TestBuilderBuild_DefaultReportingServiceWorkerProcessesQueuedExports(t *tes
 				QueueIntervalMs: 5,
 				QueueBatchLimit: 1,
 			},
-		}).
-		Build(ctx)
-	require.NoError(t, err)
+		}), true)
 	require.NotNil(t, rt.Reporting)
 	require.NotNil(t, rt.ReportingWorker)
 
@@ -627,19 +635,14 @@ func TestBuilderBuild_DefaultReportingServiceWorkerProcessesQueuedExports(t *tes
 func TestBuilderBuild_DefaultReportingServiceWorkerUsesFallbackIntervalWhenEnabled(t *testing.T) {
 	isolateDefaultReportingWorkspace(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	rt, err := executor.NewBuilder().
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(&execconfig.Defaults{
 			Reporting: execconfig.ReportingDefaults{
 				Enabled: true,
 			},
-		}).
-		Build(ctx)
-	require.NoError(t, err)
+		}), true)
 	require.NotNil(t, rt.Reporting)
 	require.NotNil(t, rt.ReportingWorker)
 
@@ -665,10 +668,7 @@ func TestBuilderBuild_DefaultReportingServiceWorkerUsesFallbackIntervalWhenEnabl
 func TestBuilderBuild_DefaultReportingServiceWorkerPreservesOwnerVisibility(t *testing.T) {
 	isolateDefaultReportingWorkspace(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	rt, err := executor.NewBuilder().
+	rt := buildReportingIntegrationRuntime(t, executor.NewBuilder().
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(&execconfig.Defaults{
@@ -677,9 +677,7 @@ func TestBuilderBuild_DefaultReportingServiceWorkerPreservesOwnerVisibility(t *t
 				QueueIntervalMs: 5,
 				QueueBatchLimit: 2,
 			},
-		}).
-		Build(ctx)
-	require.NoError(t, err)
+		}), true)
 	require.NotNil(t, rt.ReportingWorker)
 
 	firstCtx := authsvc.InjectUser(context.Background(), "builder-user-1")

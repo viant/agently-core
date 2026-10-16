@@ -119,7 +119,11 @@ func TestMCPReferenceReaderUsesExplicitRootsAndScopedNotifications(t *testing.T)
 	alpha := &referenceCatalog{namespace: "alpha", owner: "alpha-owner", kind: "mcp", rows: map[string]map[string]json.RawMessage{}, denied: map[string]bool{}}
 	beta := &referenceCatalog{namespace: "beta", owner: "beta-owner", kind: "mcp", rows: map[string]map[string]json.RawMessage{}, denied: map[string]bool{}}
 	partial := &referenceCatalog{namespace: "partial", owner: "partial-owner", kind: "intent", rows: map[string]map[string]json.RawMessage{}, denied: map[string]bool{}}
-	internal.set("", "steward", referenceConfig("sdk-client-name-not-service-alias", "", cfg.ResourceCachePublic))
+	// This definition exercises token-store alias identity, so authentication is
+	// explicit even though its authored catalog metadata is publicly cacheable.
+	steward := referenceConfig("sdk-client-name-not-service-alias", "", cfg.ResourceCachePublic)
+	steward.Auth = &mcp.ClientAuth{}
+	internal.set("", "steward", steward)
 	internal.set("", "mcp_say_hello_auth", referenceConfig("legacy-client", "", cfg.ResourceCachePublic))
 	internal.set("", "alpha", referenceConfig("alpha", "alpha-owner", cfg.ResourceCacheUser))
 	internal.set("", "beta", referenceConfig("beta", "beta-owner", cfg.ResourceCacheConversation))
@@ -231,10 +235,15 @@ func TestMCPReferenceReaderUsesExplicitRootsAndScopedNotifications(t *testing.T)
 	before := alpha.gets
 	updated := referenceConfig("updated-alice-client", "", cfg.ResourceCachePublic)
 	alpha.set("alice", "alice_only", updated)
+	unnotified, err := reader.Load(alice, "alice_only")
+	require.NoError(t, err)
+	require.Equal(t, "alice-client", unnotified.Name, "explicit private metadata stays captured before its owning notification")
+	require.Equal(t, before, alpha.gets, "warm reads must not recheck unnotified source bytes")
+	alpha.changes.Publish(alice)
 	cached, err := reader.Load(alice, "alice_only")
 	require.NoError(t, err)
 	require.Equal(t, "updated-alice-client", cached.Name)
-	require.Greater(t, alpha.gets, before, "working MCP definitions are refreshed on a new operation")
+	require.Greater(t, alpha.gets, before, "owning notification refreshes cached working MCP definitions")
 	inventoryMemo := manager.WithNamesMemo(alice)
 	memoNames, err := mgr.Names(inventoryMemo)
 	require.NoError(t, err)
