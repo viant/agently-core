@@ -32,6 +32,7 @@ import (
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/agently-core/protocol/tool"
 	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
+	llmtools "github.com/viant/agently-core/protocol/tool/service/llm/tools"
 	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
 	resourcessvc "github.com/viant/agently-core/protocol/tool/service/resources"
 	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
@@ -1021,6 +1022,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 	}
 	promptRepo := intakerepo.NewWithStore(out.Store)
+	if err := tool.AddInternalService(out.Registry, llmtools.New()); err != nil {
+		return nil, err
+	}
 	if out.PrimitiveProviders != nil {
 		promptRepo = intakerepo.NewWithReader(defaultIntentReader(out))
 	}

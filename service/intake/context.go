@@ -1,5 +1,7 @@
 package intake
 
+import "encoding/json"
+
 type ClassificationContext struct {
 	Title      string  `json:"title,omitempty"`
 	Intent     string  `json:"intent,omitempty"`
@@ -10,12 +12,44 @@ type ScopeContext struct {
 	Values map[string]string `json:"values,omitempty"`
 }
 
+// ToolSelection is an initial model-surface hint, never execution authorization. A complete
+// explicit empty Names array means no optional tools. A nil hint preserves
+// legacy behavior; incomplete selection uses the declared workflow fallback.
+type ToolSelection struct {
+	Names    []string `json:"names"`
+	Complete bool     `json:"complete"`
+}
+
+func (s *ToolSelection) UnmarshalJSON(data []byte) error {
+	type plain ToolSelection
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	// A missing/null names field is not an explicit empty selection.
+	if decoded.Names == nil {
+		decoded.Complete = false
+	}
+	*s = ToolSelection(decoded)
+	return nil
+}
+
+// Clone detaches model/caller-owned selection storage, retaining explicit empty
+// arrays on the canonical wire rather than serializing them as null.
+func (s *ToolSelection) Clone() *ToolSelection {
+	if s == nil {
+		return nil
+	}
+	return &ToolSelection{Names: append([]string{}, s.Names...), Complete: s.Complete}
+}
+
 type PromptingContext struct {
-	SuggestedProfileID string   `json:"suggestedProfileId,omitempty"`
-	AppendToolBundles  []string `json:"appendToolBundles,omitempty"`
-	TemplateID         string   `json:"templateId,omitempty"`
-	ModelID            string   `json:"modelId,omitempty"`
-	SynthesisModelID   string   `json:"synthesisModelId,omitempty"`
+	SuggestedProfileID string         `json:"suggestedProfileId,omitempty"`
+	ToolSelection      *ToolSelection `json:"toolSelection,omitempty"`
+	AppendToolBundles  []string       `json:"appendToolBundles,omitempty"`
+	TemplateID         string         `json:"templateId,omitempty"`
+	ModelID            string         `json:"modelId,omitempty"`
+	SynthesisModelID   string         `json:"synthesisModelId,omitempty"`
 }
 
 type DirectActionContext struct {
@@ -94,6 +128,7 @@ func StoreCallerProvided(ctxMap map[string]any, override *Context) (map[string]a
 		ctxMap = make(map[string]any)
 	}
 	tc := *override
+	tc.Prompting.ToolSelection = override.Prompting.ToolSelection.Clone()
 	tc.Routing.Source = SourceCallerProvided
 	ctxMap[ContextKey] = &tc
 	return ctxMap, &tc
@@ -114,6 +149,7 @@ func FromContext(ctxMap map[string]any) *Context {
 		return tc
 	case Context:
 		out := tc
+		out.Prompting.ToolSelection = tc.Prompting.ToolSelection.Clone()
 		return &out
 	}
 	return nil

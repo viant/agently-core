@@ -141,7 +141,7 @@ func filterDelegationDiscoveryTools(defs []*llm.ToolDefinition, docs *binding.Do
 			continue
 		}
 		name := mcpname2.Canonical(strings.TrimSpace(def.Name))
-		if name == "llm_agents-list" {
+		if name == "llm_agents-list" && !retainedToolDefinition(*def) {
 			continue
 		}
 		filtered = append(filtered, def)
@@ -153,7 +153,7 @@ func dedupeToolDefinitions(defs []*llm.ToolDefinition) []*llm.ToolDefinition {
 	if len(defs) == 0 {
 		return nil
 	}
-	seen := map[string]struct{}{}
+	seen := map[string]int{}
 	filtered := make([]*llm.ToolDefinition, 0, len(defs))
 	for _, def := range defs {
 		if def == nil {
@@ -163,32 +163,14 @@ func dedupeToolDefinitions(defs []*llm.ToolDefinition) []*llm.ToolDefinition {
 		if key == "" {
 			continue
 		}
-		if _, ok := seen[key]; ok {
+		if index, ok := seen[key]; ok {
+			copy := *filtered[index]
+			copy.AlwaysInclude = copy.AlwaysInclude || def.AlwaysInclude
+			copy.Tier = copy.Tier.Merge(def.Tier)
+			filtered[index] = &copy
 			continue
 		}
-		seen[key] = struct{}{}
-		filtered = append(filtered, def)
-	}
-	return filtered
-}
-
-func filterToolSignaturesByServicePrefix(defs []*llm.ToolDefinition, prefix string) []*llm.ToolDefinition {
-	if len(defs) == 0 {
-		return nil
-	}
-	prefix = strings.ToLower(strings.TrimSpace(prefix))
-	if prefix == "" {
-		return defs
-	}
-	filtered := make([]*llm.ToolDefinition, 0, len(defs))
-	for _, def := range defs {
-		if def == nil {
-			continue
-		}
-		name := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(def.Name)))
-		if strings.HasPrefix(name, prefix) {
-			continue
-		}
+		seen[key] = len(filtered)
 		filtered = append(filtered, def)
 	}
 	return filtered
@@ -523,11 +505,19 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 	if len(input.ToolBundles) > 0 {
 		ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Required: true})
 	}
+	always, err := s.resolveAlwaysIncludedTools(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if intakeNeedsNoTools(ctx, input) {
+		always, err = s.prepareRetainedToolDefinitions(ctx, input, always)
+		return toolDefinitionPointers(always), err
+	}
 	control, err := s.resolveToolControl(ctx, input)
 	if err != nil {
 		return nil, err
 	}
-	if len(control.Tools) == 0 && len(control.Bundles) == 0 {
+	if len(control.Tools) == 0 && len(control.Bundles) == 0 && !hasToolDiscoverySelection(ctx, input) && len(always) == 0 {
 		return nil, nil
 	}
 	defs, err := s.resolveStructuredToolDefinitions(ctx, control)
@@ -538,6 +528,19 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 		return nil, validationErr
 	} else if len(unresolved) > 0 {
 		return nil, fmt.Errorf("requested tool bundles resolved zero tool definitions: %s", strings.Join(unresolved, ", "))
+	}
+	defs = annotateAgentToolRules(input, dedupeDefinitions(append(defs, always...)))
+	defs, err = s.callerScopedToolDefinitions(ctx, input, defs)
+	if err != nil {
+		return nil, err
+	}
+	defs, err = s.modelVisibleDefinitions(ctx, defs)
+	if err != nil {
+		return nil, err
+	}
+	defs, err = s.selectIntakeTools(ctx, input, defs)
+	if err != nil {
+		return nil, err
 	}
 	out := make([]*llm.ToolDefinition, 0, len(defs))
 	for _, def := range defs {

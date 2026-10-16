@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"fmt"
 	"strings"
 
 	asynccfg "github.com/viant/agently-core/protocol/async"
@@ -94,16 +95,16 @@ type ApprovalReviewConfig struct {
 // ApprovalConfig configures approval behavior for a bundle rule.
 // It replaces the legacy split between llm.ApprovalQueue and protocol/tool.ApprovalQueueConfig.
 type ApprovalConfig struct {
-	Mode               ApprovalMode          `json:"mode,omitempty" yaml:"mode,omitempty"`
-	TitleSelector      string                `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
-	DataSourceSelector string                `json:"dataSourceSelector,omitempty" yaml:"dataSourceSelector,omitempty"`
-	UIURI              string                `json:"uiURI,omitempty" yaml:"uiURI,omitempty"`
-	AllowUserAuto      bool                  `json:"allowUserAuto,omitempty" yaml:"allowUserAuto,omitempty"`
-	Prompt             *ApprovalPrompt       `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	UI                 *ApprovalUIBinding    `json:"ui,omitempty" yaml:"ui,omitempty"`
-	Review             *ApprovalReviewConfig `json:"review,omitempty" yaml:"review,omitempty"`
-	QueueBehavior      ApprovalQueueBehavior `json:"queueBehavior,omitempty" yaml:"queueBehavior,omitempty"`
-	TimeoutSec         int                   `json:"timeoutSec,omitempty" yaml:"timeoutSec,omitempty"`
+	Mode               ApprovalMode                       `json:"mode,omitempty" yaml:"mode,omitempty"`
+	TitleSelector      string                             `json:"titleSelector,omitempty" yaml:"titleSelector,omitempty"`
+	DataSourceSelector string                             `json:"dataSourceSelector,omitempty" yaml:"dataSourceSelector,omitempty"`
+	UIURI              string                             `json:"uiURI,omitempty" yaml:"uiURI,omitempty"`
+	AllowUserAuto      bool                               `json:"allowUserAuto,omitempty" yaml:"allowUserAuto,omitempty"`
+	Prompt             *ApprovalPrompt                    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	UI                 *ApprovalUIBinding                 `json:"ui,omitempty" yaml:"ui,omitempty"`
+	Review             *ApprovalReviewConfig              `json:"review,omitempty" yaml:"review,omitempty"`
+	QueueBehavior      ApprovalQueueBehavior              `json:"queueBehavior,omitempty" yaml:"queueBehavior,omitempty"`
+	TimeoutSec         int                                `json:"timeoutSec,omitempty" yaml:"timeoutSec,omitempty"`
 	Decisions          map[string]*ApprovalDecisionAction `json:"decisions,omitempty" yaml:"decisions,omitempty"`
 	// Enabled is a legacy alias for Mode=queue. Prefer Mode.
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
@@ -160,11 +161,47 @@ func (a *ApprovalConfig) EffectiveTitleSelector() string {
 	return strings.TrimSpace(a.TitleSelector)
 }
 
+// ToolTier controls initial model exposure through trusted host rules.
+type ToolTier string
+
+const (
+	ToolTierCritical ToolTier = "critical"
+	ToolTierBase     ToolTier = "base"
+	ToolTierOnDemand ToolTier = "onDemand"
+)
+
+func (tier ToolTier) Validate() error {
+	switch tier {
+	case "", ToolTierCritical, ToolTierBase, ToolTierOnDemand:
+		return nil
+	}
+	return fmt.Errorf("invalid tool tier %q", tier)
+}
+
+// Merge retains critical requirements and otherwise chooses the more restrictive
+// on-demand declaration. An unspecified tier preserves legacy base behavior.
+func (tier ToolTier) Merge(other ToolTier) ToolTier {
+	if tier == ToolTierCritical || other == ToolTierCritical {
+		return ToolTierCritical
+	}
+	if tier == ToolTierOnDemand || other == ToolTierOnDemand {
+		return ToolTierOnDemand
+	}
+	if tier == ToolTierBase || other == ToolTierBase {
+		return ToolTierBase
+	}
+	return ""
+}
+
 // Tool represents a tool that can be used by an LLM.
 // Name supports exact match or wildcard patterns (e.g. system/exec:*).
 // Approval and Exclude are meaningful in bundle rule context.
 // Definition is meaningful for inline agent item specs.
 type Tool struct {
+	Tier ToolTier `json:"tier,omitempty" yaml:"tier,omitempty"`
+	// AlwaysInclude retains matching authorized schemas during intake narrowing.
+	// This is trusted bundle/agent configuration, never producer MCP metadata.
+	AlwaysInclude bool `json:"alwaysInclude,omitempty" yaml:"alwaysInclude,omitempty"`
 	// Name is the tool identifier or match pattern. Replaces the legacy Pattern and Ref fields.
 	Name string `json:"name,omitempty" yaml:"name,omitempty"`
 	// Approval configures approval behavior for this tool rule. Used in bundle context.
@@ -182,6 +219,9 @@ type Tool struct {
 // ToolDefinition represents a function that can be called by an LLM.
 // It follows the OpenAPI specification for defining functions.
 type ToolDefinition struct {
+	Tier ToolTier `json:"-" yaml:"-"`
+	// AlwaysInclude is resolved host rule metadata, excluded from schema/config decoding.
+	AlwaysInclude bool `json:"-" yaml:"-"`
 	// Name is the name of the function to be called.
 	Name string `json:"name" yaml:"name"`
 

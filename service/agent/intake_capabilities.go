@@ -3,8 +3,11 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"github.com/viant/agently-core/internal/debugtrace"
+	"golang.org/x/sync/errgroup"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Intake sees metadata for the same tool surface available to execution. It
@@ -16,32 +19,47 @@ func (s *Service) intakeCapabilitySummary(ctx context.Context, input *QueryInput
 		Description string `json:"description,omitempty"`
 		URI         string `json:"uri,omitempty"`
 	}
-	var items []capability
+	var toolItems, skillItems []capability
 	if s == nil || input == nil || input.Agent == nil {
 		return "", nil
 	}
+	group, ctx := errgroup.WithContext(ctx)
 	if s.registry != nil {
-		tools, err := s.resolveTools(ctx, input)
-		if err != nil {
-			return "", err
-		}
-		for _, tool := range tools {
-			items = append(items, capability{Kind: "tool", Name: tool.Definition.Name, Description: tool.Definition.Description})
-		}
+		group.Go(func() error {
+			started := time.Now()
+			tools, err := s.discoverableToolDefinitions(ctx, input)
+			debugtrace.Write("agent", "intake_capability_stage", map[string]any{"conversationID": input.ConversationID, "turnID": input.MessageID, "stage": "tools", "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond), "count": len(tools)})
+			if err != nil {
+				return err
+			}
+			for _, tool := range tools {
+				toolItems = append(toolItems, capability{Kind: "tool", Name: tool.Name, Description: tool.Description})
+			}
+			return nil
+		})
 	}
 	if s.skillSvc != nil {
-		skills, err := s.skillSvc.ListVisible(ctx, input.Agent)
-		if err != nil {
-			return "", err
-		}
-		for _, skill := range skills {
-			name := skill.QualifiedName
-			if strings.TrimSpace(name) == "" {
-				name = skill.Name
+		group.Go(func() error {
+			started := time.Now()
+			skills, err := s.skillSvc.ListVisible(ctx, input.Agent)
+			debugtrace.Write("agent", "intake_capability_stage", map[string]any{"conversationID": input.ConversationID, "turnID": input.MessageID, "stage": "skills", "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond), "count": len(skills)})
+			if err != nil {
+				return err
 			}
-			items = append(items, capability{Kind: "skill", Name: name, Description: skill.Description, URI: skill.URI})
-		}
+			for _, skill := range skills {
+				name := skill.QualifiedName
+				if strings.TrimSpace(name) == "" {
+					name = skill.Name
+				}
+				skillItems = append(skillItems, capability{Kind: "skill", Name: name, Description: skill.Description, URI: skill.URI})
+			}
+			return nil
+		})
 	}
+	if err := group.Wait(); err != nil {
+		return "", err
+	}
+	items := append(toolItems, skillItems...)
 	if len(items) == 0 {
 		return "", nil
 	}

@@ -2,15 +2,18 @@ package template
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"reflect"
-	"sort"
 	"strings"
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/internal/auth"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/protocol/primitive"
 	tpldef "github.com/viant/agently-core/protocol/template"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -21,7 +24,7 @@ import (
 
 const Name = "template"
 
-type ListInput struct{}
+type ListInput primitive.CatalogQuery
 
 type ListItem struct {
 	URI         string `json:"uri,omitempty"`
@@ -31,7 +34,10 @@ type ListItem struct {
 }
 
 type ListOutput struct {
-	Items []ListItem `json:"items"`
+	Items      []ListItem `json:"items"`
+	NextCursor string     `json:"nextCursor,omitempty"`
+	Complete   bool       `json:"complete"`
+	Total      int        `json:"total"`
 }
 
 type GetInput struct {
@@ -74,7 +80,7 @@ func (s *Service) Name() string { return Name }
 
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
-		{Name: "list", Description: "List available output templates by name and description", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
+		{Name: "list", Description: "List visible output template metadata using namespace, nameTerms, descriptionTerms, or keywords. Matching is literal case-insensitive contains: terms within each group are OR; groups are AND. Use limit and nextCursor with unchanged filters for bounded pages. An unfiltered empty request preserves the complete list.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "get", Description: "Get an output template by name and optionally inject it as a system document for the next model step", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
 	}
 }
@@ -91,32 +97,57 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 }
 
 func (s *Service) list(ctx context.Context, in, out interface{}) error {
-	_, ok := in.(*ListInput)
-	if !ok {
+	li, ok := in.(*ListInput)
+	if !ok || li == nil {
 		return svc.NewInvalidInputError(in)
 	}
 	lo, ok := out.(*ListOutput)
-	if !ok {
+	if !ok || lo == nil {
 		return svc.NewInvalidOutputError(out)
 	}
 	templates, err := s.allowedTemplates(ctx)
 	if err != nil {
 		return err
 	}
-	items := make([]ListItem, 0, len(templates))
+	items := make([]primitive.CatalogItem[ListItem], 0, len(templates))
 	for _, tpl := range templates {
 		if tpl == nil {
 			continue
 		}
-		items = append(items, ListItem{
+		item := ListItem{
 			URI:         tpl.ResourceURI,
 			Name:        strings.TrimSpace(tpl.Name),
 			Description: strings.TrimSpace(tpl.Description),
 			Format:      strings.TrimSpace(tpl.Format),
-		})
+		}
+		namespace := "workspace"
+		if uri, err := url.Parse(item.URI); err == nil && uri.Scheme == "template" && uri.Host != "" && uri.User == nil {
+			namespace = uri.Host
+		}
+		items = append(items, primitive.CatalogItem[ListItem]{Name: item.Name, Description: item.Description, Namespace: namespace, URI: item.URI, Value: item})
 	}
-	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name) })
-	lo.Items = items
+	turn, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	scope, _ := json.Marshal([]any{auth.CanonicalUserID(ctx), auth.EffectiveUserID(ctx), auth.Provider(ctx), auth.MCPAuthToken(ctx, false), auth.MCPAuthToken(ctx, true), runtimerequestctx.ConversationIDFromContext(ctx), turn.TurnID, s.currentAgentID(ctx), items})
+	index := primitive.NewCatalog(fmt.Sprintf("templates:%x", sha256.Sum256(scope)), items)
+	query := primitive.CatalogQuery(*li)
+	unpaged := query.Namespace == "" && len(query.OwnerIDs) == 0 && len(query.NameTerms) == 0 && len(query.DescriptionTerms) == 0 && len(query.Keywords) == 0 && query.Limit == 0 && query.Cursor == ""
+	if unpaged {
+		query.Limit = primitive.MaxCatalogPageSize
+	}
+	page, err := index.Page(ctx, query)
+	if err != nil {
+		return err
+	}
+	*lo = ListOutput{Items: page.Items, NextCursor: page.NextCursor, Complete: page.Complete, Total: page.Total}
+	for unpaged && !lo.Complete {
+		query.Cursor = page.NextCursor
+		page, err = index.Page(ctx, query)
+		if err != nil {
+			return err
+		}
+		lo.Items = append(lo.Items, page.Items...)
+		lo.NextCursor, lo.Complete = page.NextCursor, page.Complete
+	}
 	return nil
 }
 

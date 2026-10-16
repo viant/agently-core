@@ -652,6 +652,8 @@ func buildOutputSchema(cfg *agentmdl.Intake) string {
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeTools) {
 		b.WriteString("\n- prompting.appendToolBundles may be used when additional bundle ids are needed for this task")
+		b.WriteString("\n- prompting.toolSelection (object): choose a small sufficient INITIAL optional tool set from the provided compact capabilities, using only their exact names. Select the first useful authoritative read, relevant skill activation, or execution operation and likely immediate follow-ups. Required selected-profile, skill and workflow tools are retained downstream; this hint is not permission to execute any tool.")
+		b.WriteString("\n- toolSelection.names is an array of exact tool names; complete=true means this INITIAL set is sufficient to begin, not that it covers every later step. The runtime provides tool discovery/activation for additional tools during execution. Multi-step work or unknown later steps alone are NOT reasons to abstain. Use complete=false only when the available metadata is insufficient to select even a starting set; the runtime then retains the chosen workflow's declared tools, or the existing surface if no workflow is known. Set complete=true with names=[] for conversational requests needing no tools. Do not invent names or replace appendToolBundles/profile workflow hints.")
 	}
 	b.WriteString("\n\nReturn ONLY the JSON object. No prose, no markdown fences.")
 	return b.String()
@@ -728,6 +730,18 @@ func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
 				"items": map[string]interface{}{"type": "string"},
 			}
 			promptingRequired = append(promptingRequired, "appendToolBundles")
+			promptingProps["toolSelection"] = map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"names":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+					"complete": map[string]interface{}{"type": "boolean"},
+				},
+				"required":             []string{"names", "complete"},
+				"additionalProperties": false,
+			}
+			// New responses make uncertainty explicit; legacy stored contexts
+			// may still omit the hint or contain null.
+			promptingRequired = append(promptingRequired, "toolSelection")
 		}
 		if cfg.HasScope(agentmdl.IntakeScopeTemplate) {
 			promptingProps["templateId"] = map[string]interface{}{"type": "string"}
@@ -756,9 +770,9 @@ func buildOutputJSONSchema(cfg *agentmdl.Intake) map[string]interface{} {
 const intakeBasePrompt = `You are a request classifier that extracts structured metadata from user messages.
 Your output drives downstream routing and tool selection — be precise and conservative.
 Do not invent context, dates, or constraints not present in the message.
-Do not output tool names or capability descriptions, except when the schema
-explicitly includes the directAction.toolName field; in that case emit only
-the exact tool name required by that field.
+Do not output tool names or capability descriptions except in schema-declared
+directAction.toolName or prompting.toolSelection.names fields. Emit only exact
+names from the supplied allowed actions or compact capabilities in those fields.
 When you emit string fields such as intent, suggestedProfileId, or templateId:
 - return the exact bare string value only
 - do not append explanations, comments, punctuation notes, or side remarks
@@ -819,6 +833,7 @@ func filterByScope(tc *Context, cfg *agentmdl.Intake) {
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeTools) {
 		tc.Prompting.AppendToolBundles = nil
+		tc.Prompting.ToolSelection = nil
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeTemplate) {
 		tc.Prompting.TemplateID = ""
@@ -878,11 +893,12 @@ type contextScopeWire struct {
 }
 
 type contextPromptingWire struct {
-	SuggestedProfileID string   `json:"suggestedProfileId,omitempty"`
-	AppendToolBundles  []string `json:"appendToolBundles,omitempty"`
-	TemplateID         string   `json:"templateId,omitempty"`
-	ModelID            string   `json:"modelId,omitempty"`
-	SynthesisModelID   string   `json:"synthesisModelId,omitempty"`
+	ToolSelection      *ToolSelection `json:"toolSelection,omitempty"`
+	SuggestedProfileID string         `json:"suggestedProfileId,omitempty"`
+	AppendToolBundles  []string       `json:"appendToolBundles,omitempty"`
+	TemplateID         string         `json:"templateId,omitempty"`
+	ModelID            string         `json:"modelId,omitempty"`
+	SynthesisModelID   string         `json:"synthesisModelId,omitempty"`
 }
 
 type contextDirectActionWire struct {
@@ -907,8 +923,9 @@ func canonicalIntakeContent(tc *Context) (string, error) {
 	if len(tc.Scope.Values) > 0 {
 		out["scope"] = contextScopeWire{Values: tc.Scope.Values}
 	}
-	if tc.Prompting.SuggestedProfileID != "" || len(tc.Prompting.AppendToolBundles) > 0 || tc.Prompting.TemplateID != "" || tc.Prompting.ModelID != "" || tc.Prompting.SynthesisModelID != "" {
+	if tc.Prompting.SuggestedProfileID != "" || len(tc.Prompting.AppendToolBundles) > 0 || tc.Prompting.TemplateID != "" || tc.Prompting.ModelID != "" || tc.Prompting.SynthesisModelID != "" || tc.Prompting.ToolSelection != nil {
 		out["prompting"] = contextPromptingWire{
+			ToolSelection:      tc.Prompting.ToolSelection.Clone(),
 			SuggestedProfileID: tc.Prompting.SuggestedProfileID,
 			AppendToolBundles:  tc.Prompting.AppendToolBundles,
 			TemplateID:         tc.Prompting.TemplateID,
@@ -1018,6 +1035,7 @@ func unmarshalContext(data []byte, tc *Context) error {
 	}
 
 	if wire.Prompting != nil {
+		tc.Prompting.ToolSelection = wire.Prompting.ToolSelection.Clone()
 		tc.Prompting.SuggestedProfileID = wire.Prompting.SuggestedProfileID
 		tc.Prompting.AppendToolBundles = wire.Prompting.AppendToolBundles
 		tc.Prompting.TemplateID = wire.Prompting.TemplateID

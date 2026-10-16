@@ -71,6 +71,37 @@ export function looksLikePipeTable(body: string): boolean {
 }
 
 /**
+ * Split on unescaped pipes, removing only the backslash that escapes a pipe.
+ * Other backslashes and empty cells remain intact. An even backslash run leaves
+ * the following pipe as a delimiter; an odd run makes it literal cell content.
+ */
+export function splitPipeTableRow(line: string): string[] {
+  const source = line.trim();
+  const cells: string[] = [];
+  let cell = '';
+  let backslashes = 0;
+  let trailingDelimiter = false;
+  for (let i = 0; i < source.length; i++) {
+    const character = source[i];
+    trailingDelimiter = false;
+    if (character === '|' && backslashes % 2 === 0) {
+      cells.push(cell.trim());
+      cell = '';
+      trailingDelimiter = true;
+    } else if (character === '|') {
+      cell = cell.slice(0, -1) + '|';
+    } else {
+      cell += character;
+    }
+    backslashes = character === '\\' ? backslashes + 1 : 0;
+  }
+  cells.push(cell.trim());
+  if (source.startsWith('|')) cells.shift();
+  if (trailingDelimiter && source.length > 1) cells.pop();
+  return cells;
+}
+
+/**
  * Parse a pipe table into structured data.
  */
 export function parsePipeTable(body: string): ParsedTable {
@@ -79,20 +110,10 @@ export function parsePipeTable(body: string): ParsedTable {
   const sepLine = lines[1] || '';
   const dataLines = lines.slice(2);
 
-  const toCells = (line: string): string[] => {
-    let s = line;
-    if (s.startsWith('|')) s = s.slice(1);
-    if (s.endsWith('|')) s = s.slice(0, -1);
-    return s.split('|').map(c => c.trim());
-  };
-
-  const headers = toCells(headerLine);
+  const headers = splitPipeTableRow(headerLine);
 
   const aligns: ('left' | 'right' | 'center')[] = (() => {
-    let s = sepLine;
-    if (s.startsWith('|')) s = s.slice(1);
-    if (s.endsWith('|')) s = s.slice(0, -1);
-    const segs = s.split('|');
+    const segs = splitPipeTableRow(sepLine);
     const parseAlign = (seg: string): 'left' | 'right' | 'center' => {
       const x = (seg || '').trim();
       const left = x.startsWith(':');
@@ -107,7 +128,7 @@ export function parsePipeTable(body: string): ParsedTable {
     return arr;
   })();
 
-  const rows = dataLines.map(toCells).map(r => {
+  const rows = dataLines.map(splitPipeTableRow).map(r => {
     if (r.length < headers.length) return r.concat(Array(headers.length - r.length).fill(''));
     if (r.length > headers.length) return r.slice(0, headers.length);
     return r;

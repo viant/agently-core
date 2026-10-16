@@ -60,7 +60,10 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 					continue
 				}
 				approvalKey := normalizedApprovalKey(d.Name)
-				if _, ok := selected[key]; ok {
+				if prior, ok := selected[key]; ok {
+					prior.AlwaysInclude = prior.AlwaysInclude || r.AlwaysInclude
+					prior.Tier = prior.Tier.Merge(r.Tier)
+					selected[key] = prior
 					if r.Approval != nil && (r.Approval.IsQueue() || r.Approval.IsPrompt()) {
 						approvalByKey[approvalKey] = r.Approval
 					}
@@ -70,7 +73,10 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 					}
 					continue
 				}
-				selected[key] = *d
+				copy := *d
+				copy.AlwaysInclude = copy.AlwaysInclude || r.AlwaysInclude
+				copy.Tier = copy.Tier.Merge(r.Tier)
+				selected[key] = copy
 				if r.Approval != nil && (r.Approval.IsQueue() || r.Approval.IsPrompt()) {
 					approvalByKey[approvalKey] = r.Approval
 				}

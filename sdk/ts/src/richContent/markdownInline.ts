@@ -3,6 +3,8 @@
  * Pure functions — no framework dependency.
  */
 
+import { splitPipeTableRow } from './markdownTableUtils';
+
 export function escapeHTML(value: string): string {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -97,14 +99,13 @@ export function renderMarkdownBlock(value: string): string {
       continue;
     }
 
-    const tableCells = (row: string) => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim());
     if (line.includes('|') && i + 1 < lines.length) {
-      const headings = tableCells(line);
-      const divider = tableCells(lines[i + 1]);
+      const headings = splitPipeTableRow(line);
+      const divider = splitPipeTableRow(lines[i + 1]);
       if (headings.length > 1 && headings.length === divider.length && divider.every((cell) => /^:?-{3,}:?$/.test(cell))) {
         i += 2;
         const rows: string[][] = [];
-        while (i < lines.length && lines[i].trim() && lines[i].includes('|')) rows.push(tableCells(lines[i++]));
+        while (i < lines.length && lines[i].trim() && lines[i].includes('|')) rows.push(splitPipeTableRow(lines[i++]));
         const cell = (text: string) => inlineMarkdown(escapeHTML(text));
         blocks.push(`<table><thead><tr>${headings.map((heading) => `<th>${cell(heading)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${headings.map((_, index) => `<td>${cell(row[index] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
         continue;
