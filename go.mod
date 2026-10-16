@@ -162,7 +162,7 @@ require (
 	github.com/viant/structql v0.5.5-0.20261012183420-6a47e96ff5b5 // indirect
 	github.com/viant/tagly v0.4.1-0.20261007173811-969600917520 // indirect
 	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
-	github.com/viant/x v0.5.1-0.20260915043005-1bc42b9eef47
+	github.com/viant/x v0.5.1-0.20261011035805-d5b69cd4d43c
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.2-0.20260914155716-e525a8788fd0 // indirect
 	github.com/viant/xreflect v0.7.5-0.20260314170600-13f09f37d46e // indirect
