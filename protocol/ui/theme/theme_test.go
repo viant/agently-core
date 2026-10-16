@@ -236,3 +236,40 @@ func TestSharedCSSFixture(t *testing.T) {
 		t.Fatal("shared browser fixture is stale")
 	}
 }
+
+// A secondary face can be published for an opt-in surface without changing the
+// workspace's primary typography role.
+func TestSecondaryWorkspaceFont(t *testing.T) {
+	input := strings.Replace(example, "version: 1", `version: 1
+fonts:
+  - role: workspace-primary
+    name: Primary Sans
+    faces: [{file: primary.woff2, style: normal, weight: '400'}]
+  - role: workspace-secondary
+    name: Secondary Sans
+    faces: [{file: secondary.woff2, style: normal, weight: '400 600'}]`, 1)
+	m, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Fonts) != 2 {
+		t.Fatalf("fonts: %+v", m.Fonts)
+	}
+	input = strings.Replace(input, "control.radius: 8", "control.radius: 8\n      typography.family: workspace-secondary", 1)
+	m, err = Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Resolve(*m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	css, err := CSS(catalog)
+	if err != nil || !strings.Contains(css, "var(--agently-font-workspace-secondary, system-ui, sans-serif)") {
+		t.Fatalf("secondary CSS: %s, %v", css, err)
+	}
+	input = strings.Replace(input, "role: workspace-secondary", "role: workspace-primary", 1)
+	if _, err := Parse([]byte(input)); err == nil {
+		t.Fatal("accepted duplicate roles")
+	}
+}
