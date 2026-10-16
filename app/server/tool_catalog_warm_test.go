@@ -416,12 +416,13 @@ func TestAuthorizedWarmupZeroTTLToolSnapshotPopulatesExistingGatewayCache(t *tes
 		require.Equal(t, reads, namespaceReads["Bearer "+token])
 		mu.Unlock()
 	}
-	// An independent tool listing still refetches the source's zero-TTL page.
+	// Core holds discovery metadata across independent reads until invalidation,
+	// even when the producer supplies a zero lifetime.
 	ctx := authctx.WithBearer(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"}), "alice-token")
 	require.NoError(t, registry.WarmToolCatalogs(manager.WithToolCatalogReadSnapshot(ctx), []string{"remote"}))
 	mu.Lock()
 	defer mu.Unlock()
-	require.Equal(t, 3, lists["Bearer alice-token"])
+	require.Equal(t, 2, lists["Bearer alice-token"])
 	require.Equal(t, 1, lists["Bearer bob-token"])
 }
 

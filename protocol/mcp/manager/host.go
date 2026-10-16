@@ -41,12 +41,13 @@ var (
 	WithProviderRegistry         = shared.WithProviderRegistry
 	WithAuthBindingStore         = shared.WithAuthBindingStore
 	WithToolCatalogReadSnapshot  = shared.WithToolCatalogReadSnapshot
+	WithPersistentToolCatalog    = shared.WithPersistentToolCatalog
 )
 
 // New keeps application state selection in Core while returning the one shared
 // pool instance. No manager or provider is reconstructed for an operation.
 func New(provider Provider, options ...Option) (*Manager, error) {
-	defaults := []Option{shared.WithAuthBindingStore(NewAuthBindingStore(nil)), shared.WithCredentialErrorHandler(hostCredentialError)}
+	defaults := []Option{shared.WithAuthBindingStore(NewAuthBindingStore(nil)), shared.WithCredentialErrorHandler(hostCredentialError), shared.WithPersistentToolCatalog()}
 	return shared.New(provider, append(defaults, options...)...)
 }
 func NewAuthBindingStore(state workspace.StateStore) *AuthBindingStore {

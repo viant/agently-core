@@ -41,7 +41,7 @@ func (p *surfaceCatalogProvider) Options(context.Context, string) (*config.MCPCl
 	return p.options, nil
 }
 
-func TestPrivateSurfaceIdentityTracksPrincipalCredentialsAndExpiry(t *testing.T) {
+func TestPrivateSurfaceIdentityTracksPrincipalCredentialsAndInvalidation(t *testing.T) {
 	t.Setenv("AGENTLY_MCP_SERVERS", "private")
 	var calls, initializes atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -136,7 +136,11 @@ func TestPrivateSurfaceIdentityTracksPrincipalCredentialsAndExpiry(t *testing.T)
 	_, other = r.ToolSurfaceCacheIdentity(ctx, "private:*")
 	require.NotEmpty(t, other)
 	require.NotEqual(t, generation, other)
+	retained := other
+	previousCalls := calls.Load()
 	time.Sleep(1100 * time.Millisecond)
 	_, other = r.ToolSurfaceCacheIdentity(ctx, "private:*")
-	require.Empty(t, other, "expired manager pages must invalidate the LLM surface identity")
+	require.Equal(t, retained, other, "application-held metadata must survive producer TTL")
+	require.Len(t, r.DefinitionsWithContext(ctx), 1)
+	require.Equal(t, previousCalls, calls.Load(), "ordinary discovery must not revalidate upstream")
 }
