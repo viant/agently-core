@@ -180,7 +180,11 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		JWTService:    opts.AuthRuntime.JWTService(),
 		TokenProvider: opts.Runtime.TokenProvider,
 	})
-	sdkHandler = withAuthenticatedToolCatalogWarmup(ctx, sdkHandler, opts.Runtime.Registry, opts.Runtime.MCPManager, opts.ToolCatalogWarmup)
+	var gatewayWarmup warmPrimitiveCatalog
+	if opts.Runtime.PrimitiveProviders != nil {
+		gatewayWarmup = opts.Runtime.PrimitiveProviders
+	}
+	sdkHandler = withAuthenticatedToolCatalogWarmup(ctx, sdkHandler, opts.Runtime.Registry, opts.Runtime.MCPManager, opts.ToolCatalogWarmup, gatewayWarmup)
 	return svcauth.WithAuthExtensions(sdkHandler, opts.AuthRuntime), nil
 }
 

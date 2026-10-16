@@ -12,6 +12,9 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	config "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
+	"github.com/viant/agently-core/protocol/primitive"
+	authconfig "github.com/viant/mcp/client/auth/config"
+	"golang.org/x/sync/errgroup"
 )
 
 // ToolCatalogWarmOptions controls proactive metadata preparation after the
@@ -26,6 +29,10 @@ type ToolCatalogWarmOptions struct {
 type userToolCatalogWarmer interface {
 	WarmToolCatalogs(context.Context, []string) error
 }
+type warmPrimitiveCatalog interface {
+	DiscoverConnection(context.Context, string) ([]primitive.NamespaceCapabilities, error)
+}
+
 type catalogWarmSchedule struct {
 	until  time.Time
 	active bool
@@ -38,7 +45,7 @@ type warmCatalogManager interface {
 	WithAuthTokenContext(context.Context, string) context.Context
 }
 
-func withAuthenticatedToolCatalogWarmup(lifetime context.Context, next http.Handler, registry any, owner warmCatalogManager, opts ToolCatalogWarmOptions) http.Handler {
+func withAuthenticatedToolCatalogWarmup(lifetime context.Context, next http.Handler, registry any, owner warmCatalogManager, opts ToolCatalogWarmOptions, gateway warmPrimitiveCatalog) http.Handler {
 	warmer, ok := registry.(userToolCatalogWarmer)
 	if opts.Disabled || !ok || owner == nil {
 		return next
@@ -92,14 +99,14 @@ func withAuthenticatedToolCatalogWarmup(lifetime context.Context, next http.Hand
 								scheduled[key].active = false
 								mu.Unlock()
 							}()
-							warmCtx = manager.WithToolCatalogReadSnapshot(manager.WithNamesMemo(warmCtx))
+							warmCtx = manager.WithToolCatalogReadSnapshot(manager.WithNamesMemo(authconfig.WithNoRetry(warmCtx)))
 							names, err := owner.Names(warmCtx)
 							if err != nil {
 								return
 							}
 							eligible := eligibleWarmCatalogs(warmCtx, owner, names, excluded)
 							if len(eligible) > 0 {
-								_ = warmer.WarmToolCatalogs(warmCtx, eligible)
+								warmAuthorizedCatalogs(warmCtx, warmer, eligible, gateway)
 							}
 						}()
 					default:
@@ -146,4 +153,30 @@ func eligibleWarmCatalogs(ctx context.Context, owner warmCatalogManager, names [
 		result = append(result, name)
 	}
 	return result
+}
+
+// Warm both metadata consumers in one operation so zero-TTL tools/list pages
+// can be reused while deriving the gateway's existing namespace contracts.
+// This is asynchronous preparation: the initiating request may arrive first.
+func warmAuthorizedCatalogs(ctx context.Context, warmer userToolCatalogWarmer, names []string, gateway warmPrimitiveCatalog) {
+	if gateway == nil {
+		_ = warmer.WarmToolCatalogs(ctx, names)
+		return
+	}
+	var workers errgroup.Group
+	workers.SetLimit(4)
+	for _, name := range names {
+		workers.Go(func() error {
+			if ctx.Err() != nil {
+				return nil
+			}
+			// A provider failure must not cancel independent providers or retry its
+			// failed tool discovery through another consumer during proactive work.
+			if warmer.WarmToolCatalogs(ctx, []string{name}) == nil && ctx.Err() == nil {
+				_, _ = gateway.DiscoverConnection(ctx, name)
+			}
+			return nil
+		})
+	}
+	_ = workers.Wait()
 }
