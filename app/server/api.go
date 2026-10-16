@@ -93,7 +93,8 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		layoutDefault = captured.Raw
 	}
 	menuReader := opts.MenuReader
-	if menuReader == nil && opts.Runtime.NativeLayoutSource != nil && opts.NativeLayoutSource == nil {
+	defaultManagedNavigation := menuReader == nil && opts.Runtime.NativeLayoutSource != nil && opts.NativeLayoutSource == nil
+	if defaultManagedNavigation {
 		menuReader = svcworkspace.NewGatewayLayoutMenuReader(opts.Runtime.PrimitiveProviders, []svcworkspace.GatewayMenuSource{{Resource: identity.ResourceRef{URI: "navigation://workspace/layout"}, ProviderIdentity: resourcesvc.InternalProviderIdentity}})
 	}
 	metadataHandler.SetLayoutMenuReader(menuReader)
@@ -122,7 +123,11 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	}
 	metadataHandler.SetAuthorizationRuntimes(opts.Runtime.AuthorizationPolicy, permittedRuntime)
 	if opts.Runtime.UIBridge != nil {
-		metadataHandler.SetWindowResourceCatalog(opts.Runtime.UIBridge)
+		var windows svcworkspace.WindowResourceCatalog = opts.Runtime.UIBridge
+		if defaultManagedNavigation && opts.Runtime.PrimitiveWindows != nil {
+			windows = svcworkspace.ScopedLayoutWindowCatalog(windows, opts.Runtime.PrimitiveWindows, []resourcesvc.Connection{{Name: "internal", ProviderIdentity: resourcesvc.InternalProviderIdentity}})
+		}
+		metadataHandler.SetWindowResourceCatalog(windows)
 	}
 	fileBrowserHandler := svcworkspace.NewFileBrowserHandler()
 	a2aSvc := svca2a.New(opts.Runtime.Agent, opts.AgentFinder)

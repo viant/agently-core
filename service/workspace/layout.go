@@ -253,7 +253,7 @@ func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*Layout
 		}
 	}
 	admission, capabilities := h.layoutRuntimes()
-	permitted, err := filterLayoutContextWithRuntimes(ctx, &layout, admission, capabilities, h.windowResourceCatalog)
+	permitted, err := filterLayoutContextWithRuntimes(ctx, &layout, admission, capabilities, layoutWindowCatalog(h.windowResourceCatalog, &layout, menuRead != nil))
 	if err != nil {
 		if errors.Is(err, policy.ErrIdentityRejected) {
 			return nil, metadataFailure(http.StatusUnauthorized, "authentication required", nil)

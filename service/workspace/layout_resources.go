@@ -3,6 +3,8 @@ package workspace
 import (
 	"context"
 	"fmt"
+	resources "github.com/viant/agently-core/service/resource"
+	"strings"
 
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/policy"
@@ -89,4 +91,65 @@ func addVisibleLayoutAliases(ctx context.Context, catalog WindowResourceCatalog,
 		}
 	}
 	return nil
+}
+
+type scopedWindowDefinitionLister interface {
+	ListFrom(context.Context, []resources.Connection, *forgeservice.WindowDefinitionListInput) (*forgeservice.WindowDefinitionListOutput, error)
+}
+
+// ScopedLayoutWindowCatalog retains the host catalog and scopes only the
+// default managing menu's internal window inventory to explicit trusted roots.
+func ScopedLayoutWindowCatalog(base WindowResourceCatalog, source scopedWindowDefinitionLister, roots []resources.Connection) WindowResourceCatalog {
+	return &scopedLayoutWindowCatalog{WindowResourceCatalog: base, source: source, roots: append([]resources.Connection(nil), roots...)}
+}
+
+type scopedLayoutWindowCatalog struct {
+	WindowResourceCatalog
+	source scopedWindowDefinitionLister
+	roots  []resources.Connection
+}
+
+func (c *scopedLayoutWindowCatalog) WindowDefinitionsList(ctx context.Context, input *forgeservice.WindowDefinitionListInput) (*forgeservice.WindowDefinitionListOutput, error) {
+	return c.source.ListFrom(ctx, c.roots, input)
+}
+func (c *scopedLayoutWindowCatalog) WindowResourceReference(ctx context.Context, key string) (identity.ResourceRef, error) {
+	mapper, ok := c.WindowResourceCatalog.(interface {
+		WindowResourceReference(context.Context, string) (identity.ResourceRef, error)
+	})
+	if !ok {
+		return identity.ResourceRef{}, identity.ErrResourceDenied
+	}
+	return mapper.WindowResourceReference(ctx, key)
+}
+func layoutWindowCatalog(catalog WindowResourceCatalog, layout *Layout, managed bool) WindowResourceCatalog {
+	scoped, ok := catalog.(*scopedLayoutWindowCatalog)
+	if !ok {
+		return catalog
+	}
+	if !managed || !internalNavigation(layout) {
+		return scoped.WindowResourceCatalog
+	}
+	return scoped
+}
+func internalNavigation(layout *Layout) bool {
+	var local func([]LayoutMenu) bool
+	local = func(menus []LayoutMenu) bool {
+		for _, menu := range menus {
+			if action := menu.Action; action != nil && action.Type == "window" {
+				if action.Provider != "" && action.Provider != "workspace" || strings.Contains(action.WindowKey, ":") {
+					return false
+				}
+			}
+			if !local(menu.Children) {
+				return false
+			}
+		}
+		return true
+	}
+	for _, app := range layout.Applications {
+		if app.WindowCatalog != nil || !local(app.Menus) {
+			return false
+		}
+	}
+	return layout.Topbar == nil || local(layout.Topbar.Actions)
 }
