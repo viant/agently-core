@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AgentlyClient } from '../client';
+import type { QueryInput } from '../types';
 
 function completed(threadId: string, runId: string) {
     return new Response([
@@ -8,6 +9,10 @@ function completed(threadId: string, runId: string) {
 }
 
 describe('AG-UI through the existing BFF client', () => {
+    it('keeps partial workspace context backward compatible', () => {
+        const input: QueryInput = {query:'Inspect this window', context:{workspace:{windowId:'orders'}}};
+        expect(input.context?.workspace?.windowId).toBe('orders');
+    });
     it('uses AG-UI for default query with BFF credentials and no legacy POST', async () => {
         const posted: any[] = [];
         const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -37,11 +42,12 @@ describe('AG-UI through the existing BFF client', () => {
                 {headers:{'Content-Type':'text/event-stream'}});
         });
         const client = new AgentlyClient({baseURL:'/v1', useCookies:true, tokenProvider:()=> 'fixture-token', fetchImpl});
-        const output = await client.query({conversationId:'thread', query:'hello', agentId:'chosen-agent', model:'chosen-model', toolBundles:['bundle'], resourceURIs:['workspace://file'], context:{project:'sample'}, reasoningEffort:'low'});
+        const output = await client.query({conversationId:'thread', query:'hello', agentId:'chosen-agent', model:'chosen-model', toolBundles:['bundle'], resourceURIs:['workspace://file'], context:{project:'sample',workspace:{objectId:'workspace:orders',windowId:'orders',title:'Orders',renderer:'forgeWindow',internalTabs:{details:'overview'},dataSources:{records:{filter:{},selectedKeys:{id:123},selectedIds:[{id:123},{id:456}]}}}}, reasoningEffort:'low'});
         expect(output.turnId).toBe('native-turn');
         expect(posted.map(input=>input.forwardedProps.agently.operation)).toEqual(['conversation.bootstrap','chat']);
         expect(posted[1].messages).toEqual([expect.objectContaining({role:'user',content:'hello'})]);
         expect(posted[1].forwardedProps.agently.payload).toMatchObject({agentId:'chosen-agent',model:'chosen-model',toolBundles:['bundle'],resourceURIs:['workspace://file'],context:{project:'sample'},reasoningEffort:'low',useServerState:true});
+        expect(posted[1].forwardedProps.agently.payload.context.workspace).toEqual({objectId:'workspace:orders',windowId:'orders',title:'Orders',renderer:'forgeWindow',internalTabs:{details:'overview'},dataSources:{records:{filter:{},selectedKeys:{id:123},selectedIds:[{id:123},{id:456}]}}});
         client.resetAgUiInteractions();
     });
 

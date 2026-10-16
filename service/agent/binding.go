@@ -293,6 +293,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		b.History.LastResponse = nil
 	}
 	b.Context = input.Context
+	appendWorkspaceContextDocument(input, b)
 
 	if session := clienttool.FromContext(ctx); session != nil {
 		managedBrowser := map[string]bool{}
