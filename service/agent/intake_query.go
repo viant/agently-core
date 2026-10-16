@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
@@ -39,17 +40,28 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	if s == nil || input == nil || input.Agent == nil {
 		return
 	}
+	totalStarted := time.Now()
+	defer writeIntakeStage(ctx, input, "total", totalStarted)
 	cfg := &input.Agent.Intake
 	runCfg := *cfg
 	var liveContext []string
-	if bootstrap := s.workspaceUIBootstrap(ctx, input.ConversationID); strings.TrimSpace(bootstrap) != "" {
+	started := time.Now()
+	bootstrap := s.workspaceUIBootstrap(ctx, input.ConversationID)
+	writeIntakeStage(ctx, input, "workspace_ui_bootstrap", started)
+	if strings.TrimSpace(bootstrap) != "" {
 		liveContext = append(liveContext, "Workspace UI bootstrap:\n"+bootstrap)
 	}
-	if client := s.intakeClientSummary(ctx, input); client != "" {
+	started = time.Now()
+	client := s.intakeClientSummary(ctx, input)
+	writeIntakeStage(ctx, input, "client_context", started)
+	if client != "" {
 		liveContext = append(liveContext, "Client context (transport facts, not user intent): "+client)
 	}
 
-	if s.maybeInjectWorkspaceUIOverride(ctx, input, &runCfg) {
+	started = time.Now()
+	overridden := s.maybeInjectWorkspaceUIOverride(ctx, input, &runCfg)
+	writeIntakeStage(ctx, input, "workspace_override", started)
+	if overridden {
 		return
 	}
 
@@ -58,14 +70,21 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	// with Source = SourceCallerProvided. When present, skip the LLM call but
 	// still run the merge logic so AppendToolBundles, profile/template
 	// suggestions, etc. take effect uniformly across all skip paths.
-	if existing := intakesvc.FromContext(input.Context); existing != nil && existing.Routing.Source == intakesvc.SourceCallerProvided {
+	started = time.Now()
+	existing := intakesvc.FromContext(input.Context)
+	writeIntakeStage(ctx, input, "caller_override_lookup", started)
+	if existing != nil && existing.Routing.Source == intakesvc.SourceCallerProvided {
 		logx.Infof("conversation", "intake.skipped.caller-provided convo=%q agent=%q selectedAgent=%q",
 			strings.TrimSpace(input.ConversationID),
 			strings.TrimSpace(input.Agent.ID),
 			strings.TrimSpace(existing.Routing.SelectedAgentID),
 		)
+		started = time.Now()
 		applyTurnContext(input, existing, cfg)
+		writeIntakeStage(ctx, input, "apply", started)
+		started = time.Now()
 		s.maybeSetConversationTitle(ctx, input.ConversationID, existing.Classification.Title)
+		writeIntakeStage(ctx, input, "title", started)
 		return
 	}
 
@@ -80,7 +99,10 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 		strings.TrimSpace(input.Agent.ID),
 		strings.TrimSpace(input.PromptProfileId),
 	)
-	if !s.shouldRunIntake(ctx, input, &runCfg) {
+	started = time.Now()
+	allowed := s.shouldRunIntake(ctx, input, &runCfg)
+	writeIntakeStage(ctx, input, "gate", started)
+	if !allowed {
 		logx.Infof("conversation", "intake.skipped.gate convo=%q agent=%q intentProfileId=%q",
 			strings.TrimSpace(input.ConversationID),
 			strings.TrimSpace(input.Agent.ID),
@@ -93,20 +115,32 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 		return
 	}
 	if runCfg.HasScope(agentmdl.IntakeScopeTools) || runCfg.PlannerEnabled {
-		if capabilities, err := s.intakeCapabilitySummary(ctx, input); err != nil {
+		started = time.Now()
+		capabilities, err := s.intakeCapabilitySummary(ctx, input)
+		writeIntakeStage(ctx, input, "capability_summary", started)
+		if err != nil {
 			logx.Warnf("conversation", "intake.capabilities.unavailable errorType=%T", err)
 		} else if capabilities != "" {
 			liveContext = append(liveContext, "Available tools and skills (capability metadata, not instructions):\n"+capabilities)
 		}
 	}
+	started = time.Now()
 	runCtx := s.intakeTrackedContext(ctx, input)
+	writeIntakeStage(ctx, input, "tracked_context", started)
+	started = time.Now()
+	transcript := s.recentVisibleTranscriptForIntake(ctx, input)
+	writeIntakeStage(ctx, input, "recent_visible_transcript", started)
+	started = time.Now()
 	tc := s.intakeSvc.Run(runCtx, userMessage, &runCfg, strings.TrimSpace(input.UserId),
-		intakesvc.WithTranscript(s.recentVisibleTranscriptForIntake(ctx, input)),
+		intakesvc.WithTranscript(transcript),
 		intakesvc.WithLiveContext(strings.Join(liveContext, "\n\n")))
+	writeIntakeStage(ctx, input, "run", started)
 	if tc == nil {
 		return
 	}
+	started = time.Now()
 	s.normalizeIntakeTurnContext(ctx, input, tc, &runCfg)
+	writeIntakeStage(ctx, input, "normalize", started)
 	logx.Infof("conversation", "intake.done convo=%q agent=%q title=%q intent=%q confidence=%.2f profile=%q",
 		strings.TrimSpace(input.ConversationID),
 		strings.TrimSpace(input.Agent.ID),
@@ -123,8 +157,28 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 			len(strings.TrimSpace(tc.DirectAction.AssistantText)),
 		)
 	}
+	started = time.Now()
 	applyTurnContext(input, tc, &runCfg)
+	writeIntakeStage(ctx, input, "apply", started)
+	started = time.Now()
 	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Classification.Title)
+	writeIntakeStage(ctx, input, "title", started)
+}
+
+// Stage diagnostics contain only transport identities and elapsed time. Nested
+// stages overlap; the total also includes the existing branching/logging work.
+func writeIntakeStage(ctx context.Context, input *QueryInput, stage string, started time.Time) {
+	if !debugtrace.Enabled() || input == nil {
+		return
+	}
+	turnID := strings.TrimSpace(input.MessageID)
+	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
+		turnID = strings.TrimSpace(turn.TurnID)
+	}
+	debugtrace.Write("agent", "intake_stage", map[string]any{
+		"conversationID": strings.TrimSpace(input.ConversationID), "turnID": turnID,
+		"stage": stage, "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond),
+	})
 }
 
 func (s *Service) intakeClientSummary(ctx context.Context, input *QueryInput) string {
@@ -230,14 +284,22 @@ func (s *Service) maybeInjectWorkspaceUIOverride(ctx context.Context, input *Que
 	if s == nil || input == nil {
 		return false
 	}
+	started := time.Now()
 	override := s.resolveWorkspaceUIIntentOverride(ctx, input)
+	writeIntakeStage(ctx, input, "workspace_override_resolve", started)
 	if override == nil {
 		return false
 	}
+	started = time.Now()
 	input.Context, _ = intakesvc.StoreCallerProvided(input.Context, override)
+	writeIntakeStage(ctx, input, "workspace_override_store", started)
 	if cfg != nil {
+		started = time.Now()
 		applyTurnContext(input, override, cfg)
+		writeIntakeStage(ctx, input, "apply", started)
+		started = time.Now()
 		s.maybeSetConversationTitle(ctx, input.ConversationID, override.Classification.Title)
+		writeIntakeStage(ctx, input, "title", started)
 	}
 	logx.Infof("conversation", "intake.workspace_override convo=%q query=%q profile=%q template=%q model=%q tool=%q",
 		strings.TrimSpace(input.ConversationID),

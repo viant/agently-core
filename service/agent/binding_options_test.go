@@ -87,7 +87,7 @@ func TestService_BuildBinding_FetchesTranscriptModelAndToolCalls(t *testing.T) {
 	}
 }
 
-func TestService_BuildBinding_InjectsSelectedTemplateAndRemovesTemplateTools(t *testing.T) {
+func TestService_BuildBinding_InjectsSelectedTemplateAndPreservesBaseTools(t *testing.T) {
 	store := convmem.New()
 	ctx := context.Background()
 
@@ -157,14 +157,8 @@ func TestService_BuildBinding_InjectsSelectedTemplateAndRemovesTemplateTools(t *
 	if !foundTemplateDoc {
 		t.Fatalf("expected injected template document, got %#v", binding.SystemDocuments.Items)
 	}
-	for _, sig := range binding.Tools.Signatures {
-		if sig == nil {
-			continue
-		}
-		if sig.Name == "template-get" || sig.Name == "template-list" || sig.Name == "template_get" || sig.Name == "template_list" {
-			t.Fatalf("expected template tools to be removed after template injection, got %#v", binding.Tools.Signatures)
-		}
-	}
+	require.Contains(t, signatureNames(binding.Tools.Signatures), "template-get")
+	require.Contains(t, signatureNames(binding.Tools.Signatures), "template-list")
 }
 
 func TestService_ApplySelectedTemplateOutputSchema(t *testing.T) {

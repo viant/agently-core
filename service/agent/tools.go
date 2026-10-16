@@ -20,7 +20,6 @@ import (
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	agenttool "github.com/viant/agently-core/service/agent/tool"
 	"github.com/viant/agently-core/service/browsermcp"
-	intakesvc "github.com/viant/agently-core/service/intake"
 )
 
 // Small utilities for tool name resolution and filtering.
@@ -39,65 +38,27 @@ type resolvedToolSurface struct {
 func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm.Tool, err error) {
 	// Clarification is a conversational outcome, not an execution attempt.
 	// Resolve no profiles or remote catalogs until the missing input is supplied.
-	if qi != nil {
-		if tc := intakesvc.FromContext(qi.Context); tc != nil && tc.Routing.Mode == intakesvc.ModeClarify {
-			return nil, nil
-		}
-	}
 	if profile, loadErr := s.selectedPromptProfileAny(ctx, qi); loadErr != nil {
 		return nil, loadErr
 	} else if profile != nil {
+		if profile.Execution != nil && profile.Execution.DisableTools {
+			return nil, nil
+		}
 		ctx = withSelectedPromptProfile(ctx, profile)
 	}
+	always, err := s.resolveAlwaysIncludedTools(ctx, qi)
+	if err != nil {
+		return nil, err
+	}
+	if intakeNeedsNoTools(ctx, qi) {
+		always, err = s.prepareRetainedToolDefinitions(ctx, qi, always)
+		return defsToTools(always), err
+	}
+	visibilityChecked := false
 	defer func() {
-		if err != nil {
-			return
+		if err == nil && !visibilityChecked {
+			tools, err = s.modelVisibleTools(ctx, tools)
 		}
-		visibility, ok := s.registry.(interface {
-			MCPToolVisible(context.Context, string, string) (bool, error)
-		})
-		if !ok {
-			return
-		}
-		var visible map[string]bool
-		if batch, ok := s.registry.(interface {
-			MCPToolsVisible(context.Context, []string, string) (map[string]bool, error)
-		}); ok {
-			names := make([]string, 0, len(tools))
-			for _, tool := range tools {
-				if _, browser := browsermcp.Definitions(ctx)[mcpname2.Canonical(tool.Definition.Name)]; !browser {
-					names = append(names, tool.Definition.Name)
-				}
-			}
-			var checkErr error
-			visible, checkErr = batch.MCPToolsVisible(ctx, names, "model")
-			if checkErr != nil {
-				tools, err = nil, checkErr
-				return
-			}
-		}
-		filtered := make([]llm.Tool, 0, len(tools))
-		for _, tool := range tools {
-			// Browser definitions already passed the originating catalog's model
-			// visibility check. They have no server-side discovery/dispatch path.
-			if _, browser := browsermcp.Definitions(ctx)[mcpname2.Canonical(tool.Definition.Name)]; browser {
-				filtered = append(filtered, tool)
-				continue
-			}
-			allowed := visible[tool.Definition.Name]
-			var checkErr error
-			if visible == nil {
-				allowed, checkErr = visibility.MCPToolVisible(ctx, tool.Definition.Name, "model")
-			}
-			if checkErr != nil {
-				tools, err = nil, checkErr
-				return
-			}
-			if allowed {
-				filtered = append(filtered, tool)
-			}
-		}
-		tools = filtered
 	}()
 	if qi != nil && len(qi.ToolBundles) > 0 {
 		ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Required: true})
@@ -148,7 +109,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 		return nil, err
 	}
 
-	if len(control.Tools) == 0 && len(control.Bundles) == 0 {
+	if len(control.Tools) == 0 && len(control.Bundles) == 0 && !hasToolDiscoverySelection(ctx, qi) && len(always) == 0 {
 		return nil, nil
 	}
 	defs, err := s.resolveStructuredToolDefinitions(ctx, control)
@@ -172,6 +133,20 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 		if len(required) > 0 {
 			return nil, fmt.Errorf("requested tool bundles resolved zero tool definitions: %s", strings.Join(required, ", "))
 		}
+	}
+	defs = annotateAgentToolRules(qi, dedupeDefinitions(append(defs, always...)))
+	defs, err = s.callerScopedToolDefinitions(ctx, qi, defs)
+	if err != nil {
+		return nil, err
+	}
+	defs, err = s.modelVisibleDefinitions(ctx, defs)
+	if err != nil {
+		return nil, err
+	}
+	visibilityChecked = true
+	defs, err = s.selectIntakeTools(ctx, qi, defs)
+	if err != nil {
+		return nil, err
 	}
 	out := defsToTools(defs)
 	out = s.appendRegistryWarnings(ctx, out)
@@ -231,11 +206,8 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 		agentSelection = agenttool.Normalize(agentSelection)
 	}
 	selections := agenttool.Selections{
-		Agent: agentSelection,
-		Runtime: agenttool.Selection{
-			Bundles: append([]string(nil), qi.ToolBundles...),
-			Tools:   append([]string(nil), qi.ToolsAllowed...),
-		},
+		Agent:   agentSelection,
+		Runtime: runtimeToolRequirements(qi),
 	}
 	// Intake/planner suggestions append to configured base capabilities.
 	// Auto-selection records provenance; it is not an implicit replacement.
@@ -245,14 +217,21 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 	}
 	selections.Profile = agenttool.FromPromptProfile(profileDef)
 	effective := agenttool.BuildEffective(selections)
-	if len(qi.ResourceURIs) > 0 && len(qi.ToolsAllowed) == 0 {
-		effective.Final.Tools = append(effective.Final.Tools, "resources:inspect", "resources:read", "resources:readImage", "resources:export", "resources:list")
-		effective.Final = agenttool.Normalize(effective.Final)
-	}
 	if !hasVisibleSkills {
 		effective.Final = withoutSkillControlSelection(effective.Final)
 	}
 	return effective.Final, nil
+}
+
+func runtimeToolRequirements(input *QueryInput) agenttool.Selection {
+	if input == nil {
+		return agenttool.Selection{}
+	}
+	selection := agenttool.Selection{Bundles: append([]string(nil), input.ToolBundles...), Tools: append([]string(nil), input.ToolsAllowed...)}
+	if len(input.ResourceURIs) > 0 && len(input.ToolsAllowed) == 0 {
+		selection.Tools = append(selection.Tools, "resources:inspect", "resources:read", "resources:readImage", "resources:export", "resources:list")
+	}
+	return agenttool.Normalize(selection)
 }
 
 func (s *Service) hasVisibleSkills(ctx context.Context, agent *agentmdl.Agent) (bool, error) {
@@ -611,17 +590,19 @@ func dedupeDefinitions(in []llm.ToolDefinition) []llm.ToolDefinition {
 	if len(in) == 0 {
 		return nil
 	}
-	seen := map[string]struct{}{}
+	seen := map[string]int{}
 	out := make([]llm.ToolDefinition, 0, len(in))
 	for _, d := range in {
 		key := strings.ToLower(mcpname2.Canonical(strings.TrimSpace(d.Name)))
 		if key == "" {
 			continue
 		}
-		if _, ok := seen[key]; ok {
+		if index, ok := seen[key]; ok {
+			out[index].AlwaysInclude = out[index].AlwaysInclude || d.AlwaysInclude
+			out[index].Tier = out[index].Tier.Merge(d.Tier)
 			continue
 		}
-		seen[key] = struct{}{}
+		seen[key] = len(out)
 		d.Name = mcpname2.Canonical(d.Name)
 		out = append(out, d)
 	}

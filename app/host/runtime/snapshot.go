@@ -127,7 +127,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 			}
 			definitions = append(definitions, feeds...)
 		}
-		result.workspace, err = resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{BeforeCompile: func(ctx context.Context, reader *resources.ExtensionReader) error {
+		result.workspace, err = resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{IsolateMissingWindowImports: true, BeforeCompile: func(ctx context.Context, reader *resources.ExtensionReader) error {
 			for _, c := range compilers {
 				if err := c.Prepare(ctx, reader); err != nil {
 					return err

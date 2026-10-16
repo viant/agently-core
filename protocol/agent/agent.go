@@ -501,6 +501,13 @@ func (a *Agent) Validate() error {
 	if a == nil {
 		return fmt.Errorf("agent is nil")
 	}
+	for i, item := range a.Tool.Items {
+		if item != nil {
+			if err := item.Tier.Validate(); err != nil {
+				return fmt.Errorf("tool.items[%d]: %w", i, err)
+			}
+		}
+	}
 	if p := a.ContextCompactionPercent; p != nil && (math.IsNaN(*p) || math.IsInf(*p, 0) || *p <= 0 || *p > 100) {
 		return fmt.Errorf("contextCompactionPercent must be finite and greater than 0 and at most 100")
 	}

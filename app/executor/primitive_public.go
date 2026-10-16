@@ -248,7 +248,7 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		return nil
 	}
 	if len(defs) != 0 {
-		snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, defs, resources.NativeSnapshotOptions{BeforeCompile: func(ctx context.Context, r *resources.ExtensionReader) error {
+		snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, defs, resources.NativeSnapshotOptions{IsolateMissingWindowImports: true, BeforeCompile: func(ctx context.Context, r *resources.ExtensionReader) error {
 			confined, check, err := resources.ConfinedReportingOptions(ctx, r, reportOptions)
 			if err != nil {
 				return err

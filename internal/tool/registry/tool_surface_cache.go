@@ -50,7 +50,7 @@ func (r *Registry) ToolSurfaceCacheIdentity(ctx context.Context, pattern string)
 			if principal == "" {
 				return kind, ""
 			}
-			snapshot, _, err := r.cachedManagerCatalog(ctx, server)
+			snapshot, err := r.cachedManagerCatalogIdentity(ctx, server)
 			if err != nil || snapshot == "" {
 				return kind, ""
 			}
@@ -89,6 +89,31 @@ func (r *Registry) cachedManagerCatalog(ctx context.Context, server string) (str
 	if !ok {
 		return "", nil, nil
 	}
+	ctx, conversation, opts, available := r.managerCatalogRequest(ctx, server)
+	if !available {
+		return "", nil, nil
+	}
+	return owner.ToolCatalogSnapshot(ctx, conversation, server, opts...)
+}
+
+// Cache identities need only the manager's existing page revisions. Alternate
+// managers keep the original snapshot compatibility path.
+func (r *Registry) cachedManagerCatalogIdentity(ctx context.Context, server string) (string, error) {
+	if owner, ok := r.mgr.(interface {
+		ToolCatalogIdentity(context.Context, string, string, ...mcpclient.RequestOption) (string, error)
+	}); ok {
+		ctx, conversation, opts, available := r.managerCatalogRequest(ctx, server)
+		if !available {
+			return "", nil
+		}
+		return owner.ToolCatalogIdentity(ctx, conversation, server, opts...)
+	}
+	identity, _, err := r.cachedManagerCatalog(ctx, server)
+	return identity, err
+}
+
+// Both consumers retain exactly the same credential and discovery locator.
+func (r *Registry) managerCatalogRequest(ctx context.Context, server string) (context.Context, string, []mcpclient.RequestOption, bool) {
 	ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	useID := r.mgr.UseIDToken(ctx, server)
 	token := authctx.MCPAuthToken(ctx, useID)
@@ -113,11 +138,11 @@ func (r *Registry) cachedManagerCatalog(ctx context.Context, server string) (str
 		r.mu.RUnlock()
 	}
 	if scope == "" {
-		return "", nil, nil
+		return ctx, "", nil, false
 	}
 	var opts []mcpclient.RequestOption
 	if token != "" {
 		opts = append(opts, mcpclient.WithAuthToken(token))
 	}
-	return owner.ToolCatalogSnapshot(ctx, r.metadataConnectionScope(ctx, scope, server), server, opts...)
+	return ctx, r.metadataConnectionScope(ctx, scope, server), opts, true
 }

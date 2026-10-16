@@ -38,6 +38,9 @@ func (b *Bundle) Validate() error {
 		return fmt.Errorf("bundle.match is required")
 	}
 	for i, r := range b.Match {
+		if err := r.Tier.Validate(); err != nil {
+			return fmt.Errorf("bundle.match[%d]: %w", i, err)
+		}
 		if strings.TrimSpace(r.Name) == "" {
 			return fmt.Errorf("bundle.match[%d].name was empty", i)
 		}

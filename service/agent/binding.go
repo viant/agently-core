@@ -94,6 +94,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	if extra := loopHistoryMessagesFromContext(ctx); len(extra) > 0 {
 		appendCurrentMessages(&b.History, extra...)
 	}
+	ctx = withToolSelectionHistory(ctx, &b.History, conv.GetTranscript())
 	// Populate History.LastResponse using the last assistant message in transcript
 	if conv != nil {
 		tr := conv.GetTranscript()
@@ -256,9 +257,6 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	}
 	logx.Infof("conversation", "agent.BuildBinding appendBootstrapSystemDocuments ok convo=%q elapsed=%s", convoID, time.Since(bootstrapDocsStageStart).String())
 	stageTimings["bootstrapDocumentsMs"] = time.Since(bootstrapDocsStageStart).Milliseconds()
-	if strings.TrimSpace(input.TemplateId) != "" {
-		b.Tools.Signatures = filterToolSignaturesByServicePrefix(b.Tools.Signatures, "template-")
-	}
 	agentDirectoryStageStart := time.Now()
 	s.appendAgentDirectoryDoc(ctx, input, &b.SystemDocuments)
 	logx.Infof("conversation", "agent.BuildBinding appendAgentDirectoryDoc ok convo=%q elapsed=%s", convoID, time.Since(agentDirectoryStageStart).String())

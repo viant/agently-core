@@ -601,8 +601,10 @@ func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefi
 				defs = append(defs, *def)
 				seen[disp] = struct{}{}
 				// Update cache for lookup by display name
+				cachedDefinition := *def
+				cachedDefinition.Name = qualifiedToolName(s, strings.TrimSpace(t.Name))
 				r.mu.Lock()
-				if entry := newToolCacheEntry(def, t, injectTimeoutMs); entry != nil && r.internal[s] != nil {
+				if entry := newToolCacheEntry(&cachedDefinition, t, injectTimeoutMs); entry != nil && r.internal[s] != nil {
 					r.cache[disp] = entry
 				}
 				r.mu.Unlock()
@@ -2201,6 +2203,9 @@ func (r *Registry) mergeServerTools(server string, tools []mcpschema.Tool) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.cache == nil {
+		r.cache = map[string]*toolCacheEntry{}
+	}
 	for name, entry := range entries {
 		r.cache[name] = entry
 	}
@@ -2232,6 +2237,9 @@ func (r *Registry) replaceServerTools(server string, tools []mcpschema.Tool) {
 	}
 	// Swap entries under lock: remove old for server, then add new
 	r.mu.Lock()
+	if r.cache == nil {
+		r.cache = map[string]*toolCacheEntry{}
+	}
 	for k := range r.cache {
 		if serverFromName(k) == server {
 			delete(r.cache, k)
@@ -2399,6 +2407,10 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		if err != nil {
 			return nil, err
 		}
+		// Exact and pattern lookups also fetch this complete internal catalog.
+		// Publish it through the existing cache before any caller keeps a subset,
+		// so a later full listing cannot mistake one cached hit for all tools.
+		r.cacheDiscoveredServerTools(ctx, server, tools)
 		return tools, nil
 	}
 	if r.mgr == nil {

@@ -15,6 +15,31 @@ describe('elicitation Markdown presentation', () => {
     expect(html).toContain('<th>Field</th>');
     expect(html).toContain('<td><code>**literal**</code></td>');
   });
+  it('renders the full escaped campaign name and all five cells', () => {
+    const html = renderMarkdownBlock([
+      '| Rank | Campaign | Campaign ID | Bid potential | Expected bids |',
+      '| --- | --- | --- | --- | --- |',
+      String.raw`| 3 | UOT Ski + Winter FY26/27 - Airports \| DOOH | 561867 | 8.560x | 55,404 |`,
+    ].join('\n'));
+    expect(html.match(/<td>.*?<\/td>/g)).toEqual([
+      '<td>3</td>',
+      '<td>UOT Ski + Winter FY26/27 - Airports | DOOH</td>',
+      '<td>561867</td>',
+      '<td>8.560x</td>',
+      '<td>55,404</td>',
+    ]);
+  });
+  it('uses the same escaped header and row boundaries for HTML tables', () => {
+    const html = renderMarkdownBlock(String.raw`Name \| label | Value
+:--- | ---:
+\|A | B\|
+C\\|D
+||`);
+    expect(html).toContain('<th>Name | label</th>');
+    expect(html).toContain('<tr><td>|A</td><td>B|</td></tr>');
+    expect(html).toContain(String.raw`<tr><td>C\\</td><td>D</td></tr>`);
+    expect(html).toContain('<tr><td></td><td></td></tr>');
+  });
   it('escapes HTML and blocks executable link schemes', () => {
     const html = renderMarkdownBlock('<script>alert(1)</script>\n[Run](javascript:alert)\n[Docs](https://example.com/help)');
     expect(html).not.toContain('<script>');

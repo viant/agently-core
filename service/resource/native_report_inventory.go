@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	view "github.com/viant/agently-core/protocol/ui/view"
 	reportcatalog "github.com/viant/agently-core/service/reporting/catalog"
 	"github.com/viant/forge/backend/reporting/registry"
+	identity "github.com/viant/forge/backend/resource"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,6 +36,11 @@ func NativeWorkspaceReportDefinitions(ctx context.Context, root, namespace, repo
 			return nil, options, err
 		}
 		if err = resolveNativeAuthoredImports(ctx, reader, window.File, &node); err != nil {
+			// This pass extracts optional report ownership metadata. Keep a window
+			// with a missing import for the snapshot compiler to diagnose in isolation.
+			if errors.Is(err, fs.ErrNotExist) && !errors.Is(err, identity.ErrResourceDenied) && !errors.Is(err, identity.ErrResourceStale) {
+				continue
+			}
 			return nil, options, err
 		}
 		var spec view.Spec

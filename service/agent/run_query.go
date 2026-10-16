@@ -40,6 +40,7 @@ import (
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/runtime/toolselection"
 	"github.com/viant/agently-core/runtime/usage"
 	"github.com/viant/agently-core/service/core"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
@@ -388,6 +389,13 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		output.Projection = &snapshot
 	}()
 	queryStarted := time.Now()
+	traceStage := func(stage string, started time.Time) {
+		if input == nil {
+			return
+		}
+		debugtrace.Write("agent", "query_stage", map[string]any{"conversationID": input.ConversationID, "turnID": input.MessageID, "stage": stage, "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond)})
+	}
+	defer func() { traceStage("total", queryStarted) }()
 	if input != nil {
 		// Backward compatibility: historically any supplied `model` was an
 		// explicit caller override. New clients can mark inherited defaults with
@@ -415,6 +423,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		input.MessageID = uuid.New().String()
 	}
 	pendingEvidence, evidenceErr := s.captureEvidence(ctx, input, queryStarted)
+	traceStage("identityAndEvidence", queryStarted)
 	if evidenceErr != nil {
 		return evidenceErr
 	}
@@ -423,6 +432,8 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return err
 	}
 	logx.Infof("conversation", "agent.Query stage ensureEnvironment convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(envStarted))
+	traceStage("environment", envStarted)
+	setupStarted := time.Now()
 	if err := s.repairResumedAsyncStatusRows(ctx, input); err != nil {
 		logx.Warnf("conversation", "agent.Query resume async-status repair convo=%q err=%v", strings.TrimSpace(input.ConversationID), err)
 	}
@@ -674,7 +685,11 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// transcript. Run it only after the visible user row is durable so a
 	// transcript refresh cannot replace the optimistic user bubble with an
 	// active turn that has no starter message.
+	traceStage("executionSetupAndUserPersistence", setupStarted)
+	intakeStarted := time.Now()
 	s.maybeRunIntakeSidecar(ctx, input)
+	traceStage("intake", intakeStarted)
+	attachmentsStarted := time.Now()
 
 	if err := s.persistResourceInputs(ctx, turn, input.ResourceURIs); err != nil {
 		return err
@@ -683,8 +698,11 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return err
 	}
 	logx.Infof("conversation", "agent.Query processAttachments ok convo=%q turn_id=%q count=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), len(input.Attachments))
+	traceStage("attachments", attachmentsStarted)
+	routingStarted := time.Now()
 
 	if handled, err := s.maybeRunDirectAction(ctx, input, output); handled {
+		traceStage("directAction", routingStarted)
 		if err != nil {
 			return err
 		}
@@ -692,8 +710,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		turnRunErr = nil
 		return nil
 	}
-
+	traceStage("directAction", routingStarted)
+	plannerStarted := time.Now()
 	if pErr := s.maybeRunPlannerPass(ctx, input); pErr != nil {
+		traceStage("planner", plannerStarted)
 		var handled *plannerHandledError
 		if errors.As(pErr, &handled) {
 			output.TurnID = input.MessageID
@@ -705,10 +725,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		}
 		return pErr
 	}
+	traceStage("planner", plannerStarted)
 
 	toolRouterStarted := time.Now()
 	s.maybeAutoSelectToolBundles(ctx, input)
 	logx.Infof("conversation", "agent.Query stage toolAutoSelection convo=%q message_id=%q elapsed=%s bundles=%d", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), time.Since(toolRouterStarted), len(input.ToolBundles))
+	traceStage("toolAutoSelection", toolRouterStarted)
 
 	s.tryMergePromptIntoContext(input)
 	workdir := ensureResolvedWorkdir(input)
@@ -719,6 +741,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		return err
 	}
 	logx.Infof("conversation", "agent.Query stage updateConversationContext convo=%q elapsed=%s", strings.TrimSpace(input.ConversationID), time.Since(contextStarted))
+	traceStage("conversationContext", contextStarted)
 	logx.Infof("conversation", "agent.Query prepared convo=%q turn_id=%q message_id=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(input.MessageID))
 
 	if s.defaults != nil && s.defaults.ToolCallTimeoutSec > 0 {
@@ -737,6 +760,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			logx.Warnf("conversation", "agent.Query steer checkpoint error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), ckErr)
 		}
 		status, err = s.runPlanAndStatus(ctx, input, output)
+		traceStage("executionLoop", runPlanStarted)
 		output.ExecutionStatus = status
 
 		turnStatus = status
@@ -934,6 +958,8 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 	if !ok {
 		return fmt.Errorf("failed to get turn meta")
 	}
+	// Critical discovery controls remain usable on clarification turns too.
+	ctx = toolselection.WithState(ctx, nil)
 	mode := runtimerecovery.ModePruneCompact
 	if input != nil && input.Agent != nil {
 		if v := strings.TrimSpace(input.Agent.ContextRecoveryMode); v != "" {

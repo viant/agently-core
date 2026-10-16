@@ -23,6 +23,9 @@ type toolBundleSelection struct {
 }
 
 func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryInput) {
+	if intakeToolSelectionHint(input) != nil || isIntakeClarification(input) {
+		return
+	}
 	if s == nil || input == nil || s.llm == nil || s.llm.ModelFinder() == nil || s.registry == nil {
 		return
 	}
