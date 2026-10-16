@@ -46,7 +46,7 @@ type exportPinState struct {
 	actions []string
 }
 
-func newPinnedExportService(t *testing.T, exporter Exporter) (*Service, *MemoryStore, *exportPinState, *identity.ResolvedResource) {
+func newPinnedExportService(t *testing.T, exporter Exporter, compilers ...Compiler) (*Service, *MemoryStore, *exportPinState, *identity.ResolvedResource) {
 	t.Helper()
 	now := time.Now().UTC()
 	state := &exportPinState{uri: identity.ResourceURI{Kind: "report", Namespace: "sales", Name: "orders"}, raw: json.RawMessage(`{"schemaVersion":1,"reportDocument":{"title":"Orders"},"reportSpec":{"kind":"reportSpec","version":1,"source":{"kind":"dashboard.reportBuilder","containerId":"orders","stateKey":"orders","dataSourceRef":"orders"},"datasets":[],"blocks":[]}}`), binding: "owner-account-revision", lease: now.Add(time.Minute), now: now, denied: map[string]bool{}}
@@ -63,7 +63,11 @@ func newPinnedExportService(t *testing.T, exporter Exporter) (*Service, *MemoryS
 		}}, nil
 	}
 	store := NewMemoryStore()
-	service := New(Options{Store: store, Exporter: exporter, ResourceResolver: resolve, Now: func() time.Time {
+	var compiler Compiler
+	if len(compilers) > 0 {
+		compiler = compilers[0]
+	}
+	service := New(Options{Compiler: compiler, Store: store, Exporter: exporter, ResourceResolver: resolve, Now: func() time.Time {
 		state.mu.Lock()
 		defer state.mu.Unlock()
 		return state.now

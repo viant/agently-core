@@ -11,7 +11,6 @@ import (
 	"github.com/viant/agently-core/runtime/evidence"
 	"github.com/viant/agently-core/service/reporting/catalog"
 	sharedengine "github.com/viant/forge/backend/reporting/engine"
-	"github.com/viant/forge/backend/reporting/registry"
 	forgetypes "github.com/viant/forge/backend/types"
 	"reflect"
 	"sort"
@@ -88,7 +87,6 @@ type Service struct {
 	resourceDependencyResolver  ResourceDependencyResolver
 	resourceDependencyProof     forgetypes.WindowTargetProof
 	reportCompilation           evidence.ReportCompilation
-	compiler                    Compiler
 	exporter                    Exporter
 	store                       Store
 	audit                       AuditSink
@@ -118,7 +116,6 @@ func New(opts Options) *Service {
 	}
 	service := &Service{reportResourceService: opts.ReportResourceService, reportCatalog: opts.ReportCatalog, resourceResolver: opts.ResourceResolver, resourceDependencyResolver: opts.ResourceDependencyResolver, resourceDependencyProof: opts.ResourceDependencyProof,
 		reportCompilation: opts.ReportCompilation,
-		compiler:          opts.Compiler,
 		exporter:          opts.Exporter,
 		store:             opts.Store,
 		audit:             opts.Audit,
@@ -549,69 +546,6 @@ type RunQueuedExportsResult struct {
 
 type StartExportInput struct {
 	JobID string `json:"jobId,omitempty"`
-}
-
-// Compile runs the configured canonical compiler.
-func (s *Service) compileUnscoped(ctx context.Context, request *CompileRequest) (*CompileResult, error) {
-	if request == nil {
-		return nil, fmt.Errorf("reporting compile: request is required")
-	}
-	if s.compiler == nil {
-		return nil, fmt.Errorf("reporting compile: compiler not configured")
-	}
-	var pin *identity.ResolvedResource
-	var resolver ResourceReader
-	if request.Resource != nil || request.ResolvedResource != nil {
-		var err error
-		request, pin, resolver, err = s.compileResolved(ctx, request)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if len(bytes.TrimSpace(request.Document)) == 0 {
-		return nil, fmt.Errorf("reporting compile: document is required")
-	}
-	result, err := s.compiler.Compile(ctx, cloneCompileRequest(request))
-	if err != nil {
-		return nil, err
-	}
-	if result == nil {
-		return nil, fmt.Errorf("reporting compile: compiler returned nil result")
-	}
-	if pin != nil {
-		raw, fresh, err := resolver.ReadResolved(ctx, *pin)
-		if err != nil {
-			return nil, err
-		}
-		pin = fresh
-		var envelope registry.ReportEnvelope
-		if json.Unmarshal(raw, &envelope) != nil {
-			return nil, identity.ErrResourceDenied
-		}
-		if err = s.verifyDependencies(ctx, *pin, envelope, request.DependencyPins, request.DependencyToken); err != nil {
-			return nil, err
-		}
-	}
-	next := cloneCompileResult(result)
-	if pin != nil {
-		next.Resource = pin
-		next.DependencyPins = cloneDependencyPins(request.DependencyPins)
-		next.DependencyToken = request.DependencyToken
-		next.ArtifactRef = pin.URI
-	}
-	if next.CompiledAt.IsZero() {
-		next.CompiledAt = s.now().UTC()
-	}
-	s.recordAudit(ctx, &AuditEvent{
-		EventType:   "report.compile",
-		ArtifactRef: strings.TrimSpace(next.ArtifactRef),
-		ActorID:     effectiveActorID(ctx),
-		OccurredAt:  s.now().UTC(),
-		Metadata: map[string]interface{}{
-			"sourceKind": strings.TrimSpace(request.SourceKind),
-		},
-	})
-	return next, nil
 }
 
 // RecordAuditEvent validates and records a structured reporting audit event.
