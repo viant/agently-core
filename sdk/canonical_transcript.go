@@ -612,7 +612,10 @@ func buildModelStep(message *conversationmodel.MessageView) *ModelStepState {
 	if mc.ModelCallStreamPayload != nil {
 		step.StreamPayload = marshalToRawJSON(mc.ModelCallStreamPayload)
 	}
-	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, step.Phase, step.Mode, "", step.RequestPayload, step.ProviderRequestPayload, step.ResponsePayload, step.ProviderResponsePayload, step.StreamPayload)
+	// Native model payload views contain only id, compression and inlineBody.
+	// Their JSON wrappers cannot carry the root metadata signals read here;
+	// reparsing those potentially large bodies does not affect role inference.
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, step.Phase, step.Mode, "")
 	return step
 }
 
