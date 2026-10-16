@@ -55,6 +55,7 @@ interface RunSlot {
 interface Entry {
     pendingSubmissions: number;
     protocolThreadId?: string;
+    headerLoading?: Promise<Conversation>;
     reads: Set<{ abortTransport(): void }>;
     id: string;
     generation: number;
@@ -300,6 +301,25 @@ export class AgUiConversationTransport {
         }).catch(error => {
             if (this.current(entry) && entry.feedHydration === hydration) this.error(entry, error);
         }).finally(() => { if (entry.feedHydration === hydration) hydration.handle = undefined; });
+    }
+
+    /** Share only identical in-flight native header reads; retain no header DTO. */
+    readConversationHeader(conversationId: string, load: () => Promise<Conversation>): Promise<Conversation> {
+        const entry = this.entry(conversationId);
+        if (entry.headerLoading) return entry.headerLoading;
+        const pending = load().then(conversation => {
+            if (!this.current(entry)) throw new Error('Conversation session was invalidated');
+            if (conversation && conversation.id !== entry.id) throw new Error('Native conversation binding mismatch');
+            if (conversation?.aguiThreadId !== undefined) {
+                const wire = conversation.aguiThreadId;
+                if (typeof wire !== 'string' || !wire) throw new Error('Empty protocol thread binding');
+                if (entry.protocolThreadId !== undefined && entry.protocolThreadId !== wire) throw new Error('Native conversation binding mismatch');
+                entry.protocolThreadId = wire;
+            }
+            return conversation;
+        }).finally(() => { if (entry.headerLoading === pending) entry.headerLoading = undefined; });
+        entry.headerLoading = pending;
+        return pending;
     }
 
     private async resolveProtocolThread(entry: Entry): Promise<string> {
