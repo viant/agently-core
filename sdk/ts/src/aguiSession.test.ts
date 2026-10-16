@@ -172,3 +172,66 @@ describe('portable AG-UI conversation sessions', () => {
         expect(() => generic.attach('existing-run', 'reload-request')).toThrow('does not support');
     });
 });
+
+it('rejects a clean EOF without terminal instead of resolving a running session',async()=>{
+ const session=new AgUiSession({connectionId:'standard',threadId:'thread',url:'/run',fetch:async()=>stream([
+  {type:'RUN_STARTED',threadId:'thread',runId:'run'},
+  {type:'TEXT_MESSAGE_START',messageId:'answer',role:'assistant'},
+  {type:'TEXT_MESSAGE_CONTENT',messageId:'answer',delta:'Prefix'},
+ ])});
+ await expect(session.send({id:'user',role:'user',content:'question'},{runId:'run'})).rejects.toMatchObject({name:'AgUiStreamIncompleteError'});
+ expect(session.getSnapshot().phase).toBe('failed');
+});
+
+it.each(['eof','read-error'] as const)('replays the same durable run after %s and replaces partial text without duplication',async(failure)=>{
+ const posts:RunAgentInput[]=[];
+ const session=new AgUiSession({connectionId:'agently',profile:'agently',durableReplay:true,threadId:'thread',url:'/run',fetch:async(_url,init)=>{
+  const input=JSON.parse(String(init.body));posts.push(input);
+  if(posts.length===1){
+   const prefix=resultEvents(input).slice(0,5);
+   if(failure==='eof')return stream(prefix);
+   let count=0;
+   return new Response(new ReadableStream({pull(controller){
+    if(count<prefix.length)controller.enqueue(new TextEncoder().encode('data: '+JSON.stringify(prefix[count++])+'\n\n'));
+    else controller.error(new TypeError('network stream disconnected'));
+   }}),{headers:{'Content-Type':'text/event-stream'}});
+  }
+  return stream(resultEvents(input));
+ }});
+ await session.send({id:'user',role:'user',content:'question'},{runId:'original-run'});
+ expect(posts).toHaveLength(2);expect(posts[1]).toEqual(posts[0]);
+ expect(session.getSnapshot().phase).toBe('completed');
+ expect(session.getSnapshot().messages.filter(m=>m.id==='answer')).toEqual([expect.objectContaining({content:'Hello 🌍'})]);
+});
+
+it('bounds durable EOF replay and surfaces failure without creating a successor run',async()=>{
+ const posts:RunAgentInput[]=[];
+ const session=new AgUiSession({connectionId:'agently',profile:'agently',durableReplay:true,threadId:'thread',url:'/run',fetch:async(_url,init)=>{
+  const input=JSON.parse(String(init.body));posts.push(input);
+  return stream([{type:'RUN_STARTED',threadId:input.threadId,runId:input.runId}]);
+ }});
+ await expect(session.send({id:'user',role:'user',content:'question'},{runId:'original-run'})).rejects.toMatchObject({name:'AgUiStreamIncompleteError'});
+ expect(posts).toHaveLength(3);expect(posts.every(p=>JSON.stringify(p)===JSON.stringify(posts[0]))).toBe(true);
+ expect(session.getSnapshot().phase).toBe('failed');
+});
+
+it('does not replay an explicit durable RUN_ERROR',async()=>{
+ const fetch=vi.fn(async()=>stream([{type:'RUN_STARTED',threadId:'thread',runId:'run'},{type:'RUN_ERROR',message:'Execution failed',code:'EXECUTION_FAILED'}]));
+ const session=new AgUiSession({connectionId:'agently',profile:'agently',durableReplay:true,threadId:'thread',url:'/run',fetch});
+ await expect(session.send({id:'user',role:'user',content:'question'},{runId:'run'})).rejects.toMatchObject({name:'AgUiRunError',code:'EXECUTION_FAILED'});
+ expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it.each([{profile:'standard' as const,durableReplay:true},{profile:'agently' as const,durableReplay:false}])('does not retry EOF without a trusted durable Agently profile (%o)',async(options)=>{
+ const fetch=vi.fn(async()=>stream([{type:'RUN_STARTED',threadId:'thread',runId:'run'}]));
+ const session=new AgUiSession({...options,connectionId:'backend',threadId:'thread',url:'/run',fetch});
+ await expect(session.send({id:'user',role:'user',content:'question'},{runId:'run'})).rejects.toMatchObject({name:'AgUiStreamIncompleteError'});
+ expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('does not retry deterministic input schema failures',async()=>{
+ const fetch=vi.fn();
+ const session=new AgUiSession({profile:'agently',durableReplay:true,connectionId:'agently',threadId:'thread',url:'/run',fetch});
+ await expect(session.send({id:'user',role:'user',content:'question'},{runId:'run',tools:[{name:'invalid'} as any]})).rejects.toBeDefined();
+ expect(fetch).not.toHaveBeenCalled();
+});

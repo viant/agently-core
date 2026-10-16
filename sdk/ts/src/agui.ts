@@ -5,6 +5,12 @@ import type { AgentCapabilities, Message, Tool, ToolCall, ToolMessage, ResumeEnt
 
 export type AgUiRunParameters = RunAgentParameters & { parentRunId?: string };
 
+/** A network fetch or response-body read failed, outside protocol reduction. */
+export class AgUiTransportError extends Error {
+    readonly name = 'AgUiTransportError';
+    constructor(cause: TypeError) { super(cause.message, { cause }); }
+}
+
 export const AGENTLY_EXTENSION_VERSION = '1' as const;
 export const AGENTLY_CAPABILITIES_EVENT = 'agently.capabilities' as const;
 export type ClientToolResult = Pick<ToolMessage, 'content' | 'error' | 'metadata'>;
@@ -82,6 +88,10 @@ function safeReaderDisposal(response: Response): Response {
             const reader = target.getReader();
             return new Proxy(reader, { get(target, key) {
                 if (key === 'cancel') return (reason?: unknown) => target.cancel(reason).catch(() => undefined);
+                if (key === 'read') return () => target.read().catch(error => {
+                    if (error instanceof TypeError) throw new AgUiTransportError(error);
+                    throw error;
+                });
                 const member = Reflect.get(target, key, target);
                 return typeof member === 'function' ? member.bind(target) : member;
             } });
@@ -126,7 +136,15 @@ export class AgUiClient {
 
     constructor(config: HttpAgentConfig) {
         const configuredFetch = config.fetch ?? globalThis.fetch.bind(globalThis);
-        this.transportConfig = { ...config, fetch: async (url, init) => safeReaderDisposal(boundedSSEFrames(await configuredFetch(url, init))) };
+        this.transportConfig = { ...config, fetch: async (url, init) => {
+            let response: Response;
+            try { response = await configuredFetch(url, init); }
+            catch (error) {
+                if (error instanceof TypeError) throw new AgUiTransportError(error);
+                throw error;
+            }
+            return safeReaderDisposal(boundedSSEFrames(response));
+        } };
         this.agent = new ReplayableHttpAgent(this.transportConfig);
         this.agent.subscribe({
             onRunStartedEvent: () => { this.pendingClientToolIds = []; },
