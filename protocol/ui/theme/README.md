@@ -29,8 +29,8 @@ go test ./...
 The Swift and Kotlin theme tests read the same JSON in the sibling checkout. Forge's `npm run test:workspace-theme` uses the generated CSS and actual widget runtime in a browser. It expects sibling `forge`, `agently`, and `agently-core` directories. This is an integration fixture, not a runtime filesystem dependency for native clients.
 
 Version 1 uses literal hex colors, the `system` or semantic
-`workspace-primary` typography family, and logical numeric dimensions. The
-semantic name identifies a workspace's primary typeface without constraining it
+`workspace-primary` / `workspace-secondary` typography family, and logical numeric dimensions. The
+semantic roles identify a workspace's primary and optional secondary typefaces without constraining either
 to sans-serif, serif, or another classification. Workspaces own the registered
 WOFF2 faces and license; the style service validates and serves those assets
 through authenticated, content-addressed, same-origin URLs. Generated
@@ -59,3 +59,11 @@ fonts:
 Only contained regular WOFF2 files are accepted. Family names, roles, styles,
 weights, fallbacks, and optional Unicode ranges are finite validated values;
 arbitrary URLs and CSS fragments are not part of this contract.
+
+A secondary registration uses `role: workspace-secondary` and publishes
+`--agently-font-workspace-secondary`. It does not change the primary family or
+any theme token. A bounded workspace surface may consume that variable directly;
+`typography.family: workspace-secondary` explicitly selects it for a whole theme.
+Both roles must be registered before theme tokens can select them, and duplicate
+roles remain invalid. Native clients use the same published role metadata and
+retain system fallback when a family is unavailable.
