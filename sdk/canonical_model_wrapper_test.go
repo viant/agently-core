@@ -19,7 +19,7 @@ func TestNativeModelWrapperRoleParityAndPayloadPreservation(t *testing.T) {
 					RequestPayloadId: &id, ResponsePayloadId: &id, ProviderRequestPayloadId: &id, ProviderResponsePayloadId: &id, StreamPayloadId: &id,
 					ModelCallRequestPayload: payload, ModelCallResponsePayload: payload, ModelCallProviderRequestPayload: payload, ModelCallProviderResponsePayload: payload, ModelCallStreamPayload: payload,
 				}}
-				step := buildModelStep(message)
+				step := buildModelStep(message, true)
 				// Compare with the exact prior inference inputs. Root metadata is absent
 				// from the typed wrapper even when the opaque inline body contains it.
 				previous := executionRoleFromSignals("", signals.phase, signals.mode, "", step.RequestPayload, step.ProviderRequestPayload, step.ResponsePayload, step.ProviderResponsePayload, step.StreamPayload)

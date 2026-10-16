@@ -24,8 +24,7 @@ func TestCompactCanonicalModelPayloadsPreserveMetadataAndNativeResponse(t *testi
 	}
 	turns := convstore.Transcript{&convstore.Turn{Id: "turn", Message: []*conversationmodel.MessageView{{Id: "message", Role: "assistant", Content: &content, ModelCall: model}}}}
 	full := BuildCanonicalState("conversation", turns)
-	compact := BuildCanonicalState("conversation", turns)
-	omitCanonicalModelPayloads(compact)
+	compact := buildCanonicalState("conversation", turns, false)
 	raw, err := json.Marshal(full)
 	require.NoError(t, err)
 	var expected map[string]any

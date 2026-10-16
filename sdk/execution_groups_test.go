@@ -88,7 +88,7 @@ func TestBuildExecutionPages_PrefersLatestToolStepStatus(t *testing.T) {
 	}
 
 	ts := &TurnState{}
-	pages := buildExecutionPages(ts, turn)
+	pages := buildExecutionPages(ts, turn, true)
 	require.Len(t, pages, 1)
 	require.Len(t, pages[0].ToolSteps, 1)
 	require.Equal(t, "completed", pages[0].ToolSteps[0].Status)

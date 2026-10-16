@@ -21,7 +21,7 @@ func TestCanonicalHostOriginUsesOnlyExactServerMarker(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			turn := &convstore.Turn{Id: "guest", StartedByMessageId: &start, Message: []*convread.MessageView{{Id: test.id, Role: test.role, Type: test.kind, Interim: test.interim}}}
-			state := buildTurnState(turn)
+			state := buildTurnState(turn, true)
 			if test.match {
 				require.Equal(t, "host_request", state.Origin)
 			} else {

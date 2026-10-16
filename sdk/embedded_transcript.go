@@ -141,10 +141,7 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 	if optState.includeModelPayloads != nil {
 		includePayloads = *optState.includeModelPayloads
 	}
-	state := BuildCanonicalState(input.ConversationID, turns)
-	if !includePayloads {
-		omitCanonicalModelPayloads(state)
-	}
+	state := buildCanonicalState(input.ConversationID, turns, includePayloads)
 	projectionTiming.End(observe.OK, observe.CacheUnknown)
 	queueTiming := observe.Start(ctx, "history.transcript.queue", observe.Labels{})
 	err = c.populateCanonicalQueueSequences(ctx, state)
