@@ -1,0 +1,84 @@
+namespace: Automation
+
+view:
+  content:
+    containers:
+      - id: automationGuidance
+        dataSourceRef: schedules
+        visibleWhen:
+          all:
+            - source: collection
+              empty: true
+            - source: windowForm
+              field: automationView
+              notEquals: editor
+        table: $import('table/schedules.yaml')
+
+      - id: automationEditor
+        dataSourceRef: schedules
+        visibleWhen:
+          source: windowForm
+          field: automationView
+          equals: editor
+        toolbar: $import('toolbar/setup.yaml')
+        tabs:
+          vertical: false
+          presentation: views
+          showBack: true
+          listTitle: Setup sections
+        containers: $import('form.yaml')
+
+      - id: automationCatalogue
+        dataSourceRef: schedules
+        visibleWhen:
+          all:
+            - source: collection
+              notEmpty: true
+            - source: windowForm
+              field: automationView
+              notEquals: editor
+        table: $import('table/schedules.yaml')
+
+
+dataSource:
+  schedules: $import('datasource/schedules.yaml')
+  agentsLov: $import('datasource/agents_lov.yaml')
+  modelsLov: $import('datasource/models_lov.yaml')
+
+dialogs:
+  - id: agentLov
+    title: Select Agent
+    dataSourceRef: agentsLov
+    on:
+      - event: onOpen
+        handler: schedule.applyLookupFilter
+    content:
+      fetchData: true
+      table:
+        presentation: tabular
+        columns:
+          - id: name
+            name: Agent Name
+            width: 140
+            enforceColumnSize: true
+          - id: id
+            name: Agent ID
+            width: 220
+            enforceColumnSize: true
+
+  - id: modelLov
+    title: Select Model
+    dataSourceRef: modelsLov
+    content:
+      fetchData: true
+      table:
+        presentation: tabular
+        columns:
+          - id: name
+            name: Model
+            width: 140
+            enforceColumnSize: true
+          - id: id
+            name: Model ID
+            width: 220
+            enforceColumnSize: true

@@ -41,6 +41,12 @@ import (
 
 type stubMCPProvider struct{}
 
+// Names declares that this fixture has no external MCP connections. Local
+// runtime providers still use the manager's normal collision checks.
+func (s *stubMCPProvider) Names(context.Context) ([]string, error) {
+	return nil, nil
+}
+
 func (s *stubMCPProvider) Options(_ context.Context, _ string) (*mcpcfg.MCPClient, error) {
 	return nil, fmt.Errorf("no MCP servers configured in test")
 }

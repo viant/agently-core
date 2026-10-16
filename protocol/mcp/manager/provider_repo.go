@@ -282,7 +282,16 @@ func (p *RepoProvider) Names(ctx context.Context) ([]string, error) {
 	if p.repo == nil {
 		return nil, nil
 	}
-	return p.repo.List(ctx)
+	names, err := p.repo.List(ctx)
+	if err != nil && ctx.Err() == nil {
+		// The legacy MCP directory is optional. Do not treat other repository or
+		// supplied-reader failures as an empty external connection inventory.
+		exists, existsErr := p.repo.DirExists(ctx)
+		if existsErr == nil && !exists {
+			return nil, nil
+		}
+	}
+	return names, err
 }
 
 var nonWord = regexp.MustCompile(`[^A-Za-z0-9_.@-]+`)

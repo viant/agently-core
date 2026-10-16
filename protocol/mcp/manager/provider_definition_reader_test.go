@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	authctx "github.com/viant/agently-core/internal/auth"
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
+	"github.com/viant/agently-core/workspace"
+	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	"github.com/viant/mcp"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -189,4 +191,43 @@ func TestLegacyRepoAliasNeverRewritesCanonicalURI(t *testing.T) {
 	_, err = provider.Options(context.Background(), "mcp://workspace/missing")
 	require.Error(t, err)
 	require.False(t, strings.Contains(got.Name, "://"))
+}
+
+type failingInventoryStore struct {
+	workspace.Store
+	root    string
+	failure error
+}
+
+func (s *failingInventoryStore) Root() string { return s.root }
+func (s *failingInventoryStore) List(context.Context, string) ([]string, error) {
+	return nil, s.failure
+}
+
+func TestRepoProviderNamesAllowsAbsentMCPDirectory(t *testing.T) {
+	t.Setenv("AGENTLY_WORKSPACE_NO_DEFAULTS", "1")
+	root := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", root)
+	provider := NewRepoProvider()
+	require.NoDirExists(t, filepath.Join(root, "mcp"), "fixture starts without MCP directory")
+	names, err := provider.Names(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, names)
+	require.NoDirExists(t, filepath.Join(root, "mcp"), "inventory must leave directory absent")
+	_, err = provider.Options(context.Background(), "unknown-server")
+	require.Error(t, err, "empty inventory must not fabricate an unknown server")
+}
+
+func TestRepoProviderNamesPreservesInventoryFailure(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "mcp"), 0700))
+	failure := errors.New("inventory cannot be read")
+	provider := NewRepoProvider()
+	provider.repo = mcprepo.NewWithStore(&failingInventoryStore{root: root, failure: failure})
+	_, err := provider.Names(context.Background())
+	require.ErrorIs(t, err, failure)
+	readerFailure := errors.New("owning definition reader denied")
+	provider = NewRepoProvider(WithRepoDefinitionReader(&definitionReaderFixture{failure: readerFailure}))
+	_, err = provider.Names(context.Background())
+	require.ErrorIs(t, err, readerFailure, "a configured owning reader must not fall back to filesystem inventory")
 }

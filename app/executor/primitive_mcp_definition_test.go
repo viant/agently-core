@@ -108,6 +108,7 @@ func TestMCPRuntimeLoadsCapturedReferencesAfterSourceFileRemoval(t *testing.T) {
 }
 
 func TestMCPRuntimeSupportsInitiallyEmptyConfiguration(t *testing.T) {
+	t.Setenv("AGENTLY_WORKSPACE_NO_DEFAULTS", "1")
 	root := t.TempDir()
 	old := workspace.Root()
 	workspace.SetRoot(root)
@@ -123,4 +124,7 @@ func TestMCPRuntimeSupportsInitiallyEmptyConfiguration(t *testing.T) {
 	names, err := mgr.Names(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, []string{configurationMCPName}, names)
+	_, err = mgr.Options(context.Background(), "unknown-server")
+	require.Error(t, err, "empty MCP configuration must preserve unknown-server errors")
+	require.NoDirExists(t, filepath.Join(root, workspace.KindMCP), "source registration must not require an MCP directory")
 }

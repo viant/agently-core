@@ -11,6 +11,7 @@ import (
 	"github.com/viant/agently-core/app/store/data"
 	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/agent/execution"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	hstate "github.com/viant/xdatly/state"
 )
 
@@ -114,7 +115,9 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 			sinceTurnID = strings.TrimSpace(*msg.TurnId)
 		}
 	}
+	readTiming := observe.Start(ctx, "history.transcript.read", observe.Labels{})
 	conv, err := c.getTranscriptConversation(ctx, input.ConversationID, sinceTurnID, input, optState)
+	readTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +127,7 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 			Conversation:  &ConversationState{ConversationID: input.ConversationID},
 		}, nil
 	}
+	projectionTiming := observe.Start(ctx, "history.transcript.projection", observe.Labels{})
 	turns := conv.GetTranscript()
 	c.enrichTranscriptElicitations(ctx, turns)
 	pruneTranscriptNoise(turns)
@@ -141,11 +145,19 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 	if !includePayloads {
 		omitCanonicalModelPayloads(state)
 	}
-	if err = c.populateCanonicalQueueSequences(ctx, state); err != nil {
+	projectionTiming.End(observe.OK, observe.CacheUnknown)
+	queueTiming := observe.Start(ctx, "history.transcript.queue", observe.Labels{})
+	err = c.populateCanonicalQueueSequences(ctx, state)
+	queueTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
+	if err != nil {
 		return nil, err
 	}
+	reportTiming := observe.Start(ctx, "history.transcript.reports", observe.Labels{})
 	applyInlineReportWorkspaceCatalogToState(ctx, state, c)
+	reportTiming.End(observe.OK, observe.CacheUnknown)
+	threadTiming := observe.Start(ctx, "history.transcript.thread_reference", observe.Labels{})
 	threadID, err := c.aguiThreadReference(ctx, input.ConversationID)
+	threadTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +168,9 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 		Usage:         usageSummaryFromConversation(conv),
 	}
 	if (c.feeds != nil || c.primitiveProviders != nil) && state != nil && optState != nil && optState.includeFeeds {
+		feedTiming := observe.Start(ctx, "history.transcript.feeds", observe.Labels{})
 		resp.Feeds = c.resolveActiveFeedsFromState(ctx, state)
+		feedTiming.End(observe.OK, observe.CacheUnknown)
 	}
 	includeToolPayloads := true
 	if input.IncludeToolPayloads != nil {
@@ -166,7 +180,9 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 		includeToolPayloads = *optState.includeToolPayloads
 	}
 	if !includeToolPayloads {
+		payloadTiming := observe.Start(ctx, "history.transcript.payload_projection", observe.Labels{})
 		c.omitCanonicalToolPayloadsWithCatalog(state, ctx, optState.includeFeeds)
+		payloadTiming.End(observe.OK, observe.CacheUnknown)
 	}
 	return resp, nil
 }

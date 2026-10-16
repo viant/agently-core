@@ -55,7 +55,9 @@ func approvalReaderCompletionCases(t *testing.T, db *sql.DB) {
 		{prefix + "done", owner, "executed", completed},
 		{prefix + "foreign", other, "pending", nil},
 	} {
-		_, err := db.Exec(`INSERT INTO tool_approval_queue(id,user_id,tool_name,arguments,status,created_at,completed_at) VALUES(?,?,?,?,?,?,?)`, row.id, row.user, "test/tool", []byte("{}"), row.status, completed, row.completion)
+		// Completion is derived from the status-specific terminal timestamp, while
+		// the physical completed_at column remains NULL in the runtime schema.
+		_, err := db.Exec(`INSERT INTO tool_approval_queue(id,user_id,tool_name,arguments,status,created_at,executed_at) VALUES(?,?,?,?,?,?,?)`, row.id, row.user, "test/tool", []byte("{}"), row.status, completed, row.completion)
 		must(t, err)
 		id := row.id
 		t.Cleanup(func() {

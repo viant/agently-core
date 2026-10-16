@@ -1,0 +1,78 @@
+columns:
+  - id: name
+    name: Automation
+    sortable: true
+    width: 190
+    enforceColumnSize: true
+    tooltip: Friendly name for this automation
+  - id: enabled
+    name: Active
+    width: 56
+    type: checkbox
+    sortable: true
+    enforceColumnSize: true
+    tooltip: Whether this schedule is currently active
+  - id: cronExpr
+    name: Schedule
+    sortable: true
+    width: 190
+    enforceColumnSize: true
+    tooltip: When this schedule fires
+    on:
+      - event: onValue
+        handler: schedule.formatCronSummary
+  - id: nextRunAt
+    name: Next
+    sortable: true
+    width: 104
+    enforceColumnSize: true
+    tooltip: When the next execution is expected
+    on:
+      - event: onValue
+        handler: schedule.formatDate
+  - id: lastStatus
+    name: Last
+    sortable: true
+    width: 88
+    enforceColumnSize: true
+    tooltip: Outcome of the most recent run
+    on:
+      - event: onValue
+        handler: schedule.formatStatus
+
+toolbar: $import('toolbar/schedules.yaml')
+
+presentation: tabular
+
+emptyState:
+  icon: time
+  kicker: Automation workspace
+  title: Create your first automation
+  body: Turn a repeatable task into a reliable agent workflow. Keep it as a draft, activate it when ready, and inspect every run.
+  hideToolbarItems: [refresh, addNew, pagination, quickFilter, history, edit, run, delete]
+  steps:
+    - id: agent
+      number: 1
+      title: Choose an agent
+      body: Select who will perform the task.
+    - id: timing
+      number: 2
+      title: Set the timing
+      body: Pick a calendar, interval, or cron schedule.
+    - id: review
+      number: 3
+      title: Review every run
+      body: Track outcomes and open the conversation.
+  action:
+    id: addNew
+    icon: plus
+    label: New automation
+    intent: primary
+    on:
+      - event: onClick
+        handler: schedule.addNewSchedule
+        state:
+          automationView: editor
+
+
+pagination: {}

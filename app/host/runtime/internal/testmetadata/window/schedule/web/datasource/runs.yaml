@@ -1,0 +1,66 @@
+service:
+  endpoint: agentlyAPI
+  uri: /v1/api/agently/scheduler/run
+  method: GET
+
+preserveParametersOnMissingDependencies: true
+
+paging:
+  size: 10
+  enabled: true
+  dataInfoSelectors:
+    pageCount: pageCount
+    totalCount: totalCount
+
+parameters:
+  - name: scheduleId
+    kind: query
+    in: selection
+    location: schedules.id
+
+selectors:
+  data: data
+  dataInfo: info
+
+on:
+  - event: onFetch
+    handler: schedule.onFetchRuns
+
+filterSet:
+  - name: default
+    default: true
+    template:
+      - id: status
+        label: Filter by status...
+        operator: contains
+      - id: conversationId
+        label: Filter by conversation ID...
+        operator: contains
+      - id: errorMessage
+        label: Filter by error message...
+        operator: contains
+
+  - name: quick
+    mode: fieldSelector
+    defaultField: status
+    template:
+      - id: status
+        optionLabel: Status
+        placeholder: Filter by status...
+        width: 200
+        operator: contains
+      - id: conversationId
+        optionLabel: Conversation
+        placeholder: Conversation ID...
+        width: 220
+        operator: contains
+      - id: errorMessage
+        optionLabel: Error
+        placeholder: Error message...
+        width: 240
+        operator: contains
+
+quickFilterSet: quick
+
+uniqueKey:
+  - field: id

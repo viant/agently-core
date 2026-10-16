@@ -126,9 +126,9 @@ func TestApprovalReaderWithPhysicalCompletedAt(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
 	db, _ := approvalReaderFixture(t, project)
-	_, err := db.Exec(`ALTER TABLE tool_approval_queue ADD COLUMN completed_at DATETIME`)
-	must(t, err)
-	_, err = db.Exec(`UPDATE tool_approval_queue SET completed_at='2026-01-09 00:00:00' WHERE id IN ('approved', 'existing')`)
+	// The discovery fixture already includes the physical column. Its value must
+	// not override the reader's status-derived completion timestamp.
+	_, err := db.Exec(`UPDATE tool_approval_queue SET completed_at='2026-01-09 00:00:00' WHERE id IN ('approved', 'existing')`)
 	must(t, err)
 	rt, key := approvalReaderRuntime(t, db, "u1", "rows", false, true)
 	result, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{
