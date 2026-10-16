@@ -17,7 +17,7 @@ func TestMissingResourceReaderDeniesBeforeGetOrCompiler(t *testing.T) {
 			})})
 			switch scenario {
 			case "legacy-nil":
-				service.resourceResolver = func(context.Context, string) (*identity.ResourceResolver, error) { return nil, nil }
+				service.SetResourceResolver(func(context.Context, string) (*identity.ResourceResolver, error) { return nil, nil })
 			case "generic-nil":
 				service.SetResourceReaderFactory(func(context.Context, string) (ResourceReader, error) { return nil, nil })
 			case "typed-nil":

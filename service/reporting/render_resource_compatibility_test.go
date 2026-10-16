@@ -69,7 +69,12 @@ func TestInlineRenderingAndResourceDeliveryCoexist(t *testing.T) {
 }
 
 func TestStoredMaterializedEnvelopeKeepsRenderPayloadAndPin(t *testing.T) {
-	service, _, state, _ := newPinnedExportService(t, nil)
+	service, _, state, _ := newPinnedExportService(t, nil, reportCompilerFunc(func(_ context.Context, request *CompileRequest) (*CompileResult, error) {
+		if len(request.Document) == 0 || request.SourceKind != SourceKindReportSpec {
+			t.Fatal("spec-only stored source lost")
+		}
+		return &CompileResult{ReportSpec: request.Document}, nil
+	}))
 	raw, _ := json.Marshal(map[string]any{"schemaVersion": 1, "reportSpec": json.RawMessage(validTestReportSpecJSON()), "reportFill": json.RawMessage(validTestReportFillJSON()), "reportPrint": json.RawMessage(validTestReportPrintJSON()), "compileState": map[string]any{"status": "compiled"}, "metadata": map[string]any{"original": "saved"}})
 	state.raw = raw
 	ctx := authsvc.InjectUser(context.Background(), "owner")
@@ -93,12 +98,7 @@ func TestStoredMaterializedEnvelopeKeepsRenderPayloadAndPin(t *testing.T) {
 	if _, err = service.SubmitExport(ctx, request); !errors.Is(err, identity.ErrResourceDenied) {
 		t.Fatalf("caller snapshot overrode saved source: %v", err)
 	}
-	service.compiler = reportCompilerFunc(func(_ context.Context, request *CompileRequest) (*CompileResult, error) {
-		if len(request.Document) == 0 || request.SourceKind != SourceKindReportSpec {
-			t.Fatal("spec-only stored source lost")
-		}
-		return &CompileResult{ReportSpec: request.Document}, nil
-	})
+
 	if _, err = service.Compile(ctx, &CompileRequest{Resource: &identity.ResourceRef{URI: state.uri.String()}}); err != nil {
 		t.Fatal(err)
 	}
