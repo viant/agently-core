@@ -42,6 +42,7 @@ func (p *surfaceCatalogProvider) Options(context.Context, string) (*config.MCPCl
 }
 
 func TestPrivateSurfaceIdentityTracksPrincipalCredentialsAndExpiry(t *testing.T) {
+	t.Setenv("AGENTLY_MCP_SERVERS", "private")
 	var calls, initializes atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
@@ -79,8 +80,18 @@ func TestPrivateSurfaceIdentityTracksPrincipalCredentialsAndExpiry(t *testing.T)
 	_, err = owner.Get(ctx, "", "private")
 	require.NoError(t, err)
 	defer owner.CloseConversation("")
+	require.NoError(t, r.WarmToolCatalogs(context.Background(), []string{"private"}))
+	require.Zero(t, calls.Load(), "anonymous requests must not warm private user catalogs")
+	require.NoError(t, r.WarmToolCatalogs(ctx, []string{"private", "private"}))
+	require.NoError(t, r.WarmToolCatalogs(ctx, []string{"private"}))
+	require.EqualValues(t, 1, calls.Load(), "first-user warmup reuses manager singleflight/cache")
 	_, err = r.listServerTools(ctx, "private")
 	require.NoError(t, err)
+	// Exercise the actual aggregate listing with the real manager and HTTP
+	// transport: repeated authoring must reuse the same source catalog.
+	require.Len(t, r.DefinitionsWithContext(ctx), 1)
+	require.Len(t, r.DefinitionsWithContext(ctx), 1)
+	require.EqualValues(t, 1, calls.Load(), "warm aggregate listing must not repeat remote tools/list")
 	kind, generation := r.ToolSurfaceCacheIdentity(ctx, "private:*")
 	require.Equal(t, "private", kind)
 	require.NotEmpty(t, generation)

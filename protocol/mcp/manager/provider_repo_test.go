@@ -64,3 +64,46 @@ transport:
 		t.Fatalf("Transport.URL = %q, want %q", got, want)
 	}
 }
+
+func TestRepoProviderExplicitPublicCatalogPreservesAnonymousAuth(t *testing.T) {
+	for _, tc := range []struct {
+		name, visibility, auth string
+		public                 bool
+	}{
+		{name: "anonymous-public", visibility: "public", public: true},
+		{name: "authenticated-public", visibility: "public", auth: "auth:\n  backendForFrontend: true\n"},
+		{name: "private", visibility: "private"},
+		{name: "unspecified"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("AGENTLY_WORKSPACE", root)
+			dir := filepath.Join(root, "mcp")
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			definition := "name: fixture\ntransport:\n  type: streamable\n  url: http://fixture.test/mcp\n" + tc.auth
+			if tc.visibility != "" {
+				definition += "toolsListVisibility: " + tc.visibility + "\n"
+			}
+			if err := os.WriteFile(filepath.Join(dir, "fixture.yaml"), []byte(definition), 0644); err != nil {
+				t.Fatal(err)
+			}
+			provider := NewRepoProvider()
+			options, err := provider.Options(context.Background(), "fixture")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (options.Auth == nil) != tc.public {
+				t.Fatalf("auth nil = %v, want %v", options.Auth == nil, tc.public)
+			}
+			owner, err := New(provider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := owner.IsToolsListPublic(context.Background(), "fixture"); got != tc.public {
+				t.Fatalf("public = %v, want %v", got, tc.public)
+			}
+		})
+	}
+}

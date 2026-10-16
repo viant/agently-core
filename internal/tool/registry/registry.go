@@ -565,14 +565,25 @@ func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefi
 		r.warnf("tools: list servers failed: %v", err)
 		return defs
 	}
+	var pending []string
 	for _, s := range servers {
+		// Internal definitions are app-owned and warmed at registration/startup.
+		// Background refresh updates them; serving the catalog should not rebuild
+		// their MCP schemas on every foreground request.
+		if r.isInternalServer(s) && r.hasCachedServerTools(s) {
+			continue
+		}
 		if r.isExternalPublicToolCatalog(ctx, s) {
 			// Public catalogs are warmed into r.cache during startup/background
 			// refresh. Foreground requests never invoke tools/list for them.
 			continue
 		}
+		pending = append(pending, s)
+	}
+	catalogs := r.listToolCatalogs(discoveryCtx, pending)
+	for i, s := range pending {
 		injectTimeoutMs := r.shouldInjectTimeoutMs(s)
-		tools, err := r.listServerTools(discoveryCtx, s)
+		tools, err := catalogs[i].tools, catalogs[i].err
 		if err != nil {
 			// Keep cached entries; just warn on failure.
 			r.warnf("tools: list %s failed: %v", s, err)
@@ -2367,7 +2378,7 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	c, ok := r.internal[server]
 	r.mu.RUnlock()
 	if ok && c != nil {
-		px, _ := mcpproxy.NewProxy(ctx, server, c)
+		px, _ := mcpproxy.NewProxy(ctx, server, diagnosticCatalogClient(server, c))
 		var opts []mcpclient.RequestOption
 		if r.mgr != nil {
 			ctx = r.mgr.WithAuthTokenContext(ctx, server)
@@ -2434,7 +2445,7 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		return getErr
 	})
 	if err != nil {
-		r.noteDiscoveryFailure(server, scope, err)
+		r.noteCatalogDiscoveryFailure(ctx, server, scope, err)
 		if shouldSkipBestEffortToolSurfaceDiscoveryError(ctx, err) {
 			return nil, nil
 		}
@@ -2442,7 +2453,7 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		return nil, err
 	}
 	r.clearDiscoveryFailure(server, scope)
-	px, _ := mcpproxy.NewProxy(ctx, server, cli)
+	px, _ := mcpproxy.NewProxy(ctx, server, diagnosticCatalogClient(server, cli))
 	var opts []mcpclient.RequestOption
 	if tok := strings.TrimSpace(token); tok != "" {
 		opts = append(opts, mcpclient.WithAuthToken(tok))
@@ -2465,7 +2476,7 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 				err = retryErr
 			}
 		}
-		r.noteDiscoveryFailure(server, scope, err)
+		r.noteCatalogDiscoveryFailure(ctx, server, scope, err)
 		if shouldSkipBestEffortToolSurfaceDiscoveryError(ctx, err) {
 			return nil, nil
 		}
@@ -2492,7 +2503,7 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 	log.Printf("[warn][mcp-discovery] reconnect requested server=%q scope=%q scope_type=%s reason=list_tools_retry",
 		server, scope, discoveryScopeType(scope, server))
 	if _, err := r.mgr.Reconnect(ctx, r.metadataConnectionScope(ctx, scope, server), server); err != nil {
-		r.noteDiscoveryFailure(server, scope, err)
+		r.noteCatalogDiscoveryFailure(ctx, server, scope, err)
 		log.Printf("[warn][mcp-discovery] reconnect failed server=%q scope=%q scope_type=%s err=%v",
 			server, scope, discoveryScopeType(scope, server), err)
 		return nil, err
@@ -2504,7 +2515,7 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 		return getErr
 	})
 	if err != nil {
-		r.noteDiscoveryFailure(server, scope, err)
+		r.noteCatalogDiscoveryFailure(ctx, server, scope, err)
 		log.Printf("[warn][mcp-discovery] reconnect get failed server=%q scope=%q scope_type=%s err=%v",
 			server, scope, discoveryScopeType(scope, server), err)
 		return nil, err
@@ -2517,7 +2528,7 @@ func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, ser
 		return listErr
 	})
 	if err != nil {
-		r.noteDiscoveryFailure(server, scope, err)
+		r.noteCatalogDiscoveryFailure(ctx, server, scope, err)
 		return nil, err
 	}
 	r.clearDiscoveryFailure(server, scope)
