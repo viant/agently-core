@@ -12,6 +12,12 @@ import (
 // BuildCanonicalState converts a transcript into the canonical ConversationState.
 // This is the single entry point for producing renderable state from transcript data.
 func BuildCanonicalState(conversationID string, turns convstore.Transcript) *ConversationState {
+	return buildCanonicalState(conversationID, turns, true)
+}
+
+// Compact projection retains the same derivation while avoiding model body
+// serialization when the caller has explicitly requested payload omission.
+func buildCanonicalState(conversationID string, turns convstore.Transcript, includeModelPayloads bool) *ConversationState {
 	state := &ConversationState{
 		ConversationID: conversationID,
 		Turns:          make([]*TurnState, 0, len(turns)),
@@ -20,7 +26,7 @@ func BuildCanonicalState(conversationID string, turns convstore.Transcript) *Con
 		if turn == nil {
 			continue
 		}
-		ts := buildTurnState(turn)
+		ts := buildTurnState(turn, includeModelPayloads)
 		if ts != nil {
 			state.Turns = append(state.Turns, ts)
 		}
@@ -30,7 +36,7 @@ func BuildCanonicalState(conversationID string, turns convstore.Transcript) *Con
 	return state
 }
 
-func buildTurnState(turn *convstore.Turn) *TurnState {
+func buildTurnState(turn *convstore.Turn, includeModelPayloads bool) *TurnState {
 	if turn == nil {
 		return nil
 	}
@@ -138,7 +144,7 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 	}
 
 	// Build execution state from messages with model calls
-	pages := buildExecutionPages(ts, turn)
+	pages := buildExecutionPages(ts, turn, includeModelPayloads)
 	if len(pages) > 0 {
 		if ts.Execution == nil {
 			ts.Execution = &ExecutionState{}
@@ -245,7 +251,7 @@ func buildElicitationState(msg *conversationmodel.MessageView) *ElicitationState
 	return es
 }
 
-func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageState {
+func buildExecutionPages(ts *TurnState, turn *convstore.Turn, includeModelPayloads bool) []*ExecutionPageState {
 	if ts == nil || turn == nil || len(turn.Message) == 0 {
 		return nil
 	}
@@ -256,7 +262,7 @@ func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageSt
 		}
 		switch {
 		case message.ModelCall != nil:
-			_ = buildPageFromMessage(ts, turn, message, parentToolMessages)
+			_ = buildPageFromMessage(ts, turn, message, parentToolMessages, includeModelPayloads)
 		case isNarratorAssistantMessage(message):
 			_ = buildNarratorPageFromMessage(ts, message)
 		case isStandaloneToolExecutionMessage(message):
@@ -441,7 +447,7 @@ func isTranscriptAssistantFinalMessage(turn *TurnState, message *conversationmod
 	return true
 }
 
-func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *conversationmodel.MessageView, indexed map[string][]*conversationmodel.ToolMessageView) *ExecutionPageState {
+func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *conversationmodel.MessageView, indexed map[string][]*conversationmodel.ToolMessageView, includeModelPayloads bool) *ExecutionPageState {
 	if message == nil || message.ModelCall == nil {
 		return nil
 	}
@@ -490,7 +496,7 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *conversa
 	}
 
 	// Build model step using shared upsert helper (enforces dedup semantics)
-	if ms := buildModelStep(message); ms != nil {
+	if ms := buildModelStep(message, includeModelPayloads); ms != nil {
 		existing := upsertModelStep(page, ms.ModelCallID)
 		*existing = *ms
 	}
@@ -565,7 +571,7 @@ func pageStatus(message *conversationmodel.MessageView) string {
 	return stepStatusFromString(status, "")
 }
 
-func buildModelStep(message *conversationmodel.MessageView) *ModelStepState {
+func buildModelStep(message *conversationmodel.MessageView, includeModelPayloads bool) *ModelStepState {
 	if message == nil || message.ModelCall == nil {
 		return nil
 	}
@@ -597,19 +603,19 @@ func buildModelStep(message *conversationmodel.MessageView) *ModelStepState {
 	if mc.StreamPayloadId != nil {
 		step.StreamPayloadID = strings.TrimSpace(*mc.StreamPayloadId)
 	}
-	if mc.ModelCallRequestPayload != nil {
+	if includeModelPayloads && mc.ModelCallRequestPayload != nil {
 		step.RequestPayload = marshalToRawJSON(mc.ModelCallRequestPayload)
 	}
-	if mc.ModelCallResponsePayload != nil {
+	if includeModelPayloads && mc.ModelCallResponsePayload != nil {
 		step.ResponsePayload = marshalToRawJSON(mc.ModelCallResponsePayload)
 	}
-	if mc.ModelCallProviderRequestPayload != nil {
+	if includeModelPayloads && mc.ModelCallProviderRequestPayload != nil {
 		step.ProviderRequestPayload = marshalToRawJSON(mc.ModelCallProviderRequestPayload)
 	}
-	if mc.ModelCallProviderResponsePayload != nil {
+	if includeModelPayloads && mc.ModelCallProviderResponsePayload != nil {
 		step.ProviderResponsePayload = marshalToRawJSON(mc.ModelCallProviderResponsePayload)
 	}
-	if mc.ModelCallStreamPayload != nil {
+	if includeModelPayloads && mc.ModelCallStreamPayload != nil {
 		step.StreamPayload = marshalToRawJSON(mc.ModelCallStreamPayload)
 	}
 	// Native model payload views contain only id, compression and inlineBody.
