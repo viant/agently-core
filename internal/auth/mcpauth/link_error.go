@@ -34,6 +34,9 @@ type LinkRequiredError struct {
 	// included in model-visible text or the public API error.
 	AuthTimeout time.Duration
 	Cause       error
+	// original retains canonical OAuth typing and any joined non-link failures.
+	// Cause remains the stable application-facing diagnostic above.
+	original error
 }
 
 // Error implements error.
@@ -55,8 +58,13 @@ func (e *LinkRequiredError) Error() string {
 	return b.String()
 }
 
-// Unwrap exposes the underlying cause.
-func (e *LinkRequiredError) Unwrap() error { return e.Cause }
+// Unwrap preserves the original error chain for shared OAuth classification.
+func (e *LinkRequiredError) Unwrap() error {
+	if e.original != nil {
+		return e.original
+	}
+	return e.Cause
+}
 
 // ConnectURL returns the hosted initiation endpoint for this server.
 func (e *LinkRequiredError) ConnectURL() string {
@@ -97,7 +105,12 @@ func FromError(err error) (*LinkRequiredError, bool) {
 	}
 	var typed *LinkRequiredError
 	if errors.As(err, &typed) {
-		return typed, true
+		if err == typed {
+			return typed, true
+		}
+		retained := *typed
+		retained.original = err
+		return &retained, true
 	}
 	var upstream *authcfg.OAuthLinkRequiredError
 	if !errors.As(err, &upstream) {
@@ -111,6 +124,7 @@ func FromError(err error) (*LinkRequiredError, bool) {
 		Scopes:      append([]string(nil), upstream.Scopes...),
 		MetadataURL: upstream.MetadataURL,
 		Cause:       upstream.Cause,
+		original:    err,
 	}, true
 }
 

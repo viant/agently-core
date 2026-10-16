@@ -84,3 +84,28 @@ func TestWrapErrorProducesStableTypedError(t *testing.T) {
 		}
 	}
 }
+
+func TestMappedLinkRequiredRetainsCanonicalClassificationAndErrorChain(t *testing.T) {
+	original := upstreamError()
+	mapped := WrapError(fmt.Errorf("delegated preflight: %w", original))
+	var canonical *authcfg.OAuthLinkRequiredError
+	if !errors.As(mapped, &canonical) || canonical != original {
+		t.Fatalf("mapped error lost canonical OAuth classification: %T: %v", mapped, mapped)
+	}
+	if !errors.Is(mapped, original.Cause) {
+		t.Fatal("mapped error lost original cause")
+	}
+	if again := WrapError(mapped); again != mapped {
+		t.Fatal("mapping must remain idempotent")
+	}
+	sibling := errors.New("independent integrity failure")
+	for _, input := range []error{errors.Join(original, sibling), errors.Join(mapped, sibling)} {
+		converted := WrapError(input)
+		if !errors.Is(converted, sibling) {
+			t.Fatalf("mapping discarded joined non-link failure: %v", converted)
+		}
+		if !authcfg.IsLinkRequired(converted) {
+			t.Fatal("joined chain lost canonical link error")
+		}
+	}
+}
