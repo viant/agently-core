@@ -17,7 +17,7 @@ func Canonical(raw string) string {
 		return ""
 	}
 	if strings.Contains(raw, "-") && !strings.ContainsAny(raw, "/.:") {
-		return raw
+		return Name(raw).ToolName()
 	}
 	var service, method string
 	// Prefer dot/colon separators when present
@@ -30,10 +30,10 @@ func Canonical(raw string) string {
 	} else if idx := strings.LastIndex(raw, "/"); idx != -1 {
 		service, method = raw[:idx], raw[idx+1:]
 	} else {
-		return raw
+		return Name(raw).ToolName()
 	}
 	service = strings.ReplaceAll(service, "/", "_")
-	return service + "-" + method
+	return Name(service + "-" + method).ToolName()
 }
 
 func (t Name) Service() string {
@@ -52,10 +52,17 @@ func (t Name) Method() string {
 	return ""
 }
 
+// ToolName normalizes the routing separators that cannot appear in model tool
+// aliases. Literal methods remain catalog-owned; dispatch rejects collisions.
+// Wildcard syntax remains intact for existing configured tool patterns.
 func (t Name) ToolName() string {
-	r := string(t)
-	r = strings.ReplaceAll(r, "/", "_")
-	return r
+	return strings.Map(func(character rune) rune {
+		switch character {
+		case '/', '.', ':':
+			return '_'
+		}
+		return character
+	}, string(t))
 }
 
 func (t Name) String() string { return string(t) }
