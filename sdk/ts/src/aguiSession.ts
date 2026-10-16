@@ -1,8 +1,13 @@
 import type { Interrupt, Message, RunAgentInput, State } from '@ag-ui/core';
 import type { AgentSubscriber, HttpAgentConfig, RunAgentParameters } from '@ag-ui/client';
-import { AgUiClient, type AgentlyExecutionSelection, type InterruptResponse, type AgUiRunParameters } from './agui';
+import { AgUiClient, AgUiTransportError, type AgentlyExecutionSelection, type InterruptResponse, type AgUiRunParameters } from './agui';
 
 export type AgUiSessionPhase = 'idle' | 'running' | 'completed' | 'interrupted' | 'cancelled' | 'failed' | 'detached';
+
+export class AgUiStreamIncompleteError extends Error {
+    readonly name = 'AgUiStreamIncompleteError';
+    constructor() { super('AG-UI stream ended before a terminal event'); }
+}
 
 export interface AgUiSessionSnapshot {
     readonly connectionId: string;
@@ -155,9 +160,24 @@ export class AgUiSession {
         this.detached = false;
         this.runError = undefined;
         try {
-            const result = await action();
-            if (this.runError && !this.detached) throw this.runError;
-            return result;
+            let next = action;
+            for (let attempt = 0; ; attempt++) {
+                try {
+                    const result = await next();
+                    if (this.runError && !this.detached) throw this.runError;
+                    if (!this.detached && this.snapshot.phase === 'running') throw new AgUiStreamIncompleteError();
+                    return result;
+                } catch (error) {
+                    // Replay only the exact accepted input on a trusted durable
+                    // backend. This observes the same run; it never resumes an
+                    // interrupt or executes client tools again.
+                    const input = this.client.lastPostedInput;
+                    const transportFailure = error instanceof AgUiStreamIncompleteError || error instanceof AgUiTransportError;
+                    if (attempt >= 2 || this.detached || this.runError || !transportFailure
+                        || this.options.profile !== 'agently' || !this.options.durableReplay || !input) throw error;
+                    next = () => this.client.reconnectFromInput(input);
+                }
+            }
         } catch (error) {
             if (!this.detached) this.publish({ phase: 'failed', error: error instanceof Error ? error : new Error(String(error)) });
             throw error;
