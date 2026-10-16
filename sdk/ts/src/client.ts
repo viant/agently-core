@@ -294,7 +294,8 @@ export class AgentlyClient {
     /** Get a single conversation by ID. */
     async getConversation(id: string, options?: {includeTranscript?: boolean}): Promise<Conversation> {
         const query = options?.includeTranscript === false ? '?includeTranscript=false' : '';
-        return conversationDTO(await this.get<Conversation>(`/conversations/${enc(id)}${query}`));
+        const read = async () => conversationDTO(await this.get<Conversation>(`/conversations/${enc(id)}${query}`));
+        return options?.includeTranscript === false ? this.agUiInteractions.readConversationHeader(id, read) : read();
     }
 
     /** Update mutable conversation fields such as visibility and shareability. */
