@@ -251,3 +251,5 @@ export * from './aguiConversationTransport';
 export * from './aguiRemoteConversationTransport';
 
 export * from './browserMCP';
+
+export { feedActivationEventType, mergeFeedSnapshotActivation } from './feedActivation';

@@ -618,6 +618,7 @@ export class AgentlyClient {
                 const parsed: SSEEvent = JSON.parse(ev.data);
                 const event = normalizeStreamEventIdentity(parsed, conversationId);
                 if (!event) return;
+                this.agUiInteractions.noteFeedEvent(conversationId, event);
                 handlers.onEvent?.(event);
                 switch (event.type) {
                     case 'text_delta':
