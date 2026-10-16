@@ -42,6 +42,9 @@ func aguiBootstrapUserAliases(ctx context.Context, store aguistore.Store, record
 		}
 	}
 	aliases := map[string]string{}
+	// A run can appear in both user metadata and its identity activity. Reuse
+	// successful reads only within this join; failed reads keep their retry behavior.
+	runs := map[string]*aguistore.Run{}
 	for _, message := range journal {
 		var identity aguistate.Object
 		if message["role"] == "user" {
@@ -60,8 +63,16 @@ func aguiBootstrapUserAliases(ctx context.Context, store aguistore.Store, record
 		if runID == "" || turnID == "" || clientID == "" {
 			continue
 		}
-		run, err := store.GetRun(ctx, record.Principal, record.ThreadID, runID)
-		if err != nil || run == nil || run.Principal != record.Principal || run.ThreadID != record.ThreadID || run.TurnID != turnID || run.ClientMessageID != clientID {
+		run := runs[runID]
+		if run == nil {
+			var err error
+			run, err = store.GetRun(ctx, record.Principal, record.ThreadID, runID)
+			if err != nil || run == nil {
+				continue
+			}
+			runs[runID] = run
+		}
+		if run.Principal != record.Principal || run.ThreadID != record.ThreadID || run.TurnID != turnID || run.ClientMessageID != clientID {
 			continue
 		}
 		if message["role"] == "user" && message["id"] != clientID {
