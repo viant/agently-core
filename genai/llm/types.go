@@ -276,6 +276,18 @@ type Usage struct {
 	// Speculative decoding accepted/rejected prediction tokens
 	AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
 	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
+
+	// Optional reported details preserve the difference between zero and absent.
+	PromptTokensDetails     *PromptTokenDetails     `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *CompletionTokenDetails `json:"completion_tokens_details,omitempty"`
+}
+
+type PromptTokenDetails struct {
+	CachedTokens *int `json:"cached_tokens,omitempty"`
+}
+
+type CompletionTokenDetails struct {
+	ReasoningTokens *int `json:"reasoning_tokens,omitempty"`
 }
 
 type Messages []Message

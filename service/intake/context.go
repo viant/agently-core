@@ -44,12 +44,13 @@ func (s *ToolSelection) Clone() *ToolSelection {
 }
 
 type PromptingContext struct {
-	SuggestedProfileID string         `json:"suggestedProfileId,omitempty"`
-	ToolSelection      *ToolSelection `json:"toolSelection,omitempty"`
-	AppendToolBundles  []string       `json:"appendToolBundles,omitempty"`
-	TemplateID         string         `json:"templateId,omitempty"`
-	ModelID            string         `json:"modelId,omitempty"`
-	SynthesisModelID   string         `json:"synthesisModelId,omitempty"`
+	DiscoveryNamespaces []string       `json:"discoveryNamespaces,omitempty"`
+	SuggestedProfileID  string         `json:"suggestedProfileId,omitempty"`
+	ToolSelection       *ToolSelection `json:"toolSelection,omitempty"`
+	AppendToolBundles   []string       `json:"appendToolBundles,omitempty"`
+	TemplateID          string         `json:"templateId,omitempty"`
+	ModelID             string         `json:"modelId,omitempty"`
+	SynthesisModelID    string         `json:"synthesisModelId,omitempty"`
 }
 
 type DirectActionContext struct {
@@ -129,6 +130,7 @@ func StoreCallerProvided(ctxMap map[string]any, override *Context) (map[string]a
 	}
 	tc := *override
 	tc.Prompting.ToolSelection = override.Prompting.ToolSelection.Clone()
+	tc.Prompting.DiscoveryNamespaces = append([]string(nil), override.Prompting.DiscoveryNamespaces...)
 	tc.Routing.Source = SourceCallerProvided
 	ctxMap[ContextKey] = &tc
 	return ctxMap, &tc
@@ -150,6 +152,7 @@ func FromContext(ctxMap map[string]any) *Context {
 	case Context:
 		out := tc
 		out.Prompting.ToolSelection = tc.Prompting.ToolSelection.Clone()
+		out.Prompting.DiscoveryNamespaces = append([]string(nil), tc.Prompting.DiscoveryNamespaces...)
 		return &out
 	}
 	return nil

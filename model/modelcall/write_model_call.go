@@ -127,6 +127,12 @@ func (m *ModelCall) SetPromptCachedTokens(v int) {
 	m.Has.PromptCachedTokens = true
 }
 
+func (m *ModelCall) SetCompletionReasoningTokens(v int) {
+	m.CompletionReasoningTokens = &v
+	m.ensureHas()
+	m.Has.CompletionReasoningTokens = true
+}
+
 func (m *ModelCall) SetTotalTokens(v int) {
 	m.TotalTokens = &v
 	m.ensureHas()

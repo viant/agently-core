@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/viant/afs/url"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
@@ -505,7 +506,9 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 	if len(input.ToolBundles) > 0 {
 		ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Required: true})
 	}
+	preparationStarted := time.Now()
 	always, err := s.resolveAlwaysIncludedTools(ctx, input)
+	writeBindingToolStage(ctx, "retained_resolution", preparationStarted, len(always), false, err)
 	if err != nil {
 		return nil, err
 	}
@@ -520,11 +523,16 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 	if len(control.Tools) == 0 && len(control.Bundles) == 0 && !hasToolDiscoverySelection(ctx, input) && len(always) == 0 {
 		return nil, nil
 	}
+	preparationStarted = time.Now()
 	defs, err := s.resolveStructuredToolDefinitions(ctx, control)
+	writeBindingToolStage(ctx, "structured_resolution", preparationStarted, len(defs), false, err)
 	if err != nil {
 		return nil, err
 	}
-	if unresolved, validationErr := s.unresolvedTurnBundles(ctx, input.ToolBundles, defs); validationErr != nil {
+	preparationStarted = time.Now()
+	unresolved, validationErr := s.unresolvedTurnBundles(ctx, input.ToolBundles, defs)
+	writeBindingToolStage(ctx, "bundle_validation", preparationStarted, len(defs), false, validationErr)
+	if validationErr != nil {
 		return nil, validationErr
 	} else if len(unresolved) > 0 {
 		return nil, fmt.Errorf("requested tool bundles resolved zero tool definitions: %s", strings.Join(unresolved, ", "))

@@ -129,9 +129,15 @@ type ResponsesOutputItem struct {
 }
 
 type ResponsesUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens        int `json:"input_tokens"`
+	OutputTokens       int `json:"output_tokens"`
+	TotalTokens        int `json:"total_tokens"`
+	InputTokensDetails *struct {
+		CachedTokens *int `json:"cached_tokens,omitempty"`
+	} `json:"input_tokens_details,omitempty"`
+	OutputTokensDetails *struct {
+		ReasoningTokens *int `json:"reasoning_tokens,omitempty"`
+	} `json:"output_tokens_details,omitempty"`
 }
 
 // ToResponsesPayload converts legacy Request into Responses API payload.
@@ -525,5 +531,15 @@ func ToLLMSFromResponses(resp *ResponsesResponse) *llm.GenerateResponse {
 	}
 	// Map usage
 	out.Usage = &llm.Usage{PromptTokens: resp.Usage.InputTokens, CompletionTokens: resp.Usage.OutputTokens, TotalTokens: resp.Usage.TotalTokens}
+	if details := resp.Usage.InputTokensDetails; details != nil && details.CachedTokens != nil {
+		cached := *details.CachedTokens
+		out.Usage.CachedTokens, out.Usage.PromptCachedTokens = cached, cached
+		out.Usage.PromptTokensDetails = &llm.PromptTokenDetails{CachedTokens: &cached}
+	}
+	if details := resp.Usage.OutputTokensDetails; details != nil && details.ReasoningTokens != nil {
+		reasoning := *details.ReasoningTokens
+		out.Usage.ReasoningTokens, out.Usage.CompletionReasoningTokens = reasoning, reasoning
+		out.Usage.CompletionTokensDetails = &llm.CompletionTokenDetails{ReasoningTokens: &reasoning}
+	}
 	return out
 }

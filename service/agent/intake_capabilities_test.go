@@ -57,3 +57,44 @@ func TestIntakeAdvertisedBaseToolSurvivesAppendedRoutingBundle(t *testing.T) {
 	require.Contains(t, after, "Rank available items")
 	require.Contains(t, after, "Open a view")
 }
+
+type intakeSnapshotRegistry struct {
+	fakeRegistry
+	reads int
+}
+
+func (r *intakeSnapshotRegistry) Definitions() []llm.ToolDefinition {
+	r.reads++
+	return r.fakeRegistry.Definitions()
+}
+
+func TestIntakeToolNamesReuseAuthorizedCapabilitySnapshot(t *testing.T) {
+	registry := &intakeSnapshotRegistry{fakeRegistry: fakeRegistry{defs: []llm.ToolDefinition{{Name: "catalog:read"}, {Name: "catalog:write"}}}}
+	service := &Service{
+		registry: registry,
+		skillSvc: newLoadedTestSkillService(t, t.TempDir(), "catalog-help"),
+		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{{ID: "catalog-workflow", Match: []llm.Tool{{Name: "catalog:*"}}}}, nil
+		},
+	}
+	input := &QueryInput{Agent: &agentmdl.Agent{Skills: []string{"catalog-help"}}, ToolsAllowed: []string{"catalog:read"}}
+	summary, names, err := service.intakeCapabilities(context.Background(), input)
+	require.NoError(t, err)
+	require.Equal(t, 1, registry.reads, "schema names reuse the metadata catalog read")
+	require.Equal(t, []string{"catalog-read"}, names)
+	require.Contains(t, summary, "catalog-help")
+	require.NotContains(t, names, "catalog-help")
+	require.NotContains(t, names, "catalog-workflow")
+	require.NotContains(t, summary, "catalog-write")
+}
+
+func TestIntakeToolNamesDistinguishMissingAndEmptyCatalog(t *testing.T) {
+	input := &QueryInput{Agent: &agentmdl.Agent{}}
+	_, missing, err := (&Service{}).intakeCapabilities(context.Background(), input)
+	require.NoError(t, err)
+	require.Nil(t, missing)
+	_, empty, err := (&Service{registry: &fakeRegistry{}}).intakeCapabilities(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, empty)
+	require.Empty(t, empty)
+}

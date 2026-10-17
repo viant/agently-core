@@ -215,6 +215,9 @@ func applyModelCallPatch(dst *conversationmodel.ModelCallView, src *modelcallmod
 	if src.Has.CompletionTokens {
 		dst.CompletionTokens = src.CompletionTokens
 	}
+	if src.Has.CompletionReasoningTokens {
+		dst.CompletionReasoningTokens = src.CompletionReasoningTokens
+	}
 	if src.Has.TotalTokens {
 		dst.TotalTokens = src.TotalTokens
 	}

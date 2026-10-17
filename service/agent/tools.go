@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/auth/mcpauth"
@@ -498,7 +501,9 @@ func (s *Service) resolveDirectBundleDefinitions(ctx context.Context, bundleID s
 	return dedupeDefinitions(out)
 }
 
-func (s *Service) loadBundles(ctx context.Context) (map[string]*toolbundle.Bundle, error) {
+func (s *Service) loadBundles(ctx context.Context) (result map[string]*toolbundle.Bundle, err error) {
+	started := time.Now()
+	defer func() { writeBindingToolStage(ctx, "bundle_selection", started, len(result), false, err) }()
 	if profile := selectedPromptProfileFromContext(ctx); profile != nil && profile.ResourceURI != "" {
 		own := indexBundlesByID(profile.ToolBundleDefinitions)
 		for _, id := range profile.ToolBundles {
@@ -509,20 +514,7 @@ func (s *Service) loadBundles(ctx context.Context) (map[string]*toolbundle.Bundl
 		return own, nil
 	}
 
-	if s.toolBundles == nil {
-		if s.toolBundleRepo == nil {
-			return nil, nil
-		}
-		list, err := s.toolBundleRepo.LoadAll(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if len(list) == 0 {
-			return nil, nil
-		}
-		return indexBundlesByID(list), nil
-	}
-	list, err := s.toolBundles(ctx)
+	list, err := s.ambientToolBundles(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +527,9 @@ func (s *Service) loadBundles(ctx context.Context) (map[string]*toolbundle.Bundl
 // loadBundlesFor preserves an admitted intent's own declared attachments while
 // allowing the trusted runtime to add independently selected toolfeed bundles.
 // A missing bundle declared by the intent can never fall back to the host.
-func (s *Service) loadBundlesFor(ctx context.Context, requested []string) (map[string]*toolbundle.Bundle, error) {
+func (s *Service) loadBundlesFor(ctx context.Context, requested []string) (result map[string]*toolbundle.Bundle, err error) {
+	started := time.Now()
+	defer func() { writeBindingToolStage(ctx, "bundle_merge", started, len(result), false, err) }()
 	bundles, err := s.loadBundles(ctx)
 	if err != nil {
 		return nil, err
@@ -554,12 +548,7 @@ func (s *Service) loadBundlesFor(ctx context.Context, requested []string) (map[s
 	if !missing {
 		return bundles, nil
 	}
-	var ambient []*toolbundle.Bundle
-	if s.toolBundles != nil {
-		ambient, err = s.toolBundles(ctx)
-	} else if s.toolBundleRepo != nil {
-		ambient, err = s.toolBundleRepo.LoadAll(ctx)
-	}
+	ambient, err := s.ambientToolBundles(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -657,6 +646,9 @@ func cloneInterfaceMap(src map[string]interface{}) map[string]interface{} {
 	if len(src) == 0 {
 		return nil
 	}
+	if value, ok := cloneJSONValue(src, 0); ok {
+		return value.(map[string]interface{})
+	}
 	raw, err := json.Marshal(src)
 	if err != nil {
 		out := make(map[string]interface{}, len(src))
@@ -670,6 +662,55 @@ func cloneInterfaceMap(src map[string]interface{}) map[string]interface{} {
 		return map[string]interface{}{}
 	}
 	return out
+}
+
+// cloneJSONValue copies values already in the representation produced by
+// json.Unmarshal. Anything else must use the original whole-map JSON round trip
+// so custom marshalers, number conversion, and error handling stay unchanged.
+func cloneJSONValue(value interface{}, depth int) (interface{}, bool) {
+	// Bound recursion for cyclic inputs; the JSON fallback handles their errors.
+	if depth > 1000 {
+		return nil, false
+	}
+	switch value := value.(type) {
+	case nil, bool:
+		return value, true
+	case string:
+		return value, utf8.ValidString(value)
+	case float64:
+		return value, !math.IsNaN(value) && !math.IsInf(value, 0)
+	case map[string]interface{}:
+		if value == nil {
+			return nil, true
+		}
+		out := make(map[string]interface{}, len(value))
+		for key, item := range value {
+			if !utf8.ValidString(key) {
+				return nil, false
+			}
+			cloned, ok := cloneJSONValue(item, depth+1)
+			if !ok {
+				return nil, false
+			}
+			out[key] = cloned
+		}
+		return out, true
+	case []interface{}:
+		if value == nil {
+			return nil, true
+		}
+		out := make([]interface{}, len(value))
+		for i, item := range value {
+			cloned, ok := cloneJSONValue(item, depth+1)
+			if !ok {
+				return nil, false
+			}
+			out[i] = cloned
+		}
+		return out, true
+	default:
+		return nil, false
+	}
 }
 
 func augmentPromptApprovalReviewDefinitions(defs []llm.ToolDefinition, approvalByID map[string]*llm.ApprovalConfig) []llm.ToolDefinition {

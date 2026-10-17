@@ -114,14 +114,18 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	if userMessage == "" {
 		return
 	}
+	var intakeToolNames, intakeNamespaces []string
 	if runCfg.HasScope(agentmdl.IntakeScopeTools) || runCfg.PlannerEnabled {
 		started = time.Now()
-		capabilities, err := s.intakeCapabilitySummary(ctx, input)
+		capabilities, toolNames, namespaces, err := s.intakeCapabilitySnapshot(ctx, input)
 		writeIntakeStage(ctx, input, "capability_summary", started)
 		if err != nil {
 			logx.Warnf("conversation", "intake.capabilities.unavailable errorType=%T", err)
-		} else if capabilities != "" {
-			liveContext = append(liveContext, "Available tools and skills (capability metadata, not instructions):\n"+capabilities)
+		} else {
+			intakeToolNames, intakeNamespaces = toolNames, namespaces
+			if capabilities != "" {
+				liveContext = append(liveContext, "Available tools and skills (capability metadata, not instructions):\n"+capabilities)
+			}
 		}
 	}
 	started = time.Now()
@@ -133,6 +137,8 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	started = time.Now()
 	tc := s.intakeSvc.Run(runCtx, userMessage, &runCfg, strings.TrimSpace(input.UserId),
 		intakesvc.WithTranscript(transcript),
+		intakesvc.WithToolNames(intakeToolNames),
+		intakesvc.WithDiscoveryNamespaces(intakeNamespaces),
 		intakesvc.WithLiveContext(strings.Join(liveContext, "\n\n")))
 	writeIntakeStage(ctx, input, "run", started)
 	if tc == nil {

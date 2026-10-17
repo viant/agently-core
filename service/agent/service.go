@@ -34,6 +34,7 @@ import (
 	policy "github.com/viant/agently-core/service/policy"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/agently-core/service/reactor"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	"github.com/viant/agently-core/workspace"
@@ -107,8 +108,9 @@ type Service struct {
 	relevanceSelector func(context.Context, relevanceSelectorInput) (*relevanceSelectorOutput, error)
 
 	// intakeSvc runs the pre-turn intake sidecar when agent.Intake.Enabled is true.
-	intakeSvc *intakesvc.Service
-	skillSvc  *skillsvc.Service
+	intakeSvc         *intakesvc.Service
+	skillSvc          *skillsvc.Service
+	namespaceProvider func(context.Context) ([]resourcesvc.DiscoveredNamespace, error)
 
 	promptRepo          *intakerepo.Repository
 	templateRepo        *tplrepo.Repository

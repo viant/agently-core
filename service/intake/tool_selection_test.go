@@ -1,11 +1,13 @@
 package intake
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	"github.com/xeipuuv/gojsonschema"
 )
 
 func TestToolSelectionWirePreservesOptionalAndCompleteEmptySemantics(t *testing.T) {
@@ -115,4 +117,83 @@ func TestToolSelectionRejectsMalformedWireWithoutTrustingNames(t *testing.T) {
 	parsed, err := parseOutput(`{"prompting":{"toolSelection":{"names":["not-authorized/invented"],"complete":true}}}`)
 	require.NoError(t, err)
 	require.Equal(t, []string{"not-authorized/invented"}, parsed.Prompting.ToolSelection.Names, "parsing records a hint; execution must validate it against the authorized surface")
+}
+
+func TestToolSelectionSchemaRestrictsNamesToAdvertisedTools(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{Scope: []string{"tools"}}
+	in := svc.buildGenerateInputWithContext(context.Background(), "model", "instructions", "request", "user", cfg,
+		WithToolNames([]string{"catalog-read", "llm_skills-activate"}))
+	for _, tc := range []struct {
+		name  string
+		valid bool
+	}{
+		{"catalog-read", true},
+		{"llm_skills-activate", true},
+		{"catalog-workflow", false},
+		{"catalog-help", false},
+		{"catalog:read", false},
+		{"invented-tool", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			value := map[string]any{"prompting": map[string]any{
+				"appendToolBundles": []string{}, "toolSelection": ToolSelection{Names: []string{tc.name}, Complete: true},
+			}}
+			result, err := gojsonschema.Validate(gojsonschema.NewGoLoader(in.Options.OutputSchema), gojsonschema.NewGoLoader(value))
+			require.NoError(t, err)
+			require.Equal(t, tc.valid, result.Valid(), "%v", result.Errors())
+		})
+	}
+}
+
+func TestToolSelectionSnapshotAbsentAndEmpty(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{Scope: []string{"tools"}}
+	for _, tc := range []struct {
+		name  string
+		names []string
+		valid bool
+	}{
+		{"absent retains legacy contract", nil, true},
+		{"known empty rejects tool names", []string{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			schema := svc.buildOutputJSONSchema(context.Background(), cfg, WithToolNames(tc.names))
+			value := map[string]any{"prompting": map[string]any{
+				"appendToolBundles": []string{}, "toolSelection": ToolSelection{Names: []string{"catalog-read"}, Complete: true},
+			}}
+			result, err := gojsonschema.Validate(gojsonschema.NewGoLoader(schema), gojsonschema.NewGoLoader(value))
+			require.NoError(t, err)
+			require.Equal(t, tc.valid, result.Valid())
+			value["prompting"].(map[string]any)["toolSelection"] = ToolSelection{Names: []string{}, Complete: true}
+			result, err = gojsonschema.Validate(gojsonschema.NewGoLoader(schema), gojsonschema.NewGoLoader(value))
+			require.NoError(t, err)
+			require.True(t, result.Valid(), "%v", result.Errors())
+		})
+	}
+}
+
+func TestValidateToolSelectionPreservesWorkflowAndUncertainty(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		allowed, selected []string
+		complete          bool
+		want              *ToolSelection
+	}{
+		{"exact tool", []string{"catalog-read"}, []string{"catalog-read"}, true, &ToolSelection{Names: []string{"catalog-read"}, Complete: true}},
+		{"bundle id is not a tool", []string{"catalog-read"}, []string{"catalog-workflow"}, true, &ToolSelection{Names: []string{}, Complete: false}},
+		{"skill id is not a tool", []string{"catalog-read"}, []string{"catalog-help"}, true, &ToolSelection{Names: []string{}, Complete: false}},
+		{"mixed batch is not partially accepted", []string{"catalog-read"}, []string{"catalog-read", "invented"}, true, &ToolSelection{Names: []string{}, Complete: false}},
+		{"incomplete invalid batch", []string{"catalog-read"}, []string{"invented"}, false, &ToolSelection{Names: []string{}, Complete: false}},
+		{"absent metadata preserves legacy", nil, []string{"invented"}, true, &ToolSelection{Names: []string{"invented"}, Complete: true}},
+		{"empty metadata rejects names", []string{}, []string{"catalog-read"}, true, &ToolSelection{Names: []string{}, Complete: false}},
+		{"explicit empty remains complete", []string{"catalog-read"}, []string{}, true, &ToolSelection{Names: []string{}, Complete: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			value := &Context{Prompting: PromptingContext{AppendToolBundles: []string{"catalog-workflow"}, ToolSelection: &ToolSelection{Names: tc.selected, Complete: tc.complete}}}
+			validateToolSelection(value, tc.allowed)
+			require.Equal(t, tc.want, value.Prompting.ToolSelection)
+			require.Equal(t, []string{"catalog-workflow"}, value.Prompting.AppendToolBundles)
+		})
+	}
 }

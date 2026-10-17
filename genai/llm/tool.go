@@ -219,6 +219,13 @@ type Tool struct {
 // ToolDefinition represents a function that can be called by an LLM.
 // It follows the OpenAPI specification for defining functions.
 type ToolDefinition struct {
+	// Discovery provenance is assigned by the host from resolved MCP configuration,
+	// never tool metadata. It is excluded from provider/MCP schemas and config.
+	DiscoveryNamespace     string `json:"-" yaml:"-"`
+	SourceMCPServer        string `json:"-" yaml:"-"`
+	SourceResourceURI      string `json:"-" yaml:"-"`
+	SourceProviderIdentity string `json:"-" yaml:"-"`
+
 	Tier ToolTier `json:"-" yaml:"-"`
 	// AlwaysInclude is resolved host rule metadata, excluded from schema/config decoding.
 	AlwaysInclude bool `json:"-" yaml:"-"`

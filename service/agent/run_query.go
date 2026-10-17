@@ -687,6 +687,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// active turn that has no starter message.
 	traceStage("executionSetupAndUserPersistence", setupStarted)
 	intakeStarted := time.Now()
+	ctx = s.withNamespaceSnapshot(ctx)
+	ctx, joinBootstrap, cancelBootstrap := s.startBootstrapPrefetch(ctx, input)
+	defer cancelBootstrap()
 	s.maybeRunIntakeSidecar(ctx, input)
 	traceStage("intake", intakeStarted)
 	attachmentsStarted := time.Now()
@@ -749,6 +752,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		ctx = toolexec.WithToolTimeout(ctx, d)
 	}
 
+	// Required/optional bootstrap errors are handled by the existing binding
+	// consumer. Join only after intake and routing have had a chance to overlap.
+	joinBootstrap()
 	var (
 		status string
 		err    error
@@ -960,6 +966,7 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 	}
 	// Critical discovery controls remain usable on clarification turns too.
 	ctx = toolselection.WithState(ctx, nil)
+	ctx = s.ensureNamespaceSnapshot(ctx)
 	mode := runtimerecovery.ModePruneCompact
 	if input != nil && input.Agent != nil {
 		if v := strings.TrimSpace(input.Agent.ContextRecoveryMode); v != "" {
@@ -1064,6 +1071,7 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 		if s.skillSvc != nil && input.Agent != nil {
 			ctx = skillsvc.WithRuntimeState(ctx, s.skillSvc, input.Agent, activeNames)
 		}
+		ctx = tool.WithResolvedToolDefinitions(ctx, binding.Tools.Signatures)
 		keys := []string{}
 		for k := range binding.Context {
 			keys = append(keys, k)

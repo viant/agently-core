@@ -9,6 +9,7 @@ import (
 	"time"
 
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/debugtrace"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
@@ -255,17 +256,22 @@ func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]ski
 	if s.delivery != nil {
 		local = nil
 	}
+	started := time.Now()
 	entries, err := s.remoteEntries(ctx, agent, "")
+	debugtrace.Write("skill", "list_visible_stage", map[string]any{"stage": "remote_entries", "count": len(entries), "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond)})
 	if err != nil {
 		return nil, err
 	}
 	for _, entry := range entries {
 		local = append(local, entry.metadata)
 	}
+	started = time.Now()
 	generic, err := s.primitiveMetadata(ctx, agent)
+	debugtrace.Write("skill", "list_visible_stage", map[string]any{"stage": "primitive_metadata", "count": len(generic), "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond)})
 	if err != nil {
 		return nil, err
 	}
+	started = time.Now()
 	local = append(local, generic...)
 	sort.SliceStable(local, func(i, j int) bool {
 		a, b := local[i].URI, local[j].URI
@@ -277,6 +283,7 @@ func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]ski
 		}
 		return a < b
 	})
+	debugtrace.Write("skill", "list_visible_stage", map[string]any{"stage": "final_merge_filter", "count": len(local), "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond)})
 	return local, nil
 }
 

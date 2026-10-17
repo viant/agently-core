@@ -20,6 +20,7 @@ import (
 type key struct{}
 
 type Candidate struct {
+	Namespace   string `json:"-"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 }
@@ -62,15 +63,19 @@ func (s *State) SetCandidates(candidates []llm.Tool) {
 		if len(description) > 512 {
 			description = append(description[:511], '…')
 		}
-		metadata = append(metadata, Candidate{Name: name, Description: string(description)})
+		metadata = append(metadata, Candidate{Name: name, Description: string(description), Namespace: tool.Definition.DiscoveryNamespace})
 	}
 	sort.Slice(metadata, func(i, j int) bool { return metadata[i].Name < metadata[j].Name })
-	encoded, _ := json.Marshal(metadata)
+	namespaces := make([]string, len(metadata))
+	for i := range metadata {
+		namespaces[i] = metadata[i].Namespace
+	}
+	encoded, _ := json.Marshal([]interface{}{metadata, namespaces})
 	digest := sha256.Sum256(encoded)
 	if s.catalog == nil || s.catalogDigest != digest {
 		items := make([]primitive.CatalogItem[Candidate], 0, len(metadata))
 		for _, item := range metadata {
-			items = append(items, primitive.CatalogItem[Candidate]{Name: item.Name, Description: item.Description, Namespace: mcpname.Name(mcpname.Canonical(item.Name)).Service(), Value: item})
+			items = append(items, primitive.CatalogItem[Candidate]{Name: item.Name, Description: item.Description, Namespace: candidateNamespace(item), Value: item})
 		}
 		s.catalogGeneration++
 		s.catalog = primitive.NewCatalog(fmt.Sprintf("tool-selection:%p:%d:%x", s, s.catalogGeneration, digest), items)
@@ -187,4 +192,11 @@ func (s *State) SelectedNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func candidateNamespace(item Candidate) string {
+	if item.Namespace != "" {
+		return item.Namespace
+	}
+	return mcpname.Name(mcpname.Canonical(item.Name)).Service()
 }

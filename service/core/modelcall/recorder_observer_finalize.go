@@ -109,8 +109,19 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 		if u.TotalTokens > 0 {
 			upd.SetTotalTokens(u.TotalTokens)
 		}
-		if u.CachedTokens > 0 {
+		if details := u.PromptTokensDetails; details != nil && details.CachedTokens != nil {
+			upd.SetPromptCachedTokens(*details.CachedTokens)
+		} else if u.CachedTokens > 0 {
 			upd.SetPromptCachedTokens(u.CachedTokens)
+		} else if u.PromptCachedTokens > 0 {
+			upd.SetPromptCachedTokens(u.PromptCachedTokens)
+		}
+		if details := u.CompletionTokensDetails; details != nil && details.ReasoningTokens != nil {
+			upd.SetCompletionReasoningTokens(*details.ReasoningTokens)
+		} else if u.CompletionReasoningTokens > 0 {
+			upd.SetCompletionReasoningTokens(u.CompletionReasoningTokens)
+		} else if u.ReasoningTokens > 0 {
+			upd.SetCompletionReasoningTokens(u.ReasoningTokens)
 		}
 		if o.priceProvider != nil {
 			inP, outP, cachedP, ok := o.priceProvider.TokenPrices(strings.TrimSpace(info.Model))

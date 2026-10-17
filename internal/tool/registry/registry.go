@@ -547,6 +547,9 @@ func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefi
 			continue
 		}
 		def := e.def
+		if def.SourceMCPServer == "" && e.mcpDef.Name != "" && strings.HasSuffix(e.def.Name, "/"+e.mcpDef.Name) {
+			def.SourceMCPServer = strings.TrimSuffix(e.def.Name, "/"+e.mcpDef.Name)
+		}
 		def.Name = disp
 		defs = append(defs, def)
 		seen[disp] = struct{}{}
@@ -598,6 +601,7 @@ func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefi
 				def.Name = disp
 				_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
 				r.applyCacheableOverride(def, s)
+				def.SourceMCPServer = s
 				defs = append(defs, *def)
 				seen[disp] = struct{}{}
 				// Update cache for lookup by display name
@@ -713,6 +717,7 @@ func (r *Registry) rawMatchDefinitionWithContextResult(ctx context.Context, patt
 				def.Name = full
 				_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
 				r.applyCacheableOverride(def, svc)
+				def.SourceMCPServer = svc
 				entry := newToolCacheEntry(def, t, injectTimeoutMs)
 				if entry == nil {
 					continue
@@ -826,6 +831,7 @@ func (r *Registry) GetRawDefinitionWithContext(ctx context.Context, name string)
 				}
 				methods := r.internalCacheable[svc]
 				tool.Name = fullSlash
+				tool.SourceMCPServer = svc
 				_ = maybeInjectTimeoutMs(tool, injectTimeoutMs)
 				r.applyCacheableOverrideWithMethods(tool, svc, methods)
 				entry := newToolCacheEntry(tool, t, injectTimeoutMs)
@@ -2194,6 +2200,7 @@ func (r *Registry) mergeServerTools(server string, tools []mcpschema.Tool) {
 		def.Name = full
 		_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
 		r.applyCacheableOverride(def, server)
+		def.SourceMCPServer = server
 		entry := newToolCacheEntry(def, item, injectTimeoutMs)
 		if entry == nil {
 			continue
@@ -2222,6 +2229,7 @@ func (r *Registry) replaceServerTools(server string, tools []mcpschema.Tool) {
 			def.Name = full
 			_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
 			r.applyCacheableOverride(def, server)
+			def.SourceMCPServer = server
 			if entry := newToolCacheEntry(def, t, injectTimeoutMs); entry != nil {
 				newEntries[full] = entry
 				// also colon alias

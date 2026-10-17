@@ -8,6 +8,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
 	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
+	"github.com/viant/agently-core/protocol/intent"
 	mcpname "github.com/viant/agently-core/protocol/mcpname"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	"github.com/viant/agently-core/runtime/toolselection"
@@ -81,6 +82,8 @@ func intakeNeedsNoTools(ctx context.Context, input *QueryInput) bool {
 // Selection narrows model exposure, never execution authority. Definitions have
 // already passed the existing bundle/visibility resolution; keep their metadata.
 func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, definitions []llm.ToolDefinition) (result []llm.ToolDefinition, err error) {
+	selectionStarted := time.Now()
+	defer func() { writeBindingToolStage(ctx, "candidate_selection", selectionStarted, len(result), false, err) }()
 	state, hasState := toolselection.FromContext(ctx)
 	profile, err := s.selectedPromptProfileAny(ctx, input)
 	if err != nil {
@@ -115,8 +118,10 @@ func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, defi
 		}
 		discoverable = dedupeDefinitions(append(discoverable, definitions...))
 		if hasState {
+			started := time.Now()
 			state.SetCandidates(defsToTools(discoverable))
 			restoreToolSelection(ctx, input, state)
+			writeBindingToolStage(ctx, "candidate_index", started, len(discoverable), false, nil)
 		}
 		names := append([]string(nil), exactPreferred...)
 		if selection != nil && selection.Complete {
@@ -160,6 +165,23 @@ func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, defi
 		span.End(observe.OutcomeFor(err), observe.CacheBypass)
 		debugtrace.Write("agent", "intake_tool_selection", map[string]any{"conversationID": input.ConversationID, "turnID": input.MessageID, "candidateCount": len(definitions), "requestedCount": len(selection.Names), "schemaCount": len(result), "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond), "failed": err != nil})
 	}()
+	selected, valid, err := s.independentlySelectedToolDefinitions(ctx, input, definitions, profile, selection.Names)
+	if err != nil {
+		return nil, err
+	}
+	if !valid {
+		appendWarning(ctx, "Intake tool selection did not match the available catalog; retaining configured tools")
+		return initialToolDefinitions(ctx, input, definitions), nil
+	}
+	return selected, nil
+}
+
+// independentlySelectedToolDefinitions retains only explicit selections and
+// workflow requirements already present in the authorized surface. It does not
+// promote other catalog tools or preserve ordinary agent/default bundle members.
+func (s *Service) independentlySelectedToolDefinitions(ctx context.Context, input *QueryInput, definitions []llm.ToolDefinition, profile *intent.Profile, names []string) (result []llm.ToolDefinition, valid bool, err error) {
+	state, hasState := toolselection.FromContext(ctx)
+	required := agenttool.Merge(agenttool.FromPromptProfile(profile), runtimeToolRequirements(input))
 	candidates := map[string]bool{}
 	for _, d := range definitions {
 		candidates[mcpname.Canonical(d.Name)] = true
@@ -170,11 +192,10 @@ func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, defi
 			selected[mcpname.Canonical(definition.Name)] = true
 		}
 	}
-	for _, name := range selection.Names {
+	for _, name := range names {
 		canonical := mcpname.Canonical(strings.TrimSpace(name))
 		if canonical == "" || !candidates[canonical] {
-			appendWarning(ctx, "Intake tool selection did not match the available catalog; retaining configured tools")
-			return initialToolDefinitions(ctx, input, definitions), nil
+			return nil, false, nil
 		}
 		selected[canonical] = true
 	}
@@ -193,7 +214,7 @@ func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, defi
 	if len(required.Bundles) > 0 {
 		bundles, err := s.loadBundlesFor(ctx, required.Bundles)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for _, id := range required.Bundles {
 			b := bundles[strings.ToLower(strings.TrimSpace(id))]
@@ -220,7 +241,7 @@ func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, defi
 	// A complete empty selection explicitly requests a conversational turn.
 	// Required profile/runtime tools above still take precedence over that hint.
 	if len(selected) == 0 {
-		return nil, nil
+		return nil, true, nil
 	}
 	result = make([]llm.ToolDefinition, 0, len(selected)+2)
 	for _, d := range definitions {
@@ -228,5 +249,5 @@ func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, defi
 			result = append(result, d)
 		}
 	}
-	return result, nil
+	return result, true, nil
 }
