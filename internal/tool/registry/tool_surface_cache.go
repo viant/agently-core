@@ -39,7 +39,7 @@ func (r *Registry) ToolSurfaceCacheIdentity(ctx context.Context, pattern string)
 		// Public generations must not depend on per-user token stores attached
 		// by RepoProvider.Options. Only schema-affecting server settings belong
 		// in the shared generation.
-		settings := map[string]interface{}{"visibility": options.ToolsListVisibility, "artifacts": options.OutputArtifacts}
+		settings := map[string]interface{}{"visibility": options.ToolsListVisibility, "artifacts": options.OutputArtifacts, "resolvedIdentity": options.ResolvedIdentity}
 		if options.ClientOptions != nil {
 			settings["transport"] = options.ClientOptions.Transport
 		}

@@ -52,8 +52,10 @@ type TranscriptMessage struct {
 }
 
 type runOptions struct {
-	Transcript  []TranscriptMessage
-	LiveContext string
+	Transcript     []TranscriptMessage
+	LiveContext    string
+	ToolNames      []string
+	NamespaceNames []string
 }
 
 // RunOption customizes a single intake sidecar call.
@@ -77,6 +79,23 @@ func WithLiveContext(value string) RunOption {
 	return func(opts *runOptions) {
 		opts.LiveContext = strings.TrimSpace(value)
 	}
+}
+
+// WithToolNames supplies the exact tool names advertised in this call's
+// authorized capability snapshot. Nil preserves the legacy unconstrained hint;
+// a non-nil empty slice permits only an empty initial selection.
+func WithToolNames(names []string) RunOption {
+	return func(opts *runOptions) {
+		if names != nil {
+			opts.ToolNames = append([]string{}, names...)
+		}
+	}
+}
+
+// WithDiscoveryNamespaces supplies only namespace names advertised by this
+// call's compact authorized metadata. Hints never constrain later discovery.
+func WithDiscoveryNamespaces(names []string) RunOption {
+	return func(opts *runOptions) { opts.NamespaceNames = append([]string(nil), names...) }
 }
 
 // New creates an intake Service. llm is required; repos are optional.
@@ -138,7 +157,7 @@ func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 
 	opts := applyRunOptions(runOpts...)
 	in := s.buildGenerateInputWithContext(ctx, modelName, systemPrompt, userMessage, userID, cfg,
-		WithTranscript(opts.Transcript), WithLiveContext(opts.LiveContext))
+		WithTranscript(opts.Transcript), WithLiveContext(opts.LiveContext), WithToolNames(opts.ToolNames), WithDiscoveryNamespaces(opts.NamespaceNames))
 	if strings.TrimSpace(in.UserID) == "" {
 		in.UserID = "system"
 	}
@@ -163,6 +182,8 @@ func (s *Service) run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 		tc.Routing.Source = SourceAgent
 	}
 	filterByScope(tc, cfg)
+	validateToolSelection(tc, opts.ToolNames)
+	validateDiscoveryNamespaces(tc, opts.NamespaceNames)
 	s.patchCanonicalIntakeMessage(ctx, out.MessageID, tc)
 	return tc, nil
 }
@@ -232,7 +253,7 @@ func (s *Service) buildGenerateInputWithContext(ctx context.Context, modelName, 
 				MaxTokens:        cfg.EffectiveMaxTokens(),
 				JSONMode:         true,
 				ResponseMIMEType: "application/json",
-				OutputSchema:     s.buildOutputJSONSchema(ctx, cfg),
+				OutputSchema:     s.buildOutputJSONSchema(ctx, cfg, WithToolNames(opts.ToolNames), WithDiscoveryNamespaces(opts.NamespaceNames)),
 				ToolChoice:       llm.NewNoneToolChoice(),
 				Mode:             "router",
 				Reasoning:        &llm.Reasoning{Effort: "low"},
@@ -286,7 +307,7 @@ func formatTranscriptForPrompt(messages []TranscriptMessage) string {
 	return "Recent transcript context (oldest to newest; use only to resolve the current message):\n" + strings.Join(lines, "\n")
 }
 
-func (s *Service) buildOutputJSONSchema(ctx context.Context, cfg *agentmdl.Intake) map[string]interface{} {
+func (s *Service) buildOutputJSONSchema(ctx context.Context, cfg *agentmdl.Intake, runOpts ...RunOption) map[string]interface{} {
 	schema := buildOutputJSONSchema(cfg)
 	if s == nil || cfg == nil {
 		return schema
@@ -303,6 +324,21 @@ func (s *Service) buildOutputJSONSchema(ctx context.Context, cfg *agentmdl.Intak
 		}
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeTools) {
+		if names := applyRunOptions(runOpts...).NamespaceNames; len(names) > 0 {
+			promptingProps["discoveryNamespaces"] = map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string", "enum": names}}
+			required, _ := prompting["required"].([]string)
+			prompting["required"] = append(required, "discoveryNamespaces")
+		}
+		if names := applyRunOptions(runOpts...).ToolNames; names != nil {
+			selection, _ := promptingProps["toolSelection"].(map[string]interface{})
+			selectionProps, _ := selection["properties"].(map[string]interface{})
+			prop, _ := selectionProps["names"].(map[string]interface{})
+			if len(names) == 0 {
+				prop["maxItems"] = 0
+			} else if items, ok := prop["items"].(map[string]interface{}); ok {
+				items["enum"] = names
+			}
+		}
 		if prop, ok := promptingProps["appendToolBundles"].(map[string]interface{}); ok {
 			if items, ok := prop["items"].(map[string]interface{}); ok {
 				if enums := s.allowedBundleIDs(ctx); len(enums) > 0 {
@@ -652,6 +688,7 @@ func buildOutputSchema(cfg *agentmdl.Intake) string {
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeTools) {
 		b.WriteString("\n- prompting.appendToolBundles may be used when additional bundle ids are needed for this task")
+		b.WriteString("\n- When compact namespace cards are supplied, prompting.discoveryNamespaces is a list of exact card names suggesting where the main agent should start llm/tools:list or llm/skills:list discovery. Cards retain the producer's declared supportedKinds; they do not assert that every discovery helper is retained. These are optional starting hints, never an execution or discovery boundary. toolSelection.names still accepts only exact tool names, never namespaces, bundles or skills. A complete empty initial names array may begin with retained discovery helpers; later discovery may broaden freely.")
 		b.WriteString("\n- prompting.toolSelection (object): choose a small sufficient INITIAL optional tool set from the provided compact capabilities, using only their exact names. Select the first useful authoritative read, relevant skill activation, or execution operation and likely immediate follow-ups. Required selected-profile, skill and workflow tools are retained downstream; this hint is not permission to execute any tool.")
 		b.WriteString("\n- toolSelection.names is an array of exact tool names; complete=true means this INITIAL set is sufficient to begin, not that it covers every later step. The runtime provides tool discovery/activation for additional tools during execution. Multi-step work or unknown later steps alone are NOT reasons to abstain. Use complete=false only when the available metadata is insufficient to select even a starting set; the runtime then retains the chosen workflow's declared tools, or the existing surface if no workflow is known. Set complete=true with names=[] for conversational requests needing no tools. Do not invent names or replace appendToolBundles/profile workflow hints.")
 	}
@@ -815,6 +852,25 @@ func parseOutput(raw string) (*Context, error) {
 	return &tc, nil
 }
 
+// Providers may not enforce structured output. Reject an invalid batch as an
+// uncertain hint, preserving workflow hints and the existing incomplete-selection
+// fallback. Never turn an invalid batch into a complete empty selection.
+func validateToolSelection(tc *Context, names []string) {
+	if tc == nil || tc.Prompting.ToolSelection == nil || names == nil {
+		return
+	}
+	allowed := make(map[string]bool, len(names))
+	for _, name := range names {
+		allowed[name] = true
+	}
+	for _, name := range tc.Prompting.ToolSelection.Names {
+		if !allowed[name] {
+			tc.Prompting.ToolSelection = &ToolSelection{Names: []string{}, Complete: false}
+			return
+		}
+	}
+}
+
 // filterByScope zeroes out Class B fields that are not in scope.
 func filterByScope(tc *Context, cfg *agentmdl.Intake) {
 	if tc == nil || cfg == nil {
@@ -833,6 +889,7 @@ func filterByScope(tc *Context, cfg *agentmdl.Intake) {
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeTools) {
 		tc.Prompting.AppendToolBundles = nil
+		tc.Prompting.DiscoveryNamespaces = nil
 		tc.Prompting.ToolSelection = nil
 	}
 	if !cfg.HasScope(agentmdl.IntakeScopeTemplate) {
@@ -893,12 +950,13 @@ type contextScopeWire struct {
 }
 
 type contextPromptingWire struct {
-	ToolSelection      *ToolSelection `json:"toolSelection,omitempty"`
-	SuggestedProfileID string         `json:"suggestedProfileId,omitempty"`
-	AppendToolBundles  []string       `json:"appendToolBundles,omitempty"`
-	TemplateID         string         `json:"templateId,omitempty"`
-	ModelID            string         `json:"modelId,omitempty"`
-	SynthesisModelID   string         `json:"synthesisModelId,omitempty"`
+	DiscoveryNamespaces []string       `json:"discoveryNamespaces,omitempty"`
+	ToolSelection       *ToolSelection `json:"toolSelection,omitempty"`
+	SuggestedProfileID  string         `json:"suggestedProfileId,omitempty"`
+	AppendToolBundles   []string       `json:"appendToolBundles,omitempty"`
+	TemplateID          string         `json:"templateId,omitempty"`
+	ModelID             string         `json:"modelId,omitempty"`
+	SynthesisModelID    string         `json:"synthesisModelId,omitempty"`
 }
 
 type contextDirectActionWire struct {
@@ -923,14 +981,15 @@ func canonicalIntakeContent(tc *Context) (string, error) {
 	if len(tc.Scope.Values) > 0 {
 		out["scope"] = contextScopeWire{Values: tc.Scope.Values}
 	}
-	if tc.Prompting.SuggestedProfileID != "" || len(tc.Prompting.AppendToolBundles) > 0 || tc.Prompting.TemplateID != "" || tc.Prompting.ModelID != "" || tc.Prompting.SynthesisModelID != "" || tc.Prompting.ToolSelection != nil {
+	if tc.Prompting.SuggestedProfileID != "" || len(tc.Prompting.AppendToolBundles) > 0 || tc.Prompting.TemplateID != "" || tc.Prompting.ModelID != "" || tc.Prompting.SynthesisModelID != "" || tc.Prompting.ToolSelection != nil || len(tc.Prompting.DiscoveryNamespaces) > 0 {
 		out["prompting"] = contextPromptingWire{
-			ToolSelection:      tc.Prompting.ToolSelection.Clone(),
-			SuggestedProfileID: tc.Prompting.SuggestedProfileID,
-			AppendToolBundles:  tc.Prompting.AppendToolBundles,
-			TemplateID:         tc.Prompting.TemplateID,
-			ModelID:            tc.Prompting.ModelID,
-			SynthesisModelID:   tc.Prompting.SynthesisModelID,
+			ToolSelection:       tc.Prompting.ToolSelection.Clone(),
+			DiscoveryNamespaces: append([]string(nil), tc.Prompting.DiscoveryNamespaces...),
+			SuggestedProfileID:  tc.Prompting.SuggestedProfileID,
+			AppendToolBundles:   tc.Prompting.AppendToolBundles,
+			TemplateID:          tc.Prompting.TemplateID,
+			ModelID:             tc.Prompting.ModelID,
+			SynthesisModelID:    tc.Prompting.SynthesisModelID,
 		}
 	}
 	if tc.Routing.SelectedAgentID != "" || tc.Routing.Mode != "" {
@@ -1036,6 +1095,7 @@ func unmarshalContext(data []byte, tc *Context) error {
 
 	if wire.Prompting != nil {
 		tc.Prompting.ToolSelection = wire.Prompting.ToolSelection.Clone()
+		tc.Prompting.DiscoveryNamespaces = append([]string(nil), wire.Prompting.DiscoveryNamespaces...)
 		tc.Prompting.SuggestedProfileID = wire.Prompting.SuggestedProfileID
 		tc.Prompting.AppendToolBundles = wire.Prompting.AppendToolBundles
 		tc.Prompting.TemplateID = wire.Prompting.TemplateID
@@ -1092,4 +1152,23 @@ func unmarshalContext(data []byte, tc *Context) error {
 func (s *Service) SetHostDocuments(reader HostDocumentReader, bundles *toolbundlerepo.Repository) {
 	s.hostDocuments = reader
 	s.bundleRepo = bundles
+}
+
+func validateDiscoveryNamespaces(tc *Context, names []string) {
+	if tc == nil {
+		return
+	}
+	allowed := map[string]bool{}
+	for _, name := range names {
+		allowed[name] = true
+	}
+	var valid []string
+	seen := map[string]bool{}
+	for _, name := range tc.Prompting.DiscoveryNamespaces {
+		if allowed[name] && !seen[name] {
+			valid = append(valid, name)
+			seen[name] = true
+		}
+	}
+	tc.Prompting.DiscoveryNamespaces = valid
 }

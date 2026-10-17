@@ -878,6 +878,23 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			templateBundles = tplbundlerepo.NewWithReader(resourcesvc.NewTemplateBundleReader(out.PrimitiveProviders))
 		}
 		agentOpts = append(agentOpts, agentsvc.WithAuthoredDefinitions(promptRepo, templateRepo, templateBundles))
+		if out.PrimitiveProviders != nil {
+			agentOpts = append(agentOpts, agentsvc.WithNamespaceProvider(func(ctx context.Context) ([]resourcesvc.DiscoveredNamespace, error) {
+				var items []resourcesvc.DiscoveredNamespace
+				query := resourcesvc.CatalogQuery{Limit: 1000}
+				for {
+					page, err := out.PrimitiveProviders.NamespacePage(ctx, query)
+					if err != nil {
+						return nil, err
+					}
+					items = append(items, page.Items...)
+					if page.Complete {
+						return items, nil
+					}
+					query.Cursor = page.NextCursor
+				}
+			}))
+		}
 		agentOpts = append(agentOpts, agentsvc.WithSkillService(out.Skills))
 		out.Agent = agentsvc.New(out.Core, b.agentFinder, aug, out.Registry, out.Defaults, out.Conversation, agentOpts...)
 	}

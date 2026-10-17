@@ -21,6 +21,7 @@ import (
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
+	"github.com/viant/agently-core/protocol/tool"
 	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -32,6 +33,8 @@ import (
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding.Binding, error) {
 	ctx = mcpmgr.WithToolCatalogReadSnapshot(mcpmgr.WithNamesMemo(ctx))
 	ctx = s.withBindingPayloadReads(ctx)
+	ctx = s.withBindingToolPreparation(ctx)
+	defer closeBindingToolPreparation(ctx)
 	defer closeBindingPayloadReads(ctx)
 	if input != nil {
 		input.normalizeIntentProfileID()
@@ -236,6 +239,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	}
 	logx.Infof("conversation", "agent.BuildBinding applySelectedTemplate ok convo=%q elapsed=%s", convoID, time.Since(templateStageStart).String())
 	stageTimings["templateMs"] = time.Since(templateStageStart).Milliseconds()
+	appendDiscoveryNamespaceHints(input, b)
 	profileStageStart := time.Now()
 	if err := s.applySelectedPromptProfile(ctx, input, b); err != nil {
 		logx.Infof("conversation", "agent.BuildBinding applySelectedPromptProfile error convo=%q elapsed=%s err=%v", convoID, time.Since(profileStageStart).String(), err)
@@ -442,6 +446,27 @@ func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryI
 	if len(state.Skills) == 0 {
 		return nil
 	}
+	profile, err := s.selectedPromptProfileAny(ctx, input)
+	if err != nil {
+		return err
+	}
+	definitions := make([]llm.ToolDefinition, 0, len(b.Tools.Signatures))
+	for _, definition := range b.Tools.Signatures {
+		if definition != nil {
+			definitions = append(definitions, *definition)
+		}
+	}
+	selected, _, err := s.independentlySelectedToolDefinitions(ctx, input, definitions, profile, intakeSelectedToolNames(input, b.Tools.Signatures))
+	if err != nil {
+		return err
+	}
+	// Skill guidance may narrow default tools, while independent selections
+	// and workflow requirements retain their already resolved definitions.
+	selectedDefinitions := make([]*llm.ToolDefinition, 0, len(selected))
+	for i := range selected {
+		selectedDefinitions = append(selectedDefinitions, &selected[i])
+	}
+	ctx = tool.WithResolvedToolDefinitions(ctx, selectedDefinitions)
 	b.Tools.Signatures, _ = skillsvc.ExpandDefinitionsForConstraintsWithContext(ctx, b.Tools.Signatures, s.registry, skillsvc.BuildConstraints(state.Skills))
 	return nil
 }

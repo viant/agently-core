@@ -247,7 +247,7 @@ func ExpandDefinitionsForConstraintsWithContext(ctx context.Context, defs []*llm
 		out = append(out, def)
 	}
 	for _, def := range defs {
-		if belongsToConstrainedService(def, constrainedServices) {
+		if belongsToConstrainedService(def, constrainedServices) && !resolvedSelectionAllows(ctx, def.Name) {
 			if !definitionMatchesAnyPattern(def, c.ToolPatterns) {
 				continue
 			}
@@ -270,6 +270,19 @@ func ExpandDefinitionsForConstraintsWithContext(ctx context.Context, defs []*llm
 		}
 	}
 	return out, unmatched
+}
+
+// Inline skill patterns do not revoke the host's resolved model working set.
+// Explicit caller constraints, origin checks and command checks remain separate.
+func resolvedSelectionAllows(ctx context.Context, name string) bool {
+	if ctx == nil {
+		return false
+	}
+	if _, explicit := ConstraintsFromContext(ctx); explicit {
+		return false
+	}
+	allowed, scoped := tool.ResolvedToolAllowed(ctx, name)
+	return scoped && allowed
 }
 
 func ValidateExecution(ctx context.Context, toolName string, args map[string]interface{}) error {
@@ -296,7 +309,7 @@ func ValidateExecution(ctx context.Context, toolName string, args map[string]int
 			return fmt.Errorf("MCP skill does not grant local execution or cross-origin tool access")
 		}
 	}
-	if len(c.ToolPatterns) > 0 {
+	if len(c.ToolPatterns) > 0 && !resolvedSelectionAllows(ctx, toolName) {
 		if constrained := constrainedServiceFamilies(c.ToolPatterns); len(constrained) > 0 {
 			if belongsToConstrainedService(&llm.ToolDefinition{Name: toolName}, constrained) {
 				allowed := false

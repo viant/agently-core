@@ -308,6 +308,11 @@ type Bootstrap struct {
 }
 
 type BootstrapToolCall struct {
+	// Prefetch opts an agent-owned call into overlap with intake. Configure only
+	// read-only calls whose arguments depend on the original request, not intake
+	// or selected-profile results. Profile-owned calls always remain deferred.
+	// False preserves execution at model binding.
+	Prefetch bool                   `yaml:"prefetch,omitempty" json:"prefetch,omitempty"`
 	ID       string                 `yaml:"id,omitempty" json:"id,omitempty"`
 	Tool     string                 `yaml:"tool,omitempty" json:"tool,omitempty"`
 	Args     map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`

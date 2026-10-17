@@ -2,7 +2,9 @@ package toolselection
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -132,4 +134,32 @@ func TestDiscoveryBoundsAndConcurrentRefresh(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestDeclaredNamespaceFilteringUsesExistingCatalogAndPreservesWire(t *testing.T) {
+	a, b := candidate("remote-Alpha"), candidate("remote-Beta")
+	a.Definition.DiscoveryNamespace = "analysis"
+	ctx := WithState(turnContext(), []llm.Tool{a, b})
+	state, _ := FromContext(ctx)
+	page, err := state.ListPage(ctx, primitive.CatalogQuery{Namespace: "analysis", Limit: 1}, 0)
+	if err != nil || len(page.Items) != 1 || page.Items[0].Name != "remote-Alpha" {
+		t.Fatalf("declared namespace: %+v %v", page, err)
+	}
+	legacy, err := state.ListPage(ctx, primitive.CatalogQuery{Namespace: "remote", Limit: 2}, 0)
+	if err != nil || len(legacy.Items) != 1 || legacy.Items[0].Name != "remote-Beta" {
+		t.Fatalf("legacy namespace: %+v %v", legacy, err)
+	}
+	wire, err := json.Marshal(page.Items[0])
+	if err != nil || strings.Contains(string(wire), "analysis") {
+		t.Fatalf("host namespace leaked into existing tools/list wire: %s %v", wire, err)
+	}
+	original := state.catalog
+	a.Definition.DiscoveryNamespace = "planning"
+	state.SetCandidates([]llm.Tool{a, b})
+	if state.catalog == original {
+		t.Fatal("namespace metadata changes must invalidate the existing index")
+	}
+	if err := state.Activate([]string{"remote-Alpha", "remote-Beta"}); err != nil {
+		t.Fatal(err)
+	}
 }

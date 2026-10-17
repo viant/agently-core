@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/viant/agently-core/genai/llm"
 	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
@@ -30,11 +31,19 @@ func hasToolDiscoverySelection(ctx context.Context, input *QueryInput) bool {
 
 // Discovery uses the existing principal-scoped catalog and its normal warm
 // cache, independently of which workflow's bundles are currently selected.
-func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryInput) ([]llm.ToolDefinition, error) {
+func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryInput) (result []llm.ToolDefinition, err error) {
+	started := time.Now()
+	defer func() { writeBindingToolStage(ctx, "candidate_discovery", started, len(result), false, err) }()
 	if s == nil || s.registry == nil || input == nil || input.Agent == nil {
 		return nil, nil
 	}
+	phaseStarted := time.Now()
 	profile, err := s.selectedPromptProfileAny(ctx, input)
+	profileCount := 0
+	if profile != nil {
+		profileCount = 1
+	}
+	writeBindingToolStage(ctx, "candidate_profile", phaseStarted, profileCount, false, err)
 	if err != nil {
 		return nil, err
 	}
@@ -44,21 +53,41 @@ func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryI
 	if profile != nil {
 		ctx = withSelectedPromptProfile(ctx, profile)
 	}
-	definitions, err := s.callerScopedToolDefinitions(ctx, input, s.definitions(ctx))
+	phaseStarted = time.Now()
+	definitions := s.definitions(ctx)
+	writeBindingToolStage(ctx, "candidate_definitions", phaseStarted, len(definitions), false, nil)
+	phaseStarted = time.Now()
+	definitions, err = s.callerScopedToolDefinitions(ctx, input, definitions)
+	writeBindingToolStage(ctx, "candidate_caller_scope", phaseStarted, len(definitions), false, err)
 	if err != nil {
 		return nil, err
 	}
+	phaseStarted = time.Now()
 	bundles, err := s.discoveryBundles(ctx, definitions)
+	writeBindingToolStage(ctx, "candidate_bundles", phaseStarted, len(bundles), false, err)
 	if err != nil {
 		return nil, err
 	}
+	phaseStarted = time.Now()
+	// Rules repeat separator variants and patterns across bundles. Prepare names
+	// once and reuse only matches against this invocation's live scoped catalog.
+	canonicalNames := make([]string, len(definitions))
+	for i := range definitions {
+		canonicalNames[i] = toolmatcher.Canon(definitions[i].Name)
+	}
+	patternMatches := map[string][]*llm.ToolDefinition{}
 	match := func(pattern string) []*llm.ToolDefinition {
+		prepared := toolmatcher.Prepare(pattern)
+		if matches, ok := patternMatches[prepared.Key()]; ok {
+			return matches
+		}
 		var matches []*llm.ToolDefinition
 		for i := range definitions {
-			if toolmatcher.Match(pattern, definitions[i].Name) {
+			if prepared.MatchCanonical(canonicalNames[i]) {
 				matches = append(matches, &definitions[i])
 			}
 		}
+		patternMatches[prepared.Key()] = matches
 		return matches
 	}
 	// Bundle membership is not discovery authority. Keep every connected
@@ -118,7 +147,18 @@ func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryI
 		}
 		metadata = append(metadata, definition)
 	}
-	return s.modelVisibleDefinitions(ctx, dedupeDefinitions(metadata))
+	definitions = dedupeDefinitions(metadata)
+	writeBindingToolStage(ctx, "candidate_rules", phaseStarted, len(definitions), false, nil)
+	phaseStarted = time.Now()
+	definitions, err = s.modelVisibleDefinitions(ctx, definitions)
+	writeBindingToolStage(ctx, "candidate_visibility", phaseStarted, len(definitions), false, err)
+	if err != nil {
+		return nil, err
+	}
+	phaseStarted = time.Now()
+	result = s.namespaceDefinitions(ctx, definitions)
+	writeBindingToolStage(ctx, "candidate_namespace", phaseStarted, len(result), false, nil)
+	return result, nil
 }
 
 // callerToolScope preserves the existing explicit contract: exact caller
@@ -223,13 +263,7 @@ func (s *Service) promoteDiscoveredTools(ctx context.Context, definitions, candi
 // discoveryBundles uses the same authored/default bundle authority as ordinary
 // resolution, while making every available workflow discoverable for this turn.
 func (s *Service) discoveryBundles(ctx context.Context, definitions []llm.ToolDefinition) (map[string]*toolbundle.Bundle, error) {
-	var bundles []*toolbundle.Bundle
-	var err error
-	if s.toolBundles != nil {
-		bundles, err = s.toolBundles(ctx)
-	} else if s.toolBundleRepo != nil {
-		bundles, err = s.toolBundleRepo.LoadAll(ctx)
-	}
+	bundles, err := s.ambientToolBundles(ctx)
 	if err != nil && !s.toolBundlesConfigured && s.toolBundleRepo != nil && s.toolBundleRepo.Repository != nil {
 		// Only the default optional repository may be absent. Errors from an
 		// explicitly injected provider or existing authored directory stay fatal.

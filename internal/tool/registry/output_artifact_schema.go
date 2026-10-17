@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"strings"
 
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
@@ -121,14 +122,15 @@ func (p *outputArtifactProjection) project(ctx context.Context, definition *llm.
 
 func (r *Registry) GetDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
 	definition, found := r.GetRawDefinitionWithContext(ctx, name)
-	return r.projectOutputArtifactDefinition(ctx, definition), found
+	projection := r.newOutputArtifactProjection()
+	return projection.project(ctx, projection.provenance(ctx, definition)), found
 }
 
 func (r *Registry) DefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
 	definitions := r.rawDefinitionsWithContext(ctx)
 	projection := r.newOutputArtifactProjection()
 	for i := range definitions {
-		definitions[i] = *projection.project(ctx, &definitions[i])
+		definitions[i] = *projection.project(ctx, projection.provenance(ctx, &definitions[i]))
 	}
 	return definitions
 }
@@ -137,7 +139,35 @@ func (r *Registry) MatchDefinitionWithContextResult(ctx context.Context, pattern
 	definitions, err := r.rawMatchDefinitionWithContextResult(ctx, pattern)
 	projection := r.newOutputArtifactProjection()
 	for i := range definitions {
-		definitions[i] = projection.project(ctx, definitions[i])
+		definitions[i] = projection.project(ctx, projection.provenance(ctx, definitions[i]))
 	}
 	return definitions, err
+}
+
+// provenance reads the configured source identity, not a domain inferred from
+// the server name. Namespace ownership/description is resolved separately.
+func (p *outputArtifactProjection) provenance(ctx context.Context, definition *llm.ToolDefinition) *llm.ToolDefinition {
+	if definition == nil {
+		return nil
+	}
+	copy := *definition
+	copy.DiscoveryNamespace, copy.SourceResourceURI, copy.SourceProviderIdentity = "", "", ""
+	server := copy.SourceMCPServer
+	p.registry.mu.RLock()
+	_, virtual := p.registry.virtualDefs[copy.Name]
+	p.registry.mu.RUnlock()
+	if virtual || server == "" || p.registry.mgr == nil || p.registry.isInternalServer(server) {
+		return &copy
+	}
+	options := p.serverOptions(ctx, server)
+	if options == nil || options.ResolvedIdentity == nil {
+		return &copy
+	}
+	source := options.ResolvedIdentity
+	uri, err := identity.ParseResourceURI(source.ResourceURI)
+	if err != nil || uri.Kind != "mcp" || strings.TrimSpace(source.ProviderIdentity) == "" {
+		return &copy
+	}
+	copy.SourceResourceURI, copy.SourceProviderIdentity = source.ResourceURI, source.ProviderIdentity
+	return &copy
 }
