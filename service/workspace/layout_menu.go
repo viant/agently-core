@@ -12,6 +12,9 @@ type LayoutMenuRead struct {
 	Revision     string
 	Revalidate   func(context.Context) error
 	Close        func() error
+	// ProviderOwnedApplications have already been selected by their managing
+	// MCP. The host applies presentation conditions, not another window inventory.
+	ProviderOwnedApplications bool
 }
 type LayoutMenuReader func(context.Context) (*LayoutMenuRead, error)
 

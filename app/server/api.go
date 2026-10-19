@@ -93,6 +93,13 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		layoutDefault = captured.Raw
 	}
 	menuReader := opts.MenuReader
+	if menuReader == nil && captured != nil {
+		var err error
+		menuReader, err = svcworkspace.ApplicationMenuReader(opts.Runtime.PrimitiveProviders, captured.Raw)
+		if err != nil {
+			return nil, err
+		}
+	}
 	defaultManagedNavigation := menuReader == nil && opts.Runtime.NativeLayoutSource != nil && opts.NativeLayoutSource == nil
 	if defaultManagedNavigation {
 		menuReader = svcworkspace.NewGatewayLayoutMenuReader(opts.Runtime.PrimitiveProviders, []svcworkspace.GatewayMenuSource{{Resource: identity.ResourceRef{URI: "navigation://workspace/layout"}, ProviderIdentity: resourcesvc.InternalProviderIdentity}})

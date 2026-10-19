@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -14,12 +15,17 @@ import (
 type GatewayMenuSource struct {
 	Resource         identity.ResourceRef
 	ProviderIdentity string
+	ApplicationID    string
 }
 
 func NewGatewayLayoutMenuReader(gateway *resources.Gateway, sources []GatewayMenuSource) LayoutMenuReader {
 	configured := append([]GatewayMenuSource(nil), sources...)
+	return newGatewayLayoutMenuReader(gateway, func(context.Context) ([]GatewayMenuSource, error) { return configured, nil }, false)
+}
+
+func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context.Context) ([]GatewayMenuSource, error), providerOwned bool) LayoutMenuReader {
 	return func(ctx context.Context) (*LayoutMenuRead, error) {
-		if gateway == nil || len(configured) == 0 {
+		if gateway == nil {
 			return nil, identity.ErrResourceDenied
 		}
 		scoped, finish, err := gateway.BeginReadSequence(ctx, nil)
@@ -36,6 +42,10 @@ func NewGatewayLayoutMenuReader(gateway *resources.Gateway, sources []GatewayMen
 				_ = closeRead()
 			}
 		}()
+		configured, err := sources(ctx)
+		if err != nil {
+			return nil, err
+		}
 		type held struct {
 			connection resources.Connection
 			pin        identity.ResolvedResource
@@ -51,25 +61,41 @@ func NewGatewayLayoutMenuReader(gateway *resources.Gateway, sources []GatewayMen
 			}
 			connection, err := gateway.ConnectionForResource(ctx, uri, source.ProviderIdentity)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("navigation connection %s: %w", source.Resource.URI, err)
 			}
 			got, err := resources.Get[json.RawMessage](ctx, gateway, connection, source.Resource, nil)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("navigation read %s: %w", source.Resource.URI, err)
 			}
-			if got.ResolvedResource == nil || got.MenuProjection == nil {
-				return nil, identity.ErrResourceDenied
+			if got.ResolvedResource == nil || len(got.Definition) == 0 {
+				return nil, fmt.Errorf("navigation projection %s: %w", source.Resource.URI, identity.ErrResourceDenied)
 			}
+			// Typed Get already verifies legacy projections. Standard MCP reads
+			// deliver provider-authorized content directly, without that envelope.
+			projection := identity.ContentFingerprint(got.Definition)
 			var envelope struct {
 				Applications []json.RawMessage `json:"applications"`
 			}
 			if json.Unmarshal(got.Definition, &envelope) != nil || envelope.Applications == nil {
 				return nil, identity.ErrResourceDenied
 			}
-			applications = append(applications, envelope.Applications...)
+			for _, raw := range envelope.Applications {
+				if source.ApplicationID != "" {
+					var app struct {
+						ID string `json:"id"`
+					}
+					if err := json.Unmarshal(raw, &app); err != nil {
+						return nil, err
+					}
+					if app.ID != source.ApplicationID {
+						continue
+					}
+				}
+				applications = append(applications, raw)
+			}
 			pin := *got.ResolvedResource
-			selected = append(selected, held{connection, pin, got.MenuProjection.ContentFingerprint})
-			revisions = append(revisions, pin.ProviderIdentity+"\x00"+pin.URI+"\x00"+pin.Selector()+"\x00"+pin.ContentFingerprint+"\x00"+got.MenuProjection.ContentFingerprint)
+			selected = append(selected, held{connection, pin, projection})
+			revisions = append(revisions, pin.ProviderIdentity+"\x00"+pin.URI+"\x00"+pin.Selector()+"\x00"+pin.ContentFingerprint+"\x00"+projection+"\x00"+source.ApplicationID)
 		}
 		raw, err := json.Marshal(applications)
 		if err != nil {
@@ -80,7 +106,7 @@ func NewGatewayLayoutMenuReader(gateway *resources.Gateway, sources []GatewayMen
 			return nil, err
 		}
 		success = true
-		return &LayoutMenuRead{Applications: raw, Revision: identity.ContentFingerprint(parts), Close: closeRead, Revalidate: func(release context.Context) error {
+		return &LayoutMenuRead{Applications: raw, Revision: identity.ContentFingerprint(parts), Close: closeRead, ProviderOwnedApplications: providerOwned, Revalidate: func(release context.Context) error {
 			if release == nil || release.Err() != nil {
 				return identity.ErrResourceDenied
 			}
@@ -89,7 +115,7 @@ func NewGatewayLayoutMenuReader(gateway *resources.Gateway, sources []GatewayMen
 				if err != nil {
 					return err
 				}
-				if got.MenuProjection == nil || got.MenuProjection.ContentFingerprint != hold.projection {
+				if identity.ContentFingerprint(got.Definition) != hold.projection {
 					return identity.ErrResourceStale
 				}
 			}
