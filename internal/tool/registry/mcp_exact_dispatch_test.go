@@ -54,3 +54,28 @@ func TestExactMCPDispatchDoesNotRediscoverPrivateCatalog(t *testing.T) {
 	require.Equal(t, []string{"literal.tool", "literal.tool"}, remote.callNames)
 	require.Zero(t, remote.listCalls)
 }
+
+func TestExactNamespaceMCPDispatchPreservesResourceIdentity(t *testing.T) {
+	const server = "mcp://catalog/nested/connection"
+	t.Setenv("AGENTLY_MCP_SERVERS", server)
+	remote := &exactDispatchClient{}
+	manager := &discoveryManagerStub{
+		options: &config.MCPClient{ToolsListVisibility: config.ToolsListVisibilityPrivate},
+		getFunc: func(_, actual string) (client.Interface, error) {
+			require.Equal(t, server, actual)
+			return remote, nil
+		},
+	}
+	r := &Registry{mgr: manager, cache: map[string]*toolCacheEntry{}, discoveryShared: map[string]discoveryIdentity{
+		server + "|prior-conversation": {userID: "alice", catalogSeen: true},
+	}}
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	for _, method := range []string{"literal.tool", "nested/tool:operation"} {
+		name := server + ":" + method
+		require.NoError(t, r.PreflightCredential(ctx, name))
+		_, err := r.ExecuteExactJSON(ctx, name, map[string]interface{}{"unchanged": true}, "")
+		require.NoError(t, err)
+	}
+	require.Equal(t, []string{"literal.tool", "nested/tool:operation"}, remote.callNames)
+	require.Zero(t, remote.listCalls, "exact namespace routing must reuse the existing catalog")
+}

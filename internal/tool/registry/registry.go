@@ -985,12 +985,12 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	serviceName, literalMethod, resolvedIdentity := scopeServer, scopeTool, hostScoped
 	exactQualified := false
 	if !hostScoped {
-		if i := strings.IndexByte(baseName, ':'); i > 0 && i < len(baseName)-1 {
+		if exactServer, exactMethod, qualified := splitExplicitMCPTool(baseName); qualified {
 			// A configured datasource already names its server and literal method.
 			// Forward it to that MCP; the server owns execution authorization.
 			// Re-listing the entire tool catalog on every data read is both costly
 			// and can block an otherwise valid request during discovery refresh.
-			serviceName, literalMethod = baseName[:i], baseName[i+1:]
+			serviceName, literalMethod = exactServer, exactMethod
 			resolvedIdentity, exactQualified = true, true
 		} else {
 			var identityErr error
@@ -1420,7 +1420,7 @@ func (r *Registry) PreflightCredential(ctx context.Context, name string) error {
 		baseName = strings.TrimSpace(baseName[:i])
 	}
 	server, _ := splitToolName(baseName)
-	if !strings.Contains(baseName, ":") {
+	if _, _, explicit := splitExplicitMCPTool(baseName); !explicit {
 		resolvedServer, _, resolved, identityErr := r.discoveredMCPIdentity(ctx, baseName)
 		if identityErr != nil {
 			return identityErr
@@ -2305,8 +2305,8 @@ func serverFromPattern(pattern string) string {
 func splitToolName(name string) (service, method string) {
 	// Explicit datasource delivery is unambiguous; the literal method can
 	// contain hyphens, dots or slashes and must not be canonical-split again.
-	if i := strings.IndexByte(name, ':'); i > 0 && i < len(name)-1 {
-		return name[:i], name[i+1:]
+	if service, method, explicit := splitExplicitMCPTool(name); explicit {
+		return service, method
 	}
 	can := mcpname.Canonical(name)
 	n := mcpname.Name(can)
