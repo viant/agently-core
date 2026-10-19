@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -91,7 +92,11 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 						continue
 					}
 				}
-				applications = append(applications, raw)
+				bound, err := bindNavigationOwner(raw, uri.Namespace, connection.ProviderIdentity)
+				if err != nil {
+					return nil, err
+				}
+				applications = append(applications, bound)
 			}
 			pin := *got.ResolvedResource
 			selected = append(selected, held{connection, pin, projection})
@@ -122,6 +127,40 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 			return closeRead()
 		}}, nil
 	}
+}
+
+// Carry the discovered owner for same-namespace destinations. This is routing
+// provenance, not an authorization grant; reads still go to the owning MCP.
+func bindNavigationOwner(raw json.RawMessage, namespace, owner string) (json.RawMessage, error) {
+	var app map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&app); err != nil {
+		return nil, err
+	}
+	var visit func(any)
+	visit = func(value any) {
+		switch node := value.(type) {
+		case []any:
+			for _, child := range node {
+				visit(child)
+			}
+		case map[string]any:
+			if action, ok := node["action"].(map[string]any); ok {
+				if resource, ok := action["resourceUri"].(string); ok {
+					uri, err := identity.ParseResourceURI(resource)
+					if err == nil && uri.Kind == "window" && uri.Namespace == namespace {
+						action["providerIdentity"] = owner
+					}
+				}
+			}
+			for _, key := range []string{"menus", "children", "items"} {
+				visit(node[key])
+			}
+		}
+	}
+	visit(app)
+	return json.Marshal(app)
 }
 
 // Validate the portable shape inside the existing representation cache. A bad
