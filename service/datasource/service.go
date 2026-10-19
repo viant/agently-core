@@ -205,6 +205,16 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		return nil, preparationErr
 	}
 	defer finishPreparation()
+	// Every metadata read in this delivery, including the initial resource
+	// revalidation, must use the same selected window representation. Attaching
+	// the target after revalidation asks target-aware providers for a different
+	// representation and invalidates the original window pin.
+	if opts.Target != nil {
+		if _, err := opts.Target.Normalize(); err != nil {
+			return nil, err
+		}
+		ctx = runtimerequestctx.WithWindowTarget(ctx, opts.Target)
+	}
 	_, inheritedPin := runtimerequestctx.ResolvedResourceFromContext(ctx)
 	if s.beginReadSequence != nil && (opts.Resource != nil || inheritedPin) && !runtimerequestctx.HasResourceReadDispatch(ctx) {
 		parent := opts.Resource
@@ -252,12 +262,6 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 	}
 	if opts.ResourceProof != nil {
 		ctx = runtimerequestctx.WithResourceExecutionProof(ctx, *opts.ResourceProof)
-	}
-	if opts.Target != nil {
-		if _, err := opts.Target.Normalize(); err != nil {
-			return nil, err
-		}
-		ctx = runtimerequestctx.WithWindowTarget(ctx, opts.Target)
 	}
 	var ds *dsproto.DataSource
 	if pin, hasPin := runtimerequestctx.ResolvedResourceFromContext(ctx); hasPin && (strings.HasPrefix(pin.URI, "window://") || strings.HasPrefix(pin.URI, "datasource://")) {
