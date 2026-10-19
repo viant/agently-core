@@ -8,9 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/internal/logx"
 	"io"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -28,14 +31,16 @@ import (
 // Layout is the workspace-owned navigation shell. Window definitions remain
 // owned by Forge's existing workspace/embedded window loaders.
 type Layout struct {
-	Version          int                           `json:"version" yaml:"version"`
-	ID               string                        `json:"id" yaml:"id"`
-	Topbar           *LayoutTopbar                 `json:"topbar,omitempty" yaml:"topbar,omitempty"`
-	Left             *LayoutLeft                   `json:"left,omitempty" yaml:"left,omitempty"`
-	Right            *LayoutRight                  `json:"right,omitempty" yaml:"right,omitempty"`
-	WindowProviders  []windowloader.RemoteProvider `json:"windowProviders,omitempty" yaml:"windowProviders,omitempty"`
-	CatalogRevisions map[string]string             `json:"-" yaml:"-"`
-	Applications     []LayoutApplication           `json:"applications" yaml:"applications"`
+	Version                     int                           `json:"version" yaml:"version"`
+	ID                          string                        `json:"id" yaml:"id"`
+	Topbar                      *LayoutTopbar                 `json:"topbar,omitempty" yaml:"topbar,omitempty"`
+	Left                        *LayoutLeft                   `json:"left,omitempty" yaml:"left,omitempty"`
+	Right                       *LayoutRight                  `json:"right,omitempty" yaml:"right,omitempty"`
+	WindowProviders             []windowloader.RemoteProvider `json:"windowProviders,omitempty" yaml:"windowProviders,omitempty"`
+	CatalogRevisions            map[string]string             `json:"-" yaml:"-"`
+	Applications                []LayoutApplication           `json:"applications" yaml:"applications"`
+	ApplicationSources          []LayoutApplicationSource     `json:"-" yaml:"applicationSources,omitempty"`
+	IncludeUnlistedApplications bool                          `json:"-" yaml:"includeUnlistedApplications,omitempty"`
 }
 
 type LayoutLeft struct {
@@ -131,10 +136,13 @@ type LayoutMenu struct {
 }
 
 type LayoutAction struct {
+	URL                string         `json:"url,omitempty" yaml:"url,omitempty"`
+	ResourceURI        string         `json:"resourceUri,omitempty" yaml:"resourceUri,omitempty"`
 	Type               string         `json:"type" yaml:"type"`
 	Provider           string         `json:"provider,omitempty" yaml:"provider,omitempty"`
 	WindowKey          string         `json:"windowKey,omitempty" yaml:"windowKey,omitempty"`
 	Parameters         map[string]any `json:"parameters,omitempty" yaml:"parameters,omitempty"`
+	ParameterBindings  map[string]any `json:"parameterBindings,omitempty" yaml:"parameterBindings,omitempty"`
 	RefreshDataSources []string       `json:"refreshDataSources,omitempty" yaml:"refreshDataSources,omitempty"`
 }
 
@@ -241,6 +249,7 @@ func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*Layout
 			defer menuRead.Close()
 		}
 		if err != nil || menuRead == nil || menuRead.Revalidate == nil || menuRead.Revision == "" {
+			logx.Debugf("workspace-navigation", "menu read failed: %v", err)
 			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
 		}
 		var applications []LayoutApplication
@@ -249,12 +258,18 @@ func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*Layout
 		}
 		layout.Applications = applications
 		if err = validateLayout(&layout); err != nil {
+			logx.Debugf("workspace-navigation", "menu layout invalid: %v", err)
 			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
 		}
 	}
 	admission, capabilities := h.layoutRuntimes()
-	permitted, err := filterLayoutContextWithRuntimes(ctx, &layout, admission, capabilities, layoutWindowCatalog(h.windowResourceCatalog, &layout, menuRead != nil))
+	catalog := layoutWindowCatalog(h.windowResourceCatalog, &layout, menuRead != nil)
+	if menuRead != nil && menuRead.ProviderOwnedApplications {
+		catalog = nil
+	}
+	permitted, err := filterLayoutContextWithRuntimes(ctx, &layout, admission, capabilities, catalog)
 	if err != nil {
+		logx.Debugf("workspace-navigation", "layout presentation failed: %v", err)
 		if errors.Is(err, policy.ErrIdentityRejected) {
 			return nil, metadataFailure(http.StatusUnauthorized, "authentication required", nil)
 		}
@@ -395,18 +410,29 @@ func validateMenus(menus []LayoutMenu, seen map[string]bool, providers map[strin
 				return fmt.Errorf("menu %s: %w", menu.ID, err)
 			}
 		}
-		if (menu.Action == nil) == (len(menu.Children) == 0) {
+		if (menu.Action == nil) == (len(menu.Children) == 0) && !(menu.Disabled && menu.Action == nil && len(menu.Children) == 0) {
 			return fmt.Errorf("menu %s requires either action or children", menu.ID)
 		}
-		if menu.Action != nil && (menu.Action.Type != "window" || menu.Action.WindowKey == "") {
+		if menu.Action != nil && menu.Action.Type != "window" && menu.Action.Type != "url" {
 			return fmt.Errorf("menu %s has unsupported action", menu.ID)
 		}
-		if menu.Action != nil && !validLayoutWindowKey(menu.Action.WindowKey) {
+		if menu.Action != nil && menu.Action.Type == "window" && !validLayoutWindowKey(layoutActionDestination(menu.Action)) {
 			return fmt.Errorf("menu %s has invalid window key", menu.ID)
 		}
 		if menu.Action != nil {
+			action := menu.Action
+			if action.Type == "url" {
+				if !validLayoutURL(action.URL) || action.WindowKey != "" || action.ResourceURI != "" || action.Provider != "" || len(action.Parameters) > 0 || len(action.RefreshDataSources) > 0 {
+					return fmt.Errorf("menu %s has invalid URL action", menu.ID)
+				}
+			} else if action.URL != "" || (action.ResourceURI != "" && (!strings.HasPrefix(action.ResourceURI, "window://") || action.WindowKey != "" || action.Provider != "")) {
+				return fmt.Errorf("menu %s has conflicting window destinations", menu.ID)
+			}
 			if err := validateLayoutParameters(menu.Action.Parameters); err != nil {
 				return fmt.Errorf("menu %s action parameters: %w", menu.ID, err)
+			}
+			if err := validateLayoutParameters(menu.Action.ParameterBindings); err != nil {
+				return fmt.Errorf("menu %s action parameter bindings: %w", menu.ID, err)
 			}
 		}
 		if menu.Action != nil && menu.Action.Provider != "" && menu.Action.Provider != "workspace" && !providers[menu.Action.Provider] {
@@ -570,7 +596,7 @@ func filterLayoutContextWithRuntimes(ctx context.Context, layout *Layout, admiss
 		if !allowed {
 			continue
 		}
-		app.Disabled = app.DisabledWhen != nil && evalSnapshotCondition(app.DisabledWhen, snapshot)
+		app.Disabled = app.Disabled || app.DisabledWhen != nil && evalSnapshotCondition(app.DisabledWhen, snapshot)
 		app.ReadOnly = app.ReadOnlyWhen != nil && evalSnapshotCondition(app.ReadOnlyWhen, snapshot)
 		if app.WindowCatalog != nil {
 			entries, catalogErr := windowloader.ListRemoteWindows(ctx, app.WindowCatalog.Provider, app.ID, app.WindowCatalog.Group)
@@ -687,7 +713,7 @@ func layoutWindowKey(action *LayoutAction) string {
 	if action.Provider != "" && action.Provider != "workspace" {
 		return windowloader.RemoteWindowKey(action.Provider, action.WindowKey)
 	}
-	return action.WindowKey
+	return layoutActionDestination(action)
 }
 
 func layoutPolicyKey(id string, exact bool) string {
@@ -738,7 +764,7 @@ func filterMenusContextWithRuntime(ctx context.Context, menus []LayoutMenu, inhe
 		if menu.HiddenWhen != nil && evalSnapshotCondition(menu.HiddenWhen, snapshot) {
 			continue
 		}
-		menu.Disabled = inheritedDisabled || (menu.DisabledWhen != nil && evalSnapshotCondition(menu.DisabledWhen, snapshot))
+		menu.Disabled = menu.Disabled || inheritedDisabled || (menu.DisabledWhen != nil && evalSnapshotCondition(menu.DisabledWhen, snapshot))
 		menu.ReadOnly = inheritedReadOnly || (menu.ReadOnlyWhen != nil && evalSnapshotCondition(menu.ReadOnlyWhen, snapshot))
 		if len(menu.Children) > 0 {
 			menu.Children, err = filterMenusContextWithRuntime(ctx, menu.Children, snapshot, menu.Disabled, menu.ReadOnly, allowedWindows, exact, runtime)
@@ -941,4 +967,28 @@ func (h *MetadataHandler) layoutRuntimes() (*policy.Runtime, *permittedview.Runt
 		}
 	}
 	return admission, capabilities
+}
+
+// Canonical window URIs use the same host resolution path as windowKey.
+func layoutActionDestination(action *LayoutAction) string {
+	if action.ResourceURI != "" {
+		return action.ResourceURI
+	}
+	return action.WindowKey
+}
+
+func validLayoutURL(raw string) bool {
+	if raw == "" || strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, "\\\r\n\t") {
+		return false
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.User != nil || parsed.Hostname() == "" || parsed.Opaque != "" {
+		return false
+	}
+	if parsed.Scheme == "https" {
+		return true
+	}
+	host := parsed.Hostname()
+	ip := net.ParseIP(host)
+	return parsed.Scheme == "http" && (host == "localhost" || ip != nil && ip.IsLoopback())
 }

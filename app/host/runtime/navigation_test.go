@@ -56,6 +56,13 @@ func TestHostMenuVisibilityUsesOnlyDeclaredCatalogAndNamespace(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Zero(t, principal.calls, "plain metadata cannot evaluate invented business permission")
+	ok, err = visible(context.Background(), actor, menuURI, json.RawMessage(`{"type":"window","resourceUri":"window://steward/plain"}`))
+	require.NoError(t, err)
+	require.True(t, ok)
+	ok, err = visible(context.Background(), actor, menuURI, json.RawMessage(`{"type":"window","resourceUri":"window://foreign/plain"}`))
+	require.NoError(t, err)
+	require.False(t, ok)
+
 	ok, err = visible(context.Background(), actor, menuURI, json.RawMessage(`{"type":"window","windowKey":"guarded"}`))
 	require.NoError(t, err)
 	require.False(t, ok)

@@ -36,12 +36,12 @@ require (
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.6
-	github.com/viant/forge v0.3.45-0.20261016190759-f1959a7a0d10
+	github.com/viant/forge v0.3.45-0.20261019144059-c2263ae293b3
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.1-0.20261007222529-b829eaaf687b
-	github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb
+	github.com/viant/jsonrpc v0.25.1-0.20261017043720-5809a36c92af
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.24.1-0.20261016035016-dc29fe9112e9
+	github.com/viant/mcp v0.24.1-0.20261019131854-bc54c4ac748a
 	github.com/viant/mcp-protocol v0.19.1-0.20261014173008-af92f34f304b
 	github.com/viant/mcp-tasks v0.0.0-20261008153829-762637b5ea3a
 	github.com/viant/mcp-ui v0.2.1-0.20261011073152-8f30de0c7bc3

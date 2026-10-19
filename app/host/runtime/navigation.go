@@ -150,9 +150,10 @@ func configuredMenuVisibility(config *hostAuthorizationFile, principals gating.P
 	}
 	return func(ctx context.Context, actor identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (bool, error) {
 		var action struct {
-			Type      string `json:"type"`
-			WindowKey string `json:"windowKey"`
-			Provider  string `json:"provider"`
+			Type        string `json:"type"`
+			WindowKey   string `json:"windowKey"`
+			ResourceURI string `json:"resourceUri"`
+			Provider    string `json:"provider"`
 		}
 		if json.Unmarshal(raw, &action) != nil {
 			return false, identity.ErrResourceDenied
@@ -160,7 +161,14 @@ func configuredMenuVisibility(config *hostAuthorizationFile, principals gating.P
 		if action.Type != "window" || action.Provider != "" && action.Provider != "workspace" {
 			return false, nil
 		}
-		binding, exists := aliases[action.WindowKey]
+		key := action.WindowKey
+		if action.ResourceURI != "" {
+			if key != "" {
+				return false, identity.ErrResourceDenied
+			}
+			key = action.ResourceURI
+		}
+		binding, exists := aliases[key]
 		if !exists {
 			return false, nil
 		}
