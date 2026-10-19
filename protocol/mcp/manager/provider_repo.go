@@ -269,6 +269,22 @@ func (p *RepoProvider) preparedOptions(ctx context.Context, name string, routing
 }
 
 // Names lists configured MCP server definitions without performing discovery.
+func (p *RepoProvider) CatalogNames(ctx context.Context) ([]string, error) {
+	if p == nil {
+		return nil, nil
+	}
+	p.sourceMu.RLock()
+	reader := p.reader
+	p.sourceMu.RUnlock()
+	if catalogs, ok := reader.(interface {
+		CatalogNames(context.Context) ([]string, error)
+	}); ok {
+		return catalogs.CatalogNames(ctx)
+	}
+	return p.Names(ctx)
+}
+
+// Names includes dynamically published tool connections as well as roots.
 func (p *RepoProvider) Names(ctx context.Context) ([]string, error) {
 	if p == nil {
 		return nil, nil
