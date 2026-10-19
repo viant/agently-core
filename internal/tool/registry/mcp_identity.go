@@ -9,6 +9,21 @@ import (
 	"github.com/viant/agently-core/protocol/mcpname"
 )
 
+// splitExplicitMCPTool preserves a namespace MCP resource as the service and
+// leaves the remote method literal. Model aliases use catalog identity instead.
+func splitExplicitMCPTool(name string) (service, method string, ok bool) {
+	start := 0
+	if strings.HasPrefix(name, "mcp://") {
+		start = len("mcp://")
+	}
+	delimiter := strings.IndexByte(name[start:], ':')
+	if delimiter < 0 || start+delimiter == 0 || start+delimiter == len(name)-1 {
+		return "", "", false
+	}
+	i := start + delimiter
+	return name[:i], name[i+1:], true
+}
+
 // ResolveMCPIdentity shares the catalog identity used by dispatch with policy gates.
 func (r *Registry) ResolveMCPIdentity(ctx context.Context, name string) (string, string, bool, error) {
 	return r.discoveredMCPIdentity(ctx, name)

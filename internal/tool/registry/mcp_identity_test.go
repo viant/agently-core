@@ -57,7 +57,7 @@ func (c *exactIdentityClient) CallTool(_ context.Context, p *schema.CallToolRequ
 }
 
 func TestAdvertisedMCPIdentityUsesLiteralServerAndTool(t *testing.T) {
-	for _, tc := range []struct{ server, tool string }{{"datly", "datly.components"}, {"server_name", "tool_with_underscores"}, {"server-name", "tool-with-hyphens"}, {"server.name", "tool.name-with_parts"}, {"server/path", "tool_with-parts.name"}} {
+	for _, tc := range []struct{ server, tool string }{{"datly", "datly.components"}, {"server_name", "tool_with_underscores"}, {"server-name", "tool-with-hyphens"}, {"server.name", "tool.name-with_parts"}, {"server/path", "tool_with-parts.name"}, {"mcp://catalog/nested/service", "literal.tool"}, {"mcp://catalog/nested/service", "nested/tool:operation"}} {
 		t.Run(tc.server+"/"+tc.tool, func(t *testing.T) {
 			remote := &exactIdentityClient{}
 			manager := &discoveryManagerStub{options: &config.MCPClient{ToolsListVisibility: config.ToolsListVisibilityPublic}, getFunc: func(_ string, server string) (client.Interface, error) {
@@ -69,6 +69,7 @@ func TestAdvertisedMCPIdentityUsesLiteralServerAndTool(t *testing.T) {
 			r := &Registry{mgr: manager, cache: map[string]*toolCacheEntry{}}
 			r.mergeServerTools(tc.server, []schema.Tool{{Name: tc.tool}})
 			alias := mcpname.Canonical(tc.server + "/" + tc.tool)
+			require.Regexp(t, `^[a-zA-Z0-9_-]+$`, alias, "the model sees the existing safe tool alias")
 			_, err := r.Execute(context.Background(), alias, map[string]interface{}{"owned": true})
 			require.NoError(t, err)
 			require.Equal(t, tc.tool, remote.called)

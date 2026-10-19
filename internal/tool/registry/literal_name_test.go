@@ -3,7 +3,7 @@ package tool
 import "testing"
 
 func TestExplicitQualifiedNameKeepsLiteralMethodAndCatalogServer(t *testing.T) {
-	for _, tc := range []struct{ name, server, method string }{{"independent:cursor-number", "independent", "cursor-number"}, {"independent:cursor.number-list", "independent", "cursor.number-list"}, {"inventory/planner:windows/list", "inventory/planner", "windows/list"}} {
+	for _, tc := range []struct{ name, server, method string }{{"independent:cursor-number", "independent", "cursor-number"}, {"independent:cursor.number-list", "independent", "cursor.number-list"}, {"inventory/planner:windows/list", "inventory/planner", "windows/list"}, {"mcp://catalog/nested/service:tool.name", "mcp://catalog/nested/service", "tool.name"}, {"mcp://catalog/service:nested/tool:operation", "mcp://catalog/service", "nested/tool:operation"}} {
 		server, method := splitToolName(tc.name)
 		if server != tc.server || method != tc.method {
 			t.Fatalf("literal method misparsed: %s -> %s %s", tc.name, server, method)
