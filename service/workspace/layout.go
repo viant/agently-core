@@ -136,6 +136,7 @@ type LayoutMenu struct {
 }
 
 type LayoutAction struct {
+	ProviderIdentity   string         `json:"providerIdentity,omitempty" yaml:"providerIdentity,omitempty"`
 	URL                string         `json:"url,omitempty" yaml:"url,omitempty"`
 	ResourceURI        string         `json:"resourceUri,omitempty" yaml:"resourceUri,omitempty"`
 	Type               string         `json:"type" yaml:"type"`
