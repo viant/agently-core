@@ -63,7 +63,7 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 			if err != nil {
 				return nil, fmt.Errorf("navigation connection %s: %w", source.Resource.URI, err)
 			}
-			got, err := resources.Get[json.RawMessage](ctx, gateway, connection, source.Resource, nil)
+			got, err := resources.GetWithCodec[json.RawMessage](ctx, gateway, connection, source.Resource, nil, resources.DefinitionCodec[json.RawMessage]{ID: "agently.navigation.layout.v1", Parse: validateNavigationDefinition})
 			if err != nil {
 				return nil, fmt.Errorf("navigation read %s: %w", source.Resource.URI, err)
 			}
@@ -122,4 +122,30 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 			return closeRead()
 		}}, nil
 	}
+}
+
+// Validate the portable shape inside the existing representation cache. A bad
+// publication must be evicted so a corrected source can recover without an
+// application restart. Provider references are checked in the composed layout.
+func validateNavigationDefinition(raw json.RawMessage) (json.RawMessage, error) {
+	var document struct {
+		Applications []LayoutApplication `json:"applications"`
+	}
+	if err := json.Unmarshal(raw, &document); err != nil {
+		return nil, err
+	}
+	if document.Applications == nil {
+		return nil, fmt.Errorf("navigation applications are required")
+	}
+	seen := map[string]bool{}
+	for _, app := range document.Applications {
+		if app.ID == "" || app.Title == "" || seen[app.ID] {
+			return nil, fmt.Errorf("invalid or duplicate application %q", app.ID)
+		}
+		seen[app.ID] = true
+		if err := validateMenus(app.Menus, map[string]bool{}, nil); err != nil {
+			return nil, fmt.Errorf("application %s: %w", app.ID, err)
+		}
+	}
+	return append(json.RawMessage(nil), raw...), nil
 }
