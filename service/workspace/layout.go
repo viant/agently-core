@@ -435,7 +435,9 @@ func validateMenus(menus []LayoutMenu, seen map[string]bool, providers map[strin
 				return fmt.Errorf("menu %s action parameter bindings: %w", menu.ID, err)
 			}
 		}
-		if menu.Action != nil && menu.Action.Provider != "" && menu.Action.Provider != "workspace" && !providers[menu.Action.Provider] {
+		// A nil provider map validates a published document's shape before it
+		// enters the typed cache. The composed layout supplies the actual map.
+		if providers != nil && menu.Action != nil && menu.Action.Provider != "" && menu.Action.Provider != "workspace" && !providers[menu.Action.Provider] {
 			return fmt.Errorf("menu %s references unknown provider", menu.ID)
 		}
 		if err := validateMenus(menu.Children, seen, providers); err != nil {
