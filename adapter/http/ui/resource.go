@@ -70,6 +70,17 @@ func resolvedHTTPWindow(r *http.Request, provider WindowResourceProvider, key st
 		}
 	}
 	requested := targetContextFromRequest(r)
+	// Discovery already supplied an exact owner and resource. Preserve that
+	// locator instead of making the catalog enumerate windows for a short URL key.
+	if ref != nil && providerIdentity != "" {
+		uri, err := identity.ParseResourceURI(ref.URI)
+		if err != nil || uri.Kind != "window" || namespace != "" && namespace != uri.Namespace {
+			return nil, identity.ErrResource
+		}
+		if key == uri.Name {
+			key = ref.URI
+		}
+	}
 	target := &forgetypes.WindowTarget{Platform: requested.Platform, FormFactor: requested.FormFactor, Surface: requested.Surface, Capabilities: requested.Capabilities}
 	output, err := provider.WindowDefinitionGet(r.Context(), &forgeservice.WindowDefinitionGetInput{WindowID: key, Resource: ref, ResolvedResource: pin, Target: target, Namespace: namespace, ProviderIdentity: providerIdentity})
 	if err != nil {

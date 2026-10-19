@@ -47,6 +47,24 @@ func (f *windowAccessFixture) WindowDefinitionGet(_ context.Context, input *forg
 
 type selectedEntityResolver struct{ ids []int }
 
+func TestExplicitWindowLocatorAvoidsShortNameDiscovery(t *testing.T) {
+	provider := &windowAccessFixture{allow: true, allowedID: "window://workspace/customer"}
+	query := url.Values{
+		"providerIdentity": {"studio"},
+		"namespace":        {"workspace"},
+		"resourceRef":      {`{"uri":"window://workspace/customer"}`},
+	}
+	_, err := resolvedHTTPWindow(httptest.NewRequest(http.MethodGet, "/window/customer?"+query.Encode(), nil), provider, "customer")
+	if err != nil || provider.requestedID != provider.allowedID || provider.calls != 1 {
+		t.Fatalf("explicit locator was not preserved: id=%q calls=%d err=%v", provider.requestedID, provider.calls, err)
+	}
+	query.Set("namespace", "other")
+	_, err = resolvedHTTPWindow(httptest.NewRequest(http.MethodGet, "/window/customer?"+query.Encode(), nil), provider, "customer")
+	if err == nil || provider.calls != 1 {
+		t.Fatal("conflicting namespace reached the provider")
+	}
+}
+
 func (r *selectedEntityResolver) Resolve(_ context.Context, request *permittedview.Request) (*permittedview.Snapshot, error) {
 	r.ids = append(r.ids, request.ResourceIDs...)
 	result := &permittedview.Snapshot{AuthorizationVersion: "current", ExpiresAt: time.Now().Add(time.Minute), Resources: map[string]*permittedview.Resource{}}
