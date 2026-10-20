@@ -92,7 +92,7 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 						continue
 					}
 				}
-				bound, err := bindNavigationOwner(raw, uri.Namespace, connection.ProviderIdentity)
+				bound, err := bindNavigationOwner(raw, uri.Namespace, connection.ProviderIdentity, connection.Name)
 				if err != nil {
 					return nil, err
 				}
@@ -131,12 +131,17 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 
 // Carry the discovered owner for same-namespace destinations. This is routing
 // provenance, not an authorization grant; reads still go to the owning MCP.
-func bindNavigationOwner(raw json.RawMessage, namespace, owner string) (json.RawMessage, error) {
+func bindNavigationOwner(raw json.RawMessage, namespace, owner string, connection ...string) (json.RawMessage, error) {
 	var app map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if err := decoder.Decode(&app); err != nil {
 		return nil, err
+	}
+	app["providerIdentity"] = owner
+	app["resourceNamespace"] = namespace
+	if len(connection) > 0 {
+		app["resourceConnection"] = connection[0]
 	}
 	var visit func(any)
 	visit = func(value any) {
