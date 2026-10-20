@@ -163,6 +163,9 @@ func NewHandlerWithContext(ctx context.Context, client Backend, opts ...HandlerO
 	mux := http.NewServeMux()
 	registerCoreRoutes(mux, client, cfg)
 	registerOptionalRoutes(mux, cfg)
+	if reader, ok := client.(MCPResourceReader); ok {
+		mux.HandleFunc("GET /v1/api/mcp/resources/read", handleMCPResourceRead(reader))
+	}
 
 	var handler http.Handler = mux
 	handler = withDebugHeaders(handler)
