@@ -318,6 +318,7 @@ func TestEnsureTokens_SuccessRemainsDebugOnly(t *testing.T) {
 // TestDistributedRefresh_LeaseAcquired verifies the happy path:
 // lease acquired → broker refresh → CASPut succeeds → token cached.
 func TestDistributedRefresh_LeaseAcquired(t *testing.T) {
+	logs := captureTokenManagerLogs(t)
 	store := &mockTokenStore{
 		getFunc: func(_ context.Context, _, _ string) (*OAuthToken, error) {
 			return &OAuthToken{
@@ -372,11 +373,17 @@ func TestDistributedRefresh_LeaseAcquired(t *testing.T) {
 	if broker.refreshCalls != 1 {
 		t.Errorf("expected 1 broker refresh call, got %d", broker.refreshCalls)
 	}
+	for _, expected := range []string{`op="scheduler_lease_acquire"`, `action="acquired"`, `op="scheduler_cas_put"`, `action="stored"`} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("missing distributed refresh diagnostic %s in %q", expected, logs.String())
+		}
+	}
 }
 
 // TestDistributedRefresh_LeaseNotAcquired verifies that when the lease is held
 // by another pod, the broker is NOT called and we fall back to store.Get.
 func TestDistributedRefresh_LeaseNotAcquired(t *testing.T) {
+	logs := captureTokenManagerLogs(t)
 	freshExpiry := time.Now().Add(1 * time.Hour)
 	store := &mockTokenStore{
 		acquireFunc: func(_ context.Context, _, _, _ string, _ time.Duration) (int64, bool, error) {
@@ -414,6 +421,9 @@ func TestDistributedRefresh_LeaseNotAcquired(t *testing.T) {
 	}
 	if broker.refreshCalls != 0 {
 		t.Errorf("broker should NOT have been called, got %d calls", broker.refreshCalls)
+	}
+	if !strings.Contains(logs.String(), `action="wait_other_owner"`) {
+		t.Fatalf("missing lease-contention diagnostic in %q", logs.String())
 	}
 }
 
@@ -534,6 +544,7 @@ func TestEnsureTokens_TransientRefreshFailureUsesCooldownWithoutInjectingStaleTo
 // TestDistributedRefresh_CASFails verifies that when CASPut returns false (version
 // mismatch), we re-read from store and use that token.
 func TestDistributedRefresh_CASFails(t *testing.T) {
+	logs := captureTokenManagerLogs(t)
 	store := &mockTokenStore{
 		acquireFunc: func(_ context.Context, _, _, _ string, _ time.Duration) (int64, bool, error) {
 			return 1, true, nil
@@ -574,6 +585,9 @@ func TestDistributedRefresh_CASFails(t *testing.T) {
 	// Should get the winner's token from store re-read.
 	if tok.AccessToken != "winner-access" {
 		t.Errorf("expected winner-access, got %s", tok.AccessToken)
+	}
+	if !strings.Contains(logs.String(), `reason="version_or_lease_changed"`) {
+		t.Fatalf("missing CAS rejection diagnostic in %q", logs.String())
 	}
 }
 

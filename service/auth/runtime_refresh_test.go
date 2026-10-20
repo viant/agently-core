@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -106,10 +107,31 @@ type runtimeRefreshTestStore struct {
 	acquired    bool
 	putCalls    atomic.Int32
 	deleteCalls atomic.Int32
+	lastPut     *OAuthToken
 }
 
-func (s *runtimeRefreshTestStore) Put(_ context.Context, _ *OAuthToken) error {
+type storedRefreshUserService struct {
+	*availabilityUserService
+	user *User
+}
+
+func (s *storedRefreshUserService) GetByID(_ context.Context, id string) (*User, error) {
+	if s.user != nil && s.user.ID == id {
+		return s.user, nil
+	}
+	return nil, nil
+}
+
+func (s *storedRefreshUserService) GetBySubjectAndProvider(_ context.Context, subject, provider string) (*User, error) {
+	if s.user != nil && s.user.Subject == subject && s.user.Provider == provider {
+		return s.user, nil
+	}
+	return nil, nil
+}
+
+func (s *runtimeRefreshTestStore) Put(_ context.Context, token *OAuthToken) error {
 	s.putCalls.Add(1)
+	s.lastPut = token
 	return s.putErr
 }
 
@@ -338,6 +360,189 @@ func TestRuntimeRefresh_ScopeFailedCandidateIsNotStoredOrInjected(t *testing.T) 
 	}
 	if runtime.loadRefreshRetryAt(sess).IsZero() {
 		t.Fatal("scope failure did not enter cooldown")
+	}
+}
+
+func TestRuntimeRefresh_RotatedTokenDiscardedBeforeInvalidGrant(t *testing.T) {
+	logs := captureStandardLog(t)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.FormValue("refresh_token"); got != "old-refresh" {
+			t.Errorf("refresh token = %q, want old-refresh", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requests.Add(1) == 1 {
+			_, _ = w.Write([]byte(`{"access_token":"candidate-access","refresh_token":"rotated-refresh","expires_in":3600}`))
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	}))
+	defer server.Close()
+
+	store := &runtimeRefreshTestStore{acquired: true}
+	runtime, sess := runtimeRefreshHarness(writeRuntimeRefreshOAuthConfig(t, server.URL), nil, store)
+	runtime.cfg.Enabled = true
+	sess.Tokens.IDToken = fakeJWTWithClaims(t, map[string]any{
+		"iss": "https://idp.example.test/", "sub": sess.Subject,
+		"exp": time.Now().Add(-time.Minute).Unix(),
+	})
+
+	if got := runtime.tryRefreshToken(context.Background(), sess); got.state != tokenPreserveWithoutInjection {
+		t.Fatalf("first refresh state = %v, want preserve without injection", got.state)
+	}
+	if got := refreshIdentityFailureReason(errors.New("fresh ID token required")); got != "fresh_id_token_required" {
+		t.Fatalf("reason = %q", got)
+	}
+	if store.putCalls.Load() != 0 || sess.Tokens.RefreshToken != "old-refresh" {
+		t.Fatalf("rotated refresh token was unexpectedly persisted or replaced")
+	}
+	if got := runtime.tryRefreshToken(context.Background(), sess); got.state != tokenConfirmedMissing {
+		t.Fatalf("second refresh state = %v, want confirmed missing", got.state)
+	}
+	if requests.Load() != 2 || store.deleteCalls.Load() != 1 {
+		t.Fatalf("requests = %d, deletes = %d, want 2 and 1", requests.Load(), store.deleteCalls.Load())
+	}
+	output := logs.String()
+	if strings.Contains(output, `attempt_id=""`) {
+		t.Fatalf("refresh diagnostic lacks an attempt ID: %q", output)
+	}
+	for _, expected := range []string{
+		`op="refresh_response"`, `refresh_rotated="true"`,
+		`op="refresh_identity_validate"`, `reason="fresh_id_token_required"`,
+		`op="refresh_action"`, `oauth_error="invalid_grant"`,
+		`op="store_delete"`, `action="deleted"`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing diagnostic %s in %q", expected, output)
+		}
+	}
+	for _, secret := range []string{"old-refresh", "rotated-refresh", "candidate-access"} {
+		if strings.Contains(output, secret) {
+			t.Fatalf("refresh diagnostic leaked %s", secret)
+		}
+	}
+}
+
+func TestRuntimeRefresh_StoreScanUsesOIDCSubject(t *testing.T) {
+	logs := captureStandardLog(t)
+	authority := newSessionOAuthAuthority(t)
+	const storedUserID = "internal-user-uuid"
+	const oidcSubject = "provider-subject"
+	claims := authority.claims("client")
+	claims["sub"] = oidcSubject
+	oldIDToken := authority.sign(t, claims)
+	refreshedIDToken := authority.sign(t, claims)
+	var requests atomic.Int32
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.FormValue("refresh_token"); got != "old-refresh" {
+			t.Errorf("refresh token = %q, want the stored credential", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if requests.Add(1) > 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "new-access", "refresh_token": "new-refresh",
+			"id_token": refreshedIDToken, "expires_in": 3600, "scope": "read",
+		})
+	}))
+	defer tokenServer.Close()
+
+	store := &scanningRefreshStore{
+		runtimeRefreshTestStore: &runtimeRefreshTestStore{acquired: true},
+		scan: []*OAuthToken{{
+			Username: storedUserID, Provider: "oauth", AccessToken: "old-access",
+			RefreshToken: "old-refresh", IDToken: oldIDToken,
+			ExpiresAt: time.Now().Add(-time.Minute),
+		}},
+	}
+	store.token = store.scan[0]
+	configURL := writeRuntimeRefreshOAuthConfig(t, tokenServer.URL)
+	runtime, _ := runtimeRefreshHarness(configURL, authority.config(false).OAuth.Client, store)
+	runtime.cfg.Enabled = true
+	runtime.cfg.OAuth.Name = "oauth"
+	runtime.cfg.OAuth.Client.Issuer = authority.server.URL
+	runtime.cfg.OAuth.Client.JWKSURL = authority.server.URL + "/keys"
+	runtime.cfg.OAuth.Client.ClientID = "client"
+	runtime.ext.users = &storedRefreshUserService{
+		availabilityUserService: &availabilityUserService{},
+		user:                    &User{ID: storedUserID, Username: "test-user", Provider: "oauth", Subject: oidcSubject},
+	}
+	storeSession := &Session{Subject: storedUserID, Tokens: &scyauth.Token{IDToken: oldIDToken}}
+	if reason := refreshIdentityFailureReason(validateOwnedSessionIDToken(context.Background(), runtime.cfg, storeSession, refreshedIDToken)); reason != "subject_mismatch" {
+		t.Fatalf("validation reason = %q, want subject_mismatch", reason)
+	}
+	runtime.refreshTokenStore(context.Background())
+
+	if requests.Load() != 1 || store.putCalls.Load() != 1 || store.deleteCalls.Load() != 0 {
+		t.Fatalf("requests=%d puts=%d deletes=%d, want one successful refresh and no invalidation",
+			requests.Load(), store.putCalls.Load(), store.deleteCalls.Load())
+	}
+	if store.lastPut == nil || store.lastPut.RefreshToken != "new-refresh" || store.lastPut.IDToken != refreshedIDToken {
+		t.Fatal("rotated refresh credential and verified identity were not persisted together")
+	}
+	store.token = store.lastPut
+	store.scan[0] = store.lastPut
+	runtime.refreshTokenStore(context.Background())
+	if requests.Load() != 1 {
+		t.Fatalf("next scan retried a non-expiring credential: requests=%d", requests.Load())
+	}
+	for _, expected := range []string{`op="store_refresh_selected"`, `source="store_scan"`, `reason="different"`, `refresh_rotated="true"`, `op="refresh_store_put"`, `action="stored"`} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("missing diagnostic %s in %q", expected, logs.String())
+		}
+	}
+	if strings.Contains(logs.String(), `reason="subject_mismatch"`) || strings.Contains(logs.String(), `oauth_error="invalid_grant"`) {
+		t.Fatalf("successful refresh reported a mismatch or invalid grant: %q", logs.String())
+	}
+	for _, secret := range []string{"old-refresh", "new-refresh"} {
+		if strings.Contains(logs.String(), secret) {
+			t.Fatalf("refresh diagnostic leaked %s", secret)
+		}
+	}
+}
+
+func TestRuntimeRefresh_StoreScanSkipsMismatchedUserBeforeOAuth(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		user   *User
+		reason string
+	}{
+		{name: "missing user", reason: "user_not_found"},
+		{name: "disabled user", user: &User{ID: "internal-user-uuid", Provider: "oauth", Subject: "provider-subject", Disabled: true}, reason: "user_disabled"},
+		{name: "wrong provider", user: &User{ID: "internal-user-uuid", Provider: "local", Subject: "provider-subject"}, reason: "provider_mismatch"},
+		{name: "wrong subject", user: &User{ID: "internal-user-uuid", Provider: "oauth", Subject: "other-subject"}, reason: "subject_mismatch"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := captureStandardLog(t)
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				requests.Add(1)
+			}))
+			defer server.Close()
+			store := &scanningRefreshStore{
+				runtimeRefreshTestStore: &runtimeRefreshTestStore{acquired: true},
+				scan: []*OAuthToken{{
+					Username: "internal-user-uuid", Provider: "oauth", RefreshToken: "old-refresh",
+					IDToken:   fakeJWTWithClaims(t, map[string]any{"sub": "provider-subject"}),
+					ExpiresAt: time.Now().Add(-time.Minute),
+				}},
+			}
+			runtime, _ := runtimeRefreshHarness(writeRuntimeRefreshOAuthConfig(t, server.URL), nil, store)
+			runtime.cfg.Enabled = true
+			runtime.ext.users = &storedRefreshUserService{availabilityUserService: &availabilityUserService{}, user: tc.user}
+			runtime.refreshTokenStore(context.Background())
+			if requests.Load() != 0 || store.putCalls.Load() != 0 || store.deleteCalls.Load() != 0 {
+				t.Fatalf("unowned credential was refreshed or modified: requests=%d puts=%d deletes=%d",
+					requests.Load(), store.putCalls.Load(), store.deleteCalls.Load())
+			}
+			if !strings.Contains(logs.String(), `reason="`+tc.reason+`"`) {
+				t.Fatalf("missing %s diagnostic in %q", tc.reason, logs.String())
+			}
+		})
 	}
 }
 

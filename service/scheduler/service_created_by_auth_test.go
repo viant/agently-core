@@ -131,7 +131,7 @@ func TestService_preloadCreatedByUserTokens_UsesTranslatedUserID(t *testing.T) {
 	}
 }
 
-func TestService_executeRun_CreatedByAuthFailureContinuesWithoutTokens(t *testing.T) {
+func TestService_executeRun_CreatedByAuthFailureSkipsQuery(t *testing.T) {
 	store, db := newTestStore(t)
 	ensureRunWriteComponent(t, store)
 	subject := "agently_scheduler"
@@ -155,15 +155,6 @@ func TestService_executeRun_CreatedByAuthFailureContinuesWithoutTokens(t *testin
 	)
 	svc.queryRunner = func(ctx context.Context, input *agentsvc.QueryInput, _ *agentsvc.QueryOutput) error {
 		queryCalled = true
-		if iauth.TokensFromContext(ctx) != nil || iauth.Bearer(ctx) != "" || iauth.IDToken(ctx) != "" {
-			t.Fatal("query received credentials after created-by auth failure")
-		}
-		if got := strings.TrimSpace(iauth.EffectiveUserID(ctx)); got != subject {
-			t.Fatalf("query effective user = %q, want %q", got, subject)
-		}
-		if input == nil || input.UserId != subject {
-			t.Fatalf("query input user = %#v, want %q", input, subject)
-		}
 		return nil
 	}
 	row := &schedulemodel.ScheduleView{
@@ -188,13 +179,47 @@ func TestService_executeRun_CreatedByAuthFailureContinuesWithoutTokens(t *testin
 	insertPendingSchedulerRun(t, db, "run-created-by-auth-failure", scheduleID)
 	svc.executeRun(ctx, row, "run-created-by-auth-failure", time.Now().UTC())
 
-	if !queryCalled {
-		t.Fatal("query was not called after created-by auth failure")
+	if queryCalled {
+		t.Fatal("query was called after created-by auth failure")
 	}
 	if tokens.ensureCalls != 1 {
 		t.Fatalf("EnsureTokens() calls = %d, want 1", tokens.ensureCalls)
 	}
-	assertScheduleLastResult(t, db, scheduleID, "succeeded")
+	var status, message string
+	if err := db.QueryRowContext(context.Background(), `SELECT last_status, last_error FROM schedule WHERE id = ?`, scheduleID).Scan(&status, &message); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || !strings.Contains(message, "schedule owner authentication unavailable") {
+		t.Fatalf("schedule result = (%q, %q), want failed authentication", status, message)
+	}
+}
+
+func TestService_executeRun_MissingCreatedByTokenSkipsQuery(t *testing.T) {
+	store, db := newTestStore(t)
+	ensureRunWriteComponent(t, store)
+	const subject = "agently_scheduler"
+	const scheduleID = "sched-created-by-token-missing"
+	insertScheduleRowWithOwner(t, db, scheduleID, "Missing owner token", "private", subject)
+	users := &fakeSchedulerUserService{user: &svcauth.User{ID: "user-uuid-123", Subject: subject, Provider: "oauth"}}
+	tokens := &fakeSchedulerTokenProvider{ensureEmpty: true}
+	svc := New(store, &agentsvc.Service{},
+		WithAuthConfig(&svcauth.Config{OAuth: &svcauth.OAuth{Name: "oauth"}}),
+		WithUserService(users), WithTokenProvider(tokens),
+	)
+	svc.queryRunner = func(context.Context, *agentsvc.QueryInput, *agentsvc.QueryOutput) error {
+		t.Fatal("query was called without an owner token")
+		return nil
+	}
+	row := &schedulemodel.ScheduleView{Id: scheduleID, CreatedByUserId: stringPtr(subject), AgentRef: "steward", ScheduleType: "adhoc", Timezone: "UTC", Enabled: true}
+	insertPendingSchedulerRun(t, db, "run-created-by-token-missing", scheduleID)
+	svc.executeRun(context.Background(), row, "run-created-by-token-missing", time.Now().UTC())
+	var status, message string
+	if err := db.QueryRowContext(context.Background(), `SELECT last_status, last_error FROM schedule WHERE id = ?`, scheduleID).Scan(&status, &message); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || !strings.Contains(message, "scheduler created-by token unavailable") {
+		t.Fatalf("schedule result = (%q, %q), want missing-token failure", status, message)
+	}
 }
 
 func TestService_executeRun_CreatedByOwnerLookupMissContinuesWithoutTokens(t *testing.T) {

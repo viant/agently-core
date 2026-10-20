@@ -31,6 +31,19 @@ const transientRefreshRetryWindow = 30 * time.Second
 const runtimeAuthStoreTimeout = 5 * time.Second
 const authRefreshWatchIntervalEnv = "AGENTLY_AUTH_REFRESH_WATCH_INTERVAL"
 
+type refreshSourceKey struct{}
+
+func withRefreshSource(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, refreshSourceKey{}, source)
+}
+
+func refreshSource(ctx context.Context) string {
+	if source, ok := ctx.Value(refreshSourceKey{}).(string); ok && source != "" {
+		return source
+	}
+	return "request_session"
+}
+
 func authStoreContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -168,6 +181,11 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 		return preserveOAuthSession()
 	}
 	if err := validateOwnedSessionIDToken(ctx, r.cfg, sess, result.IDToken); err != nil {
+		authlog.Log(ctx, authlog.Event{
+			Op: "store_identity_validate", UserID: owner.id, Provider: provider,
+			Source: refreshSource(ctx), Reason: refreshIdentityFailureReason(err),
+			Classification: "identity_validation", Action: "preserve_no_inject",
+		})
 		return preserveOAuthSession()
 	}
 	sess.Tokens = result
@@ -202,6 +220,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 	if r.ext == nil || r.ext.cfg == nil || r.ext.cfg.OAuth == nil || r.ext.cfg.OAuth.Client == nil {
 		return preserveOAuthSession()
 	}
+	ctx = authlog.WithRefreshAttempt(ctx)
 	if fresh := r.tryLoadFreshTokenFromStore(ctx, sess); fresh.state != tokenPreserveWithoutInjection {
 		return fresh
 	}
@@ -210,6 +229,10 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 	if owner.uncertain || owner.id == "" || provider == "" {
 		return preserveOAuthSession()
 	}
+	authlog.Log(ctx, authlog.Event{
+		Op: "refresh_attempt", UserID: owner.id, Provider: provider,
+		Source: refreshSource(ctx), Classification: "refresh", Action: "start",
+	})
 	tokenStore := r.ext.tokenStore
 	if tokenStore != nil {
 		storeCtx, cancel := authStoreContext(ctx)
@@ -270,6 +293,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 				Op:             "refresh_action",
 				UserID:         owner.id,
 				Provider:       provider,
+				Source:         refreshSource(ctx),
 				Endpoint:       oauthCfg.Endpoint.TokenURL,
 				HTTPStatus:     status,
 				OAuthErrorCode: code,
@@ -284,6 +308,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 			Op:             "refresh_action",
 			UserID:         owner.id,
 			Provider:       provider,
+			Source:         refreshSource(ctx),
 			Endpoint:       oauthCfg.Endpoint.TokenURL,
 			HTTPStatus:     status,
 			OAuthErrorCode: code,
@@ -300,12 +325,25 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 	}
 	previousIDToken := strings.TrimSpace(sess.Tokens.IDToken)
 	refreshedIDToken := refreshedOAuthIDToken(refreshed, previousIDToken)
+	rotated := refreshed.RefreshToken != "" && refreshed.RefreshToken != sess.Tokens.RefreshToken
+	idTokenSource := "prior"
+	if candidate, ok := refreshed.Extra("id_token").(string); ok && strings.TrimSpace(candidate) != "" {
+		idTokenSource = "response"
+	}
+	authlog.Log(ctx, authlog.Event{
+		Op: "refresh_response", UserID: owner.id, Provider: provider,
+		Source: refreshSource(ctx), RefreshRotated: fmt.Sprint(rotated), IDTokenSource: idTokenSource,
+		Classification: "refresh", Action: "validate_before_persist", Elapsed: time.Since(refreshStarted),
+	})
 	result := &scyauth.Token{Token: *refreshed, IDToken: refreshedIDToken}
 	if err := validateRefreshedOAuthScopes(r.ext.cfg.OAuth.Client, scopes, refreshed, refreshedIDToken); err != nil {
 		authlog.Log(ctx, authlog.Event{
 			Op:             "scope_validate_candidate",
 			UserID:         owner.id,
 			Provider:       provider,
+			Source:         refreshSource(ctx),
+			RefreshRotated: fmt.Sprint(rotated),
+			IDTokenSource:  idTokenSource,
 			Endpoint:       oauthCfg.Endpoint.TokenURL,
 			Classification: "scope_validation",
 			Action:         "preserve_cooldown",
@@ -317,7 +355,14 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 		return preserveOAuthSession()
 	}
 	if err := validateOwnedSessionIDToken(ctx, r.cfg, sess, refreshedIDToken); err != nil {
-		authlog.Log(ctx, authlog.Event{Op: "refresh_identity_validate", UserID: owner.id, Provider: provider, Classification: "identity_validation", Action: "preserve_no_inject"})
+		authlog.Log(ctx, authlog.Event{
+			Op: "refresh_identity_validate", UserID: owner.id, Provider: provider,
+			Source: refreshSource(ctx), Reason: refreshIdentityFailureReason(err),
+			RefreshRotated: fmt.Sprint(rotated), IDTokenSource: idTokenSource,
+			Classification: "identity_validation", Action: "preserve_no_inject",
+			Err: fmt.Errorf("reason=%s replacement_refresh_token=%t", refreshIdentityFailureReason(err),
+				refreshed.RefreshToken != "" && refreshed.RefreshToken != sess.Tokens.RefreshToken),
+		})
 		r.storeRefreshRetryAt(sess, time.Now().Add(transientRefreshRetryWindow))
 		r.putSessionDurable(ctx, sess)
 		return preserveOAuthSession()
@@ -351,6 +396,8 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 				Op:             "store_put_candidate",
 				UserID:         owner.id,
 				Provider:       provider,
+				Source:         refreshSource(ctx),
+				RefreshRotated: fmt.Sprint(rotated),
 				Classification: "persistence",
 				Action:         "preserve_cooldown",
 				Elapsed:        time.Since(refreshStarted),
@@ -359,6 +406,11 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 			r.putSessionDurable(ctx, sess)
 			return preserveOAuthSession()
 		}
+		authlog.Log(ctx, authlog.Event{
+			Op: "refresh_store_put", UserID: owner.id, Provider: provider,
+			Source: refreshSource(ctx), RefreshRotated: fmt.Sprint(rotated),
+			Classification: "persistence", Action: "stored",
+		})
 	}
 	sess.Tokens = result
 	if len(sess.Scopes) == 0 {
@@ -375,6 +427,38 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 		strings.TrimSpace(refreshedIDToken) != previousIDToken,
 	)
 	return availableOAuthToken(result)
+}
+
+func refreshIdentityFailureReason(err error) string {
+	if err == nil {
+		return "none"
+	}
+	switch err.Error() {
+	case "fresh ID token required":
+		return "fresh_id_token_required"
+	case "refresh has no configured OAuth authority":
+		return "authority_not_configured"
+	case "refreshed ID token algorithm is unsupported":
+		return "unsupported_algorithm"
+	case "refreshed ID token authority unavailable":
+		return "authority_unavailable"
+	case "refreshed ID token verification unavailable":
+		return "verification_unavailable"
+	case "refreshed ID token verification failed":
+		return "verification_failed"
+	case "refreshed ID token issuer or lifetime mismatch":
+		return "issuer_or_lifetime_mismatch"
+	case "refreshed ID token audience or lifetime mismatch":
+		return "audience_or_lifetime_mismatch"
+	case "refreshed ID token authorized party mismatch":
+		return "authorized_party_mismatch"
+	case "refresh changed session subject":
+		return "subject_mismatch"
+	case "refresh changed issuer":
+		return "issuer_mismatch"
+	default:
+		return "unknown"
+	}
 }
 
 func refreshedOAuthIDToken(refreshed *oauth2.Token, current string) string {
@@ -511,6 +595,11 @@ func (r *Runtime) invalidateSessionTokens(ctx context.Context, sess *Session, us
 			Classification: "persistence",
 			Action:         "session_cleared_store_preserved",
 		})
+	} else {
+		authlog.Log(ctx, authlog.Event{
+			Op: "store_delete", UserID: username, Provider: provider,
+			Source: refreshSource(ctx), Classification: "persistence", Action: "deleted",
+		})
 	}
 }
 
@@ -608,7 +697,7 @@ func (r *Runtime) refreshExpiringSessions(ctx context.Context) {
 		if !sess.Tokens.Expiry.IsZero() && sess.Tokens.Expiry.After(horizon) {
 			continue
 		}
-		if r.tryRefreshToken(ctx, sess).state == tokenAvailable {
+		if r.tryRefreshToken(withRefreshSource(ctx, "active_session_watcher"), sess).state == tokenAvailable {
 			refreshed++
 		}
 	}
@@ -692,12 +781,59 @@ func (r *Runtime) refreshTokenStore(ctx context.Context) {
 		if !itoken.ShouldRefresh(time.Now(), tok.ExpiresAt, r.cfg.tokenRefreshLead(), storedTokenLifetime(tok)) {
 			continue
 		}
+		userID := strings.TrimSpace(tok.Username)
+		subject, username := userID, userID
+		claims := parseJWTClaims(tok.IDToken)
+		if len(claims) > 0 {
+			// The token row is keyed by users.id, not by the OIDC subject.
+			lookup, ok := r.ext.users.(UserByIDLookup)
+			if !ok || lookup == nil {
+				authlog.Log(ctx, authlog.Event{
+					Op: "store_refresh_identity", UserID: userID, Provider: provider,
+					Source: "store_scan", Reason: "lookup_unavailable",
+					Classification: "owner_resolution", Action: "skip_no_mutation",
+				})
+				skipped++
+				continue
+			}
+			lookupCtx, cancel := authStoreContext(ctx)
+			user, lookupErr := lookup.GetByID(lookupCtx, userID)
+			cancel()
+			reason := ""
+			switch {
+			case lookupErr != nil:
+				reason = "lookup_failed"
+			case user == nil:
+				reason = "user_not_found"
+			case user.Disabled:
+				reason = "user_disabled"
+			case strings.TrimSpace(user.ID) != userID:
+				reason = "owner_mismatch"
+			case strings.TrimSpace(user.Provider) == "" || !strings.EqualFold(CanonicalWorkspaceProvider(r.cfg, user.Provider), CanonicalWorkspaceProvider(r.cfg, provider)):
+				reason = "provider_mismatch"
+			case strings.TrimSpace(user.Subject) == "":
+				reason = "subject_missing"
+			case claimString(claims, "sub") != strings.TrimSpace(user.Subject):
+				reason = "subject_mismatch"
+			}
+			if reason != "" {
+				authlog.Log(ctx, authlog.Event{
+					Op: "store_refresh_identity", UserID: userID, Provider: provider,
+					Source: "store_scan", Reason: reason,
+					Classification: "owner_resolution", Action: "skip_no_mutation",
+				})
+				skipped++
+				continue
+			}
+			subject, username = strings.TrimSpace(user.Subject), strings.TrimSpace(user.Username)
+		}
 		// Build a minimal session to drive the existing workspace refresh path.
 		sess := &Session{
-			ID: "store-refresh-" + tok.Username,
+			ID: "store-refresh-" + userID,
 
-			Username: tok.Username,
-			Subject:  tok.Username,
+			UserID:   userID,
+			Username: username,
+			Subject:  subject,
 			Provider: tok.Provider,
 			Tokens: &scyauth.Token{
 				Token: oauth2.Token{
@@ -708,7 +844,20 @@ func (r *Runtime) refreshTokenStore(ctx context.Context) {
 				IDToken: tok.IDToken,
 			},
 		}
-		if r.tryRefreshToken(ctx, sess).state == tokenAvailable {
+		relation := "missing_id_token_subject"
+		if subject := claimString(claims, "sub"); subject != "" {
+			relation = "different"
+			if subject == tok.Username {
+				relation = "same"
+			}
+		}
+		refreshCtx := authlog.WithRefreshAttempt(withRefreshSource(ctx, "store_scan"))
+		authlog.Log(refreshCtx, authlog.Event{
+			Op: "store_refresh_selected", UserID: tok.Username, Provider: provider,
+			Source: "store_scan", Reason: relation,
+			Classification: "refresh", Action: "attempt",
+		})
+		if r.tryRefreshToken(refreshCtx, sess).state == tokenAvailable {
 			refreshed++
 		}
 	}

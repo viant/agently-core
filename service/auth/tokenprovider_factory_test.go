@@ -280,6 +280,7 @@ func TestOAuthRefreshBroker_Refresh_RejectsUnderScopedCandidate(t *testing.T) {
 }
 
 func TestOAuthRefreshBroker_InvalidGrantClearsSchedulerStoreAndDoesNotInject(t *testing.T) {
+	logs := captureStandardLog(t)
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusBadRequest,
@@ -324,6 +325,21 @@ func TestOAuthRefreshBroker_InvalidGrantClearsSchedulerStoreAndDoesNotInject(t *
 	}
 	if store.deleteCalls != 1 {
 		t.Fatalf("scheduler invalid_grant Delete calls after cached miss = %d, want 1", store.deleteCalls)
+	}
+	for _, expected := range []string{
+		`op="scheduler_broker_refresh"`, `http_status=400`,
+		`oauth_error="invalid_grant"`, `op="scheduler_refresh_action"`,
+		`source="scheduler_broker"`,
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("missing scheduler diagnostic %s in %q", expected, logs.String())
+		}
+	}
+	if strings.Contains(logs.String(), "refresh-1") {
+		t.Fatal("scheduler diagnostic leaked refresh credential")
+	}
+	if strings.Contains(logs.String(), `attempt_id=""`) {
+		t.Fatal("scheduler refresh diagnostic lacks an attempt ID")
 	}
 }
 
