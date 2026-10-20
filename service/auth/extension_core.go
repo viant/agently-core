@@ -164,6 +164,15 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 	}
 	logx.Debugf("auth-token", "callback persist ok source=%q user_id=%q provider=%q",
 		strings.TrimSpace(source), storeUser, strings.TrimSpace(provider))
+	relation := "different"
+	if strings.TrimSpace(subject) == storeUser {
+		relation = "same"
+	}
+	authlog.Log(ctx, authlog.Event{
+		Op: "callback_persist", UserID: storeUser, Provider: provider,
+		Source: "oauth_callback", Reason: relation,
+		Classification: "persistence", Action: "stored", Elapsed: time.Since(started),
+	})
 	return nil
 }
 

@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -76,13 +77,18 @@ func (s *Service) executeRun(ctx context.Context, row *schedulemodel.ScheduleVie
 
 	input := scheduleQueryInput(row, runID, userID)
 	output := &agentsvc.QueryOutput{}
-	queryCtx, queryCancel := context.WithTimeout(runCtx, scheduleExecutionTimeout(row))
-	runQuery := s.queryRunner
-	if runQuery == nil {
-		runQuery = s.agent.Query
+	var err error
+	if authErr != nil {
+		err = fmt.Errorf("schedule owner authentication unavailable: %w", authErr)
+	} else {
+		queryCtx, queryCancel := context.WithTimeout(runCtx, scheduleExecutionTimeout(row))
+		runQuery := s.queryRunner
+		if runQuery == nil {
+			runQuery = s.agent.Query
+		}
+		err = runQuery(queryCtx, input, output)
+		queryCancel()
 	}
-	err := runQuery(queryCtx, input, output)
-	queryCancel()
 
 	runPatch := &runmodel.MutableRunView{}
 	runPatch.SetId(runID)

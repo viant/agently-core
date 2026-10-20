@@ -64,6 +64,10 @@ func (b *oauthRefreshBroker) Refresh(ctx context.Context, key token.Key, refresh
 		if err == nil {
 			err = fmt.Errorf("oauth config unavailable")
 		}
+		authlog.Log(ctx, authlog.Event{
+			Op: "scheduler_broker_config", UserID: key.Subject, Provider: key.Provider,
+			Source: "scheduler_broker", Classification: "config", Action: "preserve_no_inject",
+		})
 		return nil, err
 	}
 	base := &oauth2.Token{RefreshToken: strings.TrimSpace(refreshToken)}
@@ -76,8 +80,24 @@ func (b *oauthRefreshBroker) Refresh(ctx context.Context, key token.Key, refresh
 	}
 	scopes := oauthRefreshScopesForClient(nil, stored, b.client)
 	resource := oauthRefreshResource(nil, stored, oauthCfg.ClientID)
+	authlog.Log(ctx, authlog.Event{
+		Op: "scheduler_broker_refresh", UserID: key.Subject, Provider: key.Provider,
+		Source: "scheduler_broker", Endpoint: oauthCfg.Endpoint.TokenURL,
+		Classification: "refresh", Action: "start",
+	})
 	refreshed, err := refreshOAuthToken(ctx, cloneOAuthConfigWithScopes(oauthCfg, scopes), base, scopes, resource)
 	if err != nil {
+		status, code := oauthRefreshErrorDetails(err)
+		action := "preserve"
+		if isPermanentRefreshError(err) {
+			action = "clear_by_manager"
+		}
+		authlog.Log(ctx, authlog.Event{
+			Op: "scheduler_broker_refresh", UserID: key.Subject, Provider: key.Provider,
+			Source: "scheduler_broker", Endpoint: oauthCfg.Endpoint.TokenURL,
+			HTTPStatus: status, OAuthErrorCode: code, Classification: oauthRefreshErrorClassification(err),
+			Action: action, Elapsed: time.Since(started),
+		})
 		if isPermanentRefreshError(err) {
 			return nil, token.NewRefreshInvalidGrantError(err)
 		}
@@ -94,11 +114,24 @@ func (b *oauthRefreshBroker) Refresh(ctx context.Context, key token.Key, refresh
 		previousIDToken = strings.TrimSpace(stored.IDToken)
 	}
 	idToken := refreshedOAuthIDToken(refreshed, previousIDToken)
+	idTokenSource := "prior"
+	if candidate, ok := refreshed.Extra("id_token").(string); ok && strings.TrimSpace(candidate) != "" {
+		idTokenSource = "response"
+	}
+	authlog.Log(ctx, authlog.Event{
+		Op: "scheduler_broker_response", UserID: key.Subject, Provider: key.Provider,
+		Source: "scheduler_broker", RefreshRotated: fmt.Sprint(refreshed.RefreshToken != refreshToken),
+		IDTokenSource: idTokenSource, Classification: "refresh", Action: "return_to_manager",
+		Elapsed: time.Since(started),
+	})
 	if err := validateRefreshedOAuthScopes(b.client, scopes, refreshed, idToken); err != nil {
 		authlog.Log(ctx, authlog.Event{
 			Op:             "scheduler_broker_scope_validate",
 			UserID:         strings.TrimSpace(key.Subject),
 			Provider:       strings.TrimSpace(key.Provider),
+			Source:         "scheduler_broker",
+			RefreshRotated: fmt.Sprint(refreshed.RefreshToken != refreshToken),
+			IDTokenSource:  idTokenSource,
 			Endpoint:       oauthCfg.Endpoint.TokenURL,
 			Classification: "scope_validation",
 			Action:         "preserve_cooldown_no_inject",
