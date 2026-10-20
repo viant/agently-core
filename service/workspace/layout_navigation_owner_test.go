@@ -22,3 +22,16 @@ func TestNavigationPreservesKnownOwnerOnlyWithinItsNamespace(t *testing.T) {
 	require.Empty(t, app.Menus[0].Children[1].Action.ProviderIdentity)
 	require.NotContains(t, string(raw), "providerIdentity", "source remains unchanged")
 }
+
+func TestNavigationPreservesStylesAndTheirDiscoveredConnection(t *testing.T) {
+	raw := json.RawMessage(`{"id":"studio","title":"Studio","providerIdentity":"untrusted-source-claim","styleResources":["style://studio/workspace"],"menus":[]}`)
+	bound, err := bindNavigationOwner(raw, "studio", "actual-owner", "configured-studio")
+	require.NoError(t, err)
+	var app LayoutApplication
+	require.NoError(t, json.Unmarshal(bound, &app))
+	require.Equal(t, []string{"style://studio/workspace"}, app.StyleResources)
+	require.Equal(t, "actual-owner", app.ProviderIdentity)
+	require.Equal(t, "configured-studio", app.ResourceConnection)
+	require.Equal(t, "studio", app.ResourceNamespace)
+	require.Contains(t, string(raw), "untrusted-source-claim")
+}

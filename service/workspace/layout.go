@@ -107,20 +107,24 @@ type LayoutSplit struct {
 }
 
 type LayoutApplication struct {
-	ID            string                        `json:"id" yaml:"id"`
-	Title         string                        `json:"title" yaml:"title"`
-	Icon          string                        `json:"icon,omitempty" yaml:"icon,omitempty"`
-	ClassName     string                        `json:"className,omitempty" yaml:"className,omitempty"`
-	Parameters    map[string]any                `json:"parameters,omitempty" yaml:"parameters,omitempty"`
-	Authorization *forgetypes.AuthorizationSpec `json:"authorization,omitempty" yaml:"authorization,omitempty"`
-	VisibleWhen   any                           `json:"visibleWhen,omitempty" yaml:"visibleWhen,omitempty"`
-	HiddenWhen    any                           `json:"hiddenWhen,omitempty" yaml:"hiddenWhen,omitempty"`
-	DisabledWhen  any                           `json:"disabledWhen,omitempty" yaml:"disabledWhen,omitempty"`
-	ReadOnlyWhen  any                           `json:"readOnlyWhen,omitempty" yaml:"readOnlyWhen,omitempty"`
-	Disabled      bool                          `json:"disabled,omitempty" yaml:"-"`
-	ReadOnly      bool                          `json:"readOnly,omitempty" yaml:"-"`
-	Menus         []LayoutMenu                  `json:"menus" yaml:"menus"`
-	WindowCatalog *LayoutWindowCatalog          `json:"windowCatalog,omitempty" yaml:"windowCatalog,omitempty"`
+	ID                 string                        `json:"id" yaml:"id"`
+	Title              string                        `json:"title" yaml:"title"`
+	Icon               string                        `json:"icon,omitempty" yaml:"icon,omitempty"`
+	ClassName          string                        `json:"className,omitempty" yaml:"className,omitempty"`
+	StyleResources     []string                      `json:"styleResources,omitempty" yaml:"styleResources,omitempty"`
+	ProviderIdentity   string                        `json:"providerIdentity,omitempty" yaml:"-"`
+	ResourceNamespace  string                        `json:"resourceNamespace,omitempty" yaml:"-"`
+	ResourceConnection string                        `json:"resourceConnection,omitempty" yaml:"-"`
+	Parameters         map[string]any                `json:"parameters,omitempty" yaml:"parameters,omitempty"`
+	Authorization      *forgetypes.AuthorizationSpec `json:"authorization,omitempty" yaml:"authorization,omitempty"`
+	VisibleWhen        any                           `json:"visibleWhen,omitempty" yaml:"visibleWhen,omitempty"`
+	HiddenWhen         any                           `json:"hiddenWhen,omitempty" yaml:"hiddenWhen,omitempty"`
+	DisabledWhen       any                           `json:"disabledWhen,omitempty" yaml:"disabledWhen,omitempty"`
+	ReadOnlyWhen       any                           `json:"readOnlyWhen,omitempty" yaml:"readOnlyWhen,omitempty"`
+	Disabled           bool                          `json:"disabled,omitempty" yaml:"-"`
+	ReadOnly           bool                          `json:"readOnly,omitempty" yaml:"-"`
+	Menus              []LayoutMenu                  `json:"menus" yaml:"menus"`
+	WindowCatalog      *LayoutWindowCatalog          `json:"windowCatalog,omitempty" yaml:"windowCatalog,omitempty"`
 }
 
 type LayoutWindowCatalog struct {
