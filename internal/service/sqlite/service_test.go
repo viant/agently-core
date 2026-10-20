@@ -263,7 +263,7 @@ func TestService_Ensure_UpgradesLegacyToolApprovalQueueSchema(t *testing.T) {
 	}
 	defer upgraded.Close()
 
-	for _, column := range []string{"expires_at", "timed_out_at"} {
+	for _, column := range []string{"expires_at", "timed_out_at", "completed_at"} {
 		var found bool
 		rows, err := upgraded.Query(`PRAGMA table_info(tool_approval_queue)`)
 		if err != nil {

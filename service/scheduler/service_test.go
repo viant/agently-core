@@ -924,7 +924,7 @@ func TestService_applyUserCred_RejectsUnusableEnsuredAuth(t *testing.T) {
 	}
 }
 
-func TestService_executeRun_UserCredAuthFailureContinuesWithoutTokens(t *testing.T) {
+func TestService_executeRun_UserCredAuthFailureSkipsQuery(t *testing.T) {
 	store, db := newTestStore(t)
 	ensureRunWriteComponent(t, store)
 	const scheduleID = "sched-user-cred-auth-failure"
@@ -940,15 +940,6 @@ func TestService_executeRun_UserCredAuthFailureContinuesWithoutTokens(t *testing
 	)
 	svc.queryRunner = func(ctx context.Context, input *agentsvc.QueryInput, _ *agentsvc.QueryOutput) error {
 		queryCalled = true
-		if iauth.TokensFromContext(ctx) != nil || iauth.Bearer(ctx) != "" || iauth.IDToken(ctx) != "" {
-			t.Fatal("query received credentials after user_cred auth failure")
-		}
-		if got := strings.TrimSpace(iauth.EffectiveUserID(ctx)); got != subject {
-			t.Fatalf("query effective user = %q, want %q", got, subject)
-		}
-		if input == nil || input.UserId != subject {
-			t.Fatalf("query input user = %#v, want %q", input, subject)
-		}
 		return nil
 	}
 	fakeAuthz := &fakeOAuthAuthorizer{err: errors.New("authorization failed")}
@@ -977,13 +968,19 @@ func TestService_executeRun_UserCredAuthFailureContinuesWithoutTokens(t *testing
 	insertPendingSchedulerRun(t, db, "run-user-cred-auth-failure", scheduleID)
 	svc.executeRun(ctx, row, "run-user-cred-auth-failure", time.Now().UTC())
 
-	if !queryCalled {
-		t.Fatal("query was not called after user credential auth failure")
+	if queryCalled {
+		t.Fatal("query was called after user credential auth failure")
 	}
 	if fakeAuthz.callCount != 1 {
 		t.Fatalf("Authorize() calls = %d, want 1", fakeAuthz.callCount)
 	}
-	assertScheduleLastResult(t, db, scheduleID, "succeeded")
+	var status, message string
+	if err := db.QueryRowContext(context.Background(), `SELECT last_status, last_error FROM schedule WHERE id = ?`, scheduleID).Scan(&status, &message); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || !strings.Contains(message, "schedule owner authentication unavailable") {
+		t.Fatalf("schedule result = (%q, %q), want failed authentication", status, message)
+	}
 }
 
 func seedRunningConversation(t *testing.T, client convcli.Client, conversationID, turnID string, startedAt time.Time) {
