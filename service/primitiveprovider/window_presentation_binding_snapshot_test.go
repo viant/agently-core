@@ -54,4 +54,19 @@ func TestNativePresentationBindsServerAdmittedSnapshotWithoutReload(t *testing.T
 	if _, err = svc.BindAdmittedNativePresentationWindow(ctx, "client-a", "instance", "media", &types.Window{Resource: &changed, ResourceTarget: admitted.ResourceTarget}); err == nil {
 		t.Fatal("existing instance candidate replaced")
 	}
+	// Provider-selected metadata is delivered through the same mechanism even
+	// when the resource is external and has no additional OPEN declaration.
+	external := pin
+	external.URI = "window://external/records"
+	external.ProviderIdentity = "external-provider"
+	external.AuthorityBinding = "provider-selected-user"
+	handled, err = svc.BindAdmittedNativePresentationWindow(ctx, "client-a", "external-instance", external.URI,
+		&types.Window{Resource: &external, ResourceTarget: admitted.ResourceTarget})
+	if !handled || err != nil || catalog.reads != 0 {
+		t.Fatalf("provider-selected delivery was not retained without another read: handled=%t err=%v reads=%d", handled, err, catalog.reads)
+	}
+	held, ok = svc.getWindowPin(windowPinKey{Namespace: "alice", ClientID: "client-a", WindowID: "external-instance"})
+	if !ok || held.Resource != external {
+		t.Fatal("external window delivery was lost")
+	}
 }
