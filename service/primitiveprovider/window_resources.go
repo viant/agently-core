@@ -189,8 +189,16 @@ func (s *Service) filterResourceSnapshot(ctx context.Context, ns, clientID strin
 		content["resourceTarget"] = pin.Target
 		content["metadata"] = definition.Definition
 		if sources, ok := content["dataSources"].(map[string]any); ok {
+			declared := map[string]bool{}
+			if assignment := definition.Definition.Resources; assignment != nil {
+				for _, ref := range assignment.DataSources {
+					declared[ref] = true
+				}
+			}
 			for id := range sources {
-				if _, allowed := definition.Definition.DataSource[id]; !allowed {
+				// References are resolved lazily by Forge. Their already visible
+				// snapshots do not require assembling those definitions again here.
+				if _, allowed := definition.Definition.DataSource[id]; !allowed && !declared[id] {
 					delete(sources, id)
 				}
 			}

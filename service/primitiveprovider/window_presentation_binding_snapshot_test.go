@@ -26,7 +26,7 @@ func (c *admittedPresentationCatalog) RevalidateWindowResource(_ context.Context
 }
 
 func (c *admittedPresentationCatalog) Get(_ context.Context, in *WindowDefinitionGetInput) (*WindowDefinitionGetOutput, error) {
-	return &WindowDefinitionGetOutput{Definition: &types.Window{Resource: in.ResolvedResource, DataSource: map[string]types.DataSource{"records": {}}}}, nil
+	return &WindowDefinitionGetOutput{Definition: &types.Window{Resource: in.ResolvedResource, Resources: &types.ResourceAssignment{DataSources: []string{"records"}}}}, nil
 }
 
 func TestNativePresentationBindsServerAdmittedSnapshotWithoutReload(t *testing.T) {
