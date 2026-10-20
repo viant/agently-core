@@ -213,7 +213,10 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 				}
 			}
 		}
-		if canonical && applyPermissionRequested(r) && (r.URL.Query().Get("clientId") != "" || r.URL.Query().Get("windowId") != "") {
+		// A published window without a declared OPEN check has already been
+		// selected by its provider. Retain that delivery for UI observation
+		// using the existing negotiated client, without another provider read.
+		if canonical && (applyPermissionRequested(r) || (aWindow.Authorization == nil && r.Header.Get("Mcp-Session-Id") != "")) && (r.URL.Query().Get("clientId") != "" || r.URL.Query().Get("windowId") != "") {
 			binder, ok := settings.windows.(interface {
 				BindAdmittedFrameworkWindow(context.Context, string, string, string, *forgeTypes.Window) error
 			})

@@ -8,21 +8,19 @@ import (
 	"strings"
 )
 
-// BindAdmittedNativePresentationWindow receives only the completed server OPEN
-// frame. Query instance ids are routing hints checked against the existing
+// BindAdmittedNativePresentationWindow receives only a server-selected window
+// definition. Query instance ids are routing hints checked against the existing
 // negotiated transport session; browser snapshot contents grant nothing.
 func (s *Service) BindAdmittedNativePresentationWindow(ctx context.Context, clientID, windowID, windowKey string, admitted *types.Window) (bool, error) {
 	if requestctx.UIBridgeSessionIDFromContext(ctx) == "" {
 		return false, nil
 	}
-	classifier, ok := s.cfg.WindowDefinitions.(interface {
-		IsDefaultPresentationWindow(identity.ResolvedResource) bool
-	})
-	if !ok || admitted == nil || admitted.Resource == nil || !classifier.IsDefaultPresentationWindow(*admitted.Resource) {
+	if admitted == nil || admitted.Resource == nil {
 		return false, nil
 	}
 	windowID, clientID = strings.TrimSpace(windowID), strings.TrimSpace(clientID)
-	if windowID == "" || clientID == "" || !defaultPresentationPin(windowResourcePin{Resource: *admitted.Resource, Target: admitted.ResourceTarget}) {
+	uri, uriErr := identity.ParseResourceURI(admitted.Resource.URI)
+	if windowID == "" || clientID == "" || uriErr != nil || uri.Kind != "window" || admitted.ResourceTarget == nil {
 		return true, identity.ErrResourceDenied
 	}
 	bridge, session, err := s.nativePresentationSession(ctx)
