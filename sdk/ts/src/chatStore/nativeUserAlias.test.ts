@@ -8,7 +8,10 @@ describe('native user identity after protocol admission and concurrent bootstrap
   const key=state.turns[0].users[0].renderKey;
   applyEvent(state,{type:'turn_started',conversationId:'c',turnId:'native-turn',userMessageId:'client-user',clientRequestId:'client-user'});
   applyTranscript(state,{conversationId:'c',turns:[{turnId:'native-turn',status:'running',user:{messageId:'native-user',content:'Repeated prompt'}}]});
-  expect(state.turns[0].users).toHaveLength(2);
+  // A transcript already establishes the native identity; no transient second
+  // bubble should be needed while waiting for a later exact-ID protocol echo.
+  expect(state.turns[0].users).toHaveLength(1);
+  expect(state.turns[0].users[0]).toMatchObject({renderKey:key,messageId:'native-user'});
   applyEvent(state,{type,conversationId:'c',turnId:'native-turn',userMessageId:'native-user',messageId:'native-user',clientRequestId:'client-user',content:'Repeated prompt',patch:{role:'user'}});
   expect(state.turns[0].users).toHaveLength(1);
   expect(state.turns[0].users[0]).toMatchObject({renderKey:key,messageId:'native-user',clientRequestId:'client-user'});
