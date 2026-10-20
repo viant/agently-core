@@ -1646,7 +1646,8 @@ function mergeTranscriptUser(
         const snapshotContent = normalizeContent(snapshotUser.content);
         if (snapshotContent) {
             const candidates = turn.users.filter((user) =>
-                (user.messageId ?? '').trim() === ''
+                ((user.messageId ?? '').trim() === ''
+                    || (user.messageId ?? '').trim() === (user.clientRequestId ?? '').trim())
                 && (user.clientRequestId ?? '').trim() !== ''
                 && normalizeContent(user.content) === snapshotContent
             );
@@ -1654,6 +1655,7 @@ function mergeTranscriptUser(
                 !starterMessageId
                 || !snapshotMessageId
                 || starterMessageId === snapshotMessageId
+                || starterMessageId === (candidates[0].clientRequestId ?? '').trim()
             )) {
                 matched = candidates[0];
             }
@@ -1662,7 +1664,14 @@ function mergeTranscriptUser(
 
     if (matched) {
         const user = matched;
-        if (snapshotUser.messageId) writeField(user, 'messageId', snapshotUser.messageId, 'transcript');
+        if (snapshotUser.messageId) {
+            // Protocol echoes may use the client ID before native persistence.
+            if (user.messageId === user.clientRequestId && user.messageId !== snapshotUser.messageId) {
+                forceTranscriptRefinement(user, 'messageId', snapshotUser.messageId);
+            } else {
+                writeField(user, 'messageId', snapshotUser.messageId, 'transcript');
+            }
+        }
         if (snapshotUser.clientRequestId) writeField(user, 'clientRequestId', snapshotUser.clientRequestId, 'transcript');
         if (snapshotUser.content !== undefined) writeField(user, 'content', snapshotUser.content, 'transcript');
         if (snapshotUser.createdAt) writeField(user, 'createdAt', snapshotUser.createdAt, 'transcript');
