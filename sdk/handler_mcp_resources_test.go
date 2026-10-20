@@ -10,8 +10,35 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/mcp-protocol/schema"
+	mcpclient "github.com/viant/mcp/client"
+	authtransport "github.com/viant/mcp/client/auth/transport"
 )
+
+type authenticatedResourceClient struct {
+	*mcpUIResourceClientStub
+	tokens []string
+}
+
+func (c *authenticatedResourceClient) ReadResource(ctx context.Context, p *schema.ReadResourceRequestParams, _ ...mcpclient.RequestOption) (*schema.ReadResourceResult, error) {
+	token, _ := ctx.Value(authtransport.ContextAuthTokenKey).(string)
+	c.tokens = append(c.tokens, token)
+	return &schema.ReadResourceResult{Contents: []schema.ReadResourceResultContentsElem{{Uri: p.Uri, Blob: "AA=="}}}, nil
+}
+func TestMCPResourceReadForwardsCurrentOAuthTokenOnEveryCall(t *testing.T) {
+	remote := &authenticatedResourceClient{mcpUIResourceClientStub: &mcpUIResourceClientStub{}}
+	mgr, err := manager.New(&mcpUIResourceProviderStub{}, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return remote, nil }))
+	require.NoError(t, err)
+	defer mgr.CloseConversation("")
+	backend := &backendClient{mcpMgr: mgr}
+	for _, token := range []string{"first-access-token", "refreshed-access-token"} {
+		_, err = backend.ReadMCPResource(authctx.WithBearer(context.Background(), token), "studio", "resource-archive://demo/dialogs.tar.gz")
+		require.NoError(t, err)
+	}
+	require.Equal(t, []string{"first-access-token", "refreshed-access-token"}, remote.tokens)
+}
 
 type resourceReadFunc func(context.Context, string, string) (*schema.ReadResourceResult, error)
 

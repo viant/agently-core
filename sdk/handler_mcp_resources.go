@@ -37,6 +37,7 @@ func (c *backendClient) ReadMCPResource(ctx context.Context, server, uri string)
 	if c == nil || c.mcpMgr == nil || strings.TrimSpace(server) == "" || strings.TrimSpace(uri) == "" {
 		return nil, errors.New("MCP connection and resource URI are required")
 	}
+	ctx = c.mcpMgr.WithAuthTokenContext(ctx, server)
 	client, err := c.mcpMgr.Get(ctx, "", server)
 	if err != nil {
 		return nil, err
