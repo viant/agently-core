@@ -81,6 +81,7 @@ func TestWorkspaceContextRetainsEntityParametersAndPrioritizesSelections(t *test
 	input := &QueryInput{Context: workspaceFixture(t, `{"workspace":{
 		"windowId":"record-321","windowKey":"record","parameters":{"RecordId":[321],"region":"west","form":{"secret":true}},
 		"internalTabs":{"details":"overview"},"carousels":{"featured":{"itemId":"card-b","title":"Selected card","index":1,"total":3,"body":{"secret":true}}},
+		"cardRails":{"offers":{"title":"Offers","total":30,"visibleItems":[{"itemId":7,"title":"Visible card","index":5,"body":{"secret":true}}]}},
 		"dataSources":{"selected_records":{"selectedKeys":{"id":321}}}
 	}}`)}
 	sources := input.Context["workspace"].(map[string]interface{})["dataSources"].(map[string]interface{})
@@ -98,6 +99,8 @@ func TestWorkspaceContextRetainsEntityParametersAndPrioritizesSelections(t *test
 		require.Contains(t, text, `"selected_records":{"selectedKeys":{"id":321}}`)
 		require.Contains(t, text, `"internalTabs":{"details":"overview"}`)
 		require.Contains(t, text, `"carousels":{"featured":{"index":1,"itemId":"card-b","title":"Selected card","total":3}}`)
+		require.Contains(t, text, `"cardRails":{"offers":{"title":"Offers","total":30,"visibleItems":[{"index":5,"itemId":7,"title":"Visible card"}]}}`)
+		require.NotContains(t, text, `"focusedItem"`)
 		require.NotContains(t, text, `"empty_`)
 		require.NotContains(t, text, "secret")
 		if i == 0 {
