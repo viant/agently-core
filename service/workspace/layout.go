@@ -47,10 +47,11 @@ type Layout struct {
 // LayoutResourceArchive selects optional metadata preloading through an existing
 // MCP connection. It carries no transport credentials or access grants.
 type LayoutResourceArchive struct {
-	Server           string `json:"server" yaml:"server"`
-	ProviderIdentity string `json:"providerIdentity" yaml:"providerIdentity"`
-	Namespace        string `json:"namespace" yaml:"namespace"`
-	Format           string `json:"format,omitempty" yaml:"format,omitempty"`
+	Server           string   `json:"server" yaml:"server"`
+	ProviderIdentity string   `json:"providerIdentity" yaml:"providerIdentity"`
+	Namespace        string   `json:"namespace" yaml:"namespace"`
+	Format           string   `json:"format,omitempty" yaml:"format,omitempty"`
+	Kinds            []string `json:"kinds,omitempty" yaml:"kinds,omitempty"`
 }
 
 type LayoutLeft struct {
