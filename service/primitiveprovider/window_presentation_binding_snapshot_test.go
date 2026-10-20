@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/forge/backend/types"
@@ -22,6 +23,10 @@ func (*admittedPresentationCatalog) IsDefaultPresentationWindow(pin identity.Res
 func (c *admittedPresentationCatalog) RevalidateWindowResource(_ context.Context, _ string, pin identity.ResolvedResource, _ *types.WindowTarget) (*identity.ResolvedResource, error) {
 	c.reads++
 	return &pin, nil
+}
+
+func (c *admittedPresentationCatalog) Get(_ context.Context, in *WindowDefinitionGetInput) (*WindowDefinitionGetOutput, error) {
+	return &WindowDefinitionGetOutput{Definition: &types.Window{Resource: in.ResolvedResource, DataSource: map[string]types.DataSource{"records": {}}}}, nil
 }
 
 func TestNativePresentationBindsServerAdmittedSnapshotWithoutReload(t *testing.T) {
@@ -68,5 +73,23 @@ func TestNativePresentationBindsServerAdmittedSnapshotWithoutReload(t *testing.T
 	held, ok = svc.getWindowPin(windowPinKey{Namespace: "alice", ClientID: "client-a", WindowID: "external-instance"})
 	if !ok || held.Resource != external {
 		t.Fatal("external window delivery was lost")
+	}
+	filtered, err := svc.filterResourceSnapshot(ctx, "alice", "client-a", json.RawMessage(`{"conversationId":"conversation","selected":{"windowId":"external-instance"},"windows":[{"windowId":"external-instance","windowKey":"window://external/records","conversationId":"conversation","dataSources":{"records":{"collection":[{"id":321}]},"unrelated":{"collection":[{"id":999}]}}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var visible struct {
+		Selected struct {
+			WindowID string `json:"windowId"`
+		} `json:"selected"`
+		Windows []struct {
+			DataSources map[string]json.RawMessage `json:"dataSources"`
+		} `json:"windows"`
+	}
+	if err := json.Unmarshal(filtered, &visible); err != nil {
+		t.Fatal(err)
+	}
+	if visible.Selected.WindowID != "external-instance" || len(visible.Windows) != 1 || len(visible.Windows[0].DataSources) != 1 || visible.Windows[0].DataSources["records"] == nil {
+		t.Fatalf("UI observation lost the delivered window or included an undeclared source: %s", filtered)
 	}
 }
