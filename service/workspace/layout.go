@@ -39,8 +39,18 @@ type Layout struct {
 	WindowProviders             []windowloader.RemoteProvider `json:"windowProviders,omitempty" yaml:"windowProviders,omitempty"`
 	CatalogRevisions            map[string]string             `json:"-" yaml:"-"`
 	Applications                []LayoutApplication           `json:"applications" yaml:"applications"`
+	ResourceArchives            []LayoutResourceArchive       `json:"resourceArchives,omitempty" yaml:"resourceArchives,omitempty"`
 	ApplicationSources          []LayoutApplicationSource     `json:"-" yaml:"applicationSources,omitempty"`
 	IncludeUnlistedApplications bool                          `json:"-" yaml:"includeUnlistedApplications,omitempty"`
+}
+
+// LayoutResourceArchive selects optional metadata preloading through an existing
+// MCP connection. It carries no transport credentials or access grants.
+type LayoutResourceArchive struct {
+	Server           string `json:"server" yaml:"server"`
+	ProviderIdentity string `json:"providerIdentity" yaml:"providerIdentity"`
+	Namespace        string `json:"namespace" yaml:"namespace"`
+	Format           string `json:"format,omitempty" yaml:"format,omitempty"`
 }
 
 type LayoutLeft struct {
