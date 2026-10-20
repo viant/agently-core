@@ -24,22 +24,14 @@ import (
 	mcpclient "github.com/viant/mcp/client"
 )
 
-func TestNativeTemplateDoesNotRequireNewResourceACLAndRetainsDeclaredRoles(t *testing.T) {
+func TestNativeTemplateOpensWithoutRoleAdmissionAndRetainsDataAuthority(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	path := filepath.Join(root, "catalog.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("windows:\n  - windowId: baseline\n  - windowId: restricted\n    roles: [operator]\n"), 0600))
 	config := &hostAuthorizationFile{linkedMetadata: &testmetadata.FS, nativeWindows: true, CatalogPath: path, WindowResources: []windowloader.ResourceBinding{{WindowKey: "baseline", URI: "window://steward/baseline"}, {WindowKey: "restricted", URI: "window://steward/restricted"}}}
 	principal := gating.Principal{Facts: authz.Facts{Subject: "alice", Issuer: "verified", Tenant: "tenant", ValidUntil: time.Now().Add(time.Minute)}, AccountID: "account", IdentityRevision: "credential-revision"}
-	profileCalls := 0
-	profile := &reportHostIdentity{principal}
-	profile.principal.IdentityRevision = "profile-revision"
-	visible, err := newInternalWindowVisibilityLease(config, principalResolverFunc(func(ctx context.Context) (gating.Principal, error) {
-		profileCalls++
-		return profile.ResolvePrincipal(ctx)
-	}))
-	require.NoError(t, err)
-	native := &nativeWindowAuthority{principal: func(context.Context) (gating.Principal, error) { return principal, nil }, visibilityLease: visible, allowed: map[string]resources.LocalResourceBinding{}}
+	native := &nativeWindowAuthority{principal: func(context.Context) (gating.Principal, error) { return principal, nil }, allowed: map[string]resources.LocalResourceBinding{}}
 	for _, b := range config.WindowResources {
 		native.allowed[b.URI] = resources.LocalResourceBinding{URI: b.URI}
 	}
@@ -48,19 +40,18 @@ func TestNativeTemplateDoesNotRequireNewResourceACLAndRetainsDeclaredRoles(t *te
 	decision, err := p.SelectRevision(ctx, identity.ResourceRef{URI: "window://steward/baseline"}, []identity.ResourceCandidate{candidate})
 	require.NoError(t, err)
 	require.NotEmpty(t, decision.AuthorityBinding)
-	require.Zero(t, profileCalls)
-	_, err = p.SelectRevision(ctx, identity.ResourceRef{URI: "window://steward/restricted"}, []identity.ResourceCandidate{candidate})
-	require.ErrorIs(t, err, identity.ErrResourceDenied)
-	require.Equal(t, 1, profileCalls)
-	profile.principal.Facts.Roles = []string{"operator"}
-	profile.principal.Facts.ValidUntil = time.Now().Add(5 * time.Second)
 	restrictedDecision, err := p.SelectRevision(ctx, identity.ResourceRef{URI: "window://steward/restricted"}, []identity.ResourceCandidate{candidate})
-	require.NoError(t, err)
-	require.False(t, restrictedDecision.ValidUntil.After(profile.principal.Facts.ValidUntil), "role profile lease must bound delivered definition")
+	require.NoError(t, err, "declared roles must not gate opening an operator-installed template")
+	require.False(t, restrictedDecision.ValidUntil.After(principal.Facts.ValidUntil), "verified identity must bound delivered definition")
 	_, err = p.SelectRevision(ctx, identity.ResourceRef{URI: "window://steward/baseline", Revision: "2"}, []identity.ResourceCandidate{candidate})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	_, err = p.SelectRevision(ctx, identity.ResourceRef{URI: "window://users/baseline"}, []identity.ResourceCandidate{candidate})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
+	validUntil := principal.Facts.ValidUntil
+	principal.Facts.ValidUntil = time.Now().Add(-time.Second)
+	_, err = p.SelectRevision(ctx, identity.ResourceRef{URI: "window://steward/restricted"}, []identity.ResourceCandidate{candidate})
+	require.ErrorIs(t, err, policy.ErrIdentityRejected, "opening still requires a current verified identity")
+	principal.Facts.ValidUntil = validUntil
 	// Scope affects identity only inside trusted native metadata calls and ends
 	// before the caller executes protected report/data/component operations.
 	fallbackCalls := 0

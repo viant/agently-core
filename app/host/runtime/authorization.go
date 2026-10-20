@@ -489,10 +489,6 @@ func ConfigureAuthorization(options Options, workspaceRoot string, workspaceConf
 					nativeAuthority.allowed[b.URI] = resourcesvc.LocalResourceBinding{URI: b.URI, Title: b.WindowKey, FormatVersion: 2}
 				}
 			}
-			nativeAuthority.visibilityLease, err = newInternalWindowVisibilityLease(config, svcauth.IDTokenIdentityProvider{Source: bundle.Identity})
-			if err != nil {
-				return nil, err
-			}
 			windowMetadataScope = nativeWindowMetadataScope{}
 		}
 	}

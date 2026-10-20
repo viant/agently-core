@@ -60,9 +60,8 @@ type nativeWindowRead struct {
 	actor  *identity.VerifiedActor
 }
 type nativeWindowAuthority struct {
-	principal       func(context.Context) (gating.Principal, error)
-	allowed         map[string]resources.LocalResourceBinding
-	visibilityLease internalWindowVisibilityLease
+	principal func(context.Context) (gating.Principal, error)
+	allowed   map[string]resources.LocalResourceBinding
 }
 
 func (n *nativeWindowAuthority) begin(ctx context.Context) (context.Context, func()) {
@@ -130,12 +129,12 @@ func (n *nativeWindowAuthority) admit(ctx context.Context, pin identity.Resolved
 
 // Native YAML is an operator-installed static template, with one current
 // authored candidate. Its URI adds identity, not a new mandatory ACL document.
-// Authored entity/capability checks still execute in the existing open/data path.
+// Declared roles are rendering hints; producer data authorization still applies.
 type nativeWindowPolicy struct{ authority *nativeWindowAuthority }
 
 func (p *nativeWindowPolicy) SelectRevision(ctx context.Context, ref identity.ResourceRef, candidates []identity.ResourceCandidate) (identity.ResourceDecision, error) {
 	n := p.authority
-	binding, ok := n.allowed[ref.URI]
+	_, ok := n.allowed[ref.URI]
 	if !ok || ctx == nil || ctx.Err() != nil {
 		return identity.ResourceDecision{}, identity.ErrResourceDenied
 	}
@@ -143,25 +142,12 @@ func (p *nativeWindowPolicy) SelectRevision(ctx context.Context, ref identity.Re
 	if err != nil {
 		return identity.ResourceDecision{}, err
 	}
-	roleLease := a.ValidUntil
-	if n.visibilityLease != nil {
-		allowed, lease, err := n.visibilityLease(ctx, a, binding)
-		if err != nil {
-			return identity.ResourceDecision{}, err
-		}
-		if !allowed {
-			return identity.ResourceDecision{}, identity.ErrResourceDenied
-		}
-		if lease.Before(roleLease) {
-			roleLease = lease
-		}
-	}
 	bound, lease, err := policy.ResolveAuthorityBinding(ctx, n.principal)
 	if err != nil {
 		return identity.ResourceDecision{}, err
 	}
-	if roleLease.Before(lease) {
-		lease = roleLease
+	if a.ValidUntil.Before(lease) {
+		lease = a.ValidUntil
 	}
 	if !lease.After(time.Now()) {
 		return identity.ResourceDecision{}, identity.ErrResourceDenied
