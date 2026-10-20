@@ -162,7 +162,7 @@ func ensureLegacyToolApprovalQueueColumns(ctx context.Context, db *sql.DB) error
 		return nil
 	}
 
-	for _, column := range []string{"expires_at", "timed_out_at"} {
+	for _, column := range []string{"expires_at", "timed_out_at", "completed_at"} {
 		present, err := sqliteColumnExists(ctx, db, tableName, column)
 		if err != nil {
 			return fmt.Errorf("failed to inspect %s.%s: %w", tableName, column, err)

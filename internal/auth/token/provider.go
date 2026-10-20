@@ -280,6 +280,7 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 
 	// 4. If near-expiry and Broker available, refresh (mutex-serialized per key).
 	if m.broker != nil && e != nil && e.tok != nil && e.tok.RefreshToken != "" {
+		ctx = authlog.WithRefreshAttempt(ctx)
 		refreshed, err := m.serializedRefresh(ctx, key, e.tok.RefreshToken)
 		if err != nil {
 			if IsRefreshInvalidGrant(err) {
@@ -288,6 +289,7 @@ func (m *Manager) EnsureTokens(ctx context.Context, key Key) (context.Context, e
 					Op:             "scheduler_refresh_action",
 					UserID:         strings.TrimSpace(key.Subject),
 					Provider:       strings.TrimSpace(key.Provider),
+					Source:         "scheduler_broker",
 					Classification: "invalid_grant",
 					Action:         action,
 				})
@@ -540,6 +542,10 @@ func (m *Manager) serializedRefresh(ctx context.Context, key Key, refreshToken s
 			})
 			return nil, err
 		}
+		authlog.Log(ctx, authlog.Event{
+			Op: "scheduler_store_put_candidate", UserID: key.Subject, Provider: key.Provider,
+			Source: "scheduler_broker", Classification: "persistence", Action: "stored",
+		})
 	}
 	m.cacheToken(key, tok, expiry)
 
@@ -586,6 +592,10 @@ func (m *Manager) distributedRefresh(ctx context.Context, key Key, refreshToken 
 	}
 
 	if !acquired {
+		authlog.Log(ctx, authlog.Event{
+			Op: "scheduler_lease_acquire", UserID: key.Subject, Provider: key.Provider,
+			Source: "scheduler_broker", Classification: "lease", Action: "wait_other_owner",
+		})
 		// Another pod is refreshing. Wait briefly, then re-read from store.
 		time.Sleep(500 * time.Millisecond)
 		stored, err := m.store.Get(ctx, key.Subject, key.Provider)
@@ -606,6 +616,10 @@ func (m *Manager) distributedRefresh(ctx context.Context, key Key, refreshToken 
 		// Still stale — return nil so the caller preserves without injection.
 		return nil, nil
 	}
+	authlog.Log(ctx, authlog.Event{
+		Op: "scheduler_lease_acquire", UserID: key.Subject, Provider: key.Provider,
+		Source: "scheduler_broker", Classification: "lease", Action: "acquired",
+	})
 
 	// Lease acquired — perform the actual refresh.
 	logSchedulerEnsure(ctx, key, "oauth token refresh start")
@@ -658,12 +672,18 @@ func (m *Manager) distributedRefresh(ctx context.Context, key Key, refreshToken 
 			Op:             "scheduler_cas_put",
 			UserID:         strings.TrimSpace(key.Subject),
 			Provider:       strings.TrimSpace(key.Provider),
+			Source:         "scheduler_broker",
 			Classification: "persistence",
 			Action:         "preserve_cooldown_no_inject",
 		})
 		return nil, err
 	}
 	if !swapped {
+		authlog.Log(ctx, authlog.Event{
+			Op: "scheduler_cas_put", UserID: key.Subject, Provider: key.Provider,
+			Source: "scheduler_broker", Reason: "version_or_lease_changed",
+			Classification: "persistence", Action: "reload_store",
+		})
 		// Another pod won the race — discard our result, re-read store.
 		stored, err := m.store.Get(ctx, key.Subject, key.Provider)
 		if err != nil {
@@ -682,6 +702,12 @@ func (m *Manager) distributedRefresh(ctx context.Context, key Key, refreshToken 
 		} else {
 			return nil, nil
 		}
+	}
+	if swapped {
+		authlog.Log(ctx, authlog.Event{
+			Op: "scheduler_cas_put", UserID: key.Subject, Provider: key.Provider,
+			Source: "scheduler_broker", Classification: "persistence", Action: "stored",
+		})
 	}
 
 	m.cacheToken(key, tok, expiry)
@@ -707,6 +733,7 @@ func (m *Manager) localRefresh(ctx context.Context, key Key, refreshToken string
 				Op:             "scheduler_store_put_candidate",
 				UserID:         strings.TrimSpace(key.Subject),
 				Provider:       strings.TrimSpace(key.Provider),
+				Source:         "scheduler_broker",
 				Classification: "persistence",
 				Action:         "preserve_cooldown_no_inject",
 			})

@@ -11,11 +11,25 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 )
 
 const Prefix = "[auth-token]"
 const maxSafeRunes = 512
+
+type refreshAttemptKey struct{}
+
+// WithRefreshAttempt gives one refresh operation a log correlation ID.
+func WithRefreshAttempt(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Value(refreshAttemptKey{}).(string); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, refreshAttemptKey{}, uuid.NewString())
+}
 
 var (
 	authSchemePattern  = regexp.MustCompile(`(?i)\b(bearer|basic)\s+[^\s,;]+`)
@@ -30,6 +44,11 @@ type Event struct {
 	Op             string
 	UserID         string
 	Provider       string
+	AttemptID      string
+	Source         string
+	Reason         string
+	RefreshRotated string
+	IDTokenSource  string
 	Caller         string
 	ScheduleID     string
 	RunID          string
@@ -45,6 +64,11 @@ type Event struct {
 
 // Log writes an always-on token lifecycle event with safe structured fields.
 func Log(ctx context.Context, event Event) {
+	if event.AttemptID == "" && ctx != nil {
+		if id, ok := ctx.Value(refreshAttemptKey{}).(string); ok {
+			event.AttemptID = id
+		}
+	}
 	caller, scheduleID, runID := contextFields(ctx)
 	if strings.TrimSpace(event.Caller) == "" {
 		event.Caller = caller
@@ -56,10 +80,15 @@ func Log(ctx context.Context, event Event) {
 		event.RunID = runID
 	}
 	host, path := Endpoint(event.Endpoint)
-	log.Printf(Prefix+` op=%q user_id=%q provider=%q caller=%q schedule_id=%q run_id=%q endpoint_host=%q endpoint_path=%q http_status=%d oauth_error=%q classification=%q action=%q recovered=%t elapsed_ms=%d err=%q`,
+	log.Printf(Prefix+` op=%q user_id=%q provider=%q attempt_id=%q source=%q reason=%q refresh_rotated=%q id_token_source=%q caller=%q schedule_id=%q run_id=%q endpoint_host=%q endpoint_path=%q http_status=%d oauth_error=%q classification=%q action=%q recovered=%t elapsed_ms=%d err=%q`,
 		Sanitize(event.Op),
 		SafeUserID(event.UserID),
 		Sanitize(event.Provider),
+		Sanitize(event.AttemptID),
+		Sanitize(event.Source),
+		Sanitize(event.Reason),
+		Sanitize(event.RefreshRotated),
+		Sanitize(event.IDTokenSource),
 		Sanitize(event.Caller),
 		Sanitize(event.ScheduleID),
 		Sanitize(event.RunID),
