@@ -38,7 +38,7 @@ func TestMaintainConversationTree_DryRunThenDeleteWholeInteractiveGraph(t *testi
 	if !result.Eligible || result.Deleted || result.Reason != ConversationMaintenanceEligible {
 		t.Fatalf("dry-run result = %#v", result)
 	}
-	if result.ConversationCount != 2 || !result.LastActivity.Equal(childActivity) {
+	if result.ConversationCount != 2 || !result.LastActivity.Equal(rootActivity) {
 		t.Fatalf("dry-run graph metadata = %#v", result)
 	}
 	assertStage1RowCount(t, db, "conversation", "id", "maintenance-root", 1)
@@ -120,7 +120,7 @@ func TestMaintainConversationTree_RejectsSupersededLeaseWithoutDeleting(t *testi
 	assertStage1RowCount(t, db, "conversation", "id", "maintenance-fenced", 1)
 }
 
-func TestMaintainConversationTree_SkipsGraphWithRecentChild(t *testing.T) {
+func TestMaintainConversationTree_DeletesOldRootWithRecentChild(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	recent := old.Add(48 * time.Hour)
 	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
@@ -137,11 +137,11 @@ func TestMaintainConversationTree_SkipsGraphWithRecentChild(t *testing.T) {
 		InactiveBefore:  old.Add(24 * time.Hour),
 		Mode:            ConversationMaintenanceDelete,
 	})
-	if result.Eligible || result.Deleted || result.Reason != ConversationMaintenanceRecentActivity || !result.LastActivity.Equal(recent) {
+	if !result.Eligible || !result.Deleted || result.Reason != ConversationMaintenanceDeleted || !result.LastActivity.Equal(old) {
 		t.Fatalf("result = %#v", result)
 	}
-	assertStage1RowCount(t, db, "conversation", "id", "old-root", 1)
-	assertStage1RowCount(t, db, "conversation", "id", "recent-child", 1)
+	assertStage1RowCount(t, db, "conversation", "id", "old-root", 0)
+	assertStage1RowCount(t, db, "conversation", "id", "recent-child", 0)
 }
 
 func TestMaintainConversationTree_DeletesMixedOwnerGraph(t *testing.T) {
@@ -183,7 +183,7 @@ func TestMaintainConversationTree_DeletesOwnerlessGraphWithoutExpectedOwner(t *t
 	assertStage1RowCount(t, db, "conversation", "id", "ownerless-root", 0)
 }
 
-func TestMaintainConversationTree_SkipsLiveRun(t *testing.T) {
+func TestMaintainConversationTree_DeletesLiveInternalRunUnderOldRoot(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	now := time.Now().UTC()
 	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
@@ -198,10 +198,11 @@ func TestMaintainConversationTree_SkipsLiveRun(t *testing.T) {
 	request := maintenanceRequest("live-root", "owner-1", old.Add(time.Hour))
 	request.Mode = ConversationMaintenanceDelete
 	result := maintainConversationForTest(t, svc, request)
-	if result.Reason != ConversationMaintenanceLiveRun || result.Eligible || result.Deleted {
+	if result.Reason != ConversationMaintenanceDeleted || !result.Eligible || !result.Deleted {
 		t.Fatalf("result = %#v", result)
 	}
-	assertStage1RowCount(t, db, "conversation", "id", "live-root", 1)
+	assertStage1RowCount(t, db, "conversation", "id", "live-root", 0)
+	assertStage1RowCount(t, db, "run", "id", "live-run", 0)
 }
 
 func TestMaintainConversationTree_VerifiesKindAndRoot(t *testing.T) {

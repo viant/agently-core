@@ -8,7 +8,7 @@ import (
 	"time"
 
 	convread "github.com/viant/agently-core/internal/datly/conversation/read"
-	legacyread "github.com/viant/agently-core/internal/datly/legacyrun/read"
+	"github.com/viant/agently-core/internal/datly/dbtime"
 	runread "github.com/viant/agently-core/internal/datly/run/read"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
@@ -110,9 +110,10 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 	return nil
 }
 func evaluate(ctx context.Context, deps dependencies, input *Input, result *Output, deleting bool) error {
+	d := tree.NewSystemDiscoverer(deps.Invoker, deps.Schema)
 	query := &convread.ConversationInput{}
 	query.SetId(strings.TrimSpace(input.RootID))
-	rows, err := shared.ReadConversations(ctx, deps.Invoker, query, []string{"id", "conversation_parent_id", "conversation_parent_turn_id"}, false)
+	rows, err := shared.ReadConversations(ctx, d.Invoker, query, nil, false)
 	if err != nil {
 		return err
 	}
@@ -127,7 +128,17 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 		result.Reason = "not_root"
 		return nil
 	}
-	d := tree.NewSystemDiscoverer(deps.Invoker, deps.Schema)
+	activity, known := dbtime.ParseActivity(value(rows[0].ActivityRaw))
+	result.LastActivity = activity
+	if !known {
+		result.Reason = "activity_unknown"
+		return nil
+	}
+	if activity.After(input.InactiveBefore) {
+		result.Reason = "recent_activity"
+		return nil
+	}
+	d.QualifyRootRetention()
 	graph, err := d.Discover(ctx, input.RootID)
 	if err != nil {
 		if errors.Is(err, tree.ErrNotFound) {
@@ -140,27 +151,20 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 		}
 		return err
 	}
-	if deleting {
-		// Retain re-discovery/revalidation without making locking reads.
-		graph, err = d.Discover(ctx, input.RootID)
-		if err != nil {
-			if errors.Is(err, tree.ErrNotFound) {
-				result.Reason = "not_found"
-				return nil
-			}
-			return err
-		}
-	}
 	result.ConversationCount = len(graph.Nodes)
-	runIDs, err := d.CollectInitialRunIDs(ctx, graph)
+	now := time.Now().UTC()
+	plan, err := d.CollectDeletePlan(ctx, graph, now, nil, nil)
 	if err != nil {
+		reason, mapped := shared.PrepareReason(err)
+		if mapped {
+			result.Reason = reason
+			return nil
+		}
 		return err
 	}
-	legacyIDs, err := legacyGraphRows(ctx, deps, graph)
-	if err != nil {
-		return err
-	}
-	actual, err := graphKind(ctx, deps, graph, runIDs, len(legacyIDs) > 0)
+	classification := deps
+	classification.Invoker = d.Invoker
+	actual, err := graphKind(ctx, classification, graph, plan.Runs, len(plan.LegacyRuns) > 0)
 	if err != nil {
 		return err
 	}
@@ -172,63 +176,10 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 		result.Reason = "kind_mismatch"
 		return nil
 	}
-	activity, known, err := shared.GraphActivity(ctx, deps.Invoker, graph)
-	if err != nil {
-		return err
-	}
-	result.LastActivity = activity
-	if !known {
-		result.Reason = "activity_unknown"
-		return nil
-	}
-	if activity.After(input.InactiveBefore) {
-		result.Reason = "recent_activity"
-		return nil
-	}
-	if input.Kind == Fallback && (len(runIDs) > 0 || len(legacyIDs) > 0) {
-		result.Reason = "run_present"
-		return nil
-	}
-	now := time.Now().UTC()
-	plan, err := d.CollectDeletePlan(ctx, graph, now, nil, nil)
-	if err != nil {
-		reason, mapped := shared.PrepareReason(err)
-		if mapped {
-			result.Reason = reason
-			return nil
-		}
-		return err
-	}
-	// CollectDeletePlan already refreshed run evidence. No intervening lock
-	// or state change justifies repeating the same readers here.
 	if input.Kind == Fallback {
-		runIDs, err = d.CollectInitialRunIDs(ctx, graph)
-		if err != nil {
-			return err
-		}
-		legacyIDs, err = legacyGraphRows(ctx, deps, graph)
-		if err != nil {
-			return err
-		}
-		if len(runIDs) > 0 || len(legacyIDs) > 0 {
+		if len(plan.Runs) > 0 || len(plan.LegacyRuns) > 0 {
 			result.Reason = "run_present"
 			return nil
-		}
-	}
-	if err = (&tree.RunEvidence{Current: plan.Runs, Legacy: plan.LegacyRuns}).Validate(now); err != nil {
-		if errors.Is(err, tree.ErrConversationActive) {
-			result.Reason = "live_run"
-			return nil
-		}
-		return err
-	}
-	for _, job := range plan.ReportJobs {
-		if job != nil {
-			switch strings.ToLower(strings.TrimSpace(job.Status)) {
-			case "queued", "running":
-				result.Reason = "active_report_export"
-				return nil
-			}
 		}
 	}
 	result.Eligible = true
@@ -243,7 +194,7 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 	result.Reason = "deleted"
 	return nil
 }
-func graphKind(ctx context.Context, deps dependencies, graph *tree.Graph, runIDs []string, legacyPresent bool) (string, error) {
+func graphKind(ctx context.Context, deps dependencies, graph *tree.Graph, runs []*runread.RunRowsView, legacyPresent bool) (string, error) {
 	if legacyPresent {
 		return Scheduled, nil
 	}
@@ -271,60 +222,14 @@ func graphKind(ctx context.Context, deps dependencies, graph *tree.Graph, runIDs
 			}
 		}
 	}
-	if len(runIDs) > 0 {
-		query := &runread.RunRowsInput{}
-		query.SetIds(runIDs)
-		rows, err := shared.ReadCurrentRuns(ctx, deps.Invoker, query, []string{"id", "conversation_kind"}, false)
-		if err != nil {
-			return "", err
-		}
-		for _, row := range rows {
+	if len(runs) > 0 {
+		for _, row := range runs {
 			if row != nil && strings.EqualFold(strings.TrimSpace(row.ConversationKind), Scheduled) {
 				return Scheduled, nil
 			}
 		}
 	}
 	return Interactive, nil
-}
-func legacyGraphRows(ctx context.Context, deps dependencies, graph *tree.Graph) ([]string, error) {
-	present, err := deps.Schema.HasTable(ctx, "agently", "schedule_run")
-	if err != nil || !present {
-		return nil, err
-	}
-	ids := []string{}
-	markers := []string{}
-	for id, node := range graph.Nodes {
-		ids = append(ids, id)
-		if node != nil && strings.TrimSpace(node.ScheduleRunID) != "" {
-			markers = append(markers, node.ScheduleRunID)
-		}
-	}
-	queries := []*legacyread.Input{}
-	if len(ids) > 0 {
-		query := &legacyread.Input{}
-		query.SetConversationIDs(ids)
-		queries = append(queries, query)
-	}
-	if len(markers) > 0 {
-		query := &legacyread.Input{}
-		query.SetIDs(markers)
-		queries = append(queries, query)
-	}
-	seen := map[string]bool{}
-	result := []string{}
-	for _, query := range queries {
-		rows, err := shared.ReadLegacyRuns(ctx, deps.Invoker, query, []string{"id"}, false)
-		if err != nil {
-			return nil, err
-		}
-		for _, row := range rows {
-			if row != nil && !seen[row.Id] {
-				seen[row.Id] = true
-				result = append(result, row.Id)
-			}
-		}
-	}
-	return result, nil
 }
 func value(value *string) string {
 	if value == nil {

@@ -92,10 +92,11 @@ func TestWorkspaceRuntimeConversationMaintenanceSystemFallbackAndRollback(t *tes
 	require.True(t, fallback.Eligible)
 	dangling, err := store.Maintain(ctx, &conversation.Input{RootID: "dangling", Kind: conversation.Fallback, InactiveBefore: cutoff, Mode: scheduled.DryRun})
 	require.NoError(t, err)
-	require.Equal(t, "run_present", dangling.Reason, "raw dangling current reference owns fallback shell")
+	require.True(t, dangling.Eligible, "a missing execution is not a live owner of an old fallback shell")
+	require.Equal(t, "eligible", dangling.Reason)
 	candidates, err := store.Candidates(ctx, conversation.CandidateRequest{Kind: conversation.Fallback, InactiveBefore: cutoff, Limit: 10})
 	require.NoError(t, err)
-	require.Len(t, candidates, 2, "candidate scan excludes actual root conversation-run rows, while evaluator also checks raw turn links")
+	require.Len(t, candidates, 2, "candidate scan and evaluator ignore references to missing execution rows")
 	fenced := nativeMaintenanceLease(t, server)
 	var before string
 	require.NoError(t, db.QueryRow(`SELECT CAST(updated_at AS CHAR) FROM maintenance_lease WHERE lease_key=?`, fenced.Key).Scan(&before))

@@ -2,6 +2,7 @@ package conversationtree
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -92,7 +93,7 @@ func (d *Discoverer) ValidateScheduleReferences(ctx context.Context, graph *Grap
 			id != "goal-wakeup-"+goalID || strings.TrimSpace(row.Name) != "autonomous::goal-wakeup::"+goalID {
 			return nil, fmt.Errorf("%w: internal schedule=%s is not an owned goal wakeup", ErrScheduleReferenced, id)
 		}
-		if row.LeaseUntil != nil && row.LeaseUntil.After(now.UTC()) {
+		if !d.rootQualified && row.LeaseUntil != nil && row.LeaseUntil.After(now.UTC()) {
 			return nil, ErrConversationActive
 		}
 		allowed = append(allowed, id)
@@ -115,12 +116,23 @@ func (d *Discoverer) goalIDs(ctx context.Context, conversationIDs []string) ([]s
 }
 
 func (d *Discoverer) goalRows(ctx context.Context, conversationIDs []string) ([]*goalread.GoalView, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(conversationIDs) == 0 {
 		return nil, nil
 	}
 	present, err := d.hasTable(ctx, "goal")
 	if err != nil || !present {
 		return nil, err
+	}
+	keyBytes, _ := json.Marshal(normalizeIDs(conversationIDs))
+	key := string(keyBytes)
+	reuse := d.systemRetention && !d.LockDetachRows
+	if reuse {
+		if rows, ok := d.goalSnapshots[key]; ok {
+			return rows, nil
+		}
 	}
 	goals := &goalread.GoalInput{}
 	goals.SetConversationIDs(conversationIDs)
@@ -137,6 +149,12 @@ func (d *Discoverer) goalRows(ctx context.Context, conversationIDs []string) ([]
 	goalOutput, ok := value.(*goalread.GoalOutput)
 	if !ok || goalOutput == nil {
 		return nil, fmt.Errorf("goal reader returned %T", value)
+	}
+	if reuse {
+		if d.goalSnapshots == nil {
+			d.goalSnapshots = map[string][]*goalread.GoalView{}
+		}
+		d.goalSnapshots[key] = goalOutput.Data
 	}
 	return goalOutput.Data, nil
 }

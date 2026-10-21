@@ -49,7 +49,7 @@ func (p *technicalCleanupPolicy) SelectCandidates(ctx context.Context, cursor co
 		return nil, fmt.Errorf("conversation cleanup data service is unavailable")
 	}
 	if cursor.RootID == "" {
-		p.evaluatedAt = p.now().UTC()
+		p.evaluatedAt = cleanupPassTime(ctx, p.now)
 		p.cutoff = p.evaluatedAt.Add(-p.retention)
 	}
 	rows, err := p.data.ListTechnicalMaintenanceCandidates(ctx, coredata.TechnicalMaintenanceCandidateRequest{

@@ -13,10 +13,47 @@ import (
 	payloaddelete "github.com/viant/agently-core/internal/datly/payload/delete"
 	read "github.com/viant/agently-core/internal/datly/payload/reference"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	dexec "github.com/viant/datly/exec"
 )
 
 type payloadTestInvoker func(context.Context, dexec.ComponentRequest) (any, error)
+
+type payloadCountingReporter struct{ calls int }
+
+func (r *payloadCountingReporter) MutationReport() dexec.MutationReport {
+	r.calls++
+	return dexec.MutationReport{}
+}
+
+func TestCleanupPayloadEffectsAreNotRescannedWhenDiagnosticsAreOff(t *testing.T) {
+	t.Setenv(maintenancediag.Env, "0")
+	t.Setenv(maintenancediag.DetailsEnv, "0")
+	reporter := &payloadCountingReporter{}
+	store := &PayloadStore{Invoker: payloadTestInvoker(func(ctx context.Context, request dexec.ComponentRequest) (any, error) {
+		switch input := request.Input.(type) {
+		case *read.Input:
+			out := &read.Output{}
+			for _, id := range input.Ids {
+				out.Data = append(out.Data, &read.PayloadView{Id: id})
+			}
+			return out, nil
+		case *payloaddelete.Input:
+			maintenancetx.RecordImmediate(ctx, "call_payload", int64(len(input.Payloads)))
+			return &payloaddelete.Output{}, nil
+		}
+		return nil, errors.New("unexpected input")
+	})}
+	outer := payloadTestInvoker(func(ctx context.Context, _ dexec.ComponentRequest) (any, error) {
+		maintenancetx.Observe(ctx, reporter)
+		return nil, store.DeleteUnreferencedTrusted(ctx, payloadTestIDs(500)...)
+	})
+	_, effects, err := maintenancetx.Invoke(context.Background(), outer, func(ctx context.Context) (context.Context, error) { return ctx, nil }, dexec.ComponentRequest{})
+	require.NoError(t, err)
+	require.Zero(t, reporter.calls, "optional diagnostic counters must not copy the journal per chunk")
+	require.EqualValues(t, 500, effects.DeletedRows(), "post-commit accounting is unchanged")
+	require.Equal(t, 1, reporter.calls)
+}
 
 func (f payloadTestInvoker) InvokeComponent(ctx context.Context, request dexec.ComponentRequest) (any, error) {
 	return f(ctx, request)

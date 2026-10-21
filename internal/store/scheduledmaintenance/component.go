@@ -12,6 +12,7 @@ import (
 	legacyread "github.com/viant/agently-core/internal/datly/legacyrun/read"
 	runread "github.com/viant/agently-core/internal/datly/run/read"
 	schedread "github.com/viant/agently-core/internal/datly/schedule/read"
+	turnread "github.com/viant/agently-core/internal/datly/turn/read"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
 	lease "github.com/viant/agently-core/internal/store/maintenancelease"
@@ -143,11 +144,38 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 	}
 	query := &convread.ConversationInput{}
 	query.SetScheduleRunId(selected.ID)
-	roots, err := conversationRoots(ctx, deps.Invoker, []string{selected.ConversationID}, query)
+	d := tree.NewSystemDiscoverer(deps.Invoker, deps.Schema)
+	rootRows, err := conversationRoots(ctx, d.Invoker, []string{selected.ConversationID}, query)
 	if err != nil {
+		if errors.Is(err, tree.ErrGraphReferenced) {
+			result.Reason = "graph_referenced"
+			return nil
+		}
 		return err
 	}
-	d := tree.NewSystemDiscoverer(deps.Invoker, deps.Schema)
+	roots := make([]string, 0, len(rootRows))
+	var rootActivity time.Time
+	for _, row := range rootRows {
+		if deref(row.ConversationParentId) != "" || deref(row.ConversationParentTurnId) != "" {
+			result.Reason = "not_root"
+			return nil
+		}
+		activity, known := parseActivity(deref(row.ActivityRaw))
+		if !known {
+			result.Reason = "activity_unknown"
+			return nil
+		}
+		rootActivity = later(rootActivity, activity)
+		roots = append(roots, row.Id)
+	}
+	if len(roots) > 0 {
+		result.LastActivity = rootActivity
+		d.QualifyRootRetention()
+	}
+	if result.LastActivity.After(input.InactiveBefore) {
+		result.Reason = "recent_activity"
+		return nil
+	}
 	graph, err := d.Discover(ctx, roots...)
 	if err != nil {
 		if errors.Is(err, tree.ErrNotFound) {
@@ -161,41 +189,6 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 		return err
 	}
 	result.ConversationCount = len(graph.Nodes)
-	if deleting {
-		graph, err = d.Discover(ctx, roots...)
-		if err != nil {
-			if errors.Is(err, tree.ErrNotFound) {
-				result.Reason = "not_found"
-				return nil
-			}
-			return err
-		}
-		result.ConversationCount = len(graph.Nodes)
-	}
-	// Structural containment precedes preparation's additional internal-wakeup
-	// dependencies, matching the legacy order without historical owner checks.
-	evidence, err := d.CollectRunEvidence(ctx, graph)
-	if err != nil {
-		return err
-	}
-	if err = validateScope(ctx, deps, graph, evidence, selected); err != nil {
-		if errors.Is(err, tree.ErrGraphReferenced) {
-			result.Reason = "graph_referenced"
-			return nil
-		}
-		return err
-	}
-	if len(graph.Nodes) > 0 {
-		activity, known, err := graphActivity(ctx, deps, graph)
-		if err != nil {
-			return err
-		}
-		if !known {
-			result.Reason = "activity_unknown"
-			return nil
-		}
-		result.LastActivity = later(result.LastActivity, activity)
-	}
 	current, legacy := []string{}, []string{}
 	if selected.Source == "schedule_run" {
 		legacy = []string{selected.ID}
@@ -212,34 +205,25 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 		}
 		return err
 	}
-	if err = d.RefreshDeletePlanRunEvidence(ctx, plan); err != nil {
-		return err
-	}
-	related, known, err := relatedActivity(ctx, deps, plan)
-	if err != nil {
-		return err
-	}
-	if known {
-		result.LastActivity = later(result.LastActivity, related)
-	}
-	if result.LastActivity.After(input.InactiveBefore) {
-		result.Reason = "recent_activity"
-		return nil
-	}
-	if err = (&tree.RunEvidence{Current: plan.Runs, Legacy: plan.LegacyRuns}).Validate(time.Now().UTC()); err != nil {
-		if errors.Is(err, tree.ErrConversationActive) {
-			result.Reason = "live_run"
+	evidence := &tree.RunEvidence{Current: plan.Runs, Legacy: plan.LegacyRuns}
+	classification := deps
+	classification.Invoker = d.Invoker
+	if err = validateScope(ctx, classification, graph, evidence, selected, plan.ScheduleIDs); err != nil {
+		if errors.Is(err, tree.ErrGraphReferenced) {
+			result.Reason = "graph_referenced"
 			return nil
 		}
 		return err
 	}
-	for _, job := range plan.ReportJobs {
-		if job != nil {
-			switch strings.ToLower(strings.TrimSpace(job.Status)) {
-			case "queued", "running":
-				result.Reason = "active_report_export"
+	// A run with no surviving conversation has no qualified root. Preserve
+	// its own retention and lease/heartbeat protection.
+	if len(roots) == 0 {
+		if err = evidence.Validate(now); err != nil {
+			if errors.Is(err, tree.ErrConversationActive) {
+				result.Reason = "live_run"
 				return nil
 			}
+			return err
 		}
 	}
 	result.Eligible = true
@@ -315,75 +299,7 @@ func selectSchedule(ctx context.Context, deps dependencies, id string, lock bool
 	}
 	return out.Data[0], nil
 }
-func graphActivity(ctx context.Context, deps dependencies, graph *tree.Graph) (time.Time, bool, error) {
-	ids := make([]string, 0, len(graph.Nodes))
-	for id := range graph.Nodes {
-		ids = append(ids, id)
-	}
-	query := &convread.ConversationInput{}
-	query.SetIds(ids)
-	rows, err := ReadConversations(ctx, deps.Invoker, query, nil, false)
-	if err != nil {
-		return time.Time{}, false, err
-	}
-	seen := 0
-	var latest time.Time
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		value, known := parseActivity(deref(row.ActivityRaw))
-		if !known {
-			return time.Time{}, false, nil
-		}
-		seen++
-		latest = later(latest, value)
-	}
-	return latest, seen == len(ids) && seen > 0, nil
-}
-func relatedActivity(ctx context.Context, deps dependencies, plan *tree.DeletePlan) (time.Time, bool, error) {
-	var latest time.Time
-	known := false
-	fields := []string{"id", "activity_raw"}
-	if len(plan.RunIDs) > 0 {
-		query := &runread.RunRowsInput{}
-		query.SetIds(plan.RunIDs)
-		out, err := ReadCurrentRuns(ctx, deps.Invoker, query, fields, false)
-		if err != nil {
-			return time.Time{}, false, err
-		}
-		for _, row := range out {
-			if row != nil {
-				value, ok := parseActivity(deref(row.ActivityRaw))
-				if !ok {
-					return time.Time{}, false, nil
-				}
-				known = true
-				latest = later(latest, value)
-			}
-		}
-	}
-	if plan.Tables["schedule_run"] && len(plan.ScheduleRunIDs) > 0 {
-		query := &legacyread.Input{}
-		query.SetIDs(plan.ScheduleRunIDs)
-		out, err := readRows[legacyread.Output](ctx, deps.Invoker, legacyTarget, query, providers("schedulerunaccess", "rows", false, fields), false)
-		if err != nil {
-			return time.Time{}, false, err
-		}
-		for _, row := range out.Data {
-			if row != nil {
-				value, ok := parseActivity(deref(row.ActivityRaw))
-				if !ok {
-					return time.Time{}, false, nil
-				}
-				known = true
-				latest = later(latest, value)
-			}
-		}
-	}
-	return latest, known, nil
-}
-func validateScope(ctx context.Context, deps dependencies, graph *tree.Graph, evidence *tree.RunEvidence, selected *selectedRun) error {
+func validateScope(ctx context.Context, deps dependencies, graph *tree.Graph, evidence *tree.RunEvidence, selected *selectedRun, internalSchedules []string) error {
 	for _, node := range graph.Nodes {
 		if node != nil && strings.TrimSpace(node.ScheduleRunID) != "" && strings.TrimSpace(node.ScheduleRunID) != selected.ID {
 			return tree.ErrGraphReferenced
@@ -406,13 +322,17 @@ func validateScope(ctx context.Context, deps dependencies, graph *tree.Graph, ev
 			}
 		}
 	}
+	internal := map[string]bool{}
+	for _, id := range internalSchedules {
+		internal[id] = true
+	}
 	for _, row := range evidence.Current {
-		if row != nil && deref(row.ScheduleId) != "" && (strings.TrimSpace(row.Id) != selected.ID || deref(row.ScheduleId) != selected.ScheduleID) {
+		if row != nil && !internal[deref(row.ScheduleId)] && deref(row.ScheduleId) != "" && (strings.TrimSpace(row.Id) != selected.ID || deref(row.ScheduleId) != selected.ScheduleID) {
 			return tree.ErrGraphReferenced
 		}
 	}
 	for _, row := range evidence.Legacy {
-		if row != nil && (strings.TrimSpace(row.Id) != selected.ID || strings.TrimSpace(row.ScheduleId) != selected.ScheduleID) {
+		if row != nil && !internal[strings.TrimSpace(row.ScheduleId)] && (strings.TrimSpace(row.Id) != selected.ID || strings.TrimSpace(row.ScheduleId) != selected.ScheduleID) {
 			return tree.ErrGraphReferenced
 		}
 	}
@@ -438,7 +358,7 @@ type skipped struct{ result *Output }
 
 func (*skipped) Error() string { return "scheduled maintenance skipped" }
 
-func conversationRoots(ctx context.Context, invoker dexec.ComponentInvoker, ids []string, query *convread.ConversationInput) ([]string, error) {
+func conversationRoots(ctx context.Context, invoker dexec.ComponentInvoker, ids []string, query *convread.ConversationInput) ([]*convread.ConversationView, error) {
 	fields := []string{"id", "conversation_parent_id", "created_at_raw"}
 	byID := map[string]*convread.ConversationView{}
 	queries := []*convread.ConversationInput{query}
@@ -468,10 +388,33 @@ func conversationRoots(ctx context.Context, invoker dexec.ComponentInvoker, ids 
 		}
 	}
 	roots := []*convread.ConversationView{}
+	conversationIDs := make([]string, 0, len(byID))
+	for id := range byID {
+		conversationIDs = append(conversationIDs, id)
+	}
+	insideTurns := map[string]bool{}
+	if len(conversationIDs) > 0 {
+		turnQuery := &turnread.TurnRowsInput{}
+		turnQuery.SetConversationIDs(conversationIDs)
+		turns, err := tree.ReadCleanupTurns(ctx, invoker, turnQuery, false)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range turns {
+			if row != nil {
+				insideTurns[row.Id] = true
+			}
+		}
+	}
 	for _, row := range byID {
-		if byID[deref(row.ConversationParentId)] == nil {
+		if byID[deref(row.ConversationParentId)] == nil && !insideTurns[deref(row.ConversationParentTurnId)] {
 			roots = append(roots, row)
 		}
+	}
+	// A closed parent cycle is not a run-only execution. Without a root we
+	// cannot qualify its age, and must not delete the run out from under it.
+	if len(byID) > 0 && len(roots) == 0 {
+		return nil, tree.ErrGraphReferenced
 	}
 	sort.SliceStable(roots, func(i, j int) bool {
 		left, _ := parseActivity(deref(roots[i].CreatedAtRaw))
@@ -481,11 +424,7 @@ func conversationRoots(ctx context.Context, invoker dexec.ComponentInvoker, ids 
 		}
 		return left.Before(right)
 	})
-	result := make([]string, 0, len(roots))
-	for _, row := range roots {
-		result = append(result, row.Id)
-	}
-	return result, nil
+	return roots, nil
 }
 
 // Classification reads use host-only compact metadata; candidate pagination
@@ -502,8 +441,5 @@ func ReadLegacyRuns(ctx context.Context, invoker dexec.ComponentInvoker, input *
 		return nil, err
 	}
 	return out.Data, nil
-}
-func GraphActivity(ctx context.Context, invoker dexec.ComponentInvoker, graph *tree.Graph) (time.Time, bool, error) {
-	return graphActivity(ctx, dependencies{Invoker: invoker}, graph)
 }
 func PrepareReason(err error) (string, bool) { return prepareReason(err) }
