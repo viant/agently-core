@@ -73,10 +73,13 @@ func (c conversationCleanupCandidate) cursor() conversationCleanupCursor {
 }
 
 type conversationCleanupOutcome struct {
-	Eligible bool
-	Deleted  bool
-	Mutated  bool
-	Reason   string
+	Eligible         bool
+	Deleted          bool
+	Mutated          bool
+	Reason           string
+	Partial          bool
+	CommittedBatches int
+	AffectedRows     int64
 }
 
 type conversationCleanupPolicy interface {
@@ -93,6 +96,9 @@ type Result struct {
 	Mutated              int
 	Skipped              int
 	Failed               int
+	Partial              int
+	CommittedBatches     int
+	AffectedRows         int64
 	OverlapSkipped       bool
 	LeaseSkipped         bool
 	LeaseOwnerID         string
@@ -117,6 +123,9 @@ func (r *Result) add(other Result) {
 	r.Mutated += other.Mutated
 	r.Skipped += other.Skipped
 	r.Failed += other.Failed
+	r.Partial += other.Partial
+	r.CommittedBatches += other.CommittedBatches
+	r.AffectedRows += other.AffectedRows
 	r.OverlapSkipped = r.OverlapSkipped || other.OverlapSkipped
 	for reason, count := range other.Reasons {
 		if r.Reasons == nil {
@@ -236,13 +245,14 @@ func (w *Worker) runAndLog(ctx context.Context) {
 	}
 	for _, policyResult := range result.PolicyResults {
 		policy := policyResult.Result
-		log.Printf("conversation cleanup: policy finished policy=%s duration=%s scanned=%d eligible=%d deleted=%d mutated=%d skipped=%d failed=%d reasons=%s err=%v",
+		log.Printf("conversation cleanup: policy finished policy=%s duration=%s scanned=%d eligible=%d deleted=%d mutated=%d skipped=%d failed=%d partial=%d committed_batches=%d affected_rows=%d reasons=%s err=%v",
 			policyResult.Name, policyResult.Duration.Round(time.Millisecond), policy.Scanned, policy.Eligible,
 			policy.Deleted, policy.Mutated, policy.Skipped, policy.Failed,
+			policy.Partial, policy.CommittedBatches, policy.AffectedRows,
 			formatConversationCleanupReasons(policy.Reasons), policyResult.Err)
 	}
-	log.Printf("conversation cleanup: pass finished duration=%s scanned=%d eligible=%d deleted=%d mutated=%d skipped=%d failed=%d expired_leases_deleted=%d reasons=%s err=%v",
-		time.Since(started).Round(time.Millisecond), result.Scanned, result.Eligible, result.Deleted, result.Mutated, result.Skipped, result.Failed, result.ExpiredLeasesDeleted, formatConversationCleanupReasons(result.Reasons), err)
+	log.Printf("conversation cleanup: pass finished duration=%s scanned=%d eligible=%d deleted=%d mutated=%d skipped=%d failed=%d partial=%d committed_batches=%d affected_rows=%d expired_leases_deleted=%d reasons=%s err=%v",
+		time.Since(started).Round(time.Millisecond), result.Scanned, result.Eligible, result.Deleted, result.Mutated, result.Skipped, result.Failed, result.Partial, result.CommittedBatches, result.AffectedRows, result.ExpiredLeasesDeleted, formatConversationCleanupReasons(result.Reasons), err)
 }
 
 // RunPass runs one cleanup pass, respecting local and distributed leases.
@@ -463,15 +473,32 @@ func runConversationCleanupPolicy(ctx context.Context, policy conversationCleanu
 				candidateStarted = time.Now()
 			}
 			outcome, err := policy.ProcessCandidate(ctx, candidate)
+			// A later unit's error cannot erase earlier confirmed commits.
+			result.CommittedBatches += outcome.CommittedBatches
+			result.AffectedRows += outcome.AffectedRows
+			if outcome.Partial {
+				result.Partial++
+				if outcome.Eligible {
+					result.Eligible++
+				}
+				if outcome.AffectedRows > 0 {
+					result.Mutated++
+				}
+				processedEligible++
+			}
 			if err != nil {
 				result.Failed++
 				result.addReason("error")
 				if debug {
-					log.Printf("conversation cleanup: policy=%s %s duration=%s failed: %v", policy.Name(), formatConversationCleanupCandidate(candidate), time.Since(candidateStarted), err)
+					log.Printf("conversation cleanup: policy=%s %s duration=%s partial=%t committed_batches=%d affected_rows=%d failed: %v", policy.Name(), formatConversationCleanupCandidate(candidate), time.Since(candidateStarted), outcome.Partial, outcome.CommittedBatches, outcome.AffectedRows, err)
 				}
 				if errors.Is(err, coredata.ErrMaintenanceLeaseLost) {
 					return result, err
 				}
+				continue
+			}
+			if outcome.Partial {
+				result.addReason(outcome.Reason)
 				continue
 			}
 			if outcome.Eligible {

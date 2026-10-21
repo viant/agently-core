@@ -47,10 +47,48 @@ func Prepare(ctx context.Context, inspector DriverInspector) (context.Context, e
 type attemptKey struct{}
 
 // Effects separates immediate SQL counts from the native journal. Counts are
-// published only after a successful invocation; rollback never reports progress.
+// published only after a confirmed commit (including post-commit errors);
+// rollback and unknown outcomes never report progress.
 type Effects struct {
 	reporter  dexec.MutationReporter
 	immediate map[string]int64
+	committed bool
+}
+
+// Summary is a single post-commit scan of explicit DML. FK cascades are not
+// counted, and immediate bulk counts exclude their journalled anchor.
+type Summary struct {
+	AffectedRows   int64
+	DeletedRows    int64
+	DeletedByTable map[string]int64
+}
+
+func (e *Effects) CommitSummary() (Summary, error) {
+	result := Summary{DeletedByTable: map[string]int64{}}
+	if e == nil || !e.committed {
+		return result, fmt.Errorf("cleanup commit outcome is not confirmed")
+	}
+	for table, affected := range e.immediate {
+		result.AffectedRows += affected
+		result.DeletedRows += affected
+		result.DeletedByTable[table] += affected
+	}
+	if e.reporter != nil {
+		for _, row := range e.reporter.MutationReport().Results {
+			if row.Error != nil {
+				continue
+			}
+			switch row.Operation {
+			case "insert", "update", "delete":
+				result.AffectedRows += row.Affected
+			}
+			if row.Operation == "delete" {
+				result.DeletedRows += row.Affected
+				result.DeletedByTable[row.Table] += row.Affected
+			}
+		}
+	}
+	return result, nil
 }
 
 func current(ctx context.Context) *Effects {
@@ -119,8 +157,9 @@ func (e *GuardChanged) Error() string {
 }
 func (e *GuardChanged) Unwrap() error { return e.Cause }
 
-// Invoke owns the only retry loop. A fresh preflight and component invocation
-// rebuild every read and plan. Completion evidence, not an SQL error alone,
+// Invoke owns the only retry loop. Each attempt reruns preflight and the current
+// component's reads. A planning attempt rebuilds its plan; a unit retains only
+// its already-qualified key set. Completion evidence, not an SQL error alone,
 // proves rollback. Caller-owned, unknown and committed outcomes never replay.
 func Invoke(ctx context.Context, invoker dexec.ComponentInvoker, preflight func(context.Context) (context.Context, error), request dexec.ComponentRequest) (any, *Effects, error) {
 	if Enabled(ctx) {
@@ -146,8 +185,13 @@ func Invoke(ctx context.Context, invoker dexec.ComponentInvoker, preflight func(
 		var outcome xhandler.Outcome
 		request.Completion = func(result xhandler.Outcome) { outcome = result.Clone() }
 		value, err := invoker.InvokeComponent(scope, request)
+		effects.committed = len(outcome.Transactions) == 1 && outcome.Transactions[0].State == xhandler.TransactionCommitted
 		if err == nil {
 			return value, effects, nil
+		}
+		if effects.committed {
+			// A post-commit failure must neither replay nor hide confirmed work.
+			return value, effects, err
 		}
 		guard := nativeGuardMiss(err)
 		if !rolledBack(outcome) || !onlyRetryable(err) {

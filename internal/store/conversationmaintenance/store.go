@@ -126,7 +126,9 @@ func (s *Store) Maintain(ctx context.Context, input *Input) (result *Output, ret
 		}
 		return nil, false, nil
 	})}
+	ctx, capture := tree.WithMaintenancePlanCapture(ctx)
 	value, effects, err := maintenancetx.Invoke(ctx, s.Invoker, func(scope context.Context) (context.Context, error) {
+		capture.Reset()
 		if input.Mode == "delete" {
 			var err error
 			scope, err = (&maintenancelease.Store{Invoker: s.Invoker}).Preflight(scope, input.Lease)
@@ -138,6 +140,21 @@ func (s *Store) Maintain(ctx context.Context, input *Input) (result *Output, ret
 		return maintenancetx.Prepare(scope, driver)
 	}, dexec.ComponentRequest{Target: maintainTarget, Input: input, Providers: providers})
 	if err != nil {
+		if effects != nil {
+			summary, summaryErr := effects.CommitSummary()
+			if summaryErr != nil {
+				return nil, errors.Join(err, summaryErr)
+			}
+			out, _ := value.(*Output)
+			if out == nil {
+				out = &Output{RootID: input.RootID, Kind: input.Kind, Mode: input.Mode}
+			}
+			progress := tree.MaintenanceProgress{}
+			progress.Add(summary)
+			out.Partial, out.CommittedBatches, out.AffectedRows = progress.AffectedRows > 0, progress.CommittedBatches, progress.AffectedRows
+			out.ConversationCount, out.Deleted, out.Reason = progress.ConversationCount, false, "partial_error"
+			return out, err
+		}
 		var guarded *maintenancetx.GuardChanged
 		if errors.As(err, &guarded) {
 			return &Output{RootID: input.RootID, Kind: input.Kind, Mode: input.Mode, Reason: "protected_by_guard"}, nil
@@ -153,8 +170,30 @@ func (s *Store) Maintain(ctx context.Context, input *Input) (result *Output, ret
 		return nil, fmt.Errorf("conversation maintenance returned %T", value)
 	}
 	if input.Mode == "delete" {
-		out.ConversationCount = int(effects.Deleted("conversation"))
-		out.Deleted = out.ConversationCount > 0
+		var progress tree.MaintenanceProgress
+		if capture.HasPlan() {
+			if _, err = effects.CommitSummary(); err == nil {
+				progress, err = capture.Apply(ctx, s.Invoker, input.Lease)
+			}
+		} else {
+			var summary maintenancetx.Summary
+			summary, err = effects.CommitSummary()
+			if err == nil {
+				progress.Add(summary)
+			}
+		}
+		out.Partial, out.CommittedBatches, out.AffectedRows = progress.Partial, progress.CommittedBatches, progress.AffectedRows
+		out.ConversationCount = progress.ConversationCount
+		out.Deleted = err == nil && out.ConversationCount > 0
+		if err != nil {
+			out.Reason = "partial_error"
+			var guarded *maintenancetx.GuardChanged
+			if errors.As(err, &guarded) {
+				out.Reason = "protected_by_guard"
+			}
+			return out, err
+		}
+		out.Reason = "deleted"
 		if !out.Deleted && out.Eligible {
 			out.Reason = "already_deleted"
 		}
