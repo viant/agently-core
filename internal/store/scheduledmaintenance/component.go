@@ -38,7 +38,7 @@ type Output struct {
 	LastActivity                            time.Time
 }
 
-// Scheduled retention shares immediate fence and graph-child visibility.
+// The Store checks the lease before invoking this graph-mutation transaction.
 // Imperative composition preserves the same parent-owned transaction.
 type Component struct {
 	Contract xdatly.Component[Input, Output] `component:"ScheduledRunMaintenance,path=/v1/internal/agently/scheduled-run/maintenance,method=POST,handler=NewMaintain,internal=true" componentCallPolicy:"imperative"`
@@ -81,6 +81,12 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 	if input.RunID == "" || input.InactiveBefore.IsZero() || (input.Mode != DryRun && input.Mode != DeleteMode) {
 		return fmt.Errorf("invalid scheduled maintenance request")
 	}
+	deleting := input.Mode == DeleteMode
+	if deleting {
+		if _, err := lease.CheckedAt(ctx, input.Lease); err != nil {
+			return err
+		}
+	}
 	var err error
 	ctx, err = tree.PinGraphReader(ctx)
 	if err != nil {
@@ -97,12 +103,6 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
-	}
-	deleting := input.Mode == DeleteMode
-	if deleting {
-		if _, err := (&lease.Store{Invoker: deps.Invoker}).Fence(ctx, input.Lease); err != nil {
-			return err
-		}
 	}
 	output.RunID = input.RunID
 	output.Mode = input.Mode
@@ -444,7 +444,7 @@ func prepareReason(err error) (string, bool) {
 }
 
 // A skipped delete is a private failure outcome so the managed runtime rolls
-// back the fence alongside the graph. The facade returns its stable decision.
+// back graph mutations. The facade returns its stable decision.
 type skipped struct{ result *Output }
 
 func (*skipped) Error() string { return "scheduled maintenance skipped" }

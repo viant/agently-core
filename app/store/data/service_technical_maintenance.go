@@ -124,7 +124,7 @@ func (s *datlyService) ListTechnicalMaintenanceCandidates(ctx context.Context, r
 	return result, nil
 }
 
-// MaintainTechnicalCandidate enters the lease-fenced private managed unit.
+// MaintainTechnicalCandidate checks the lease before entering the private managed unit.
 func (s *datlyService) MaintainTechnicalCandidate(ctx context.Context, request TechnicalMaintenanceRequest) (*TechnicalMaintenanceResult, error) {
 	request.RecordID = strings.TrimSpace(request.RecordID)
 	request.OlderThan = request.OlderThan.UTC()

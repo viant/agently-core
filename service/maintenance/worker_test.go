@@ -3,13 +3,17 @@ package maintenance
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	coredata "github.com/viant/agently-core/app/store/data"
 )
 
 func TestConversationCleanupCandidateDurationRequiresDebug(t *testing.T) {
@@ -347,6 +351,177 @@ func TestConversationCleanupWorkerStopsPoliciesWhenLeaseRenewalFails(t *testing.
 	}
 	if next.selectCalls != 0 {
 		t.Fatalf("worker continued after renewal failure; next selects=%d", next.selectCalls)
+	}
+}
+
+type shutdownRenewData struct {
+	recordingConversationCleanupData
+	renew func(context.Context) (*coredata.MaintenanceLeaseRenewResult, error)
+}
+
+func (d *shutdownRenewData) RenewMaintenanceLease(ctx context.Context, _ coredata.MaintenanceLease, _ time.Duration) (*coredata.MaintenanceLeaseRenewResult, error) {
+	return d.renew(ctx)
+}
+
+func TestConversationCleanupHeartbeatDoesNotCatchUpAfterSlowRenew(t *testing.T) {
+	const interval = 20 * time.Millisecond
+	first := make(chan struct{})
+	release := make(chan struct{})
+	second := make(chan time.Time, 1)
+	var firstFinished time.Time
+	calls := 0
+	data := &shutdownRenewData{renew: func(ctx context.Context) (*coredata.MaintenanceLeaseRenewResult, error) {
+		calls++
+		if calls == 1 {
+			close(first)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			firstFinished = time.Now()
+		} else {
+			second <- time.Now()
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return &coredata.MaintenanceLeaseRenewResult{Renewed: true}, nil
+	}}
+	worker := newConversationCleanupWorker(data, Options{})
+	worker.leaseRenewInterval = interval
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(errCleanupPassFinished)
+	done := make(chan error, 1)
+	go func() { done <- worker.renewConversationCleanupLease(ctx, coredata.MaintenanceLease{}) }()
+	select {
+	case <-first:
+	case <-time.After(3 * time.Second):
+		t.Fatal("first renewal did not start")
+	}
+	// Ensure a ticker would have accumulated a pending tick while Renew ran.
+	time.Sleep(3 * interval)
+	close(release)
+	select {
+	case started := <-second:
+		if started.Sub(firstFinished) < interval {
+			t.Errorf("renewals ran back-to-back: interval=%s", started.Sub(firstFinished))
+		}
+	case <-time.After(3 * time.Second):
+		t.Error("second renewal did not start")
+	}
+	cancel(errCleanupPassFinished)
+	if err := <-done; err != nil {
+		t.Fatalf("normal heartbeat shutdown failed: %v", err)
+	}
+}
+
+func TestConversationCleanupWorkerFinishDuringRenew(t *testing.T) {
+	sqlFailure := errors.New("SQL renewal failed")
+	for _, scenario := range []string{"own_cancel", "wrapped_cancel", "canceled_transaction", "transaction_error", "sql_error", "joined_sql_error", "lease_lost", "parent_cancel", "parent_deadline"} {
+		t.Run(scenario, func(t *testing.T) {
+			entered := make(chan struct{})
+			data := &shutdownRenewData{renew: func(ctx context.Context) (*coredata.MaintenanceLeaseRenewResult, error) {
+				close(entered)
+				<-ctx.Done()
+				switch scenario {
+				case "sql_error":
+					return nil, sqlFailure
+				case "joined_sql_error":
+					return nil, errors.Join(ctx.Err(), sqlFailure)
+				case "canceled_transaction":
+					return nil, errors.Join(ctx.Err(), sql.ErrTxDone)
+				case "transaction_error":
+					return nil, sql.ErrTxDone
+				case "lease_lost":
+					return &coredata.MaintenanceLeaseRenewResult{Renewed: false}, nil
+				case "wrapped_cancel":
+					return nil, fmt.Errorf("renew interrupted: %w", ctx.Err())
+				default:
+					return nil, ctx.Err()
+				}
+			}}
+			held := newHeldConversationCleanupPolicy()
+			worker := newConversationCleanupWorker(data, Options{Enabled: true, BatchSize: 1}, held)
+			worker.leaseRenewInterval = time.Millisecond
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if scenario == "parent_deadline" {
+				var stop context.CancelFunc
+				ctx, stop = context.WithTimeout(ctx, 100*time.Millisecond)
+				defer stop()
+			}
+			done := make(chan error, 1)
+			go func() { _, err := worker.RunPass(ctx); done <- err }()
+			select {
+			case <-entered:
+			case <-time.After(3 * time.Second):
+				t.Fatal("renewal did not start")
+			}
+			if scenario == "parent_cancel" {
+				cancel()
+			}
+			if scenario == "parent_deadline" {
+				<-ctx.Done()
+			}
+			close(held.release) // Finish only after Renew is definitely in flight.
+			var err error
+			select {
+			case err = <-done:
+			case <-time.After(3 * time.Second):
+				t.Fatal("worker did not join heartbeat")
+			}
+			switch scenario {
+			case "own_cancel", "wrapped_cancel", "canceled_transaction":
+				if err != nil {
+					t.Fatalf("normal shutdown reported failure: %v", err)
+				}
+			case "sql_error", "joined_sql_error":
+				if !errors.Is(err, sqlFailure) {
+					t.Fatalf("SQL error masked: %v", err)
+				}
+			case "transaction_error":
+				if !errors.Is(err, sql.ErrTxDone) {
+					t.Fatalf("transaction error masked: %v", err)
+				}
+			case "lease_lost":
+				if !errors.Is(err, coredata.ErrMaintenanceLeaseLost) {
+					t.Fatalf("lease loss masked: %v", err)
+				}
+			case "parent_cancel":
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("parent cancellation masked: %v", err)
+				}
+			case "parent_deadline":
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("parent deadline masked: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestConversationCleanupWorkerStopsImmediatelyOnCandidateLeaseLoss(t *testing.T) {
+	for _, fromSelection := range []bool{false, true} {
+		t.Run(fmt.Sprintf("selection=%t", fromSelection), func(t *testing.T) {
+			first := eligibleConversationCleanupPolicy("first", "a", "b")
+			first.failures = map[string]error{"a": fmt.Errorf("preflight: %w", coredata.ErrMaintenanceLeaseLost)}
+			var policy conversationCleanupPolicy = first
+			if fromSelection {
+				policy = &failingConversationCleanupPolicy{name: "first", err: coredata.ErrMaintenanceLeaseLost}
+			}
+			next := eligibleConversationCleanupPolicy("next", "c")
+			worker := newTestConversationCleanupWorker(Options{Enabled: true, BatchSize: 10}, policy, next)
+			result, err := worker.RunPass(context.Background())
+			if !errors.Is(err, coredata.ErrMaintenanceLeaseLost) {
+				t.Fatalf("lease loss not propagated: %v", err)
+			}
+			if len(result.PolicyResults) != 1 || next.selectCalls != 0 {
+				t.Fatalf("continued to next policy: %+v", result)
+			}
+			if !fromSelection && !reflect.DeepEqual(first.processed, []string{"a"}) {
+				t.Fatalf("continued to next candidate: %v", first.processed)
+			}
+		})
 	}
 }
 

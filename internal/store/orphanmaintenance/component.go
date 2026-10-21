@@ -57,6 +57,9 @@ func (*Apply) Exec(ctx context.Context, session handler.Session, input *ApplyInp
 	if err != nil {
 		return err
 	}
+	if _, err := maintenance.CheckedAt(ctx, request.Lease); err != nil {
+		return err
+	}
 	deps := struct {
 		Invoker  dexec.ComponentInvoker     `bind:"kind=component_invoker,required"`
 		Starter  handler.TransactionStarter `bind:"kind=transactionStarter,required"`
@@ -84,9 +87,6 @@ func (*Apply) Exec(ctx context.Context, session handler.Session, input *ApplyInp
 	deps.Invoker = maintenancediag.Wrap(ctx, deps.Invoker)
 	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
 	if err := deps.Starter.Start(ctx); err != nil {
-		return err
-	}
-	if _, err := (&maintenance.Store{Invoker: deps.Invoker}).Fence(ctx, request.Lease); err != nil {
 		return err
 	}
 	result := &Result{RuleID: rule.ID, RecordID: request.RecordID, Action: rule.Action, Reason: NoLongerEligible}

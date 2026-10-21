@@ -39,7 +39,7 @@ type Output struct {
 	LastActivity               time.Time
 }
 
-// Retention must observe its fence and graph-mutation children before returning.
+// The Store checks the lease before invoking this graph-mutation transaction.
 // Imperative composition preserves the same parent-owned transaction.
 type Component struct {
 	Contract xdatly.Component[Input, Output] `component:"ConversationMaintenance,path=/v1/internal/agently/conversation/maintenance,method=POST,handler=NewMaintain,internal=true" componentCallPolicy:"imperative"`
@@ -72,6 +72,12 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 	if input.RootID == "" || input.InactiveBefore.IsZero() || (input.Kind != Interactive && input.Kind != Scheduled && input.Kind != Fallback) || (input.Mode != shared.DryRun && input.Mode != shared.DeleteMode) {
 		return fmt.Errorf("invalid conversation maintenance request")
 	}
+	deleting := input.Mode == shared.DeleteMode
+	if deleting {
+		if _, err := lease.CheckedAt(ctx, input.Lease); err != nil {
+			return err
+		}
+	}
 	var err error
 	ctx, err = tree.PinGraphReader(ctx)
 	if err != nil {
@@ -88,12 +94,6 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
-	}
-	deleting := input.Mode == shared.DeleteMode
-	if deleting {
-		if _, err := (&lease.Store{Invoker: deps.Invoker}).Fence(ctx, input.Lease); err != nil {
-			return err
-		}
 	}
 	output.RootID = input.RootID
 	output.Kind = input.Kind

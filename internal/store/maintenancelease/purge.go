@@ -22,8 +22,7 @@ const expiredRetention = 7 * 24 * time.Hour
 
 var ErrLeaseLost = errors.New("maintenance lease is no longer owned by this worker")
 
-// The owner/token fence must execute before any retention deletion proceeds.
-// Its conflict remains visible to this coordinator in the same transaction.
+// DeleteExpired checks ownership before entering this purge transaction.
 type PurgeComponent struct {
 	Contract xdatly.Component[PurgeInput, PurgeOutput] `component:"MaintenanceLeasePurge,path=/v1/internal/agently/maintenance-lease/purge,method=POST,handler=NewPurge,internal=true" componentCallPolicy:"imperative"`
 }
@@ -61,6 +60,10 @@ func (*Purge) Exec(ctx context.Context, session handler.Session, input *PurgeInp
 	if key == "" || owner == "" || token == "" {
 		return ErrInvalidLease
 	}
+	now, err := CheckedAt(ctx, Lease{Key: key, OwnerID: owner, Token: token})
+	if err != nil {
+		return err
+	}
 	deps := struct {
 		Invoker dexec.ComponentInvoker     `bind:"kind=component_invoker,required"`
 		Starter handler.TransactionStarter `bind:"kind=transactionStarter,required"`
@@ -75,10 +78,6 @@ func (*Purge) Exec(ctx context.Context, session handler.Session, input *PurgeInp
 		return err
 	}
 	store := &Store{Invoker: deps.Invoker}
-	now, err := store.Fence(ctx, Lease{Key: key, OwnerID: owner, Token: token})
-	if err != nil {
-		return err
-	}
 	cutoff := now.Add(-expiredRetention)
 	query := &read.Input{}
 	query.SetExpiresBefore(cutoff)
@@ -124,6 +123,10 @@ func (s *Store) DeleteExpired(ctx context.Context, lease Lease) (int64, error) {
 	}
 	if s == nil || s.Invoker == nil {
 		return 0, fmt.Errorf("maintenance lease component invoker is required")
+	}
+	ctx, err := s.Preflight(ctx, lease)
+	if err != nil {
+		return 0, err
 	}
 	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: purgeTarget, Input: &PurgeInput{Key: lease.Key, OwnerID: lease.OwnerID, Token: lease.Token}})
 	if err != nil {
