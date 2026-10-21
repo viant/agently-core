@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	payloaddelete "github.com/viant/agently-core/internal/datly/payload/delete"
@@ -11,6 +12,7 @@ import (
 	write "github.com/viant/agently-core/internal/datly/payload/write"
 	"github.com/viant/agently-core/internal/datly/queryselectors"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
@@ -92,9 +94,10 @@ func (s *PayloadStore) PatchTrustedResult(ctx context.Context, row *write.Payloa
 
 // DeleteUnreferencedTrusted removes only payloads that have no surviving
 // references. The reader skips known shared IDs; the private key-only writer
-// never loads their contents. The row/bulk DELETE guard aborts the caller's
-// transaction if a new reference wins after that read. Sequential bounded
-// invocations share the caller's transaction; this store never commits a chunk.
+// never loads their contents. Write guards protect references added after that
+// read. Manual deletion aborts on a late reference; cleanup may leave guarded
+// rows untouched and report actual counts. Sequential bounded invocations share
+// the caller's transaction; this store never commits a chunk.
 func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...string) (retErr error) {
 	if s == nil || s.Invoker == nil {
 		return fmt.Errorf("payload component store is not configured")
@@ -119,6 +122,9 @@ func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...str
 	}
 	if len(selected) == 0 {
 		return nil
+	}
+	if maintenancetx.Enabled(ctx) {
+		sort.Strings(selected)
 	}
 	done := maintenancediag.Phase(ctx, "payload_delete_batches")
 	var referenceBatches, writerBatches, submitted, sharedSkipped, missing, deleteStatements, affected int
@@ -177,6 +183,9 @@ func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...str
 		if len(mutations) == 0 {
 			continue
 		}
+		if maintenancetx.Enabled(ctx) {
+			sort.Slice(mutations, func(i, j int) bool { return mutations[i].Id < mutations[j].Id })
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -184,6 +193,7 @@ func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...str
 		input.SetPayloads(mutations)
 		writerBatches++
 		submitted += len(mutations)
+		before := maintenancetx.Deleted(ctx, "call_payload")
 		value, err = s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: input, Providers: writerProviders})
 		if err != nil {
 			return err
@@ -192,8 +202,23 @@ func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...str
 		if !ok || output == nil {
 			return fmt.Errorf("payload delete writer returned %T", value)
 		}
-		affected += len(output.Data)
-		if mode == payloaddelete.BulkMode {
+		if maintenancetx.Enabled(ctx) {
+			affected += int(maintenancetx.Deleted(ctx, "call_payload") - before)
+		} else {
+			affected += len(output.Data)
+		}
+		if maintenancetx.Enabled(ctx) {
+			// Bulk uses one native anchor and, when needed, one SQL remainder.
+			// A partially matched remainder has no exact output identity list.
+			if mode == payloaddelete.BulkMode {
+				deleteStatements++
+				if len(mutations) > 1 {
+					deleteStatements++
+				}
+			} else {
+				deleteStatements += len(mutations)
+			}
+		} else if mode == payloaddelete.BulkMode {
 			if len(output.Data) > 0 {
 				deleteStatements++
 			}

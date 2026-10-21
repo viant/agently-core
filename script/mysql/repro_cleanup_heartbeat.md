@@ -83,3 +83,30 @@ The DSN safety unit test runs without MySQL:
 ```sh
 go test -mod=readonly ./service/maintenance -run '^TestCleanupHeartbeatDSNSafety$'
 ```
+
+## Stage 2: concurrent cleanup and non-locking reads
+
+```sh
+CLEANUP_REPRO_STAGE2=1 bash script/mysql/repro_cleanup_heartbeat.sh
+```
+
+Also runs the three heartbeat cases, then the existing MySQL maintenance and
+manual-delete regressions. Stage 2 adds real native transactions proving:
+
+- normal second acquisition skips; forced lease takeover admits two operations
+  on the same tree, with an observed InnoDB write wait;
+- only one operation reports the deleted tree; both finish successfully;
+- captured runtime SQL uses READ COMMITTED, without FOR UPDATE, FOR SHARE or
+  SERIALIZABLE, even when those flags are inherited by the caller;
+- a partially matched payload batch tolerates a disappeared row, preserves a
+  newly added reference and counts only actual deletes;
+- a guarded anchor disappearing during deletion rolls back, rebuilds its plan
+  and finishes as a no-op without reporting false progress;
+- a real forced InnoDB deadlock rolls back cleanup, checks the lease again,
+  replans and commits its second attempt.
+
+The overlap test temporarily enables the **disposable server's** general query
+log and restores its previous settings. Stage 2 connections allow 15 seconds
+of normal write waiting so they can overlap the 10-second trigger; the original
+heartbeat cases retain their 3-second timeout. The harness-only advisory lock
+serializes separate test launches; application cleanup does not acquire it.

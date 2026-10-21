@@ -416,13 +416,15 @@ func readCleanupHeartbeatLockWait(ctx context.Context, db *sql.DB, schema, tag s
 }
 
 func cleanupHeartbeatDeleteThread(ctx context.Context, db *sql.DB, schema, tag string) (uint64, string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT t.THREAD_ID, CAST(x.trx_id AS CHAR)
+	// Use live Performance Schema lock evidence rather than its join with the
+	// cached information_schema.innodb_trx snapshot (which can lag under polling).
+	rows, err := db.QueryContext(ctx, `SELECT t.THREAD_ID, CAST(l.ENGINE_TRANSACTION_ID AS CHAR)
       FROM performance_schema.threads t
-      JOIN information_schema.innodb_trx x ON x.trx_mysql_thread_id=t.PROCESSLIST_ID
+      JOIN performance_schema.data_locks l ON l.THREAD_ID=t.THREAD_ID AND l.LOCK_TYPE='RECORD'
       JOIN performance_schema.session_connect_attrs a ON a.PROCESSLIST_ID=t.PROCESSLIST_ID
       WHERE t.PROCESSLIST_DB=? AND t.PROCESSLIST_STATE='User sleep'
         AND LOWER(COALESCE(t.PROCESSLIST_INFO,'')) LIKE '%sleep(10)%'
-        AND a.ATTR_NAME='cleanup_repro' AND a.ATTR_VALUE=?`, schema, tag)
+        AND a.ATTR_NAME='cleanup_repro' AND a.ATTR_VALUE=? LIMIT 1`, schema, tag)
 	if err != nil {
 		return 0, "", err
 	}

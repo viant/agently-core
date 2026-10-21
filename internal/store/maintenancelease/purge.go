@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
 	read "github.com/viant/agently-core/internal/datly/maintenancelease/read"
 	write "github.com/viant/agently-core/internal/datly/maintenancelease/write"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
@@ -65,8 +67,9 @@ func (*Purge) Exec(ctx context.Context, session handler.Session, input *PurgeInp
 		return err
 	}
 	deps := struct {
-		Invoker dexec.ComponentInvoker     `bind:"kind=component_invoker,required"`
-		Starter handler.TransactionStarter `bind:"kind=transactionStarter,required"`
+		Invoker  dexec.ComponentInvoker     `bind:"kind=component_invoker,required"`
+		Starter  handler.TransactionStarter `bind:"kind=transactionStarter,required"`
+		Reporter dexec.MutationReporter     `bind:"kind=mutationReporter,required"`
 	}{}
 	if err := session.Binder().Bind(ctx, &deps); err != nil {
 		return err
@@ -74,6 +77,7 @@ func (*Purge) Exec(ctx context.Context, session handler.Session, input *PurgeInp
 	if deps.Invoker == nil || deps.Starter == nil {
 		return fmt.Errorf("maintenance purge capabilities are unavailable")
 	}
+	maintenancetx.Observe(ctx, deps.Reporter)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
 	}
@@ -85,6 +89,12 @@ func (*Purge) Exec(ctx context.Context, session handler.Session, input *PurgeInp
 	if err != nil {
 		return err
 	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i] == nil || rows[i].LeaseKey == nil {
+			return false
+		}
+		return rows[j] == nil || rows[j].LeaseKey == nil || *rows[i].LeaseKey < *rows[j].LeaseKey
+	})
 	for _, row := range rows {
 		if row == nil || row.LeaseKey == nil {
 			continue
@@ -124,17 +134,24 @@ func (s *Store) DeleteExpired(ctx context.Context, lease Lease) (int64, error) {
 	if s == nil || s.Invoker == nil {
 		return 0, fmt.Errorf("maintenance lease component invoker is required")
 	}
-	ctx, err := s.Preflight(ctx, lease)
+	value, effects, err := maintenancetx.Invoke(ctx, s.Invoker, func(scope context.Context) (context.Context, error) {
+		scope, err := s.Preflight(scope, lease)
+		if err != nil {
+			return nil, err
+		}
+		driver, _ := s.Invoker.(maintenancetx.DriverInspector)
+		return maintenancetx.Prepare(scope, driver)
+	}, dexec.ComponentRequest{Target: purgeTarget, Input: &PurgeInput{Key: lease.Key, OwnerID: lease.OwnerID, Token: lease.Token}})
 	if err != nil {
-		return 0, err
-	}
-	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: purgeTarget, Input: &PurgeInput{Key: lease.Key, OwnerID: lease.OwnerID, Token: lease.Token}})
-	if err != nil {
+		var guarded *maintenancetx.GuardChanged
+		if errors.As(err, &guarded) {
+			return 0, nil
+		}
 		return 0, err
 	}
 	out, ok := value.(*PurgeOutput)
 	if !ok || out == nil {
 		return 0, fmt.Errorf("maintenance purge returned %T", value)
 	}
-	return out.Deleted, nil
+	return effects.Deleted("maintenance_lease"), nil
 }

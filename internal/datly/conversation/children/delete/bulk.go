@@ -1,4 +1,4 @@
-// Package delete provides key-only bulk deletion for a parent's locked graph.
+// Package delete provides key-only bulk deletion for a parent's trusted graph.
 // It is deliberately separate from the public message/call/file writers.
 package delete
 
@@ -12,6 +12,7 @@ import (
 
 	"github.com/viant/agently-core/internal/store/maintenancebatch"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
 	"github.com/viant/xdatly"
@@ -171,6 +172,7 @@ func (*Delete) Execute(ctx context.Context, invocation rh.Invocation) (_ any, re
 		return nil, err
 	}
 	output.Affected += affected
+	maintenancetx.RecordImmediate(ctx, input.Table, affected)
 	// As with canonical onDeleteNotFound=ignore, absent keys are a safe no-op.
 	// No BEGIN/COMMIT, fallback or retry here: any error rolls back the parent.
 	return output, nil

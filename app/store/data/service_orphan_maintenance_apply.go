@@ -22,8 +22,8 @@ const (
 )
 
 // OrphanMaintenanceRequest identifies one previously reported orphan. The
-// rule, age and missing-parent condition are all re-evaluated in a serializable
-// transaction before any mutation is allowed.
+// rule, age and missing-parent condition are all re-evaluated in the cleanup
+// transaction before mutation. Write predicates still protect changed records.
 type OrphanMaintenanceRequest struct {
 	RuleID    string
 	RecordID  string

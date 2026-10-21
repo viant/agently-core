@@ -15,6 +15,7 @@ import (
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
 	lease "github.com/viant/agently-core/internal/store/maintenancelease"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
@@ -57,9 +58,10 @@ func (Component) DatlyHandler(name string) func() (rh.TypedHandler, error) {
 }
 
 type dependencies struct {
-	Invoker dexec.ComponentInvoker     `bind:"kind=component_invoker,required"`
-	Starter handler.TransactionStarter `bind:"kind=transactionStarter,required"`
-	Schema  tree.TableInspector        `bind:"kind=conversationtreeSchema,in=inspector,required"`
+	Invoker  dexec.ComponentInvoker     `bind:"kind=component_invoker,required"`
+	Starter  handler.TransactionStarter `bind:"kind=transactionStarter,required"`
+	Schema   tree.TableInspector        `bind:"kind=conversationtreeSchema,in=inspector,required"`
+	Reporter dexec.MutationReporter     `bind:"kind=mutationReporter,required"`
 }
 
 type selectedRun struct {
@@ -100,7 +102,7 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 		return fmt.Errorf("scheduled maintenance capabilities are unavailable")
 	}
 	deps.Invoker = maintenancediag.Wrap(ctx, deps.Invoker)
-	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
+	maintenancetx.Observe(ctx, deps.Reporter)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
 	}
@@ -116,7 +118,7 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 	return nil
 }
 func evaluate(ctx context.Context, deps dependencies, input *Input, result *Output, deleting bool) error {
-	selected, err := selectRun(ctx, deps, input.RunID, deleting)
+	selected, err := selectRun(ctx, deps, input.RunID, false)
 	if err != nil {
 		return err
 	}
@@ -127,7 +129,7 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 	result.Source = selected.Source
 	result.ScheduleID = selected.ScheduleID
 	result.LastActivity = selected.ActivityAt
-	schedule, err := selectSchedule(ctx, deps, selected.ScheduleID, deleting)
+	schedule, err := selectSchedule(ctx, deps, selected.ScheduleID, false)
 	if err != nil {
 		return err
 	}
@@ -146,7 +148,6 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 		return err
 	}
 	d := tree.NewSystemDiscoverer(deps.Invoker, deps.Schema)
-	d.LockDetachRows = deleting
 	graph, err := d.Discover(ctx, roots...)
 	if err != nil {
 		if errors.Is(err, tree.ErrNotFound) {
@@ -161,14 +162,12 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 	}
 	result.ConversationCount = len(graph.Nodes)
 	if deleting {
-		if err = d.LockConversationGraph(ctx, graph); err != nil {
-			return err
-		}
 		graph, err = d.Discover(ctx, roots...)
 		if err != nil {
-			return err
-		}
-		if err = d.LockConversationGraph(ctx, graph); err != nil {
+			if errors.Is(err, tree.ErrNotFound) {
+				result.Reason = "not_found"
+				return nil
+			}
 			return err
 		}
 		result.ConversationCount = len(graph.Nodes)
@@ -213,18 +212,8 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 		}
 		return err
 	}
-	if deleting {
-		if err = d.LockDeletePlanRuns(ctx, plan); err != nil {
-			return err
-		}
-	}
 	if err = d.RefreshDeletePlanRunEvidence(ctx, plan); err != nil {
 		return err
-	}
-	if deleting {
-		if err = d.LockDeletePlanRuns(ctx, plan); err != nil {
-			return err
-		}
 	}
 	related, known, err := relatedActivity(ctx, deps, plan)
 	if err != nil {
