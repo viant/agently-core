@@ -1,5 +1,5 @@
 // Package maintenancelease coordinates generated Datly components for
-// distributed maintenance lease acquisition and fencing.
+// distributed maintenance lease acquisition and ownership checks.
 package maintenancelease
 
 import (

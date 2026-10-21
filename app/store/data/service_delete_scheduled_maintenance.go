@@ -91,7 +91,7 @@ func validateScheduledRunMaintenanceCandidateRequest(request ScheduledRunMainten
 }
 
 // MaintainScheduledRun evaluates scheduler retention and, in delete mode,
-// rechecks and deletes the run in the same fenced transaction.
+// checks the lease first, then rechecks and deletes the run in one transaction.
 func (s *datlyService) MaintainScheduledRun(ctx context.Context, request ScheduledRunMaintenanceRequest) (*ScheduledRunMaintenanceResult, error) {
 	request.RunID = strings.TrimSpace(request.RunID)
 	request.ExpectedOwnerID = strings.TrimSpace(request.ExpectedOwnerID)

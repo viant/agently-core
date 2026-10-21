@@ -16,7 +16,7 @@ import (
 	"github.com/viant/xdatly/handler"
 )
 
-// The live owner/token fence must fail before retention mutations proceed.
+// The Store checks the lease before invoking this retention transaction.
 // Imperative composition preserves the same parent-owned transaction.
 type Component struct {
 	Contract xdatly.Component[Request, Result] `component:"TechnicalMaintenance,path=/v1/internal/agently/technical-maintenance,method=POST,handler=NewMaintain,internal=true" componentCallPolicy:"imperative"`
@@ -45,6 +45,11 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Reque
 	if err := validateRequest(*input); err != nil {
 		return err
 	}
+	if input.Mode == Delete {
+		if _, err := maintenancelease.CheckedAt(ctx, input.Lease); err != nil {
+			return err
+		}
+	}
 	*output = Result{Kind: input.Kind, Scope: input.Scope, RecordID: input.RecordID, Mode: input.Mode}
 	deps := struct {
 		Invoker dexec.ComponentInvoker     `bind:"kind=component_invoker,required"`
@@ -60,11 +65,6 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Reque
 	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
-	}
-	if input.Mode == Delete {
-		if _, err := (&maintenancelease.Store{Invoker: deps.Invoker}).Fence(ctx, input.Lease); err != nil {
-			return err
-		}
 	}
 	store := &Store{Invoker: deps.Invoker}
 	if input.Mode == Delete {
@@ -113,6 +113,13 @@ func (s *Store) Maintain(ctx context.Context, input Request) (result *Result, re
 	}
 	if err := validateRequest(input); err != nil {
 		return nil, err
+	}
+	if input.Mode == Delete {
+		var err error
+		ctx, err = (&maintenancelease.Store{Invoker: s.Invoker}).Preflight(ctx, input.Lease)
+		if err != nil {
+			return nil, err
+		}
 	}
 	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: &input})
 	if err != nil {

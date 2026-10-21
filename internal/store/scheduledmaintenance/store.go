@@ -8,6 +8,7 @@ import (
 
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
+	"github.com/viant/agently-core/internal/store/maintenancelease"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
@@ -21,6 +22,13 @@ func (s *Store) Maintain(ctx context.Context, input *Input) (result *Output, ret
 	defer func() { trace.Finish(retErr) }()
 	if s == nil || s.Invoker == nil || input == nil {
 		return nil, fmt.Errorf("scheduled maintenance runtime and input are required")
+	}
+	if input.Mode == DeleteMode {
+		var err error
+		ctx, err = (&maintenancelease.Store{Invoker: s.Invoker}).Preflight(ctx, input.Lease)
+		if err != nil {
+			return nil, err
+		}
 	}
 	schema := s.Schema
 	if schema == nil {

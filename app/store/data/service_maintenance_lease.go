@@ -12,8 +12,9 @@ import (
 )
 
 // MaintenanceLease identifies one acquisition of a distributed maintenance
-// lease. Token changes on every acquisition so a former owner cannot mutate
-// data after another worker has taken the lease.
+// lease. Token changes on every acquisition so a former owner cannot start
+// another cleanup operation after takeover. An operation already admitted may
+// still finish after ownership changes; the lease is not locked through commit.
 type MaintenanceLease struct {
 	Key        string
 	OwnerID    string

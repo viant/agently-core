@@ -2,6 +2,7 @@ package maintenance
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -37,6 +38,8 @@ const (
 	conversationCleanupLeaseRenewInterval  = 30 * time.Second
 	conversationCleanupLeaseReleaseTimeout = 10 * time.Second
 )
+
+var errCleanupPassFinished = errors.New("cleanup pass finished")
 
 type conversationCleanupLeaseContextKey struct{}
 
@@ -276,12 +279,12 @@ func (w *Worker) RunPass(ctx context.Context) (Result, error) {
 			lease.Key, lease.OwnerID, lease.LeaseUntil.UTC().Format(time.RFC3339Nano))
 	}
 
-	leaseCtx, cancelLease := context.WithCancel(ctx)
+	leaseCtx, cancelLease := context.WithCancelCause(ctx)
 	heartbeatDone := make(chan error, 1)
 	go func(renewCtx context.Context) {
 		err := w.renewConversationCleanupLease(renewCtx, lease)
 		if err != nil {
-			cancelLease()
+			cancelLease(err)
 		}
 		heartbeatDone <- err
 	}(leaseCtx)
@@ -293,10 +296,10 @@ func (w *Worker) RunPass(ctx context.Context) (Result, error) {
 	} else {
 		err = fmt.Errorf("delete expired maintenance leases: %w", err)
 	}
-	cancelLease()
+	cancelLease(errCleanupPassFinished)
 	heartbeatErr := <-heartbeatDone
 	releaseErr := w.releaseConversationCleanupLease(ctx, lease)
-	return result, errors.Join(err, heartbeatErr, releaseErr)
+	return result, errors.Join(err, heartbeatErr, releaseErr, ctx.Err())
 }
 
 func (w *Worker) runLeasedPass(ctx context.Context, result Result) (Result, error) {
@@ -326,7 +329,7 @@ func (w *Worker) runLeasedPass(ctx context.Context, result Result) (Result, erro
 		result.add(policyResult)
 		if err != nil {
 			policyErrors = append(policyErrors, fmt.Errorf("cleanup policy %s: %w", policy.Name(), err))
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || errors.Is(err, coredata.ErrMaintenanceLeaseLost) {
 				break
 			}
 		}
@@ -335,15 +338,23 @@ func (w *Worker) runLeasedPass(ctx context.Context, result Result) (Result, erro
 }
 
 func (w *Worker) renewConversationCleanupLease(ctx context.Context, lease coredata.MaintenanceLease) error {
-	ticker := time.NewTicker(w.leaseRenewInterval)
-	defer ticker.Stop()
+	// Do not catch up missed ticks with back-to-back updates after a slow
+	// renewal. The lease database clock can have only second precision.
+	timer := time.NewTimer(w.leaseRenewInterval)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
+			return cleanupHeartbeatContextError(ctx)
+		case <-timer.C:
+			if ctx.Err() != nil {
+				return cleanupHeartbeatContextError(ctx)
+			}
 			result, err := w.data.RenewMaintenanceLease(ctx, lease, w.leaseTTL)
 			if err != nil {
+				if context.Cause(ctx) == errCleanupPassFinished && errors.Is(err, context.Canceled) && onlyCancellationErrors(err) {
+					return nil
+				}
 				return fmt.Errorf("renew conversation cleanup lease: %w", err)
 			}
 			if result == nil || !result.Renewed {
@@ -353,8 +364,41 @@ func (w *Worker) renewConversationCleanupLease(ctx context.Context, lease coreda
 				log.Printf("conversation cleanup: distributed lease renewed lease_key=%s lease_owner=%s lease_until=%s",
 					lease.Key, lease.OwnerID, result.LeaseUntil.UTC().Format(time.RFC3339Nano))
 			}
+			timer.Reset(w.leaseRenewInterval)
 		}
 	}
+}
+
+func cleanupHeartbeatContextError(ctx context.Context) error {
+	if context.Cause(ctx) == errCleanupPassFinished {
+		return nil
+	}
+	return ctx.Err()
+}
+
+// database/sql can roll back a canceled transaction before Datly finalizes it,
+// joining ErrTxDone to context.Canceled. Suppress only these consequences of
+// our own shutdown, never a joined query/lease error or standalone ErrTxDone.
+func onlyCancellationErrors(err error) bool {
+	if err == context.Canceled || err == sql.ErrTxDone {
+		return true
+	}
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		children := wrapped.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !onlyCancellationErrors(child) {
+				return false
+			}
+		}
+		return true
+	case interface{ Unwrap() error }:
+		return onlyCancellationErrors(wrapped.Unwrap())
+	}
+	return false
 }
 
 func (w *Worker) releaseConversationCleanupLease(parent context.Context, lease coredata.MaintenanceLease) error {
@@ -421,6 +465,9 @@ func runConversationCleanupPolicy(ctx context.Context, policy conversationCleanu
 				result.addReason("error")
 				if debug {
 					log.Printf("conversation cleanup: policy=%s %s duration=%s failed: %v", policy.Name(), formatConversationCleanupCandidate(candidate), time.Since(candidateStarted), err)
+				}
+				if errors.Is(err, coredata.ErrMaintenanceLeaseLost) {
+					return result, err
 				}
 				continue
 			}

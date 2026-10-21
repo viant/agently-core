@@ -9,6 +9,7 @@ import (
 	read "github.com/viant/agently-core/internal/datly/orphanmaintenance/read"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
+	"github.com/viant/agently-core/internal/store/maintenancelease"
 
 	"github.com/viant/agently-core/internal/datly/dbtime"
 	"github.com/viant/bindly/locator"
@@ -132,6 +133,10 @@ func (s *Store) Apply(ctx context.Context, request Request) (result *Result, ret
 		return nil, err
 	}
 	inspector, err := s.configuredDriver()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err = (&maintenancelease.Store{Invoker: s.Invoker}).Preflight(ctx, request.Lease)
 	if err != nil {
 		return nil, err
 	}
