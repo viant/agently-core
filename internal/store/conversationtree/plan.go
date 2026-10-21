@@ -236,9 +236,18 @@ func (d *Discoverer) refreshDeletePlanRunEvidence(ctx context.Context, plan *Del
 	// Keep its raw identities too: a dangling link must still be locked/checked.
 	explicit = append(explicit, evidence.ReferencedIDs...)
 	requested := normalizeIDs(explicit)
-	if len(requested) > 0 {
+	readIDs := requested
+	if d.systemRetention {
+		readIDs = nil
+		for _, id := range requested {
+			if current[id] == nil {
+				readIDs = append(readIDs, id)
+			}
+		}
+	}
+	if len(readIDs) > 0 {
 		query := &runread.RunRowsInput{}
-		query.SetIds(requested)
+		query.SetIds(readIDs)
 		queries = append(queries, query)
 	}
 	for _, query := range queries {

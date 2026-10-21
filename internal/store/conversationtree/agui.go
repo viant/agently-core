@@ -66,7 +66,7 @@ func (d *Discoverer) collectAGUI(ctx context.Context, plan *DeletePlan, now time
 		}
 		runs[*row.RunKey] = row
 		status := aguiCleanupString(row.Status)
-		if (status == agui.StatusAdmitted || status == agui.StatusRunning) && row.LeaseUntil != nil && row.LeaseUntil.After(now.UTC()) {
+		if !d.rootQualified && (status == agui.StatusAdmitted || status == agui.StatusRunning) && row.LeaseUntil != nil && row.LeaseUntil.After(now.UTC()) {
 			return ErrConversationActive
 		}
 	}

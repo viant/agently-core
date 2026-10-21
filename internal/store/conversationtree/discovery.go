@@ -9,6 +9,7 @@ import (
 	"time"
 
 	convread "github.com/viant/agently-core/internal/datly/conversation/read"
+	goalread "github.com/viant/agently-core/internal/datly/goal/read"
 	msgread "github.com/viant/agently-core/internal/datly/message/read"
 	turnread "github.com/viant/agently-core/internal/datly/turn/read"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
@@ -44,16 +45,34 @@ type Discoverer struct {
 	// LockDetachRows is set only by the managed deletion transaction.
 	LockDetachRows  bool
 	systemRetention bool
+	rootQualified   bool
+	goalSnapshots   map[string][]*goalread.GoalView
 	GraphFields     []string
 }
 
 // NewSystemDiscoverer preserves the system-retention policy that ignores
 // historical owners. Its private maintenance parent must validate eligibility
-// and fence a live maintenance lease before any mutation; references/liveness
-// remain enforced. User components construct the ordinary strict-owner reader.
+// and check a live maintenance lease before any mutation. External references
+// remain protected; qualified roots opt out of internal liveness checks.
+// User components construct the ordinary strict-owner reader.
 func NewSystemDiscoverer(invoker dexec.ComponentInvoker, schema TableInspector) *Discoverer {
+	if schema == nil {
+		schema, _ = invoker.(TableInspector)
+	}
+	if invoker != nil {
+		invoker = &planningReads{delegate: invoker, values: map[string]any{}}
+	}
 	return &Discoverer{Invoker: invoker, Schema: schema, OwnerID: func(context.Context) string { return "" }, systemRetention: true,
 		GraphFields: []string{"id", "created_by_user_id", "status", "schedule_run_id", "created_at_raw"}}
+}
+
+// QualifyRootRetention opts a system-only plan into root-age retention after
+// its caller has verified the roots. Internal liveness no longer vetoes that
+// tree; structural and external-reference protections are still required.
+func (d *Discoverer) QualifyRootRetention() {
+	if d != nil && d.systemRetention {
+		d.rootQualified = true
+	}
 }
 
 func (d *Discoverer) authorize(ctx context.Context, graph *Graph) error {

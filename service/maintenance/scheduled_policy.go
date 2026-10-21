@@ -45,7 +45,7 @@ func (p *scheduledRunCleanupPolicy) SelectCandidates(ctx context.Context, cursor
 		return nil, fmt.Errorf("conversation cleanup data service is unavailable")
 	}
 	if cursor.RootID == "" {
-		p.cutoff = p.now().UTC().Add(-p.retention)
+		p.cutoff = cleanupPassTime(ctx, p.now).Add(-p.retention)
 	}
 	candidates, err := p.data.ListScheduledRunMaintenanceCandidates(ctx, coredata.ScheduledRunMaintenanceCandidateRequest{
 		InactiveBefore: p.cutoff,

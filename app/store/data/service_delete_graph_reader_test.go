@@ -35,7 +35,7 @@ func TestDeleteGraphReaderBehaviorParity(t *testing.T) {
 		{"schedule_cascade", TestDeleteScheduleCascade_RemovesScheduleConversationsAndRuns},
 		{"scheduled_run", TestDeleteScheduledRun_DeletesGraphOrRunAndKeepsSchedule},
 		{"retention_dry_run_execute", TestMaintainConversationTree_DryRunThenDeleteWholeInteractiveGraph},
-		{"retention_recent_child", TestMaintainConversationTree_SkipsGraphWithRecentChild},
+		{"retention_recent_child", TestMaintainConversationTree_DeletesOldRootWithRecentChild},
 		{"retention_mixed_owners", TestMaintainConversationTree_DeletesMixedOwnerGraph},
 		{"scheduled_retention", TestMaintainScheduledRun_DeleteIsFencedAndKeepsSchedule},
 	}

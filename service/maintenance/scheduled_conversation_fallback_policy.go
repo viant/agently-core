@@ -54,7 +54,7 @@ func (p *scheduledConversationFallbackPolicy) SelectCandidates(ctx context.Conte
 		return nil, fmt.Errorf("conversation cleanup data service is unavailable")
 	}
 	if cursor.RootID == "" {
-		p.cutoff = p.now().UTC().Add(-p.retention)
+		p.cutoff = cleanupPassTime(ctx, p.now).Add(-p.retention)
 	}
 	candidates, err := p.data.ListConversationMaintenanceCandidates(ctx, coredata.ConversationMaintenanceCandidateRequest{
 		Kind:           coredata.ConversationMaintenanceScheduledFallback,

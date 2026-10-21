@@ -44,7 +44,7 @@ func (p *orphanReportPolicy) Name() string {
 
 func (p *orphanReportPolicy) SelectCandidates(ctx context.Context, cursor conversationCleanupCursor, limit int) ([]conversationCleanupCandidate, error) {
 	if cursor.RootID == "" {
-		p.cutoff = p.now().UTC().Add(-p.gracePeriod)
+		p.cutoff = cleanupPassTime(ctx, p.now).Add(-p.gracePeriod)
 	}
 	rows, err := p.data.ListOrphanMaintenanceCandidates(ctx, coredata.OrphanMaintenanceCandidateRequest{
 		OlderThan:   p.cutoff,

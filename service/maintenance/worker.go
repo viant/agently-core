@@ -134,6 +134,7 @@ type Worker struct {
 	leaseOwnerID       string
 	leaseTTL           time.Duration
 	leaseRenewInterval time.Duration
+	now                func() time.Time
 	running            atomic.Bool
 }
 
@@ -148,6 +149,7 @@ func newConversationCleanupWorker(data Data, options Options, policies ...conver
 		options:            options,
 		policies:           policies,
 		leaseOwnerID:       newConversationCleanupLeaseOwnerID(),
+		now:                time.Now,
 		leaseTTL:           conversationCleanupLeaseTTL,
 		leaseRenewInterval: conversationCleanupLeaseRenewInterval,
 	}
@@ -254,6 +256,7 @@ func (w *Worker) RunPass(ctx context.Context) (Result, error) {
 		return result, nil
 	}
 	defer w.running.Store(false)
+	ctx = context.WithValue(ctx, passTimeKey{}, w.now().UTC())
 	if w.data == nil {
 		return result, fmt.Errorf("conversation cleanup data service is unavailable")
 	}

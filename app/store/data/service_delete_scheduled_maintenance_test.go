@@ -94,9 +94,9 @@ func TestMaintainScheduledRun_DryRunCoversGraphEmptyLegacyAndLiveness(t *testing
 		conversationCount int
 		lastActivity      time.Time
 	}{
-		{runID: "scheduled-success", eligible: true, reason: ConversationMaintenanceEligible, conversationCount: 2, lastActivity: old.Add(2 * time.Hour)},
+		{runID: "scheduled-success", eligible: true, reason: ConversationMaintenanceEligible, conversationCount: 2, lastActivity: old},
 		{runID: "scheduled-failed-empty", eligible: true, reason: ConversationMaintenanceEligible, lastActivity: old.Add(3 * time.Hour)},
-		{runID: "scheduled-recent-graph", reason: ConversationMaintenanceRecentActivity, conversationCount: 1, lastActivity: recent},
+		{runID: "scheduled-recent-graph", reason: ConversationMaintenanceRecentActivity, lastActivity: recent},
 		{runID: "scheduled-live", reason: ConversationMaintenanceLiveRun, lastActivity: old},
 		{runID: "scheduled-stale", eligible: true, reason: ConversationMaintenanceEligible, lastActivity: old},
 		{runID: "scheduled-legacy", eligible: true, reason: ConversationMaintenanceEligible, conversationCount: 1, lastActivity: old.Add(4 * time.Hour)},

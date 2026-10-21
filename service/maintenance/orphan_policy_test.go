@@ -157,6 +157,7 @@ func TestOrphanCleanupWorkerMutatesAllowedRulesAndContinuesAfterFailure(t *testi
 	worker := newTestConversationCleanupWorker(Options{
 		Enabled: true, Debug: true, BatchSize: len(candidates), Timeout: time.Second,
 	}, policy)
+	worker.now = policy.now
 
 	result, err := worker.RunPass(context.Background())
 	if err != nil {

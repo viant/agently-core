@@ -127,6 +127,10 @@ func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...str
 		sort.Strings(selected)
 	}
 	done := maintenancediag.Phase(ctx, "payload_delete_batches")
+	// MutationReport clones the complete transaction journal. Actual effects
+	// are collected by the maintenance coordinator after commit; scanning twice
+	// per chunk is needed only for the optional per-chunk diagnostic counter.
+	countEffects := maintenancetx.Enabled(ctx) && maintenancediag.DetailsEnabled()
 	var referenceBatches, writerBatches, submitted, sharedSkipped, missing, deleteStatements, affected int
 	defer func() {
 		done(retErr, fmt.Sprintf("mode=%s candidates=%d reference_batches=%d writer_batches=%d submitted=%d shared_skipped=%d missing=%d delete_statements=%d affected=%d", mode, len(selected), referenceBatches, writerBatches, submitted, sharedSkipped, missing, deleteStatements, affected))
@@ -193,7 +197,10 @@ func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...str
 		input.SetPayloads(mutations)
 		writerBatches++
 		submitted += len(mutations)
-		before := maintenancetx.Deleted(ctx, "call_payload")
+		var before int64
+		if countEffects {
+			before = maintenancetx.Deleted(ctx, "call_payload")
+		}
 		value, err = s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: input, Providers: writerProviders})
 		if err != nil {
 			return err
@@ -202,9 +209,9 @@ func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...str
 		if !ok || output == nil {
 			return fmt.Errorf("payload delete writer returned %T", value)
 		}
-		if maintenancetx.Enabled(ctx) {
+		if countEffects {
 			affected += int(maintenancetx.Deleted(ctx, "call_payload") - before)
-		} else {
+		} else if !maintenancetx.Enabled(ctx) {
 			affected += len(output.Data)
 		}
 		if maintenancetx.Enabled(ctx) {
