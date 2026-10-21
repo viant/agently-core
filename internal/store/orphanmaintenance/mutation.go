@@ -22,6 +22,7 @@ import (
 	claim "github.com/viant/agently-core/internal/datly/toolexecutionclaim/write"
 	turn "github.com/viant/agently-core/internal/datly/turn/write"
 	queue "github.com/viant/agently-core/internal/datly/turnqueue/write"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
@@ -97,6 +98,7 @@ func mutateBulkPayload(ctx context.Context, invoker dexec.ComponentInvoker, rule
 	row.SetShouldDelete(true)
 	input := &payload.Input{}
 	input.SetPayloads([]*payload.PayloadDelete{row})
+	before := maintenancetx.Deleted(ctx, "call_payload")
 	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{
 		Target: dexec.ComponentTarget{
 			Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[payload.BulkDeleteComponent]().PkgPath(), Name: "PayloadBulkDelete"},
@@ -110,7 +112,11 @@ func mutateBulkPayload(ctx context.Context, invoker dexec.ComponentInvoker, rule
 	if !ok || output == nil {
 		return dexec.MutationResult{}, fmt.Errorf("orphan bulk payload handler returned %T", value)
 	}
-	return dexec.MutationResult{Table: "call_payload", Operation: "delete", Records: len(output.Data), Affected: int64(len(output.Data))}, nil
+	affected := int64(len(output.Data))
+	if maintenancetx.Enabled(ctx) {
+		affected = maintenancetx.Deleted(ctx, "call_payload") - before
+	}
+	return dexec.MutationResult{Table: "call_payload", Operation: "delete", Records: int(affected), Affected: affected}, nil
 }
 
 // mutate maps a static domain action to a canonical table writer or the guarded

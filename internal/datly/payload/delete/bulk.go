@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/internal/store/maintenancediag"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	rh "github.com/viant/datly/runtime/handler"
 	"github.com/viant/sqlx"
 	xdatly "github.com/viant/xdatly"
@@ -83,7 +84,7 @@ func (*BulkDelete) Execute(ctx context.Context, invocation rh.Invocation) (_ any
 	}()
 	// Use the same reference predicate as the fixed bulk SQL. This real first
 	// deletion anchors a protected prefix that also drains earlier reference
-	// removals and the orphan-maintenance lease fence in this transaction.
+	// removals in this transaction. Cleanup never writes its lease here.
 	guardStart := strings.Index(bulkDeleteSQL, "\n  AND ")
 	if guardStart < 0 {
 		return nil, fmt.Errorf("bulk payload deletion guard is missing")
@@ -118,7 +119,14 @@ func (*BulkDelete) Execute(ctx context.Context, invocation rh.Invocation) (_ any
 		return nil, err
 	}
 	affected += bulkAffected
+	maintenancetx.RecordImmediate(ctx, "call_payload", bulkAffected)
 	if bulkAffected != int64(len(args)) {
+		if maintenancetx.Enabled(ctx) {
+			// Guards remain in the SQL: missing or newly referenced rows stay
+			// untouched. Counts come from the actual native/SQL evidence, not an
+			// invented list of deleted identities for this partially matched batch.
+			return output, nil
+		}
 		// Some rows may already have been removed by this statement. Returning a
 		// typed conflict rolls back ALL chunks and graph mutations, not just those
 		// rows. Never silently accept a late reference or concurrent disappearance.

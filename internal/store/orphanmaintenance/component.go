@@ -10,6 +10,7 @@ import (
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
 	maintenance "github.com/viant/agently-core/internal/store/maintenancelease"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
@@ -85,13 +86,13 @@ func (*Apply) Exec(ctx context.Context, session handler.Session, input *ApplyInp
 		return err
 	}
 	deps.Invoker = maintenancediag.Wrap(ctx, deps.Invoker)
-	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
+	maintenancetx.Observe(ctx, deps.Reporter)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
 	}
 	result := &Result{RuleID: rule.ID, RecordID: request.RecordID, Action: rule.Action, Reason: NoLongerEligible}
 	output.Result = result
-	snapshot, found, err := lockRecord(ctx, deps.Invoker, rule, keys)
+	snapshot, found, err := readRecord(ctx, deps.Invoker, rule, keys)
 	if err != nil {
 		return err
 	}
@@ -137,6 +138,12 @@ func (*Apply) Exec(ctx context.Context, session handler.Session, input *ApplyInp
 			return err
 		}
 		report := deps.Reporter.MutationReport()
+		if len(report.Results) == before {
+			// Canonical onDeleteNotFound=ignore may filter a disappeared row at
+			// binding time, producing no statement (not even an affected=0 one).
+			// No SQL error was returned and no mutation ran: publish no progress.
+			return nil
+		}
 		if len(report.Results) != before+1 {
 			return fmt.Errorf("orphan mutation produced %d execution results", len(report.Results)-before)
 		}
@@ -149,8 +156,11 @@ func (*Apply) Exec(ctx context.Context, session handler.Session, input *ApplyInp
 	if rule.Action == SafeDetach {
 		operation = "update"
 	}
-	if evidence.Table != rule.Table || evidence.Operation != operation || evidence.Records != 1 || evidence.Affected != 1 {
-		return fmt.Errorf("orphan maintenance rule=%q record=%q affected %d rows, expected 1", rule.ID, request.RecordID, evidence.Affected)
+	if evidence.Table != rule.Table || evidence.Operation != operation || evidence.Records < 0 || evidence.Records > 1 || evidence.Affected < 0 || evidence.Affected > int64(evidence.Records) {
+		return fmt.Errorf("orphan maintenance rule=%q record=%q produced invalid mutation evidence: records=%d affected=%d", rule.ID, request.RecordID, evidence.Records, evidence.Affected)
+	}
+	if evidence.Affected == 0 {
+		return nil
 	}
 	result.Mutated = true
 	if rule.Action == SafeDelete {

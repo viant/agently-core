@@ -51,7 +51,7 @@ func componentTarget(typ reflect.Type, method, path string) dexec.ComponentTarge
 	}
 	return dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: typ.PkgPath(), Name: name}, Route: spec.RouteRef{Method: method, Path: path}}
 }
-func lockedProviders(kind string, fields []string) []locator.Provider {
+func recordProviders(kind string, fields []string) []locator.Provider {
 	owner := ""
 	return []locator.Provider{provider.Named(kind, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 		switch name {
@@ -66,7 +66,7 @@ func lockedProviders(kind string, fields []string) []locator.Provider {
 	}), provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &owner, true, nil }), queryselectors.Provider(state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: fields}}})}
 }
 func invokeRead[O any](ctx context.Context, invoker dexec.ComponentInvoker, typ reflect.Type, path, kind string, input any, fields ...string) (*O, error) {
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: componentTarget(typ, "GET", path), Input: input, Providers: lockedProviders(kind, fields)})
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, false), Target: componentTarget(typ, "GET", path), Input: input, Providers: recordProviders(kind, fields)})
 	if err != nil {
 		return nil, err
 	}
@@ -89,9 +89,9 @@ func snapshotKeys(keys ...string) *recordSnapshot {
 	return &recordSnapshot{RecordID: strings.Join(keys, RecordSeparator), Keys: keys}
 }
 
-// lockRecord consumes the existing canonical reader for each physical table.
+// readRecord consumes the existing canonical reader for each physical table.
 // It returns only identity and immutable writer guard fields, never content.
-func lockRecord(ctx context.Context, invoker dexec.ComponentInvoker, rule Rule, keys []string) (*recordSnapshot, bool, error) {
+func readRecord(ctx context.Context, invoker dexec.ComponentInvoker, rule Rule, keys []string) (*recordSnapshot, bool, error) {
 	id := keys[0]
 	switch rule.Table {
 	case "conversation":

@@ -2,12 +2,14 @@ package technicalmaintenance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 
 	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/agently-core/internal/store/maintenancelease"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
@@ -52,8 +54,9 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Reque
 	}
 	*output = Result{Kind: input.Kind, Scope: input.Scope, RecordID: input.RecordID, Mode: input.Mode}
 	deps := struct {
-		Invoker dexec.ComponentInvoker     `bind:"kind=component_invoker,required"`
-		Starter handler.TransactionStarter `bind:"kind=transactionStarter,required"`
+		Invoker  dexec.ComponentInvoker     `bind:"kind=component_invoker,required"`
+		Starter  handler.TransactionStarter `bind:"kind=transactionStarter,required"`
+		Reporter dexec.MutationReporter     `bind:"kind=mutationReporter,required"`
 	}{}
 	if err := session.Binder().Bind(ctx, &deps); err != nil {
 		return err
@@ -62,13 +65,13 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Reque
 		return fmt.Errorf("technical maintenance capabilities are unavailable")
 	}
 	deps.Invoker = maintenancediag.Wrap(ctx, deps.Invoker)
-	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
+	maintenancetx.Observe(ctx, deps.Reporter)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
 	}
 	store := &Store{Invoker: deps.Invoker}
 	if input.Mode == Delete {
-		exists, err := store.lockRecord(ctx, input.Kind, input.RecordID)
+		exists, err := store.readRecord(ctx, input.Kind, input.RecordID)
 		if err != nil {
 			return err
 		}
@@ -96,7 +99,8 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Reque
 		return err
 	}
 	if output.DeletedRows <= 0 {
-		return fmt.Errorf("technical maintenance kind=%s record=%q deleted no rows after successful recheck", input.Kind, input.RecordID)
+		output.Reason = "no_longer_eligible"
+		return nil
 	}
 	output.Deleted = true
 	output.Reason = "deleted"
@@ -114,20 +118,34 @@ func (s *Store) Maintain(ctx context.Context, input Request) (result *Result, re
 	if err := validateRequest(input); err != nil {
 		return nil, err
 	}
-	if input.Mode == Delete {
-		var err error
-		ctx, err = (&maintenancelease.Store{Invoker: s.Invoker}).Preflight(ctx, input.Lease)
-		if err != nil {
-			return nil, err
+	value, effects, err := maintenancetx.Invoke(ctx, s.Invoker, func(scope context.Context) (context.Context, error) {
+		if input.Mode == Delete {
+			var err error
+			scope, err = (&maintenancelease.Store{Invoker: s.Invoker}).Preflight(scope, input.Lease)
+			if err != nil {
+				return nil, err
+			}
 		}
-	}
-	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: &input})
+		driver, _ := s.Invoker.(maintenancetx.DriverInspector)
+		return maintenancetx.Prepare(scope, driver)
+	}, dexec.ComponentRequest{Target: target, Input: &input})
 	if err != nil {
+		var guarded *maintenancetx.GuardChanged
+		if errors.As(err, &guarded) {
+			return &Result{Kind: input.Kind, Scope: input.Scope, RecordID: input.RecordID, Mode: input.Mode, Reason: "protected_by_guard"}, nil
+		}
 		return nil, err
 	}
 	out, ok := value.(*Result)
 	if !ok || out == nil {
 		return nil, fmt.Errorf("technical maintenance returned %T", value)
+	}
+	if input.Mode == Delete {
+		out.DeletedRows = effects.DeletedRows()
+		out.Deleted = out.DeletedRows > 0
+		if !out.Deleted && out.Eligible {
+			out.Reason = "already_deleted"
+		}
 	}
 	return out, nil
 }

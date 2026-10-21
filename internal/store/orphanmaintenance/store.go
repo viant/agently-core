@@ -2,6 +2,7 @@ package orphanmaintenance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/agently-core/internal/store/maintenancelease"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 
 	"github.com/viant/agently-core/internal/datly/dbtime"
 	"github.com/viant/bindly/locator"
@@ -136,17 +138,28 @@ func (s *Store) Apply(ctx context.Context, request Request) (result *Result, ret
 	if err != nil {
 		return nil, err
 	}
-	ctx, err = (&maintenancelease.Store{Invoker: s.Invoker}).Preflight(ctx, request.Lease)
-	if err != nil {
-		return nil, err
-	}
-	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: applyTarget, Input: &ApplyInput{RuleID: request.RuleID, RecordID: request.RecordID, OlderThan: request.OlderThan, Lease: request.Lease}, Providers: []locator.Provider{provider.Named("orphanmaintenance", func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
+	value, _, err := maintenancetx.Invoke(ctx, s.Invoker, func(scope context.Context) (context.Context, error) {
+		scope, err := (&maintenancelease.Store{Invoker: s.Invoker}).Preflight(scope, request.Lease)
+		if err != nil {
+			return nil, err
+		}
+		return maintenancetx.Prepare(scope, inspector)
+	}, dexec.ComponentRequest{Target: applyTarget, Input: &ApplyInput{RuleID: request.RuleID, RecordID: request.RecordID, OlderThan: request.OlderThan, Lease: request.Lease}, Providers: []locator.Provider{provider.Named("orphanmaintenance", func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 		if name == "driver" {
 			return inspector, true, nil
 		}
 		return nil, false, nil
 	})}})
 	if err != nil {
+		var guarded *maintenancetx.GuardChanged
+		if errors.As(err, &guarded) {
+			mysql, driverErr := mysqlContract(ctx, inspector)
+			if driverErr != nil {
+				return nil, driverErr
+			}
+			rule, _ := FindRule(mysql, request.RuleID)
+			return &Result{RuleID: request.RuleID, RecordID: request.RecordID, Action: rule.Action, Reason: NoLongerEligible}, nil
+		}
 		return nil, err
 	}
 	output, ok := value.(*ApplyOutput)

@@ -5,6 +5,11 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 core_root="$(cd -- "$script_dir/../.." && pwd)"
 repetitions="${1:-1}"
+stage2="${CLEANUP_REPRO_STAGE2:-0}"
+if [[ "$stage2" != 0 && "$stage2" != 1 ]]; then
+    printf 'CLEANUP_REPRO_STAGE2 must be 0 or 1.\n' >&2
+    exit 2
+fi
 if [[ $# -gt 1 || ! "$repetitions" =~ ^([1-9]|1[0-9]|20)$ ]]; then
     printf 'Usage: bash %s [repetitions: 1-20]\n' "$0" >&2
     exit 2
@@ -114,6 +119,16 @@ export AGENTLY_TEST_CLEANUP_HEARTBEAT_DSN="root:$repro_password@tcp(127.0.0.1:33
 printf 'Running real-worker regression %s time(s); PASS requires heartbeat renewal during slow DELETE and successful commit.\n' "$repetitions"
 "$go_bin" version
 cd -- "$core_root"
+test_pattern='^TestCleanupHeartbeatSelfContentionMySQL$'
+if [[ "$stage2" = 1 ]]; then
+    test_pattern='^Test(CleanupHeartbeatSelfContentionMySQL|CleanupStage2MySQL)$'
+fi
 "$go_bin" test -mod=readonly ./service/maintenance \
-    -run '^TestCleanupHeartbeatSelfContentionMySQL$' -count="$repetitions" \
-    -timeout="$((repetitions * 60 + 120))s" -v
+    -run "$test_pattern" -count="$repetitions" \
+    -timeout="$((repetitions * 90 + 180))s" -v
+if [[ "$stage2" = 1 ]]; then
+    AGENTLY_TEST_MYSQL_DSN="$AGENTLY_TEST_CLEANUP_HEARTBEAT_DSN" \
+        "$go_bin" test -mod=readonly ./app/store/data \
+        -run '^Test(MaintenanceLease_MySQL|MaintainScheduledRun_MySQL|MaintainConversationTree_(ScheduledFallbackMySQL|MySQL)|MaintainOrphanCandidate_MySQL|TechnicalMaintenance_MySQL|DeleteConversationTree_MySQL|DeleteScheduledRun_MySQL)' \
+        -count=1 -timeout=10m -v
+fi

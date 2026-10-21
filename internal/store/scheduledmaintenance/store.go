@@ -9,6 +9,7 @@ import (
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/agently-core/internal/store/maintenancelease"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
@@ -22,13 +23,6 @@ func (s *Store) Maintain(ctx context.Context, input *Input) (result *Output, ret
 	defer func() { trace.Finish(retErr) }()
 	if s == nil || s.Invoker == nil || input == nil {
 		return nil, fmt.Errorf("scheduled maintenance runtime and input are required")
-	}
-	if input.Mode == DeleteMode {
-		var err error
-		ctx, err = (&maintenancelease.Store{Invoker: s.Invoker}).Preflight(ctx, input.Lease)
-		if err != nil {
-			return nil, err
-		}
 	}
 	schema := s.Schema
 	if schema == nil {
@@ -48,8 +42,22 @@ func (s *Store) Maintain(ctx context.Context, input *Input) (result *Output, ret
 		}
 		return nil, false, nil
 	})}
-	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: maintainTarget, Input: input, Providers: providers})
+	value, effects, err := maintenancetx.Invoke(ctx, s.Invoker, func(scope context.Context) (context.Context, error) {
+		if input.Mode == DeleteMode {
+			var err error
+			scope, err = (&maintenancelease.Store{Invoker: s.Invoker}).Preflight(scope, input.Lease)
+			if err != nil {
+				return nil, err
+			}
+		}
+		driver, _ := s.Invoker.(maintenancetx.DriverInspector)
+		return maintenancetx.Prepare(scope, driver)
+	}, dexec.ComponentRequest{Target: maintainTarget, Input: input, Providers: providers})
 	if err != nil {
+		var guarded *maintenancetx.GuardChanged
+		if errors.As(err, &guarded) {
+			return &Output{RunID: input.RunID, Mode: input.Mode, Reason: "protected_by_guard"}, nil
+		}
 		var decision *skipped
 		if errors.As(err, &decision) {
 			return decision.result, nil
@@ -59,6 +67,13 @@ func (s *Store) Maintain(ctx context.Context, input *Input) (result *Output, ret
 	out, ok := value.(*Output)
 	if !ok || out == nil {
 		return nil, fmt.Errorf("scheduled maintenance returned %T", value)
+	}
+	if input.Mode == DeleteMode {
+		out.ConversationCount = int(effects.Deleted("conversation"))
+		out.Deleted = effects.DeletedRows() > 0
+		if !out.Deleted && out.Eligible {
+			out.Reason = "already_deleted"
+		}
 	}
 	return out, nil
 }

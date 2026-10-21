@@ -10,7 +10,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	"github.com/viant/bindly"
+	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
 	"github.com/viant/datly/runtime/handler/provider"
 	"github.com/viant/sqlx"
@@ -150,6 +152,43 @@ func TestBulkGuardMatchesGeneratedRowGuard(t *testing.T) {
 		require.Contains(t, bulk, "notexists"+part[:end+1])
 	}
 	require.Equal(t, strings.Count(guard, "notexists"), strings.Count(bulk, "notexists"))
+}
+
+type cleanupBulkInvoker func(context.Context, dexec.ComponentRequest) (any, error)
+
+func (f cleanupBulkInvoker) InvokeComponent(ctx context.Context, request dexec.ComponentRequest) (any, error) {
+	return f(ctx, request)
+}
+
+type cleanupBulkReporter struct{}
+
+func (cleanupBulkReporter) MutationReport() dexec.MutationReport {
+	return dexec.MutationReport{Results: []dexec.MutationResult{{Operation: "delete", Table: "call_payload", Records: 1, Affected: 1}}}
+}
+
+func TestCleanupBulkPartialMatchKeepsGuardAndActualCount(t *testing.T) {
+	for _, affected := range []int64{0, 1, 2} {
+		t.Run(fmt.Sprint(affected), func(t *testing.T) {
+			probe := &bulkSQLProbe{affected: affected}
+			input := &Input{DeleteUnreferenced: true, Payloads: []*PayloadDelete{{Id: "anchor"}, {Id: "missing"}, {Id: "new-reference"}}}
+			value, effects, err := maintenancetx.Invoke(context.Background(), cleanupBulkInvoker(func(ctx context.Context, request dexec.ComponentRequest) (any, error) {
+				maintenancetx.Observe(ctx, cleanupBulkReporter{})
+				out, err := invokeBulkProbeContext(t, ctx, input, probe)
+				request.Completion(xhandler.Outcome{Transactions: []xhandler.TransactionOutcome{{State: xhandler.TransactionCommitted}}})
+				return out, err
+			}), func(ctx context.Context) (context.Context, error) { return ctx, nil }, dexec.ComponentRequest{})
+			require.NoError(t, err)
+			require.EqualValues(t, 1+affected, effects.Deleted("call_payload"), "anchor counted once, actual bulk count only")
+			if affected < 2 {
+				require.Empty(t, value.(*Output).Data, "do not invent which identities were deleted")
+			} else {
+				require.Len(t, value.(*Output).Data, 3)
+			}
+			require.Equal(t, 1, probe.flushes)
+			require.Equal(t, 10, strings.Count(probe.query, "NOT EXISTS"))
+			require.Equal(t, 10, strings.Count(probe.criteria.Expression, "NOT EXISTS"))
+		})
+	}
 }
 
 func invokeBulkProbe(t *testing.T, input *Input, probe *bulkSQLProbe) (any, error) {
