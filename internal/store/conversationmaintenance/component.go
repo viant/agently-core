@@ -38,6 +38,9 @@ type Output struct {
 	Eligible, Deleted          bool
 	ConversationCount          int
 	LastActivity               time.Time
+	Partial                    bool
+	CommittedBatches           int
+	AffectedRows               int64
 }
 
 // The Store checks the lease before invoking this graph-mutation transaction.
@@ -103,7 +106,7 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 	if err := evaluate(ctx, deps, input, output, deleting); err != nil {
 		return err
 	}
-	if deleting && !output.Deleted {
+	if deleting && !output.Deleted && !tree.HasCapturedMaintenancePlan(ctx) {
 		snapshot := *output
 		return &skipped{result: &snapshot}
 	}
@@ -185,6 +188,10 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 	result.Eligible = true
 	if !deleting {
 		result.Reason = "eligible"
+		return nil
+	}
+	if tree.CaptureMaintenancePlan(ctx, plan) {
+		result.Reason = "planned"
 		return nil
 	}
 	if err = (&tree.Mutator{Invoker: deps.Invoker, OwnerID: d.OwnerID}).Apply(ctx, plan, tree.InvestigationDelete); err != nil {

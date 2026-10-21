@@ -145,12 +145,48 @@ func TestRetryOnlyKnownErrorAndConfirmedRollback(t *testing.T) {
 			}), pass, dexec.ComponentRequest{})
 			require.Error(t, err)
 			require.Nil(t, value)
-			require.Nil(t, effects)
+			if test.name == "committed" {
+				summary, summaryErr := effects.CommitSummary()
+				require.NoError(t, summaryErr)
+				require.EqualValues(t, 42, summary.AffectedRows)
+			} else {
+				require.Nil(t, effects)
+			}
 			require.Equal(t, test.attempts, calls)
 			var changed *GuardChanged
 			require.Equal(t, test.guarded, errors.As(err, &changed))
 		})
 	}
+}
+
+type countingReporter struct{ calls int }
+
+func (r *countingReporter) MutationReport() dexec.MutationReport {
+	r.calls++
+	return dexec.MutationReport{Results: []dexec.MutationResult{
+		{Operation: "delete", Table: "conversation", Affected: 2},
+		{Operation: "update", Table: "message", Affected: 3},
+		{Operation: "insert", Table: "audit", Affected: 1},
+		{Operation: "delete", Table: "call_payload", Affected: 1},
+		{Operation: "delete", Table: "conversation", Affected: 10, Error: errors.New("failed")},
+	}}
+}
+
+func TestCommitSummaryCountsExplicitCommittedDMLOnce(t *testing.T) {
+	r := &countingReporter{}
+	e := &Effects{committed: true, reporter: r, immediate: map[string]int64{"call_payload": 399}}
+	summary, err := e.CommitSummary()
+	require.NoError(t, err)
+	require.Equal(t, 1, r.calls, "clone the native journal only once")
+	require.EqualValues(t, 406, summary.AffectedRows)
+	require.EqualValues(t, 402, summary.DeletedRows)
+	require.EqualValues(t, 2, summary.DeletedByTable["conversation"])
+	require.EqualValues(t, 400, summary.DeletedByTable["call_payload"])
+	_, err = (&Effects{reporter: r}).CommitSummary()
+	require.Error(t, err)
+	require.Equal(t, 1, r.calls, "unconfirmed work must not read/publish a journal")
+	_, err = (*Effects)(nil).CommitSummary()
+	require.Error(t, err)
 }
 
 func TestRetryLeaseFailureAndCancellation(t *testing.T) {

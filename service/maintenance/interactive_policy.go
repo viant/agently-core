@@ -84,7 +84,7 @@ func (p *interactiveConversationCleanupPolicy) ProcessCandidate(ctx context.Cont
 		Mode:            p.mode,
 		Lease:           conversationCleanupLease(ctx),
 	})
-	if err != nil {
+	if err != nil && result == nil {
 		return conversationCleanupOutcome{}, err
 	}
 	if result == nil {
@@ -93,6 +93,8 @@ func (p *interactiveConversationCleanupPolicy) ProcessCandidate(ctx context.Cont
 	return conversationCleanupOutcome{
 		Eligible: result.Eligible,
 		Deleted:  result.Deleted,
+		Mutated:  result.AffectedRows > 0,
 		Reason:   string(result.Reason),
-	}, nil
+		Partial:  result.Partial, CommittedBatches: result.CommittedBatches, AffectedRows: result.AffectedRows,
+	}, err
 }

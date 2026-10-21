@@ -78,6 +78,11 @@ type ConversationMaintenanceResult struct {
 	Reason            ConversationMaintenanceReason
 	ConversationCount int
 	LastActivity      time.Time
+	// Partial reports confirmed progress before a later unit failed. It is
+	// returned together with the error and never implies whole-tree deletion.
+	Partial          bool
+	CommittedBatches int
+	AffectedRows     int64
 }
 
 func (s *datlyService) MaintainConversationTree(ctx context.Context, request ConversationMaintenanceRequest) (*ConversationMaintenanceResult, error) {
@@ -88,13 +93,17 @@ func (s *datlyService) MaintainConversationTree(ctx context.Context, request Con
 		return nil, err
 	}
 	output, err := (&native.Store{Invoker: s.native}).Maintain(ctx, &native.Input{RootID: request.RootID, Kind: string(request.Kind), InactiveBefore: request.InactiveBefore, Mode: string(request.Mode), Lease: lease.Lease{Key: request.Lease.Key, OwnerID: request.Lease.OwnerID, Token: request.Lease.Token, LeaseUntil: request.Lease.LeaseUntil}})
+	var result *ConversationMaintenanceResult
+	if output != nil {
+		result = &ConversationMaintenanceResult{RootID: output.RootID, Kind: ConversationMaintenanceKind(output.Kind), Mode: ConversationMaintenanceMode(output.Mode), Eligible: output.Eligible, Deleted: output.Deleted, Reason: ConversationMaintenanceReason(output.Reason), ConversationCount: output.ConversationCount, LastActivity: output.LastActivity, Partial: output.Partial, CommittedBatches: output.CommittedBatches, AffectedRows: output.AffectedRows}
+	}
 	if errors.Is(err, lease.ErrLeaseLost) {
-		return nil, ErrMaintenanceLeaseLost
+		return result, ErrMaintenanceLeaseLost
 	}
 	if err != nil {
-		return nil, mapScheduleDeleteError(err)
+		return result, mapScheduleDeleteError(err)
 	}
-	return &ConversationMaintenanceResult{RootID: output.RootID, Kind: ConversationMaintenanceKind(output.Kind), Mode: ConversationMaintenanceMode(output.Mode), Eligible: output.Eligible, Deleted: output.Deleted, Reason: ConversationMaintenanceReason(output.Reason), ConversationCount: output.ConversationCount, LastActivity: output.LastActivity}, nil
+	return result, nil
 }
 
 func validateConversationMaintenanceRequest(request ConversationMaintenanceRequest) error {

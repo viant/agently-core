@@ -57,6 +57,9 @@ type ScheduledRunMaintenanceResult struct {
 	Reason            ConversationMaintenanceReason
 	ConversationCount int
 	LastActivity      time.Time
+	Partial           bool
+	CommittedBatches  int
+	AffectedRows      int64
 }
 
 func (s *datlyService) ListScheduledRunMaintenanceCandidates(ctx context.Context, request ScheduledRunMaintenanceCandidateRequest) ([]ScheduledRunMaintenanceCandidate, error) {
@@ -91,7 +94,8 @@ func validateScheduledRunMaintenanceCandidateRequest(request ScheduledRunMainten
 }
 
 // MaintainScheduledRun evaluates scheduler retention and, in delete mode,
-// checks the lease first, then rechecks and deletes the run in one transaction.
+// checks the lease first. Large payload plans use restart-safe maintenance
+// units; errors may return confirmed partial progress alongside the error.
 func (s *datlyService) MaintainScheduledRun(ctx context.Context, request ScheduledRunMaintenanceRequest) (*ScheduledRunMaintenanceResult, error) {
 	request.RunID = strings.TrimSpace(request.RunID)
 	request.ExpectedOwnerID = strings.TrimSpace(request.ExpectedOwnerID)
@@ -103,13 +107,17 @@ func (s *datlyService) MaintainScheduledRun(ctx context.Context, request Schedul
 		return nil, err
 	}
 	output, err := (&native.Store{Invoker: s.native}).Maintain(ctx, &native.Input{RunID: request.RunID, InactiveBefore: request.InactiveBefore, Mode: string(request.Mode), Lease: lease.Lease{Key: request.Lease.Key, OwnerID: request.Lease.OwnerID, Token: request.Lease.Token, LeaseUntil: request.Lease.LeaseUntil}})
+	var result *ScheduledRunMaintenanceResult
+	if output != nil {
+		result = &ScheduledRunMaintenanceResult{RunID: output.RunID, ScheduleID: output.ScheduleID, Source: ScheduledRunMaintenanceSource(output.Source), Mode: ConversationMaintenanceMode(output.Mode), Eligible: output.Eligible, Deleted: output.Deleted, Reason: ConversationMaintenanceReason(output.Reason), ConversationCount: output.ConversationCount, LastActivity: output.LastActivity, Partial: output.Partial, CommittedBatches: output.CommittedBatches, AffectedRows: output.AffectedRows}
+	}
 	if errors.Is(err, lease.ErrLeaseLost) {
-		return nil, ErrMaintenanceLeaseLost
+		return result, ErrMaintenanceLeaseLost
 	}
 	if err != nil {
-		return nil, mapScheduleDeleteError(err)
+		return result, mapScheduleDeleteError(err)
 	}
-	return &ScheduledRunMaintenanceResult{RunID: output.RunID, ScheduleID: output.ScheduleID, Source: ScheduledRunMaintenanceSource(output.Source), Mode: ConversationMaintenanceMode(output.Mode), Eligible: output.Eligible, Deleted: output.Deleted, Reason: ConversationMaintenanceReason(output.Reason), ConversationCount: output.ConversationCount, LastActivity: output.LastActivity}, nil
+	return result, nil
 }
 
 func validateScheduledRunMaintenanceRequest(request ScheduledRunMaintenanceRequest) error {
