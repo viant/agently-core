@@ -68,6 +68,7 @@ import (
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 	"github.com/viant/authz"
+	"github.com/viant/authz/gating"
 	"github.com/viant/datly/standalone"
 	forgetypes "github.com/viant/forge/backend/types"
 	protoclient "github.com/viant/mcp-protocol/client"
@@ -166,6 +167,7 @@ func resolveScratchpadTemplate() string {
 }
 
 type Builder struct {
+	presentationPrincipalResolver  gating.PrincipalResolver
 	nativeWindowDefaults           []resourcesvc.NativeFrameworkWindowBinding
 	nativeWindowAliases            map[string]string
 	nativeHTTPWindowURIs           []string

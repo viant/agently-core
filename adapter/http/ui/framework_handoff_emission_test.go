@@ -7,6 +7,7 @@ import (
 	"github.com/viant/forge/backend/types"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -46,6 +47,29 @@ func TestPublishedWindowGetBindsDeliveredInstanceWithoutAnotherReadOrOpen(t *tes
 	handler.ServeHTTP(response, request)
 	if response.Code < 400 || f.bindings != 1 {
 		t.Fatal("failed provider read bound a window")
+	}
+}
+
+func TestPublishedWindowWithAuthorizationHintsBindsOnOrdinaryGet(t *testing.T) {
+	f := &publishedWindowBindingFixture{emissionHandoffFixture: &emissionHandoffFixture{selectionHTTPFixture: selectionHTTP(t)}}
+	f.window.Authorization = &types.AuthorizationSpec{Scope: "resource", DataSourceRef: "owner_facts"}
+	f.window.AuthorizationSnapshot = map[string]interface{}{"principal": map[string]interface{}{"roles": []string{"editor"}}}
+	handler := NewEmbeddedHandlerWithAuthorization(t.TempDir(), nil, nil, nil, WithWindowResourceProvider(f))
+	request := httptest.NewRequest(http.MethodGet, "/window/view?windowId=record-321&clientId=client-one", nil)
+	request.Header.Set("Mcp-Session-Id", "negotiated-session")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || f.bindings != 1 || f.gets != 1 || f.admits != 0 || f.signs != 0 {
+		t.Fatalf("managed delivery with hints: code=%d binds=%d gets=%d admits=%d signs=%d", response.Code, f.bindings, f.gets, f.admits, f.signs)
+	}
+	if f.delivered.Authorization != f.window.Authorization || f.delivered.AuthorizationSnapshot == nil || f.sessionID != "negotiated-session" {
+		t.Fatal("producer hints or authenticated UI binding were lost")
+	}
+	f.failGet = 2
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code < 400 || f.bindings != 1 || strings.Contains(response.Body.String(), "authorizationSnapshot") {
+		t.Fatal("denied producer metadata was exposed or bound")
 	}
 }
 

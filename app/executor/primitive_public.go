@@ -209,6 +209,9 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	}
 	var nativeSnapshot *resources.NativeAssetSnapshot
 	projection := layoutgate.MenuProjection(permittedview.NewRuntime(out.PermittedResolver), out.AuthorizationPolicy)
+	if b.presentationPrincipalResolver != nil {
+		projection = principalMenuProjection(b.presentationPrincipalResolver, out.AuthorizationPolicy)
+	}
 	authorize := func(ctx context.Context, a identity.VerifiedActor, uri identity.ResourceURI, action string) error {
 		checked := uri
 		if declaredNamespaces[uri.Namespace] {

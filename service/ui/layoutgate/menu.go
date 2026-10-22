@@ -14,7 +14,10 @@ import (
 // MenuProjection applies the existing authored app/menu gate along each exact
 // ancestor chain. It preserves all original fields/actions and filters only
 // nodes; identical actions in different branches never imply shared grants.
-func MenuProjection(runtime *permittedview.Runtime, admission *policy.Runtime) func(context.Context, json.RawMessage) (json.RawMessage, error) {
+// An optional principal seeds guard-only nodes with a trusted, current display
+// snapshot. The caller owns its verification/lease and supplies a resolver over
+// that same snapshot when authored nodes also declare authorization metadata.
+func MenuProjection(runtime *permittedview.Runtime, admission *policy.Runtime, principal ...*permittedview.Snapshot) func(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var root map[string]json.RawMessage
 		if json.Unmarshal(raw, &root) != nil {
@@ -90,7 +93,11 @@ func MenuProjection(runtime *permittedview.Runtime, admission *policy.Runtime) f
 			}
 			return out, nil
 		}
-		filtered, err := visit(nodes, nil)
+		var seed *permittedview.Snapshot
+		if len(principal) > 0 {
+			seed = principal[0]
+		}
+		filtered, err := visit(nodes, seed)
 		if err != nil {
 			return nil, err
 		}
