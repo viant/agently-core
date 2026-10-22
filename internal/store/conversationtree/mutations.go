@@ -36,6 +36,7 @@ import (
 	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
+	rh "github.com/viant/datly/runtime/handler"
 	"github.com/viant/datly/runtime/handler/provider"
 	"github.com/viant/datly/spec"
 )
@@ -55,6 +56,8 @@ const (
 type Mutator struct {
 	Invoker dexec.ComponentInvoker
 	OwnerID func(context.Context) string
+	// SQL is supplied only by maintenance parents, never by manual deletion.
+	SQL rh.TransactionSQLProvider
 }
 
 func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy InvestigationPolicy) (retErr error) {

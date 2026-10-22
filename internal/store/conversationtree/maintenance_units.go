@@ -133,7 +133,7 @@ func (*MaintenanceUnit) Exec(ctx context.Context, session handler.Session, input
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
 	}
-	m := &Mutator{Invoker: deps.Invoker, OwnerID: func(context.Context) string { return "" }}
+	m := &Mutator{Invoker: deps.Invoker, OwnerID: func(context.Context) string { return "" }, SQL: deps.SQL}
 	switch unit.kind {
 	case eventUnit:
 		return deleteMaintenanceEvents(ctx, deps.SQL, unit.events)
