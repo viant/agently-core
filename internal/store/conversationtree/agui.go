@@ -8,9 +8,12 @@ import (
 	eventread "github.com/viant/agently-core/internal/datly/agui/cleanup/event/read"
 	rundelete "github.com/viant/agently-core/internal/datly/agui/cleanup/run/delete"
 	runread "github.com/viant/agently-core/internal/datly/agui/cleanup/run/read"
+	"github.com/viant/agently-core/internal/store/maintenancebatch"
+	"github.com/viant/agently-core/internal/store/maintenancetx"
 	"github.com/viant/bindly/locator"
 	"github.com/viant/datly/runtime/handler/provider"
 	"reflect"
+	"sort"
 	"time"
 )
 
@@ -82,7 +85,17 @@ func (d *Discoverer) collectAGUI(ctx context.Context, plan *DeletePlan, now time
 // payloads before protocol run rows. The tree owns conversation deletion;
 // there is no separate physical thread/lease table or deletion phase.
 func (m *Mutator) deleteAGUI(ctx context.Context, plan *DeletePlan) error {
-	if err := eachDeleteBatch(plan.ConversationIDs, func(scope []string) error {
+	if err := m.deleteAGUIEvents(ctx, plan); err != nil {
+		return err
+	}
+	return m.deleteAGUIRuns(ctx, plan)
+}
+
+func (m *Mutator) deleteAGUIEvents(ctx context.Context, plan *DeletePlan) error {
+	if maintenancetx.Enabled(ctx) {
+		return m.deleteMaintenanceAGUIEvents(ctx, plan)
+	}
+	return eachDeleteBatch(plan.ConversationIDs, func(scope []string) error {
 		allowed := treeIDSet(scope)
 		runKeys := []string{}
 		for _, run := range plan.AGUIRuns {
@@ -111,9 +124,10 @@ func (m *Mutator) deleteAGUI(ctx context.Context, plan *DeletePlan) error {
 			input.SetRows(rows)
 			return input
 		}, aguiCleanupProviders()...)
-	}); err != nil {
-		return err
-	}
+	})
+}
+
+func (m *Mutator) deleteAGUIRuns(ctx context.Context, plan *DeletePlan) error {
 	return eachDeleteBatch(plan.ConversationIDs, func(scope []string) error {
 		allowed := treeIDSet(scope)
 		ids := []string{}
@@ -138,4 +152,32 @@ func (m *Mutator) deleteAGUI(ctx context.Context, plan *DeletePlan) error {
 			return input
 		}, aguiCleanupProviders()...)
 	})
+}
+
+// Apply calls this before queuing any other mutations. Like a 3B event unit,
+// it can execute scoped bulk SQL without a flush/anchor. Unlike a 3B unit it
+// joins the original small-plan transaction: metadata failure restores events.
+func (m *Mutator) deleteMaintenanceAGUIEvents(ctx context.Context, plan *DeletePlan) error {
+	allowed := treeIDSet(plan.ConversationIDs)
+	runs := map[string]string{}
+	for _, row := range plan.AGUIRuns {
+		if row == nil || aguiCleanupString(row.RunKey) == "" || !allowed[aguiCleanupString(row.ThreadId)] {
+			return fmt.Errorf("AG-UI run cleanup scope mismatch")
+		}
+		runs[*row.RunKey] = *row.ThreadId
+	}
+	events := append([]*eventread.Event(nil), plan.AGUIEvents...)
+	for _, row := range events {
+		if row == nil || aguiCleanupString(row.EventKey) == "" || aguiCleanupString(row.RunKey) == "" ||
+			!allowed[aguiCleanupString(row.ThreadId)] || runs[*row.RunKey] != *row.ThreadId {
+			return fmt.Errorf("AG-UI payload cleanup scope mismatch")
+		}
+	}
+	sort.Slice(events, func(i, j int) bool { return *events[i].EventKey < *events[j].EventKey })
+	for start := 0; start < len(events); start += maintenancebatch.Size {
+		if err := deleteMaintenanceEvents(ctx, m.SQL, events[start:min(start+maintenancebatch.Size, len(events))]); err != nil {
+			return err
+		}
+	}
+	return nil
 }

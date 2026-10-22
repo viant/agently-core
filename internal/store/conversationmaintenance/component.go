@@ -66,6 +66,7 @@ type dependencies struct {
 	Starter  handler.TransactionStarter `bind:"kind=transactionStarter,required"`
 	Schema   tree.TableInspector        `bind:"kind=conversationtreeSchema,in=inspector,required"`
 	Reporter dexec.MutationReporter     `bind:"kind=mutationReporter,required"`
+	SQL      rh.TransactionSQLProvider  `bind:"kind=transactionSQL,required"`
 }
 
 func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input, output *Output) (retErr error) {
@@ -194,7 +195,7 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 		result.Reason = "planned"
 		return nil
 	}
-	if err = (&tree.Mutator{Invoker: deps.Invoker, OwnerID: d.OwnerID}).Apply(ctx, plan, tree.InvestigationDelete); err != nil {
+	if err = (&tree.Mutator{Invoker: deps.Invoker, OwnerID: d.OwnerID, SQL: deps.SQL}).Apply(ctx, plan, tree.InvestigationDelete); err != nil {
 		return err
 	}
 	result.Deleted = true
