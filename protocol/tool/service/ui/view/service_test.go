@@ -50,8 +50,8 @@ func TestEffectiveOpenTimeoutCapsOversizedWorkspaceRequests(t *testing.T) {
 	if got := effectiveOpenTimeout(2_000); got != 2_000 {
 		t.Fatalf("explicit short timeout = %d, want 2000", got)
 	}
-	if got := effectiveOpenTimeout(0); got != 15_000 {
-		t.Fatalf("default timeout = %d, want 15000", got)
+	if got := effectiveOpenTimeout(0); got != 30_000 {
+		t.Fatalf("default timeout = %d, want 30000", got)
 	}
 }
 
