@@ -155,6 +155,35 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 		var authorization *permittedview.Snapshot
 		var openParameters map[string]any
 		var presentationResource map[string]any
+		if canonical && !applyPermissionRequested(r) {
+			projectionSpan := observe.Start(r.Context(), "http.window.project", observe.Labels{Kind: "window"})
+			var projected *permittedview.Result
+			var err error
+			configured, hasConfigured := settings.windows.(interface{ HasWindowUIProjection() bool })
+			project, hasProjector := settings.windows.(interface {
+				ProjectWindowWithInput(context.Context, *permittedview.BoundView) (*forgeTypes.Window, error)
+			})
+			if aWindow.AuthorizationSnapshot == nil && hasConfigured && configured.HasWindowUIProjection() && hasProjector {
+				var window *forgeTypes.Window
+				window, err = project.ProjectWindowWithInput(r.Context(), &permittedview.BoundView{Window: aWindow})
+				projected = &permittedview.Result{Window: window}
+			} else {
+				runtime := capabilities
+				if runtime == nil && useDefaults {
+					runtime = permittedview.DefaultRuntime()
+				}
+				projected, err = runtime.ProjectPrincipal(r.Context(), aWindow)
+			}
+			projectionSpan.End(observe.OutcomeFor(err), observe.CacheUnknown)
+			if err != nil || projected == nil || projected.Window == nil {
+				writeWindowError(w, err)
+				return
+			}
+			aWindow = projected.Window
+			for _, diagnostic := range projected.Diagnostics {
+				log.Printf("window presentation: %s", diagnostic.Code)
+			}
+		}
 		if applyPermissionRequested(r) {
 			if rawVersion := strings.TrimSpace(r.URL.Query().Get("authorizationSchemaVersion")); rawVersion != "" && aWindow.Authorization != nil {
 				version, err := strconv.Atoi(rawVersion)
@@ -213,7 +242,10 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 				}
 			}
 		}
-		if canonical && applyPermissionRequested(r) && (r.URL.Query().Get("clientId") != "" || r.URL.Query().Get("windowId") != "") {
+		// A successful provider read selects the delivered definition, including
+		// any authored UI authorization hints. Bind its negotiated UI instance
+		// without requiring a separate browser OPEN/projection request.
+		if canonical && (applyPermissionRequested(r) || r.Header.Get("Mcp-Session-Id") != "") && (r.URL.Query().Get("clientId") != "" || r.URL.Query().Get("windowId") != "") {
 			binder, ok := settings.windows.(interface {
 				BindAdmittedFrameworkWindow(context.Context, string, string, string, *forgeTypes.Window) error
 			})

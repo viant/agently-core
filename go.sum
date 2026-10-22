@@ -1272,6 +1272,10 @@ github.com/viant/authz v0.0.0-20261012005207-7814ee919e44 h1:/j8RYKG03lkEYscOoW0
 github.com/viant/authz v0.0.0-20261012005207-7814ee919e44/go.mod h1:iazfsC9LZkGsbZY2o/9Aq3p8eHaD09tWudyRN5vQ9eI=
 github.com/viant/authz v0.0.0-20261014234113-96042135a76f h1:c+Pf7/zzA4XrAg1Dm9v3BC33WxgQCpOIpZ2cNI4VkEY=
 github.com/viant/authz v0.0.0-20261014234113-96042135a76f/go.mod h1:iazfsC9LZkGsbZY2o/9Aq3p8eHaD09tWudyRN5vQ9eI=
+github.com/viant/authz v0.0.0-20261022051428-d56696929f0a h1:rP3o01V5P5Ez2ZKCGFrc7rIQnWMyjNuJvLkOkRFSYmw=
+github.com/viant/authz v0.0.0-20261022051428-d56696929f0a/go.mod h1:iazfsC9LZkGsbZY2o/9Aq3p8eHaD09tWudyRN5vQ9eI=
+github.com/viant/authz v0.0.0-20261022071048-a58b1851761a h1:NDHAi8entj6YOK1i9MtzVyMvJjCxRLp721fvXZR6WCI=
+github.com/viant/authz v0.0.0-20261022071048-a58b1851761a/go.mod h1:iazfsC9LZkGsbZY2o/9Aq3p8eHaD09tWudyRN5vQ9eI=
 github.com/viant/bindly v0.4.1-0.20261006234956-d0b4e58bac4e h1:v6y+qHGUrnENV48HJlpJDcXi6eLjCJgkqlMszaIB0C4=
 github.com/viant/bindly v0.4.1-0.20261006234956-d0b4e58bac4e/go.mod h1:2S+CsLqdGI1+s7BSuEWx/+ew8p+/Ax7Xi3HKGiE3/O8=
 github.com/viant/bindly v0.4.1-0.20261009060128-e3a43863d252 h1:n3/+aqeQK5kuP9ttijzWYJfcCMoA7xBN9Qf9/MzT+Yo=
@@ -1388,6 +1392,12 @@ github.com/viant/forge v0.3.45-0.20261020001843-8ec60657dcdd h1:eVANh7HoKXNbRUfv
 github.com/viant/forge v0.3.45-0.20261020001843-8ec60657dcdd/go.mod h1:33k4rfSc1sHfBUGuvsTRAskhulnlABsMfTUnTCmMtkk=
 github.com/viant/forge v0.3.45-0.20261020004321-72e8a35b5c97 h1:KMZjkS4/cX8CNruQlZTTfYIuCWXOdy+nALEQRDsboKQ=
 github.com/viant/forge v0.3.45-0.20261020004321-72e8a35b5c97/go.mod h1:33k4rfSc1sHfBUGuvsTRAskhulnlABsMfTUnTCmMtkk=
+github.com/viant/forge v0.3.45-0.20261020231016-abc28e211ffd h1:IrkmSmjuuI5rEbKOlMBBlyQ3Oi0TD0lH/8ZHiEwtOU4=
+github.com/viant/forge v0.3.45-0.20261020231016-abc28e211ffd/go.mod h1:33k4rfSc1sHfBUGuvsTRAskhulnlABsMfTUnTCmMtkk=
+github.com/viant/forge v0.3.45-0.20261021225600-e4d4a21a9a8a h1:jfiC+Tn4Zm8KfimBlQPRKuIETmEK9Wifl0zDpVWLcbM=
+github.com/viant/forge v0.3.45-0.20261021225600-e4d4a21a9a8a/go.mod h1:33k4rfSc1sHfBUGuvsTRAskhulnlABsMfTUnTCmMtkk=
+github.com/viant/forge v0.3.45-0.20261022044732-998bd5d6b93d h1:jmxtF/pdkB4lLwWTliYGhQs6wWgH7lK+xdDQjE0zZ1Y=
+github.com/viant/forge v0.3.45-0.20261022044732-998bd5d6b93d/go.mod h1:33k4rfSc1sHfBUGuvsTRAskhulnlABsMfTUnTCmMtkk=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
 github.com/viant/gds v0.6.0/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.2 h1:zTdW9QrPk2P0i/do9fokxtHesFQCvYqIc5Yktzmyxtg=

@@ -56,6 +56,7 @@ func TestSkillControlsUseOwningVisibleCatalogNotPrimitiveConnectionPresence(t *t
 	}{
 		{name: "windows and datasources only", selection: []string{"*"}},
 		{name: "skill supplied in mixed catalog", rows: []proto.Metadata{{Name: "review", URI: "skill://team/review/SKILL.md", ServerID: "skills"}}, selection: []string{"review"}, visible: true},
+		{name: "new provider skill needs no named agent entry", rows: []proto.Metadata{{Name: "new-provider-capability", URI: "skill://new-namespace/new-provider-capability/SKILL.md", ServerID: "new-provider"}}, selection: []string{"*"}, visible: true},
 		{name: "unselected skill", rows: []proto.Metadata{{Name: "review", URI: "skill://team/review/SKILL.md", ServerID: "skills"}}, selection: []string{"other"}},
 		{name: "excluded skill", rows: []proto.Metadata{{Name: "review", URI: "skill://team/review/SKILL.md", ServerID: "skills"}}, selection: []string{"*", "!review"}},
 		{name: "managing catalog denial", selection: []string{"*"}, denied: true},

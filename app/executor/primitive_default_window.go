@@ -33,7 +33,14 @@ func (b *Builder) configureDefaultWindowDelivery(out *Runtime) error {
 }
 
 func (b *Builder) configureWindowUIProjection(out *Runtime) {
-	if out.UIBridge == nil || out.PermittedResolver == nil || out.UIBridge.HasWindowUIProjection() {
+	if out.UIBridge == nil || out.UIBridge.HasWindowUIProjection() {
+		return
+	}
+	if b.presentationPrincipalResolver != nil {
+		out.UIBridge.ConfigureWindowUIProjection(principalPresentationProjection(b.presentationPrincipalResolver))
+		return
+	}
+	if out.PermittedResolver == nil {
 		return
 	}
 	runtime := permittedview.NewRuntime(out.PermittedResolver)

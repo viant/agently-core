@@ -15,6 +15,7 @@ import (
 
 	"github.com/viant/agently-core/service/policy"
 	"github.com/viant/authz"
+	"github.com/viant/authz/gating"
 )
 
 // ErrUnavailable marks an authorization dependency failure. Callers must
@@ -429,7 +430,19 @@ func (r *AuthzResolver) resolvePrincipal(ctx context.Context, request *Request) 
 	if request.SchemaVersion != 0 && request.SchemaVersion != 1 && request.SchemaVersion != 2 {
 		return nil, fmt.Errorf("permitted view: unsupported schema")
 	}
-	facts, err := r.Service.Provider.Resolve(ctx)
+	var facts authz.Facts
+	var accountID string
+	var err error
+	if provider, ok := r.Service.Provider.(gating.PrincipalResolver); ok {
+		var principal gating.Principal
+		principal, err = provider.ResolvePrincipal(ctx)
+		facts, accountID = principal.Facts, principal.AccountID
+		if err == nil && strings.TrimSpace(accountID) == "" {
+			return nil, ErrUnavailable
+		}
+	} else {
+		facts, err = r.Service.Provider.Resolve(ctx)
+	}
 	if err != nil {
 		if errors.Is(err, authz.ErrDenied) {
 			return nil, authz.ErrDenied
@@ -440,12 +453,16 @@ func (r *AuthzResolver) resolvePrincipal(ctx context.Context, request *Request) 
 		return nil, ErrUnavailable
 	}
 	principal := map[string]any{"subject": facts.Subject, "issuer": facts.Issuer, "tenantId": facts.Tenant, "roles": append([]string{}, facts.Roles...), "features": append([]string{}, facts.Exposures...)}
-	raw, err := json.Marshal(principal)
+	var account map[string]any
+	if accountID != "" {
+		account = map[string]any{"id": accountID}
+	}
+	raw, err := json.Marshal([]any{principal, account})
 	if err != nil {
 		return nil, ErrUnavailable
 	}
 	revision := sha256.Sum256(raw)
-	snapshot := &Snapshot{AuthorizationVersion: "principal:" + hex.EncodeToString(revision[:]), ExpiresAt: facts.ValidUntil, Principal: principal, GlobalCapabilities: map[string]bool{}, Resources: map[string]*Resource{}}
+	snapshot := &Snapshot{AuthorizationVersion: "principal:" + hex.EncodeToString(revision[:]), ExpiresAt: facts.ValidUntil, Principal: principal, Account: account, GlobalCapabilities: map[string]bool{}, Resources: map[string]*Resource{}}
 	if request.SchemaVersion == 2 {
 		snapshot.SchemaVersion = 2
 	}

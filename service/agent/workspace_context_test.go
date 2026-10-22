@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -74,4 +75,39 @@ func TestWorkspaceContextDocumentBoundsSelectionAndContent(t *testing.T) {
 	require.Less(t, len(text), maxWorkspaceContextBytes+512)
 	require.Contains(t, text, `"id":99`)
 	require.NotContains(t, text, `"id":100`)
+}
+
+func TestWorkspaceContextRetainsEntityParametersAndPrioritizesSelections(t *testing.T) {
+	input := &QueryInput{Context: workspaceFixture(t, `{"workspace":{
+		"windowId":"record-321","windowKey":"record","parameters":{"RecordId":[321],"region":"west","form":{"secret":true}},
+		"internalTabs":{"details":"overview"},"carousels":{"featured":{"itemId":"card-b","title":"Selected card","index":1,"total":3,"body":{"secret":true}}},
+		"cardRails":{"offers":{"title":"Offers","total":30,"visibleItems":[{"itemId":7,"title":"Visible card","index":5,"body":{"secret":true}}]}},
+		"dataSources":{"selected_records":{"selectedKeys":{"id":321}}}
+	}}`)}
+	sources := input.Context["workspace"].(map[string]interface{})["dataSources"].(map[string]interface{})
+	for i := 0; i < 100; i++ {
+		sources[fmt.Sprintf("empty_%03d", i)] = map[string]interface{}{"selectedKeys": map[string]interface{}{}}
+		sources[fmt.Sprintf("filter_%03d", i)] = map[string]interface{}{"filter": map[string]interface{}{"status": "active"}}
+	}
+	var original string
+	for i := 0; i < 20; i++ {
+		b := &binding.Binding{}
+		appendWorkspaceContextDocument(input, b)
+		require.Len(t, b.Documents.Items, 1)
+		text := b.Documents.Items[0].PageContent
+		require.Contains(t, text, `"parameters":{"RecordId":[321],"region":"west"}`)
+		require.Contains(t, text, `"selected_records":{"selectedKeys":{"id":321}}`)
+		require.Contains(t, text, `"internalTabs":{"details":"overview"}`)
+		require.Contains(t, text, `"carousels":{"featured":{"index":1,"itemId":"card-b","title":"Selected card","total":3}}`)
+		require.Contains(t, text, `"cardRails":{"offers":{"title":"Offers","total":30,"visibleItems":[{"index":5,"itemId":7,"title":"Visible card"}]}}`)
+		require.NotContains(t, text, `"focusedItem"`)
+		require.NotContains(t, text, `"empty_`)
+		require.NotContains(t, text, "secret")
+		if i == 0 {
+			original = text
+		} else {
+			require.Equal(t, original, text, "rebuilding a binding must retain the same context")
+		}
+	}
+	require.Len(t, sources, 201, "projection must not mutate the request context")
 }

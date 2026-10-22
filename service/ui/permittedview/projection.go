@@ -9,6 +9,52 @@ import (
 	"time"
 )
 
+// ProjectPrincipal supplies missing host principal display facts on an ordinary
+// managed metadata read. Producer snapshots take precedence. Even a contextual
+// resolver receives only Resolve(IncludePrincipal), never resource-bound inputs.
+func (r *Runtime) ProjectPrincipal(ctx context.Context, window *types.Window) (*Result, error) {
+	if window != nil && window.AuthorizationSnapshot != nil {
+		return &Result{Window: window}, nil
+	}
+	facts := &optionalPrincipalFacts{now: time.Now}
+	principal := &Runtime{Resolver: facts}
+	if r != nil {
+		principal.Now = r.Now
+		if r.Now != nil {
+			facts.now = r.Now
+		}
+		facts.resolver = r.Resolver
+	}
+	result, err := principal.Project(ctx, window)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if facts.unavailable {
+		return &Result{Window: window, Diagnostics: []Diagnostic{{Code: "presentation_facts_unavailable", Message: "Optional principal display facts are unavailable; authored UI guards are retained."}}}, nil
+	}
+	return result, err
+}
+
+type optionalPrincipalFacts struct {
+	resolver    Resolver
+	now         func() time.Time
+	unavailable bool
+}
+
+func (f *optionalPrincipalFacts) Resolve(ctx context.Context, _ *Request) (*Snapshot, error) {
+	if f.resolver == nil {
+		f.unavailable = true
+		return nil, ErrUnavailable
+	}
+	// The managed-resource path never sends entity IDs or capability requests.
+	snapshot, err := f.resolver.Resolve(ctx, &Request{IncludePrincipal: true})
+	if err != nil || snapshot == nil || snapshot.AuthorizationVersion == "" || !snapshot.ExpiresAt.After(f.now()) {
+		f.unavailable = true
+		return nil, ErrUnavailable
+	}
+	return snapshot, nil
+}
+
 // Project evaluates presentation guards using only the current principal's
 // roles/exposures. It does not bind or request an entity or its permissions.
 func (r *Runtime) Project(ctx context.Context, window *types.Window, presentation ...*BoundView) (*Result, error) {
@@ -71,7 +117,7 @@ func (r *Runtime) Project(ctx context.Context, window *types.Window, presentatio
 		}
 	}
 	if snapshot != nil && !contextualFacts {
-		snapshot = &Snapshot{AuthorizationVersion: snapshot.AuthorizationVersion, ExpiresAt: snapshot.ExpiresAt, Principal: map[string]any{"roles": snapshot.Principal["roles"], "features": snapshot.Principal["features"], "exposures": snapshot.Principal["exposures"]}}
+		snapshot = &Snapshot{AuthorizationVersion: snapshot.AuthorizationVersion, ExpiresAt: snapshot.ExpiresAt, Account: snapshot.Account, Principal: map[string]any{"roles": snapshot.Principal["roles"], "features": snapshot.Principal["features"], "exposures": snapshot.Principal["exposures"]}}
 	}
 	scope := authorizationScope(snapshot, selectedResource)
 	for _, key := range []string{"view", "dialogs"} {

@@ -1166,7 +1166,9 @@ func effectiveOpenTimeout(timeoutMs int) int {
 		}
 		return timeoutMs
 	}
-	return 15_000
+	// Includes command delivery, the renderer's 15s metadata admission and its
+	// bounded readiness acknowledgement. A performance target is not a timeout.
+	return 30_000
 }
 
 func expandOpenParameters(specParams []viewproto.Parameter, provided map[string]interface{}) map[string]interface{} {

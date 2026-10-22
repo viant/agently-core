@@ -64,12 +64,8 @@ func NativeLookupPickerDefinitions(ctx context.Context, root string, lookups, wi
 		if entry.IsDir() || !(strings.HasSuffix(file, ".yaml") || strings.HasSuffix(file, ".yml")) {
 			return nil
 		}
-		raw, e := reader.ReadFile(ctx, file)
+		dialog, e := readNativePickerDialog(ctx, reader, file)
 		if e != nil {
-			return e
-		}
-		var dialog types.Dialog
-		if e = yaml.Unmarshal(raw, &dialog); e != nil {
 			return e
 		}
 		if needed[dialog.Id] == "" {
@@ -114,12 +110,8 @@ func NativeLookupPickerDefinitions(ctx context.Context, root string, lookups, wi
 
 func nativeLookupPickerLoader(binding workspacewindow.ResourceBinding, file string, enrich StaticWorkspaceWindowEnricher) ExtensionLoader {
 	return func(ctx context.Context, reader *ExtensionReader, _ string) (json.RawMessage, error) {
-		raw, err := reader.ReadFile(ctx, file)
+		dialog, err := readNativePickerDialog(ctx, reader, file)
 		if err != nil {
-			return nil, err
-		}
-		var dialog types.Dialog
-		if err = yaml.Unmarshal(raw, &dialog); err != nil {
 			return nil, err
 		}
 		if dialog.Id != binding.WindowKey {
@@ -130,4 +122,26 @@ func nativeLookupPickerLoader(binding workspacewindow.ResourceBinding, file stri
 		}
 		return NativeComposedWindowLoader(binding, base, enrich)(ctx, reader, path.Clean(file))
 	}
+}
+
+// Picker inventory and runtime compilation share the native source import
+// semantics. Resolve through the confined reader before decoding containers;
+// their authored content may be a keyed or parameterized import expression.
+func readNativePickerDialog(ctx context.Context, reader *ExtensionReader, file string) (types.Dialog, error) {
+	var dialog types.Dialog
+	raw, err := reader.ReadFile(ctx, file)
+	if err != nil {
+		return dialog, err
+	}
+	var node yaml.Node
+	if err = yaml.Unmarshal(raw, &node); err == nil {
+		err = resolveNativeAuthoredImports(ctx, reader, file, &node)
+	}
+	if err == nil {
+		err = node.Decode(&dialog)
+	}
+	if err != nil {
+		return dialog, fmt.Errorf("native lookup picker %s: %w", file, err)
+	}
+	return dialog, nil
 }

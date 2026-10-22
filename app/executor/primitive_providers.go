@@ -37,8 +37,11 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 			// Window availability can be projected through original application
 			// visibility rules. Such metadata belongs to the current user even
 			// though its authored bytes are immutable and grant no data access.
-			if out.PermittedResolver != nil || out.AuthorizationTool != "" || out.AuthorizationPolicy != nil {
+			if b.presentationPrincipalResolver != nil || out.PermittedResolver != nil || out.AuthorizationTool != "" || out.AuthorizationPolicy != nil {
 				resourceScopes["workspace/window"] = mcpcfg.ResourceCacheUser
+			}
+			if b.presentationPrincipalResolver != nil {
+				resourceScopes["system/window"] = mcpcfg.ResourceCacheUser
 			}
 		}
 		if err := out.MCPManager.RegisterLocal(context.Background(), "internal", &mcpcfg.MCPClient{

@@ -38,6 +38,26 @@ describe('existing renderer store with reduced AG-UI content', () => {
         expect(state.turns[0].users).toHaveLength(1);
         expect(state.turns[0].users[0]).toMatchObject({ renderKey: identity, messageId: 'native-user', clientRequestId: 'ui-message', content: 'Friendly prompt' });
     });
+    it('coalesces a provisional protocol user ID with a native transcript lacking request ID', () => {
+        const state = newConversationState('thread');
+        applyLocalSubmit(state, {conversationId:'thread', clientRequestId:'client-user', content:'Friendly prompt', mode:'submit'});
+        const identity = state.turns[0].users[0].renderKey;
+        applyEvent(state, {type:'turn_started', conversationId:'thread', turnId:'native-turn', userMessageId:'client-user', clientRequestId:'client-user'});
+        const snapshot = {conversationId:'thread', turns:[{turnId:'native-turn', status:'running' as const, startedByMessageId:'native-user', user:{messageId:'native-user', content:'Friendly prompt'}}]};
+        applyTranscript(state, snapshot);
+        applyTranscript(state, snapshot);
+        expect(state.turns).toHaveLength(1);
+        expect(state.turns[0].users).toHaveLength(1);
+        expect(state.turns[0].users[0]).toMatchObject({renderKey:identity, messageId:'native-user', clientRequestId:'client-user'});
+    });
+
+    it('preserves distinct native users with identical content', () => {
+        const state = newConversationState('thread');
+        applyTranscript(state, {conversationId:'thread', turns:[{turnId:'turn', status:'completed', user:{messageId:'native-one', content:'Same prompt'}, messages:[{messageId:'native-two', role:'user', content:'Same prompt'}]}]});
+        expect(state.turns[0].users).toHaveLength(1);
+        expect(state.turns[0].messages).toHaveLength(1);
+    });
+
     it('replaces absolute text projections without duplicate accumulation or changing render identity', () => {
         const state = newConversationState('thread');
         const base = { conversationId: 'thread', turnId: 'native-turn', pageId: 'page', iteration: 1, messageId: 'assistant', createdAt: '2026-10-03T00:00:00Z' };
