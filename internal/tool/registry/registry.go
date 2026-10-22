@@ -883,6 +883,8 @@ func (r *Registry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 }
 
 func (r *Registry) Execute(ctx context.Context, name string, args map[string]interface{}) (result string, retErr error) {
+	totalTiming := startRegistryTiming(ctx, "tool.registry.execute")
+	defer func() { finishRegistryTiming(totalTiming, retErr) }()
 	execStart := time.Now()
 	// Handle selector suffix and base tool name
 	var selector string
@@ -1200,16 +1202,22 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 
 		}
 		if resolvedIdentity {
-			res, err = dispatchClient.CallTool(ctx, &mcpschema.CallToolRequestParams{Name: literalMethod, Arguments: executionArgs}, options...)
+			res, err = timedMCPToolCall(ctx, func() (*mcpschema.CallToolResult, error) {
+				return dispatchClient.CallTool(ctx, &mcpschema.CallToolRequestParams{Name: literalMethod, Arguments: executionArgs}, options...)
+			})
 		} else if dispatchClient != cli {
 			artifactProxy, proxyErr := mcpproxy.NewProxy(ctx, server, dispatchClient)
 			if proxyErr != nil {
 				finishDispatch()
 				return "", proxyErr
 			}
-			res, err = artifactProxy.CallTool(ctx, baseName, executionArgs, options...)
+			res, err = timedMCPToolCall(ctx, func() (*mcpschema.CallToolResult, error) {
+				return artifactProxy.CallTool(ctx, baseName, executionArgs, options...)
+			})
 		} else {
-			res, err = px.CallTool(ctx, baseName, executionArgs, options...)
+			res, err = timedMCPToolCall(ctx, func() (*mcpschema.CallToolResult, error) {
+				return px.CallTool(ctx, baseName, executionArgs, options...)
+			})
 		}
 		finishDispatch()
 		if outputPolicy != nil {
@@ -1316,6 +1324,8 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		debugMCPExecf("registry calltool returning transport error server=%s base=%s elapsed=%s err=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), err)
 		return "", mcpauth.WrapError(err)
 	}
+	decodeTiming := startRegistryTiming(ctx, "mcp.tool.decode")
+	defer func() { finishRegistryTiming(decodeTiming, retErr) }()
 	if res == nil {
 		if protected {
 			protectionAmbiguous = true
