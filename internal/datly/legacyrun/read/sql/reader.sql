@@ -1,5 +1,4 @@
-SELECT data_rows.* FROM  (
-    SELECT r.id, r.schedule_id, r.created_at, r.updated_at,
+SELECT data_rows.* FROM  (    SELECT r.id, r.schedule_id, r.created_at, r.updated_at,
            r.status, r.error_message, r.lease_owner, r.lease_until,
            r.precondition_ran_at, r.precondition_passed,
            r.precondition_result, r.conversation_id,
