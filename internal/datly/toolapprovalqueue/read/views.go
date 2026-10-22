@@ -22,11 +22,11 @@ type ApprovalView struct {
 	MessageId        *string    `sqlx:"message_id,refTable=message,refColumn=id" json:"messageId"`
 	Title            *string    `sqlx:"title" json:"title"`
 	Decision         *string    `sqlx:"decision" json:"decision"`
-	ExpiresAt        *time.Time `sqlx:"expires_at" json:"expiresAt"`
-	TimedOutAt       *time.Time `sqlx:"timed_out_at" json:"timedOutAt"`
 	ApprovedByUserId *string    `sqlx:"approved_by_user_id" json:"approvedByUserId"`
 	ApprovedAt       *time.Time `sqlx:"approved_at" json:"approvedAt"`
 	ExecutedAt       *time.Time `sqlx:"executed_at" json:"executedAt"`
 	ErrorMessage     *string    `sqlx:"error_message" json:"errorMessage"`
 	UpdatedAt        *time.Time `sqlx:"updated_at" json:"updatedAt"`
+	ExpiresAt        *time.Time `sqlx:"expires_at" json:"expiresAt"`
+	TimedOutAt       *time.Time `sqlx:"timed_out_at" json:"timedOutAt"`
 }

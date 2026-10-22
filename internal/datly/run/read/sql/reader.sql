@@ -1,5 +1,4 @@
-SELECT run_rows.* FROM  (
-SELECT
+SELECT run_rows.* FROM  (SELECT
 #if($ReadMode == "scheduledMaintenance")
 t.id,
 #else
