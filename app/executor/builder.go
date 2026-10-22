@@ -916,13 +916,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	if out.PermittedResolver == nil && out.AuthorizationTool != "" {
-		execute, ok := any(out.Registry).(permittedview.ToolExecutor)
-		if !ok {
-			return nil, fmt.Errorf("configured MCP permission executor is unavailable")
-		}
-		out.PermittedResolver = &permittedview.MCPResolver{Executor: execute, ToolName: out.AuthorizationTool}
-	}
+	// Presentation facts come from the configured identity provider. Legacy MCP
+	// resource authorization must not add a preflight to window opening.
+
 	b.configureWindowUIProjection(out)
 	if err := b.configureComponentTransport(out); err != nil {
 		return nil, err
