@@ -42,6 +42,11 @@ func HTTPProviders(ctx context.Context, identityRaw, evaluationRaw json.RawMessa
 	if err := decodeHTTPAuthorityConfig(identityRaw, &identityConfig); err != nil {
 		return Providers{}, fmt.Errorf("identity adapter: %w", err)
 	}
+	// Existing authorization hosts re-read mutable identity facts. Cache reuse
+	// must be an explicit operator choice, including for presentation-only hosts.
+	if identityConfig.UserInfoCacheTTL == "" {
+		identityConfig.UserInfoCacheTTL = "0s"
+	}
 	var evaluationConfig *oauth.HTTPEvaluationConfig
 	if len(bytes.TrimSpace(evaluationRaw)) != 0 && !bytes.Equal(bytes.TrimSpace(evaluationRaw), []byte("null")) {
 		evaluationConfig = &oauth.HTTPEvaluationConfig{}

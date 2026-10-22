@@ -55,9 +55,6 @@ func (c *backendClient) bootstrapDatasourceStack(rt *executor.Runtime) error {
 	if rt.Registry != nil {
 		if reg, ok := rt.Registry.(dsadapter.ToolRegistry); ok {
 			opts.Executor = dsadapter.FromRegistry(reg)
-			if rt.PermittedResolver == nil {
-				c.permittedRuntime = permittedview.NewRuntime(&permittedview.MCPResolver{Executor: reg, ToolName: rt.AuthorizationTool})
-			}
 		}
 	}
 	if rt.PermittedResolver != nil {

@@ -36,7 +36,7 @@ require (
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.6
-	github.com/viant/forge v0.3.45-0.20261020004321-72e8a35b5c97
+	github.com/viant/forge v0.3.45-0.20261022044732-998bd5d6b93d
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.1-0.20261007222529-b829eaaf687b
 	github.com/viant/jsonrpc v0.25.1-0.20261017043720-5809a36c92af
@@ -150,7 +150,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
-	github.com/viant/authz v0.0.0-20261014234113-96042135a76f
+	github.com/viant/authz v0.0.0-20261022071048-a58b1851761a
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
 	github.com/viant/govalidator v0.3.4-0.20260913213120-027a9dd54d73 // indirect

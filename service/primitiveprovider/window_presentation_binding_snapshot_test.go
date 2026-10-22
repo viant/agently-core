@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/forge/backend/types"
@@ -22,6 +23,10 @@ func (*admittedPresentationCatalog) IsDefaultPresentationWindow(pin identity.Res
 func (c *admittedPresentationCatalog) RevalidateWindowResource(_ context.Context, _ string, pin identity.ResolvedResource, _ *types.WindowTarget) (*identity.ResolvedResource, error) {
 	c.reads++
 	return &pin, nil
+}
+
+func (c *admittedPresentationCatalog) Get(_ context.Context, in *WindowDefinitionGetInput) (*WindowDefinitionGetOutput, error) {
+	return &WindowDefinitionGetOutput{Definition: &types.Window{Resource: in.ResolvedResource, Resources: &types.ResourceAssignment{DataSources: []string{"records"}}}}, nil
 }
 
 func TestNativePresentationBindsServerAdmittedSnapshotWithoutReload(t *testing.T) {
@@ -53,5 +58,38 @@ func TestNativePresentationBindsServerAdmittedSnapshotWithoutReload(t *testing.T
 	changed.ContentFingerprint = identity.ContentFingerprint([]byte(`{"changed":true}`))
 	if _, err = svc.BindAdmittedNativePresentationWindow(ctx, "client-a", "instance", "media", &types.Window{Resource: &changed, ResourceTarget: admitted.ResourceTarget}); err == nil {
 		t.Fatal("existing instance candidate replaced")
+	}
+	// Provider-selected metadata is delivered through the same mechanism even
+	// when the resource is external and has no additional OPEN declaration.
+	external := pin
+	external.URI = "window://external/records"
+	external.ProviderIdentity = "external-provider"
+	external.AuthorityBinding = "provider-selected-user"
+	handled, err = svc.BindAdmittedNativePresentationWindow(ctx, "client-a", "external-instance", external.URI,
+		&types.Window{Resource: &external, ResourceTarget: admitted.ResourceTarget})
+	if !handled || err != nil || catalog.reads != 0 {
+		t.Fatalf("provider-selected delivery was not retained without another read: handled=%t err=%v reads=%d", handled, err, catalog.reads)
+	}
+	held, ok = svc.getWindowPin(windowPinKey{Namespace: "alice", ClientID: "client-a", WindowID: "external-instance"})
+	if !ok || held.Resource != external {
+		t.Fatal("external window delivery was lost")
+	}
+	filtered, err := svc.filterResourceSnapshot(ctx, "alice", "client-a", json.RawMessage(`{"conversationId":"conversation","selected":{"windowId":"external-instance"},"windows":[{"windowId":"external-instance","windowKey":"window://external/records","conversationId":"conversation","dataSources":{"records":{"collection":[{"id":321}]},"unrelated":{"collection":[{"id":999}]}}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var visible struct {
+		Selected struct {
+			WindowID string `json:"windowId"`
+		} `json:"selected"`
+		Windows []struct {
+			DataSources map[string]json.RawMessage `json:"dataSources"`
+		} `json:"windows"`
+	}
+	if err := json.Unmarshal(filtered, &visible); err != nil {
+		t.Fatal(err)
+	}
+	if visible.Selected.WindowID != "external-instance" || len(visible.Windows) != 1 || len(visible.Windows[0].DataSources) != 1 || visible.Windows[0].DataSources["records"] == nil {
+		t.Fatalf("UI observation lost the delivered window or included an undeclared source: %s", filtered)
 	}
 }

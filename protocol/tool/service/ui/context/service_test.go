@@ -1,15 +1,93 @@
 package context
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
 
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 )
+
+func TestGetUsesRequestClientInsteadOfMostRecentlyPolledClient(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	for _, clientID := range []string{"caller", "other"} {
+		postContextUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": clientID})
+		postContextUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+			"clientId": clientID,
+			"data": map[string]interface{}{
+				"clientId": clientID, "conversationId": "conv-1",
+				"selected": map[string]interface{}{"windowId": clientID + "-window"},
+				"windows": []interface{}{map[string]interface{}{
+					"windowId": clientID + "-window", "windowKey": "advertiser",
+					"conversationId": "conv-1", "presentation": "hosted",
+				}},
+			},
+		})
+	}
+	// Only the other client has a heartbeat, so it wins the default registry order.
+	postContextUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "other", "timeoutMs": 1})
+	svc := New(bridge)
+	baseCtx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	for _, tc := range []struct {
+		name, preferred, explicit, want string
+		missing                         bool
+	}{
+		{name: "default registry order", want: "other"},
+		{name: "request client wins", preferred: "caller", want: "caller"},
+		{name: "explicit client wins", preferred: "caller", explicit: "other", want: "other"},
+		{name: "default input uses request client", preferred: "caller", explicit: "default", want: "caller"},
+		{name: "missing request client", preferred: "missing", want: "missing", missing: true},
+		{name: "missing explicit client", preferred: "caller", explicit: "missing", want: "missing", missing: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := runtimerequestctx.WithPreferredUIClientID(baseCtx, tc.preferred)
+			out := &GetOutput{}
+			if err := svc.get(ctx, &GetInput{ClientID: tc.explicit}, out); err != nil {
+				t.Fatal(err)
+			}
+			if out.ClientID != tc.want {
+				t.Fatalf("client = %q, want %q", out.ClientID, tc.want)
+			}
+			if tc.missing {
+				if len(out.Windows) != 0 || out.FocusedWindowID != "" || out.Selected != nil {
+					t.Fatalf("unavailable client fell back to another client's context: %#v", out)
+				}
+				return
+			}
+			if len(out.Windows) != 1 || out.Windows[0].Window.WindowID != tc.want+"-window" || out.FocusedWindowID != tc.want+"-window" || out.Selected == nil || out.Selected.WindowID != tc.want+"-window" {
+				t.Fatalf("wrong client window or focus: %#v", out)
+			}
+		})
+	}
+}
+
+func postContextUIRPC(t *testing.T, bridge *forgeuisvc.Service, method string, params map[string]interface{}) {
+	t.Helper()
+	body, err := json.Marshal(map[string]interface{}{"jsonrpc": "2.0", "id": "test", "method": method, "params": params})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	bridge.Hub().ServeHTTPRPC(rec, req)
+	var envelope struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode %s response: %v", method, err)
+	}
+	if rec.Code < 200 || rec.Code >= 300 || len(envelope.Error) != 0 && string(envelope.Error) != "null" {
+		t.Fatalf("%s failed: HTTP %d, %s", method, rec.Code, rec.Body.String())
+	}
+}
 
 func TestGetProjectsConversationEventsWithoutLiveWindowSnapshot(t *testing.T) {
 	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})

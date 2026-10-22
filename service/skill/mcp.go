@@ -3,12 +3,14 @@ package skill
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	authctx "github.com/viant/agently-core/internal/auth"
+	mcpauth "github.com/viant/agently-core/internal/auth/mcpauth"
 	"github.com/viant/agently-core/internal/debugtrace"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
@@ -143,11 +145,25 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 		}
 		entries, err := s.listRemoteServer(ctx, agent, server, id, cfg)
 		if err != nil {
+			if only == "" && optionalSkillLinkRequired(err) {
+				continue
+			}
 			return nil, fmt.Errorf("MCP skill discovery unavailable for %s: %w", id, err)
 		}
 		out = append(out, entries...)
 	}
 	return out, nil
+}
+
+// Only a pure typed missing-link outcome is optional during aggregate
+// discovery. Joined integrity, authorization or transport failures stay errors.
+func optionalSkillLinkRequired(err error) bool {
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		if _, joined := current.(interface{ Unwrap() []error }); joined {
+			return false
+		}
+	}
+	return mcpauth.IsLinkRequired(err)
 }
 
 func (s *Service) remoteClient(ctx context.Context, server string, cfg *mcpcfg.MCPClient) (context.Context, mcpclient.Interface, []mcpclient.RequestOption, error) {

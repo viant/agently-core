@@ -298,6 +298,11 @@ func validateHostAuthorizationMappings(config *hostAuthorizationFile, bundle *oa
 }
 
 func ConfigureAuthorization(options Options, workspaceRoot string, workspaceConfig *wscfg.Root, enrich windowloader.WorkspaceWindowEnricher, internal ...*Registration) (func(context.Context, *executor.Builder) error, error) {
+	var presentationErr error
+	options, presentationErr = configurePresentation(options, workspaceRoot, workspaceConfig)
+	if presentationErr != nil {
+		return nil, presentationErr
+	}
 	path := strings.TrimSpace(options.AuthzConfigPath)
 	if path == "" {
 		path = strings.TrimSpace(os.Getenv("AGENTLY_AUTHZ_CONFIG"))
@@ -488,10 +493,6 @@ func ConfigureAuthorization(options Options, workspaceRoot string, workspaceConf
 				for _, b := range group {
 					nativeAuthority.allowed[b.URI] = resourcesvc.LocalResourceBinding{URI: b.URI, Title: b.WindowKey, FormatVersion: 2}
 				}
-			}
-			nativeAuthority.visibilityLease, err = newInternalWindowVisibilityLease(config, svcauth.IDTokenIdentityProvider{Source: bundle.Identity})
-			if err != nil {
-				return nil, err
 			}
 			windowMetadataScope = nativeWindowMetadataScope{}
 		}
