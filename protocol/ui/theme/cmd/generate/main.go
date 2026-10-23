@@ -3,13 +3,18 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"os"
+	"path/filepath"
 
 	"github.com/viant/agently-core/protocol/ui/theme"
 )
 
 func main() {
-	source, err := os.ReadFile("testdata/baseline.yaml")
+	manifestPath := flag.String("manifest", "testdata/baseline.yaml", "manifest to validate and render")
+	output := flag.String("output", "testdata/baseline", "output path without extension")
+	flag.Parse()
+	source, err := os.ReadFile(*manifestPath)
 	check(err)
 	manifest, err := theme.Parse(source)
 	check(err)
@@ -19,8 +24,9 @@ func main() {
 	check(err)
 	css, err := theme.CSS(catalog)
 	check(err)
-	check(os.WriteFile("testdata/baseline.json", append(data, '\n'), 0644))
-	check(os.WriteFile("testdata/baseline.css", []byte(css), 0644))
+	check(os.MkdirAll(filepath.Dir(*output), 0755))
+	check(os.WriteFile(*output+".json", append(data, '\n'), 0644))
+	check(os.WriteFile(*output+".css", []byte(css), 0644))
 }
 
 func check(err error) {

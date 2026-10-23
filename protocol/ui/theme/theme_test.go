@@ -273,3 +273,68 @@ fonts:
 		t.Fatal("accepted duplicate roles")
 	}
 }
+
+func TestCompleteTypographyRoles(t *testing.T) {
+	roles := []string{"caption", "small", "body", "section", "heading", "title", "metric", "display", "code", "label", "metadata"}
+	for _, role := range roles {
+		t.Run(role, func(t *testing.T) {
+			tokens := Tokens{
+				"typography." + role + ".family":        "monospace",
+				"typography." + role + ".size":          14,
+				"typography." + role + ".weight":        600,
+				"typography." + role + ".lineHeight":    20,
+				"typography." + role + ".letterSpacing": -0.01,
+			}
+			c := &Catalog{Version: Version, Themes: []ResolvedTheme{{ID: "role", Modes: map[string]Tokens{"light": tokens}}}}
+			css, err := CSS(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, prefix := range []string{"--forge-type-", "--agently-theme-type-"} {
+				for _, declaration := range []string{"family: ui-monospace", "size: 14px;", "weight: 600;", "line-height: 20px;", "letter-spacing: -0.01em;"} {
+					if !strings.Contains(css, prefix+role+"-"+declaration) {
+						t.Fatalf("missing %s in %s", declaration, css)
+					}
+				}
+			}
+			for key, bad := range map[string]interface{}{"weight": 600.5, "letterSpacing": -0.05, "family": "url(evil)", "lineHeight": "20px"} {
+				invalid := Tokens{}
+				for k, v := range tokens {
+					invalid[k] = v
+				}
+				invalid["typography."+role+"."+key] = bad
+				if validateTokens(invalid) == nil {
+					t.Errorf("accepted %s=%v", key, bad)
+				}
+			}
+		})
+	}
+	m, err := Parse([]byte(example))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Themes[0].Tokens["typography.body.family"] = "workspace-primary"
+	if _, err := Resolve(*m); err == nil {
+		t.Fatal("unregistered per-role font accepted")
+	}
+	m.Fonts = []FontFamily{{Role: "workspace-primary", Name: "Example", Faces: []FontFace{{File: "example.woff2", Style: "normal", Weight: "400"}}}}
+	if _, err := Resolve(*m); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFoundationUnits(t *testing.T) {
+	tokens := Tokens{"spacing.2": 8, "border.width": 1, "radius.surface": 12, "radius.pill": 999, "focus.width": 2, "focus.offset": 2, "motion.fast": 120, "icon.size": 16}
+	c := &Catalog{Version: Version, Themes: []ResolvedTheme{{ID: "foundation", Modes: map[string]Tokens{"light": tokens}}}}
+	css, err := CSS(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(css, "--forge-motion-fast: 120ms;") || !strings.Contains(css, "--agently-theme-spacing-2: 8px;") {
+		t.Fatal(css)
+	}
+	tokens["motion.fast"] = 501
+	if _, err := CSS(c); err == nil {
+		t.Fatal("unbounded motion accepted")
+	}
+}
