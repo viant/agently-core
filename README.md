@@ -172,3 +172,11 @@ MCP and device tests require their service configuration and credentials.
 
 The [documentation index](doc/README.md) provides the full reading path.
 [LICENSE](LICENSE) · [NOTICE](NOTICE)
+
+## Design-system contributions
+
+Start with [the canonical usage guide](protocol/ui/theme/README.md) before changing appearance,
+components or workspace theme contracts. The guide identifies the supported
+roles, real examples, extension path and existing checks. Include the reused
+components/roles, specimen and integration evidence, checks and remaining
+legacy limits in the pull request for shared-owner review.

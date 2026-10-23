@@ -5,6 +5,62 @@ themes:
   - id: baseline
     label: Baseline
     fallbackMode: light
+    tokens:
+      typography.caption.family: system
+      typography.caption.size: 11
+      typography.caption.weight: 400
+      typography.caption.lineHeight: 16
+      typography.caption.letterSpacing: 0
+      typography.small.family: system
+      typography.small.size: 12
+      typography.small.weight: 400
+      typography.small.lineHeight: 18
+      typography.small.letterSpacing: 0
+      typography.body.family: system
+      typography.body.size: 14
+      typography.body.weight: 400
+      typography.body.lineHeight: 20
+      typography.body.letterSpacing: 0
+      typography.section.family: system
+      typography.section.size: 15
+      typography.section.weight: 600
+      typography.section.lineHeight: 22
+      typography.section.letterSpacing: 0
+      typography.heading.family: system
+      typography.heading.size: 18
+      typography.heading.weight: 700
+      typography.heading.lineHeight: 24
+      typography.heading.letterSpacing: -0.01
+      typography.title.family: system
+      typography.title.size: 22
+      typography.title.weight: 600
+      typography.title.lineHeight: 28
+      typography.title.letterSpacing: -0.01
+      typography.metric.family: system
+      typography.metric.size: 28
+      typography.metric.weight: 600
+      typography.metric.lineHeight: 34
+      typography.metric.letterSpacing: -0.01
+      typography.display.family: system
+      typography.display.size: 32
+      typography.display.weight: 700
+      typography.display.lineHeight: 40
+      typography.display.letterSpacing: -0.02
+      typography.code.family: monospace
+      typography.code.size: 13
+      typography.code.weight: 400
+      typography.code.lineHeight: 20
+      typography.code.letterSpacing: 0
+      typography.label.family: system
+      typography.label.size: 14
+      typography.label.weight: 400
+      typography.label.lineHeight: 20
+      typography.label.letterSpacing: 0
+      typography.metadata.family: system
+      typography.metadata.size: 12
+      typography.metadata.weight: 400
+      typography.metadata.lineHeight: 16
+      typography.metadata.letterSpacing: 0
     modes:
       light: {}
       dark: {}
