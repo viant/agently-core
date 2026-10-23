@@ -175,8 +175,14 @@ func Resolve(m Manifest) (*Catalog, error) {
 			for k, v := range variant.Tokens {
 				values[k] = v
 			}
-			if family, _ := values["typography.family"].(string); family != "system" && !registeredFonts[family] {
-				return nil, fmt.Errorf("theme %s/%s selects unregistered font role %q", t.ID, mode, family)
+			for key, value := range values {
+				if tokenSpecs[key].kind != "font" {
+					continue
+				}
+				family, _ := value.(string)
+				if strings.HasPrefix(family, "workspace-") && !registeredFonts[family] {
+					return nil, fmt.Errorf("theme %s/%s selects unregistered font role %q", t.ID, mode, family)
+				}
 			}
 			resolved.Modes[mode] = values
 		}
@@ -199,7 +205,7 @@ func validateFonts(fonts []FontFamily) (map[string]bool, error) {
 	roles := make(map[string]bool, len(fonts))
 	faces := 0
 	for _, family := range fonts {
-		if family.Role == "system" || fontFamilies[family.Role] == "" || roles[family.Role] {
+		if family.Role == "system" || family.Role == "monospace" || fontFamilies[family.Role] == "" || roles[family.Role] {
 			return nil, fmt.Errorf("invalid or duplicate font role %q", family.Role)
 		}
 		if !fontName.MatchString(family.Name) {
@@ -276,7 +282,7 @@ func validateTokens(tokens Tokens) error {
 			}
 		default:
 			n, ok := number(value)
-			if !ok || math.IsNaN(n) || math.IsInf(n, 0) || n < spec.min || n > spec.max {
+			if !ok || math.IsNaN(n) || math.IsInf(n, 0) || n < spec.min || n > spec.max || (spec.kind == "weight" && math.Trunc(n) != n) {
 				return fmt.Errorf("token %s requires a number between %g and %g", key, spec.min, spec.max)
 			}
 		}
