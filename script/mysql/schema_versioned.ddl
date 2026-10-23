@@ -2820,4 +2820,39 @@ CALL schema_upgrade_41() $$
 DROP PROCEDURE schema_upgrade_41 $$
 DROP PROCEDURE agently_drop_check_constraints $$
 
+-- Version 43 supports age-range selection by orphan cleanup.
+DROP PROCEDURE IF EXISTS schema_upgrade_42 $$
+CREATE PROCEDURE schema_upgrade_42()
+BEGIN
+    IF get_schema_version() = 42 THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'message'
+              AND INDEX_NAME = 'idx_message_cleanup_age'
+        ) THEN
+            CREATE INDEX idx_message_cleanup_age ON `message` (updated_at, created_at)
+                ALGORITHM=INPLACE LOCK=NONE;
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'model_call'
+              AND INDEX_NAME = 'idx_model_call_cleanup_age'
+        ) THEN
+            CREATE INDEX idx_model_call_cleanup_age ON model_call (completed_at, started_at)
+                ALGORITHM=INPLACE LOCK=NONE;
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tool_call'
+              AND INDEX_NAME = 'idx_tool_call_cleanup_age'
+        ) THEN
+            CREATE INDEX idx_tool_call_cleanup_age ON tool_call (completed_at, started_at)
+                ALGORITHM=INPLACE LOCK=NONE;
+        END IF;
+        CALL set_schema_version(43);
+    END IF;
+END $$
+CALL schema_upgrade_42() $$
+DROP PROCEDURE schema_upgrade_42 $$
+
 DELIMITER ;
