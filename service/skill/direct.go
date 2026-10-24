@@ -54,6 +54,7 @@ func (s *Service) getDirect(ctx context.Context, agent *agentmdl.Agent, ref prot
 		if err != nil {
 			return nil, err
 		}
+		cfg = ordinarySkillDiscovery(cfg)
 		if cfg == nil || cfg.SkillDiscovery == nil || !cfg.SkillDiscovery.Enabled {
 			continue
 		}
