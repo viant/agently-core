@@ -42,6 +42,10 @@ func (r *Runtime) protect(next http.Handler) http.Handler {
 			next.ServeHTTP(w, req.WithContext(ctx))
 			return
 		}
+		if user != nil && user.SessionID != "" && !cookieUnsafeRequestAllowed(req) {
+			runtimeError(w, http.StatusForbidden, fmt.Errorf("cross-origin cookie request denied"))
+			return
+		}
 		if strings.HasPrefix(req.URL.Path, "/v1/") && user == nil {
 			w.Header().Set("X-Agently-Auth-Required", "true")
 			runtimeError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
@@ -77,6 +81,10 @@ func (r *Runtime) protectAll(next http.Handler) http.Handler {
 		if user == nil {
 			w.Header().Set("X-Agently-Auth-Required", "true")
 			runtimeError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
+			return
+		}
+		if user.SessionID != "" && !cookieUnsafeRequestAllowed(req) {
+			runtimeError(w, http.StatusForbidden, fmt.Errorf("cross-origin cookie request denied"))
 			return
 		}
 		next.ServeHTTP(w, req.WithContext(ctx))
@@ -234,6 +242,7 @@ func runtimeAuthUserFromSession(sess *Session, tokens *scyauth.Token) *runtimeAu
 	requestUserID := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email, sess.Username))
 	return &runtimeAuthUser{
 		EffectiveUserID: requestUserID,
+		SessionID:       sess.ID,
 		ValidUntil:      sessionOwnerDeadline(sess, tokens),
 		CanonicalUserID: strings.TrimSpace(sess.UserID),
 		Subject:         strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email, sess.Username)),
@@ -406,8 +415,8 @@ func (r *Runtime) ensureDefaultUser(w http.ResponseWriter, req *http.Request) *r
 	// durable session persistence. Keep the session immediately usable in
 	// memory, then let persistence happen out-of-band.
 	r.sessions.PutAsync(req.Context(), session)
-	writeSessionCookie(w, r.cfg, r.sessions, session.ID)
-	return &runtimeAuthUser{Subject: username, Provider: "local"}
+	writeSessionCookie(w, req, r.cfg, r.sessions, session.ID)
+	return &runtimeAuthUser{SessionID: session.ID, Subject: username, Provider: "local"}
 }
 
 func runtimeUserInfo(ctx context.Context) *UserInfo {

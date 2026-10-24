@@ -70,11 +70,15 @@ func (a *authExtension) Register(mux *http.ServeMux) {
 	a.registerMCPLinkRoutes(mux)
 }
 
-func writeSessionCookie(w http.ResponseWriter, cfg *Config, sessions *Manager, sessionID string) {
+func writeSessionCookie(w http.ResponseWriter, r *http.Request, cfg *Config, sessions *Manager, sessionID string) {
 	if cfg == nil || strings.TrimSpace(cfg.CookieName) == "" || sessions == nil {
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: cfg.CookieName, Value: sessionID, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(sessionsTTLSeconds(cfg))})
+	http.SetCookie(w, &http.Cookie{Name: cfg.CookieName, Value: sessionID, Path: "/", HttpOnly: true, Secure: sessionCookieSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: int(sessionsTTLSeconds(cfg))})
+}
+
+func sessionCookieSecure(r *http.Request) bool {
+	return r != nil && (r.TLS != nil || strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https"))
 }
 
 func sessionsTTLSeconds(cfg *Config) int64 {
