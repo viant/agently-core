@@ -49,7 +49,12 @@ SELECT 'model_call.missing_provider_request_payload' AS rule_id, 'safe-detach' A
        'call_payload' AS reference_table, COALESCE(CAST(mc.provider_request_payload_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(mc.completed_at, mc.started_at) AS CHAR) AS observed_at_raw
 FROM model_call mc
-WHERE (TRIM(COALESCE(mc.provider_request_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = mc.provider_request_payload_id)) AND COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(mc.provider_request_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = mc.provider_request_payload_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(mc.completed_at <= $OlderThan OR (mc.completed_at IS NULL AND mc.started_at <= $OlderThan))
+#else
+COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND mc.message_id = $RecordID
 #end
@@ -62,7 +67,12 @@ SELECT 'model_call.missing_provider_response_payload' AS rule_id, 'safe-detach' 
        'call_payload' AS reference_table, COALESCE(CAST(mc.provider_response_payload_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(mc.completed_at, mc.started_at) AS CHAR) AS observed_at_raw
 FROM model_call mc
-WHERE (TRIM(COALESCE(mc.provider_response_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = mc.provider_response_payload_id)) AND COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(mc.provider_response_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = mc.provider_response_payload_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(mc.completed_at <= $OlderThan OR (mc.completed_at IS NULL AND mc.started_at <= $OlderThan))
+#else
+COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND mc.message_id = $RecordID
 #end
@@ -75,7 +85,12 @@ SELECT 'model_call.missing_request_payload' AS rule_id, 'safe-detach' AS action,
        'call_payload' AS reference_table, COALESCE(CAST(mc.request_payload_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(mc.completed_at, mc.started_at) AS CHAR) AS observed_at_raw
 FROM model_call mc
-WHERE (TRIM(COALESCE(mc.request_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = mc.request_payload_id)) AND COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(mc.request_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = mc.request_payload_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(mc.completed_at <= $OlderThan OR (mc.completed_at IS NULL AND mc.started_at <= $OlderThan))
+#else
+COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND mc.message_id = $RecordID
 #end
@@ -88,7 +103,12 @@ SELECT 'model_call.missing_response_payload' AS rule_id, 'safe-detach' AS action
        'call_payload' AS reference_table, COALESCE(CAST(mc.response_payload_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(mc.completed_at, mc.started_at) AS CHAR) AS observed_at_raw
 FROM model_call mc
-WHERE (TRIM(COALESCE(mc.response_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = mc.response_payload_id)) AND COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(mc.response_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = mc.response_payload_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(mc.completed_at <= $OlderThan OR (mc.completed_at IS NULL AND mc.started_at <= $OlderThan))
+#else
+COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND mc.message_id = $RecordID
 #end
@@ -101,7 +121,12 @@ SELECT 'model_call.missing_run' AS rule_id, 'safe-detach' AS action, 40 AS prior
        'run' AS reference_table, COALESCE(CAST(mc.run_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(mc.completed_at, mc.started_at) AS CHAR) AS observed_at_raw
 FROM model_call mc
-WHERE (TRIM(COALESCE(mc.run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = mc.run_id AND COALESCE(orphan_parent.run_kind,'execution')='execution')) AND COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(mc.run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = mc.run_id AND COALESCE(orphan_parent.run_kind,'execution')='execution')) AND
+#if($MySQLContract && ($RuleID == ""))
+(mc.completed_at <= $OlderThan OR (mc.completed_at IS NULL AND mc.started_at <= $OlderThan))
+#else
+COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND mc.message_id = $RecordID
 #end
@@ -114,7 +139,12 @@ SELECT 'model_call.missing_stream_payload' AS rule_id, 'safe-detach' AS action, 
        'call_payload' AS reference_table, COALESCE(CAST(mc.stream_payload_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(mc.completed_at, mc.started_at) AS CHAR) AS observed_at_raw
 FROM model_call mc
-WHERE (TRIM(COALESCE(mc.stream_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = mc.stream_payload_id)) AND COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(mc.stream_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = mc.stream_payload_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(mc.completed_at <= $OlderThan OR (mc.completed_at IS NULL AND mc.started_at <= $OlderThan))
+#else
+COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND mc.message_id = $RecordID
 #end
@@ -127,7 +157,12 @@ SELECT 'model_call.missing_turn' AS rule_id, 'safe-detach' AS action, 40 AS prio
        'turn' AS reference_table, COALESCE(CAST(mc.turn_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(mc.completed_at, mc.started_at) AS CHAR) AS observed_at_raw
 FROM model_call mc
-WHERE (TRIM(COALESCE(mc.turn_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM turn orphan_parent WHERE orphan_parent.id = mc.turn_id)) AND COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(mc.turn_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM turn orphan_parent WHERE orphan_parent.id = mc.turn_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(mc.completed_at <= $OlderThan OR (mc.completed_at IS NULL AND mc.started_at <= $OlderThan))
+#else
+COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND mc.message_id = $RecordID
 #end
@@ -140,7 +175,12 @@ SELECT 'tool_call.missing_request_payload' AS rule_id, 'safe-detach' AS action, 
        'call_payload' AS reference_table, COALESCE(CAST(tc.request_payload_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(tc.completed_at, tc.started_at) AS CHAR) AS observed_at_raw
 FROM tool_call tc
-WHERE (TRIM(COALESCE(tc.request_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = tc.request_payload_id)) AND COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(tc.request_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = tc.request_payload_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(tc.completed_at <= $OlderThan OR (tc.completed_at IS NULL AND tc.started_at <= $OlderThan))
+#else
+COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND tc.message_id = $RecordID
 #end
@@ -153,7 +193,12 @@ SELECT 'tool_call.missing_response_payload' AS rule_id, 'safe-detach' AS action,
        'call_payload' AS reference_table, COALESCE(CAST(tc.response_payload_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(tc.completed_at, tc.started_at) AS CHAR) AS observed_at_raw
 FROM tool_call tc
-WHERE (TRIM(COALESCE(tc.response_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = tc.response_payload_id)) AND COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(tc.response_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = tc.response_payload_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(tc.completed_at <= $OlderThan OR (tc.completed_at IS NULL AND tc.started_at <= $OlderThan))
+#else
+COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND tc.message_id = $RecordID
 #end
@@ -166,7 +211,12 @@ SELECT 'tool_call.missing_run' AS rule_id, 'safe-detach' AS action, 50 AS priori
        'run' AS reference_table, COALESCE(CAST(tc.run_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(tc.completed_at, tc.started_at) AS CHAR) AS observed_at_raw
 FROM tool_call tc
-WHERE (TRIM(COALESCE(tc.run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = tc.run_id AND COALESCE(orphan_parent.run_kind,'execution')='execution')) AND COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(tc.run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = tc.run_id AND COALESCE(orphan_parent.run_kind,'execution')='execution')) AND
+#if($MySQLContract && ($RuleID == ""))
+(tc.completed_at <= $OlderThan OR (tc.completed_at IS NULL AND tc.started_at <= $OlderThan))
+#else
+COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND tc.message_id = $RecordID
 #end
@@ -179,7 +229,12 @@ SELECT 'tool_call.missing_turn' AS rule_id, 'safe-detach' AS action, 50 AS prior
        'turn' AS reference_table, COALESCE(CAST(tc.turn_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(tc.completed_at, tc.started_at) AS CHAR) AS observed_at_raw
 FROM tool_call tc
-WHERE (TRIM(COALESCE(tc.turn_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM turn orphan_parent WHERE orphan_parent.id = tc.turn_id)) AND COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(tc.turn_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM turn orphan_parent WHERE orphan_parent.id = tc.turn_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(tc.completed_at <= $OlderThan OR (tc.completed_at IS NULL AND tc.started_at <= $OlderThan))
+#else
+COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND tc.message_id = $RecordID
 #end
@@ -231,7 +286,12 @@ SELECT 'message.missing_attachment_payload' AS rule_id, 'safe-detach' AS action,
        'call_payload' AS reference_table, COALESCE(CAST(m.attachment_payload_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(m.updated_at, m.created_at) AS CHAR) AS observed_at_raw
 FROM message m
-WHERE (TRIM(COALESCE(m.attachment_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = m.attachment_payload_id)) AND COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+WHERE (TRIM(COALESCE(m.attachment_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = m.attachment_payload_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(m.updated_at <= $OlderThan OR (m.updated_at IS NULL AND m.created_at <= $OlderThan))
+#else
+COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND m.id = $RecordID
 #end
@@ -244,7 +304,12 @@ SELECT 'message.missing_elicitation_payload' AS rule_id, 'safe-detach' AS action
        'call_payload' AS reference_table, COALESCE(CAST(m.elicitation_payload_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(m.updated_at, m.created_at) AS CHAR) AS observed_at_raw
 FROM message m
-WHERE (TRIM(COALESCE(m.elicitation_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = m.elicitation_payload_id)) AND COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+WHERE (TRIM(COALESCE(m.elicitation_payload_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM call_payload orphan_parent WHERE orphan_parent.id = m.elicitation_payload_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(m.updated_at <= $OlderThan OR (m.updated_at IS NULL AND m.created_at <= $OlderThan))
+#else
+COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND m.id = $RecordID
 #end
@@ -257,7 +322,12 @@ SELECT 'message.missing_linked_conversation' AS rule_id, 'safe-detach' AS action
        'conversation' AS reference_table, COALESCE(CAST(m.linked_conversation_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(m.updated_at, m.created_at) AS CHAR) AS observed_at_raw
 FROM message m
-WHERE (TRIM(COALESCE(m.linked_conversation_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM conversation orphan_parent WHERE orphan_parent.id = m.linked_conversation_id)) AND COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+WHERE (TRIM(COALESCE(m.linked_conversation_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM conversation orphan_parent WHERE orphan_parent.id = m.linked_conversation_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(m.updated_at <= $OlderThan OR (m.updated_at IS NULL AND m.created_at <= $OlderThan))
+#else
+COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND m.id = $RecordID
 #end
@@ -270,7 +340,12 @@ SELECT 'message.missing_parent' AS rule_id, 'safe-detach' AS action, 100 AS prio
        'message' AS reference_table, COALESCE(CAST(m.parent_message_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(m.updated_at, m.created_at) AS CHAR) AS observed_at_raw
 FROM message m
-WHERE (TRIM(COALESCE(m.parent_message_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM message orphan_parent WHERE orphan_parent.id = m.parent_message_id)) AND COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+WHERE (TRIM(COALESCE(m.parent_message_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM message orphan_parent WHERE orphan_parent.id = m.parent_message_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(m.updated_at <= $OlderThan OR (m.updated_at IS NULL AND m.created_at <= $OlderThan))
+#else
+COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND m.id = $RecordID
 #end
@@ -283,7 +358,12 @@ SELECT 'message.missing_superseded_by' AS rule_id, 'safe-detach' AS action, 100 
        'message' AS reference_table, COALESCE(CAST(m.superseded_by AS CHAR),'') AS reference_id,
        CAST(COALESCE(m.updated_at, m.created_at) AS CHAR) AS observed_at_raw
 FROM message m
-WHERE (TRIM(COALESCE(m.superseded_by, '')) <> '' AND NOT EXISTS (SELECT 1 FROM message orphan_parent WHERE orphan_parent.id = m.superseded_by)) AND COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+WHERE (TRIM(COALESCE(m.superseded_by, '')) <> '' AND NOT EXISTS (SELECT 1 FROM message orphan_parent WHERE orphan_parent.id = m.superseded_by)) AND
+#if($MySQLContract && ($RuleID == ""))
+(m.updated_at <= $OlderThan OR (m.updated_at IS NULL AND m.created_at <= $OlderThan))
+#else
+COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND m.id = $RecordID
 #end
@@ -296,7 +376,12 @@ SELECT 'message.missing_turn' AS rule_id, 'safe-detach' AS action, 100 AS priori
        'turn' AS reference_table, COALESCE(CAST(m.turn_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(m.updated_at, m.created_at) AS CHAR) AS observed_at_raw
 FROM message m
-WHERE (TRIM(COALESCE(m.turn_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM turn orphan_parent WHERE orphan_parent.id = m.turn_id)) AND COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+WHERE (TRIM(COALESCE(m.turn_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM turn orphan_parent WHERE orphan_parent.id = m.turn_id)) AND
+#if($MySQLContract && ($RuleID == ""))
+(m.updated_at <= $OlderThan OR (m.updated_at IS NULL AND m.created_at <= $OlderThan))
+#else
+COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND m.id = $RecordID
 #end
@@ -613,7 +698,12 @@ SELECT 'model_call.missing_message' AS rule_id, 'safe-delete' AS action, 1040 AS
        'message' AS reference_table, COALESCE(CAST(mc.message_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(mc.completed_at, mc.started_at) AS CHAR) AS observed_at_raw
 FROM model_call mc
-WHERE ((TRIM(COALESCE(mc.message_id, '')) = '' OR NOT EXISTS (SELECT 1 FROM message orphan_parent WHERE orphan_parent.id = mc.message_id))) AND COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+WHERE ((TRIM(COALESCE(mc.message_id, '')) = '' OR NOT EXISTS (SELECT 1 FROM message orphan_parent WHERE orphan_parent.id = mc.message_id))) AND
+#if($MySQLContract && ($RuleID == ""))
+(mc.completed_at <= $OlderThan OR (mc.completed_at IS NULL AND mc.started_at <= $OlderThan))
+#else
+COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND mc.message_id = $RecordID
 #end
@@ -626,7 +716,12 @@ SELECT 'tool_call.missing_message' AS rule_id, 'safe-delete' AS action, 1050 AS 
        'message' AS reference_table, COALESCE(CAST(tc.message_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(tc.completed_at, tc.started_at) AS CHAR) AS observed_at_raw
 FROM tool_call tc
-WHERE ((TRIM(COALESCE(tc.message_id, '')) = '' OR NOT EXISTS (SELECT 1 FROM message orphan_parent WHERE orphan_parent.id = tc.message_id))) AND COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
+WHERE ((TRIM(COALESCE(tc.message_id, '')) = '' OR NOT EXISTS (SELECT 1 FROM message orphan_parent WHERE orphan_parent.id = tc.message_id))) AND
+#if($MySQLContract && ($RuleID == ""))
+(tc.completed_at <= $OlderThan OR (tc.completed_at IS NULL AND tc.started_at <= $OlderThan))
+#else
+COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND tc.message_id = $RecordID
 #end
@@ -738,7 +833,18 @@ SELECT 'message.missing_conversation' AS rule_id, 'safe-delete' AS action, 1100 
        'conversation' AS reference_table, COALESCE(CAST(m.conversation_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(m.updated_at, m.created_at) AS CHAR) AS observed_at_raw
 FROM message m
+#if($MySQLContract && ($RuleID == ""))
+-- Gate the dependent parent lookup by age. MySQL may evaluate an ordinary
+-- AND predicate's NOT EXISTS first, even for young records. Keep exact Apply
+-- rechecks on their existing key-restricted path below.
+WHERE (m.updated_at <= $OlderThan OR (m.updated_at IS NULL AND m.created_at <= $OlderThan)) AND CASE
+  WHEN COALESCE(m.updated_at, m.created_at) <= $OlderThan
+  THEN (TRIM(COALESCE(m.conversation_id, '')) = '' OR NOT EXISTS (SELECT 1 FROM conversation orphan_parent WHERE orphan_parent.id = m.conversation_id))
+  ELSE FALSE
+END
+#else
 WHERE ((TRIM(COALESCE(m.conversation_id, '')) = '' OR NOT EXISTS (SELECT 1 FROM conversation orphan_parent WHERE orphan_parent.id = m.conversation_id))) AND COALESCE(m.updated_at, m.created_at) IS NOT NULL AND COALESCE(m.updated_at, m.created_at) <= $OlderThan
+#end
 #if($RecordID != "")
   AND m.id = $RecordID
 #end
