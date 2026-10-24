@@ -83,3 +83,68 @@ Both layouts coexist — writes go to the flat form.
 - [doc/prompts.md](prompts.md) — prompt + template + bundle YAML.
 - [doc/auth-system.md](auth-system.md) — `oauth/` config.
 - [doc/authorization-policy.md](authorization-policy.md) — shared MCP visibility authorization.
+
+
+### Optional section navigation presentation
+
+`ui/layout.yaml` may select `left.navigation.presentation: sections`. The only
+accepted nonempty value is `sections`; omission preserves the existing host
+layout. This presentation is serialized to the host without changing navigation
+permissions, application sources, action parameters or window identity. Agently
+owns the rail, section menus and conversation-state behavior. Workspace assets
+continue to own brand values. The workspace layout tests cover validation and
+JSON delivery, and run in the existing design-system workflow.
+
+### Optional task and composer presentation
+
+Agent YAML may supply `starterTasks[].resultLabel`, exposed as the optional
+`StarterTask.ResultLabel` field in the protocol and workspace metadata JSON:
+
+```yaml
+starterTasks:
+  - id: review-data
+    title: Review data
+    description: Prepare a request from the available data.
+    resultLabel: Inline overview
+    prompt: Review the available data.
+```
+
+This is a short presentation caption, not an execution type, permission,
+persisted-output promise or replacement for the prompt. Agently preserves it
+when normalizing task metadata and passes it to Forge's document task browser,
+which displays and searches the caption. Omission leaves the caption absent.
+
+Workspace `config.yaml` may also supply an optional composer hint:
+
+```yaml
+ui:
+  composer:
+    placeholder: Describe the work
+```
+
+`Root.Composer()` publishes this value under `composer.placeholder` in workspace
+metadata; the Go SDK exposes `WorkspaceComposer.Placeholder`. Agently supplies
+it to the existing named lookup input through Forge's composer input props.
+An absent or empty hint keeps the existing input default. It does not change
+drafts, task prompts, agent/model selection or sending behavior. Workspace
+configuration owns the wording; the public contract and examples stay generic.
+The existing workspace metadata and composer-config tests cover these optional
+fields alongside the retained selector defaults.
+
+### Canonical assistant finals in client projections
+
+The TypeScript chat-store projector exposes the existing
+`ClientTurnState.assistantFinal` on `IterationRenderRow`. Hosts can inspect its
+canonical rendered content even when the turn has no execution pages. This
+projection adds no wire contract and does not manufacture rounds. Consumers
+retain the row's host-trust admission checks and distinguish committed supported
+reports from ordinary answers, incomplete assemblies and diagnostics.
+
+Agently adapts admitted reports to its existing workspace-object contract and
+reads their current source from the conversation store. Its fallback identity
+uses conversation, turn (message fallback), scope and report ID; revisions/reset
+generations update that object. A matching report ID in a different turn does
+not establish shared identity without an explicit backend descriptor. Core does
+not infer report persistence or product placement from starter-task captions.
+The existing SDK tests and type check cover final projection; host lifecycle
+checks do not establish authenticated access recovery or cross-device retention.

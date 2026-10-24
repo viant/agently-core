@@ -62,7 +62,8 @@ type LayoutLeft struct {
 }
 
 type LayoutNavigation struct {
-	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Enabled      *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Presentation string `json:"presentation,omitempty" yaml:"presentation,omitempty"`
 }
 type LayoutHistory struct {
 	Enabled         *bool                    `json:"enabled,omitempty" yaml:"enabled,omitempty"`
@@ -337,6 +338,9 @@ func validateLayout(layout *Layout) error {
 		return fmt.Errorf("unsupported right layout mode %q", layout.Right.Mode)
 	}
 	if layout.Left != nil {
+		if navigation := layout.Left.Navigation; navigation != nil && navigation.Presentation != "" && navigation.Presentation != "sections" {
+			return fmt.Errorf("unsupported navigation presentation %q", navigation.Presentation)
+		}
 		if width := layout.Left.Width; width != nil && (width.Min < 64 || width.Max < width.Min || width.Default < width.Min || width.Default > width.Max) {
 			return fmt.Errorf("invalid sidebar width limits")
 		}
