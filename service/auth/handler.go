@@ -104,6 +104,7 @@ func (h *Handler) handleLocalLogin() http.HandlerFunc {
 				Value:    sess.ID,
 				Path:     "/",
 				HttpOnly: true,
+				Secure:   sessionCookieSecure(r),
 				SameSite: http.SameSiteLaxMode,
 				MaxAge:   int(h.sessions.ttl.Seconds()),
 			})
