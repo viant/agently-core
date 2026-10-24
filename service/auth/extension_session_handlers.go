@@ -145,7 +145,7 @@ func (a *authExtension) handleLocalLogin() http.HandlerFunc {
 		if a.users != nil {
 			_ = a.users.Upsert(r.Context(), &User{Username: username, DisplayName: username, Provider: "local"})
 		}
-		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
+		writeSessionCookie(w, r, a.cfg, a.sessions, sess.ID)
 		runtimeJSON(w, http.StatusOK, map[string]any{"sessionId": sess.ID, "username": username, "provider": "local"})
 	}
 }
@@ -316,7 +316,7 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			}
 		}
 		a.sessions.PutAsync(r.Context(), sess)
-		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
+		writeSessionCookie(w, r, a.cfg, a.sessions, sess.ID)
 		runtimeJSON(w, http.StatusOK, map[string]any{"sessionId": sess.ID, "username": username})
 	}
 }
@@ -356,7 +356,7 @@ func (a *authExtension) handleAttachSession() http.HandlerFunc {
 				return
 			}
 		}
-		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
+		writeSessionCookie(w, r, a.cfg, a.sessions, sess.ID)
 		runtimeJSON(w, http.StatusOK, map[string]any{
 			"status":    "ok",
 			"sessionId": sess.ID,

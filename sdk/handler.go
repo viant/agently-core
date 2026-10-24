@@ -21,20 +21,21 @@ import (
 type HandlerOption func(*handlerConfig)
 
 type handlerConfig struct {
-	browserMCP       *browsermcp.Registry
-	authCfg          *svcauth.Config
-	authSessions     *svcauth.Manager
-	authOpts         []svcauth.HandlerOption
-	speechHandler    *speech.Handler
-	schedulerHandler *scheduler.Handler
-	schedulerSvc     *scheduler.Service
-	schedulerOpts    *SchedulerOptions
-	metadataHandler  *svcworkspace.MetadataHandler
-	fileBrowser      *svcworkspace.FileBrowserHandler
-	a2aHandler       *svca2a.Handler
-	callbackHandler  *callbackhttp.Handler
-	uiBridgeHandler  http.Handler
-	reportRunHandler http.Handler
+	browserMCP              *browsermcp.Registry
+	authCfg                 *svcauth.Config
+	authSessions            *svcauth.Manager
+	authOpts                []svcauth.HandlerOption
+	speechHandler           *speech.Handler
+	schedulerHandler        *scheduler.Handler
+	schedulerSvc            *scheduler.Service
+	schedulerOpts           *SchedulerOptions
+	metadataHandler         *svcworkspace.MetadataHandler
+	fileBrowser             *svcworkspace.FileBrowserHandler
+	a2aHandler              *svca2a.Handler
+	callbackHandler         *callbackhttp.Handler
+	uiBridgeHandler         http.Handler
+	reportRunHandler        http.Handler
+	publishedWindowBindings *PublishedWindowBindings
 
 	mcpUIResourceReader        MCPUIResourceReader
 	mcpUIResourceContextBinder MCPUIResourceContextBinder
@@ -103,6 +104,13 @@ func WithUIBridgeHandler(h http.Handler) HandlerOption {
 // The route is not part of the tool registry or model-visible definitions.
 func WithReportRunHandler(h http.Handler) HandlerOption {
 	return func(c *handlerConfig) { c.reportRunHandler = h }
+}
+
+// WithPublishedWindowBindings enables the optional server-side cohort
+// datasource lane. The browser supplies a window ID and source ID, never a
+// descriptor or entitlement. Ordinary datasource behavior remains available.
+func WithPublishedWindowBindings(bindings *PublishedWindowBindings) HandlerOption {
+	return func(c *handlerConfig) { c.publishedWindowBindings = bindings }
 }
 
 func NewHandler(client Backend, opts ...HandlerOption) http.Handler {
@@ -269,7 +277,7 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 	// other /v1/api/ route — including OAuth when the workspace enables it.
 	// Backends that have not wired the datasource service return 501 from
 	// the handler; no panic, no route registration gating.
-	mux.HandleFunc("POST /v1/api/datasources/{id}/fetch", handleFetchDatasource(client))
+	mux.HandleFunc("POST /v1/api/datasources/{id}/fetch", handleFetchDatasourceWithBindings(client, cfg.publishedWindowBindings))
 	mux.HandleFunc("DELETE /v1/api/datasources/{id}/cache", handleInvalidateDatasourceCache(client))
 	mux.HandleFunc("GET /v1/api/lookups/registry", handleListLookupRegistry(client))
 }

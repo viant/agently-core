@@ -218,6 +218,7 @@ CREATE UNIQUE INDEX idx_message_turn_seq ON `message` (turn_id, sequence);
 CREATE INDEX idx_msg_conv_created ON `message` (conversation_id, created_at DESC);
 CREATE INDEX idx_message_superseded_by ON `message` (superseded_by);
 CREATE INDEX idx_message_linked_conversation ON `message` (linked_conversation_id);
+CREATE INDEX idx_message_cleanup_age ON `message` (updated_at, created_at);
 
 CREATE TABLE generated_file
 (
@@ -332,6 +333,7 @@ CREATE TABLE model_call
 
 CREATE INDEX idx_model_call_model ON model_call (model);
 CREATE INDEX idx_model_call_started_at ON model_call (started_at);
+CREATE INDEX idx_model_call_cleanup_age ON model_call (completed_at, started_at);
 
 CREATE TABLE tool_call
 (
@@ -368,6 +370,7 @@ CREATE TABLE tool_call
 
 CREATE INDEX idx_tool_call_status ON tool_call (status);
 CREATE INDEX idx_tool_call_name ON tool_call (tool_name);
+CREATE INDEX idx_tool_call_cleanup_age ON tool_call (completed_at, started_at);
 CREATE INDEX idx_tool_call_op ON tool_call (turn_id, op_id(191));
 CREATE UNIQUE INDEX idx_tool_op_attempt ON tool_call (turn_id, op_id(191), attempt);
 
