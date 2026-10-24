@@ -126,3 +126,32 @@ runs both theme and style-service suites with neutral fixtures. A real workspace
 proof can set AGENTLY_STYLE_BASELINE_WORKSPACE to a separately checked-out upstream
 workspace and reject new diagnostics while documenting pre-existing warnings.
 GitHub requires an administrator to make the new check merge-required.
+
+## Scoped presentation activation
+
+A theme may select an existing profile for the finite `document` appearance:
+
+```yaml
+- id: baseline
+  presentations:
+    document: reading
+  # Existing label, modes and tokens stay authoritative outside that scope.
+```
+
+`reading` must identify another declared theme (or the same theme). Resolution
+copies the mapping and rejects unknown appearances or profiles. No CSS selector,
+URL or expression is accepted. The selected global theme and mode preferences
+remain unchanged. The profile's matching mode or declared fallback supplies the
+same validated token maps used for its standalone theme. Nested mappings are not
+followed. Native clients may ignore the optional mapping; this adds web boundary
+selection, not native rendering migration.
+
+Application consumers opt in with `data-agently-presentation="document"` inside
+the existing application boundary. An unrelated destination uses `legacy` to
+restore the selected theme. Forge's owned `ForgeThemeBoundary` takes
+`presentation="document"` and propagates it to content and owned portals. A
+boundary without the marker retains the selected global theme. Hosts map their
+application aliases at these local boundaries so CSS variables resolve there.
+The actual style service emits profiles with the full catalog, retaining its
+existing ordered file delivery. Theme/compiler, invalid-input and portal tests
+protect this contract through the existing design-system checks.
