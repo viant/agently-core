@@ -16,6 +16,14 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Validate portable contracts and style delivery
-        run: go test ./protocol/ui/theme ./service/ui/style
+        run: go test ./protocol/ui/theme ./service/ui/style ./service/workspace ./workspace/config
       - name: Check contributor entry points
         run: test -f AGENTS.md && test -f CLAUDE.md && test -f .cursor/rules/design-system.mdc
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+      - name: Verify affected SDK projection and build
+        working-directory: sdk/ts
+        run: npm ci && npx vitest run src/__tests__/chatStore.projector.test.ts && npm run build
+      - name: Verify request and report boundaries with local storage
+        run: go test ./app/server ./service/agent ./service/elicitation ./service/reporting ./service/resource/provider/user ./app/executor -run '^(TestNewAPIHandler_Reporting(ToolRoutes|CompileRoute|ArtifactScope)|TestCancelWaitingTurn|TestEnrichApprovalPayload|TestUserReportsCompleteEnvelopeSurvivesFilesystemStoreReopen|TestForgePDFExporter_|TestExportReadPhase|TestStreamPublisherAdapterPublish)'
