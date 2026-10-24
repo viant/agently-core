@@ -29,6 +29,7 @@ type Runtime struct {
 }
 
 type runtimeAuthUser struct {
+	ValidUntil      time.Time
 	EffectiveUserID string
 	// CanonicalUserID is the Agently users.id resolved for the verified
 	// workspace identity; it is a persistence identity only and never

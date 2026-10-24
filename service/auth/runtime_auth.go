@@ -111,6 +111,7 @@ func (r *Runtime) authenticate(req *http.Request) (*runtimeAuthUser, bool) {
 				subject := strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Email))
 				return &runtimeAuthUser{
 					EffectiveUserID: subject,
+					ValidUntil:      verifiedClaimsDeadline(claims),
 					CanonicalUserID: r.resolveBearerCanonicalUserID(req.Context(), subject, strings.TrimSpace(claims.Email)),
 					Subject:         subject,
 					Email:           strings.TrimSpace(claims.Email),
@@ -233,6 +234,7 @@ func runtimeAuthUserFromSession(sess *Session, tokens *scyauth.Token) *runtimeAu
 	requestUserID := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email, sess.Username))
 	return &runtimeAuthUser{
 		EffectiveUserID: requestUserID,
+		ValidUntil:      sessionOwnerDeadline(sess, tokens),
 		CanonicalUserID: strings.TrimSpace(sess.UserID),
 		Subject:         strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email, sess.Username)),
 		Email:           strings.TrimSpace(sess.Email),
