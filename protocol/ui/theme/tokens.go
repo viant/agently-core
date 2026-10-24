@@ -125,74 +125,121 @@ func Defaults(mode string) Tokens {
 
 // CSS emits only validated tokens. It does not load or compile workspace CSS.
 // Passing a catalog not produced by Resolve still validates selector/value input.
-func CSS(c *Catalog) (string, error) {
+// Profiles supply the full catalog when the style service emits one theme at a time.
+func CSS(c *Catalog, profiles ...ResolvedTheme) (string, error) {
 	if c == nil || c.Version != Version {
 		return "", fmt.Errorf("unsupported theme catalog")
 	}
-	var out strings.Builder
+	available := append(append([]ResolvedTheme{}, c.Themes...), profiles...)
+	if err := validatePresentations(&Catalog{Themes: available}); err != nil {
+		return "", err
+	}
 	themes := append([]ResolvedTheme(nil), c.Themes...)
 	sort.Slice(themes, func(i, j int) bool { return themes[i].ID < themes[j].ID })
+	var out strings.Builder
 	seen := map[string]bool{}
-	for _, t := range themes {
-		if !identifier.MatchString(t.ID) || t.ID == "forge-default" || seen[t.ID] {
+	for _, base := range themes {
+		if !identifier.MatchString(base.ID) || base.ID == "forge-default" || seen[base.ID] {
 			return "", fmt.Errorf("invalid theme ID")
 		}
-		seen[t.ID] = true
-		for mode := range t.Modes {
+		seen[base.ID] = true
+		for mode := range base.Modes {
 			if mode != "light" && mode != "dark" {
 				return "", fmt.Errorf("invalid mode")
 			}
 		}
 		for _, mode := range []string{"light", "dark"} {
-			values, ok := t.Modes[mode]
+			values, ok := base.Modes[mode]
 			if !ok {
 				continue
 			}
-			if err := validateTokens(values); err != nil {
+			app := fmt.Sprintf(".agently-application[data-agently-theme=%q][data-agently-color-mode=%q]", base.ID, mode)
+			forge := fmt.Sprintf(".agently-workspace[data-forge-theme=%q][data-forge-color-mode=%q]", base.ID, mode)
+			if err := writeTokenCSS(&out, values, mode, app, forge); err != nil {
 				return "", err
 			}
-			fmt.Fprintf(&out, ".agently-application[data-agently-theme=%q][data-agently-color-mode=%q] {\n", t.ID, mode)
-			keys := make([]string, 0, len(values))
-			for k := range values {
-				keys = append(keys, k)
+			profileID := base.Presentations["document"]
+			if profileID == "" {
+				continue
 			}
-			sort.Strings(keys)
-			rendered := make(map[string]string, len(keys))
-			for _, k := range keys {
-				spec := tokenSpecs[k]
-				value := values[k]
-				switch spec.kind {
-				case "font":
-					rendered[k] = fontFamilies[value.(string)]
-				case "weight":
-					n, _ := number(value)
-					rendered[k] = fmt.Sprintf("%g", n)
-				case "ms":
-					n, _ := number(value)
-					rendered[k] = fmt.Sprintf("%gms", n)
-				case "em":
-					n, _ := number(value)
-					rendered[k] = fmt.Sprintf("%gem", n)
-				case "color":
-					rendered[k] = value.(string)
-				default:
-					n, _ := number(value)
-					rendered[k] = fmt.Sprintf("%gpx", n)
-				}
-				fmt.Fprintf(&out, "  %s: %s;\n", spec.applicationVariable, rendered[k])
-			}
-			out.WriteString("}\n")
-			fmt.Fprintf(&out, ".agently-workspace[data-forge-theme=%q][data-forge-color-mode=%q] {\n", t.ID, mode)
-			fmt.Fprintf(&out, "  color-scheme: %s;\n", mode)
-			for _, k := range keys {
-				spec := tokenSpecs[k]
-				fmt.Fprintf(&out, "  %s: %s;\n", spec.variable, rendered[k])
-				if alias := map[string]string{"border": "--forge-border", "interaction.foreground": "--forge-interaction", "interaction.hover": "--forge-interaction-hover", "interaction.active": "--forge-interaction-active"}[k]; alias != "" {
-					fmt.Fprintf(&out, "  %s: %s;\n", alias, rendered[k])
+			var profile ResolvedTheme
+			for _, candidate := range available {
+				if candidate.ID == profileID {
+					profile = candidate
+					break
 				}
 			}
-			out.WriteString("}\n")
+			profileMode := mode
+			scoped, ok := profile.Modes[profileMode]
+			if !ok {
+				profileMode = profile.FallbackMode
+				scoped, ok = profile.Modes[profileMode]
+			}
+			if !ok {
+				return "", fmt.Errorf("presentation profile %s has no fallback mode", profileID)
+			}
+			if err := writeTokenCSS(&out, scoped, profileMode, app+` [data-agently-presentation="document"]`, forge+`[data-forge-presentation="document"]`); err != nil {
+				return "", err
+			}
+			// An unrelated destination restores the selected theme inside the migrated shell.
+			if err := writeTokenCSS(&out, values, mode, app+` [data-agently-presentation="legacy"]`, ""); err != nil {
+				return "", err
+			}
 		}
 	}
 	return out.String(), nil
+}
+
+func writeTokenCSS(out *strings.Builder, values Tokens, mode, applicationSelector, forgeSelector string) error {
+	if mode != "light" && mode != "dark" {
+		return fmt.Errorf("invalid mode")
+	}
+	if err := validateTokens(values); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	rendered := make(map[string]string, len(keys))
+	for _, key := range keys {
+		spec, value := tokenSpecs[key], values[key]
+		switch spec.kind {
+		case "font":
+			rendered[key] = fontFamilies[value.(string)]
+		case "weight":
+			n, _ := number(value)
+			rendered[key] = fmt.Sprintf("%g", n)
+		case "ms":
+			n, _ := number(value)
+			rendered[key] = fmt.Sprintf("%gms", n)
+		case "em":
+			n, _ := number(value)
+			rendered[key] = fmt.Sprintf("%gem", n)
+		case "color":
+			rendered[key] = value.(string)
+		default:
+			n, _ := number(value)
+			rendered[key] = fmt.Sprintf("%gpx", n)
+		}
+	}
+	if applicationSelector != "" {
+		fmt.Fprintf(out, "%s {\n", applicationSelector)
+		for _, key := range keys {
+			fmt.Fprintf(out, "  %s: %s;\n", tokenSpecs[key].applicationVariable, rendered[key])
+		}
+		out.WriteString("}\n")
+	}
+	if forgeSelector != "" {
+		fmt.Fprintf(out, "%s {\n  color-scheme: %s;\n", forgeSelector, mode)
+		for _, key := range keys {
+			fmt.Fprintf(out, "  %s: %s;\n", tokenSpecs[key].variable, rendered[key])
+			if alias := map[string]string{"border": "--forge-border", "interaction.foreground": "--forge-interaction", "interaction.hover": "--forge-interaction-hover", "interaction.active": "--forge-interaction-active"}[key]; alias != "" {
+				fmt.Fprintf(out, "  %s: %s;\n", alias, rendered[key])
+			}
+		}
+		out.WriteString("}\n")
+	}
+	return nil
 }
