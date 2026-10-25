@@ -1,6 +1,35 @@
 # Performance completion audit — latest checkpoint 2026-10-25
 
-## Latest measured checkpoint: local DSPUI Segments
+## Latest full business case: local DSPUI CAPI
+
+CAPI passes 296 native assertions and eight positive persistence checks. Its
+navigation-to-populated-DOM time is **1,303.8 ms**: the 2,000 ms hard gate passes,
+while the 1,000 ms target is **SLOW**. This is a controlled localhost measurement
+with fresh fixtures and no target-reader warmup, not a paint or WAN measurement.
+
+| CAPI navigation stage | Time |
+|---|---:|
+| Page load | 132.8 ms |
+| Page load to final request start | 453.5 ms |
+| Final datasource request | 649.6 ms |
+| Final response to measured populated DOM | 67.9 ms |
+
+The final request contains 486.926 ms of producer time and approximately
+162.674 ms elsewhere. Earlier requests overlap; their durations are not additive.
+The final-request residual does not represent the whole navigation residual.
+Producer internals and browser paint are not attributed by this capture.
+
+The dialog fix, Forge `57a007a`, is active in isolated AI Studio binary
+`bbee15ae…` with Steward `c84021da…`. Same-provider reopen resets Page 3 to Page 1,
+one request occurs per opening, other-provider rows stay isolated, and parent rows
+remain intact. This does not qualify the latest whole Steward bootstrap: its UAM
+connector integration and the remaining business cases require separate proof.
+
+Source and exact timing evidence are recorded in
+[CAPI checkpoint](capi-checkpoint-20261025.json). DSPUI's functional checkpoint is
+pushed through `968ecd5`; its timing-retention follow-up is committed as `e0f876b`.
+
+## Earlier measured checkpoint: local DSPUI Segments
 
 The overall goal is **not complete**. The measured local host-owned residual is
 below 600 ms for these two Segment clicks, but whole-navigation gates still
