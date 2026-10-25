@@ -37,7 +37,7 @@ fail, paint was not measured, and a cold remote TCP/TLS budget was not exercised
 The evidence below supersedes any assumption that schema caching alone fixes
 the repeated catalog admission problem. Historical results follow separately.
 
-The isolated runtime is AI Studio PID 48012 / binary `44f1d5e0…` on 56243 and
+The Segment capture used AI Studio PID 48012 / binary `44f1d5e0…` on 56243 and
 Steward PID 47977 / binary `1954c310…` on 56241/56242. These are minimal tested
 backports, not wholesale updates to the newest repository heads. Dependency
 selections, all 67 embedded UI assets, schema 26 and configurations were preserved.
