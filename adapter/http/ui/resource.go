@@ -18,7 +18,53 @@ type WindowResourceProvider interface {
 	WindowDefinitionsList(context.Context, *forgeservice.WindowDefinitionListInput) (*forgeservice.WindowDefinitionListOutput, error)
 }
 type HandlerOption func(*handlerOptions)
-type handlerOptions struct{ windows WindowResourceProvider }
+type handlerOptions struct {
+	windows   WindowResourceProvider
+	published map[string]*publishedWindowRegistration
+}
+
+// PublishedWindowSource opens a producer-validated closed window from the
+// host's locally admitted cohort. The source is bound by host configuration;
+// it is never selected by a browser-supplied provider name alone.
+type PublishedWindowSource interface {
+	OpenWindowVariant(context.Context, string, *forgetypes.WindowTarget) (*forgetypes.WindowResourceVariant, string, error)
+}
+
+// PublishedWindowBinder registers the selected inline datasource descriptors
+// under the existing authenticated UI session for the SDK execution route.
+type PublishedWindowBinder func(context.Context, string, string, string, string, string, *forgetypes.WindowResourceVariant) error
+
+type publishedWindowRegistration struct {
+	providerIdentity string
+	source           PublishedWindowSource
+	bind             PublishedWindowBinder
+	namespaces       map[string]bool
+}
+
+func WithArtifactCohortWindowSource(providerIdentity string, source PublishedWindowSource, bind PublishedWindowBinder) HandlerOption {
+	return WithArtifactCohortWindowSourceForNamespaces(providerIdentity, source, bind)
+}
+
+// WithArtifactCohortWindowSourceForNamespaces claims namespaces from trusted
+// host configuration. A canonical legacy URL in one of these namespaces must
+// use the admitted local source even when an old browser snapshot omitted its
+// provider locator. Claims remain in force after a root is revoked or removed.
+func WithArtifactCohortWindowSourceForNamespaces(providerIdentity string, source PublishedWindowSource, bind PublishedWindowBinder, namespaces ...string) HandlerOption {
+	return func(options *handlerOptions) {
+		if providerIdentity != "" && source != nil {
+			if options.published == nil {
+				options.published = map[string]*publishedWindowRegistration{}
+			}
+			claims := map[string]bool{}
+			for _, namespace := range namespaces {
+				if namespace != "" {
+					claims[namespace] = true
+				}
+			}
+			options.published[providerIdentity] = &publishedWindowRegistration{providerIdentity: providerIdentity, source: source, bind: bind, namespaces: claims}
+		}
+	}
+}
 
 func WithWindowResourceProvider(provider WindowResourceProvider) HandlerOption {
 	return func(options *handlerOptions) { options.windows = provider }

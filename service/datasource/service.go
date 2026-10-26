@@ -260,6 +260,13 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		}
 		ctx = runtimerequestctx.WithResolvedResource(ctx, *pin)
 	}
+	// A legacy UI fetch without a published-window binding cannot execute a
+	// datasource owned by a cohort provider. Check the actual revalidated
+	// provider here, after source resolution and before any definition read or
+	// backend dispatch; browser-supplied provider/namespace hints are ignored.
+	if pin, bound := runtimerequestctx.ResolvedResourceFromContext(ctx); bound && unboundWindowProviderProtected(ctx, pin.ProviderIdentity) {
+		return nil, identity.ErrResourceDenied
+	}
 	if opts.ResourceProof != nil {
 		ctx = runtimerequestctx.WithResourceExecutionProof(ctx, *opts.ResourceProof)
 	}

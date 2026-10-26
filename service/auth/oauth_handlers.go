@@ -170,7 +170,7 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 		}
 		a.canonicalizeSessionUser(r.Context(), sess)
 		a.sessions.PutAsync(r.Context(), sess)
-		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
+		writeSessionCookie(w, r, a.cfg, a.sessions, sess.ID)
 		if a.tokenStore == nil {
 			a.scheduleOAuthTokenPersist(r.Context(), "oauth_oob", username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
 		}
@@ -390,7 +390,7 @@ func (a *authExtension) handleOAuthCallbackForSource(source string) http.Handler
 		}
 		a.canonicalizeSessionUser(r.Context(), sess)
 		a.sessions.PutAsync(r.Context(), sess)
-		writeSessionCookie(w, a.cfg, a.sessions, sess.ID)
+		writeSessionCookie(w, r, a.cfg, a.sessions, sess.ID)
 		if a.tokenStore == nil {
 			a.scheduleOAuthTokenPersist(r.Context(), source, username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
 		}

@@ -33,6 +33,7 @@ import (
 )
 
 type APIOptions struct {
+	PublishedWindowBindings    *sdk.PublishedWindowBindings
 	ToolCatalogWarmup          ToolCatalogWarmOptions
 	MCPUIResourceReader        sdk.MCPUIResourceReader
 	MCPUIResourceContextBinder sdk.MCPUIResourceContextBinder
@@ -146,6 +147,9 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		sdk.WithFileBrowser(fileBrowserHandler),
 		sdk.WithA2AHandler(a2aHandler),
 		sdk.WithAGUIDemoBackends(opts.AGUIDemoBackends...),
+	}
+	if opts.PublishedWindowBindings != nil {
+		handlerOpts = append(handlerOpts, sdk.WithPublishedWindowBindings(opts.PublishedWindowBindings))
 	}
 	if opts.MCPUIResourceContextBinder != nil {
 		handlerOpts = append(handlerOpts, sdk.WithMCPUIResourceContextBinder(opts.MCPUIResourceContextBinder))
