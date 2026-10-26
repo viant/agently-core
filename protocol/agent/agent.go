@@ -193,6 +193,7 @@ type (
 		Title           string   `yaml:"title,omitempty" json:"title,omitempty"`
 		Prompt          string   `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 		Description     string   `yaml:"description,omitempty" json:"description,omitempty"`
+		ResultLabel     string   `yaml:"resultLabel,omitempty" json:"resultLabel,omitempty"`
 		Icon            string   `yaml:"icon,omitempty" json:"icon,omitempty"`
 		CoverageEvalIDs []string `yaml:"coverageEvalIds,omitempty" json:"coverageEvalIds,omitempty"`
 	}

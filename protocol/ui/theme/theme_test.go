@@ -338,3 +338,48 @@ func TestFoundationUnits(t *testing.T) {
 		t.Fatal("unbounded motion accepted")
 	}
 }
+
+func TestPresentationProfileKeepsDefaultAndScopesTokens(t *testing.T) {
+	manifest := example + `  - id: reading
+    label: Reading
+    fallbackMode: light
+    tokens:
+      typography.body.size: 13
+    modes:
+      light: {}
+`
+	manifest = strings.Replace(manifest, "label: Branded", "label: Branded\n    presentations: {document: reading}", 1)
+	m, err := Parse([]byte(manifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Resolve(*m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	css, err := CSS(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.DefaultTheme != "branded" || catalog.Themes[0].Modes["light"]["control.radius"] != 8 {
+		t.Fatal("default changed")
+	}
+	for _, marker := range []string{`[data-agently-color-mode="light"] [data-agently-presentation="document"]`, `[data-agently-presentation="legacy"]`, `[data-forge-color-mode="dark"][data-forge-presentation="document"]`, "--forge-type-body-size: 13px;"} {
+		if !strings.Contains(css, marker) {
+			t.Fatalf("missing scoped profile: %s", marker)
+		}
+	}
+	for _, change := range []string{"{document: missing}", "{other: reading}", "{'document]{}': reading}"} {
+		invalid, err := Parse([]byte(strings.Replace(manifest, "{document: reading}", change, 1)))
+		if err == nil {
+			_, err = Resolve(*invalid)
+		}
+		if err == nil {
+			t.Fatalf("accepted %s", change)
+		}
+	}
+	catalog.Themes[0].Presentations["document"] = "missing"
+	if _, err = CSS(catalog); err == nil {
+		t.Fatal("CSS accepted a missing profile")
+	}
+}
