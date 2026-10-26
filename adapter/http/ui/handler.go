@@ -89,6 +89,9 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 			http.Error(w, "window key is required", http.StatusBadRequest)
 			return
 		}
+		if tryPublishedWindow(w, r, settings.published, pathParts) {
+			return
+		}
 		var aWindow *forgeTypes.Window
 		canonical := settings.windows != nil && settings.windows.UsesWindowResourceResolution()
 		if canonical {

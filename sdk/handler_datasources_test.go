@@ -22,7 +22,65 @@ import (
 	"github.com/viant/agently-core/service/ui/permittedview"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
+	"github.com/viant/forge/backend/types"
 )
+
+func TestUnboundUIWindowFetchChecksRevalidatedCohortProvider(t *testing.T) {
+	protected := identity.ResolvedResource{URI: "datasource://datastudio/rows", ProviderIdentity: "datastudio-management", ResourceCandidate: identity.ResourceCandidate{Kind: identity.WorkingCandidate, ContentFingerprint: identity.ContentFingerprint([]byte("rows"))}, AuthorityBinding: "verified", ValidUntil: time.Now().Add(time.Minute)}
+	unrelated := protected
+	unrelated.URI = "datasource://other/rows"
+	unrelated.ProviderIdentity = "other"
+	definitions := 0
+	service := dssvc.New(dssvc.Options{
+		ResolveResource: func(_ context.Context, supplied identity.ResolvedResource) (*identity.ResolvedResource, error) {
+			// The actual owner comes from the trusted resolver, never the POST body.
+			switch supplied.URI {
+			case protected.URI:
+				copy := protected
+				return &copy, nil
+			case unrelated.URI:
+				copy := unrelated
+				return &copy, nil
+			default:
+				return nil, identity.ErrResourceDenied
+			}
+		},
+		ResolveDefinition: func(_ context.Context, _ identity.ResolvedResource, _ *types.WindowTarget, _ string) (*dsproto.DataSource, error) {
+			definitions++
+			return &dsproto.DataSource{ID: "rows", Backend: &dsproto.Backend{Kind: dsproto.BackendInline, Rows: []map[string]interface{}{{"name": "permitted"}}}}, nil
+		},
+	})
+	backend := &backendClient{datasourceSvc: service}
+	bindings := NewPublishedWindowBindings(nil, nil, func(context.Context) (string, error) { return "verified-owner", nil })
+	bindings.ProtectProvider("datastudio-management")
+	request := func(pin identity.ResolvedResource, windowID string) *httptest.ResponseRecorder {
+		body, err := json.Marshal(api.FetchDatasourceInput{Resource: &pin})
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := "/v1/api/datasources/rows/fetch"
+		if windowID != "" {
+			path += "?windowId=" + windowID
+		}
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(body)))
+		r.SetPathValue("id", "rows")
+		r.Header.Set("Mcp-Session-Id", "verified-session")
+		response := httptest.NewRecorder()
+		handleFetchDatasourceWithBindings(backend, bindings)(response, r)
+		return response
+	}
+	forged := protected
+	forged.ProviderIdentity = "other"
+	if got := request(forged, "old-window"); got.Code != http.StatusForbidden || definitions != 0 {
+		t.Fatalf("unbound UI fetch escaped revalidated provider guard: status=%d definitions=%d", got.Code, definitions)
+	}
+	if got := request(unrelated, "other-window"); got.Code != http.StatusOK || definitions != 2 {
+		t.Fatalf("unrelated provider was blocked: status=%d definitions=%d body=%s", got.Code, definitions, got.Body.String())
+	}
+	if got := request(protected, ""); got.Code != http.StatusOK || definitions != 4 {
+		t.Fatalf("standalone non-window datasource read changed: status=%d definitions=%d body=%s", got.Code, definitions, got.Body.String())
+	}
+}
 
 type delayedCampaignMutationExecutor struct {
 	calls atomic.Int64
