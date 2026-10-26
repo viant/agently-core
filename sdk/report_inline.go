@@ -186,7 +186,7 @@ func assembleRenderedReports(parts []*RenderedContentPart, complete bool) ([]*Re
 		previousCommitted := state.committed
 		err := applyInlineReport(state, tx)
 		if err == nil {
-			err = validateInlineReportState(state)
+			err = validateInlineReportState(state, state.committed)
 		}
 		if err != nil {
 			delete(state.seen, tx.Sequence)
@@ -218,7 +218,12 @@ func assembleRenderedReports(parts []*RenderedContentPart, complete bool) ([]*Re
 			} else if complete {
 				// NormalizeRenderedContent receives a complete content snapshot. A later
 				// streaming update is reassembled from scratch, so implicit commit is safe.
-				state.assembly.Status = "committed"
+				if err := validateInlineReportState(state, true); err != nil {
+					state.assembly.Status = "incomplete"
+					warnings = append(warnings, inlineWarning("REPORT_TRANSACTION_INVALID", err.Error(), state.assembly.ID, state.maxSeq, "forge-report", "mode"))
+				} else {
+					state.assembly.Status = "committed"
+				}
 			} else {
 				state.assembly.Status = "rendering"
 			}
@@ -866,7 +871,7 @@ func inlineCSVRowCount(payload []byte) (int, error) {
 	return count - 1, nil
 }
 
-func validateInlineReportState(state *inlineReportState) error {
+func validateInlineReportState(state *inlineReportState, final bool) error {
 	if !state.started {
 		return nil
 	}
@@ -952,6 +957,11 @@ func validateInlineReportState(state *inlineReportState) error {
 			}
 			for _, value := range references {
 				ref, ok := value.(string)
+				// Canonical tab sections may arrive in later transactions. Keep
+				// structural checks eager, but require every target at commit.
+				if key == "sectionIds" && state.assembly.Grammar == "report-document-v1" && !final && ok && strings.TrimSpace(ref) != "" && !knownBlocks[strings.TrimSpace(ref)] {
+					continue
+				}
 				if !ok || strings.TrimSpace(ref) == "" || !knownBlocks[strings.TrimSpace(ref)] {
 					return fmt.Errorf("block %q references unknown block %q in %s", block["id"], ref, key)
 				}

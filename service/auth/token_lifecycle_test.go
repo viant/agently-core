@@ -103,8 +103,9 @@ func (s *lifecycleTokenStore) ReleaseRefreshLease(context.Context, string, strin
 	return nil
 }
 
-func (s *lifecycleTokenStore) CASPut(context.Context, *OAuthToken, int64, string) (bool, error) {
-	return false, nil
+func (s *lifecycleTokenStore) CASPut(ctx context.Context, token *OAuthToken, _ int64, _ string) (bool, error) {
+	err := s.Put(ctx, token)
+	return err == nil, err
 }
 
 func (s *lifecycleTokenStore) ScanExpiring(context.Context, time.Time) ([]*OAuthToken, error) {
@@ -925,4 +926,8 @@ func TestRuntimeCooldownStillInjectsValidScopedSessionToken(t *testing.T) {
 	if downstreamToken == nil || downstreamToken.AccessToken != scoped {
 		t.Fatalf("valid token was suppressed by cooldown: %#v", downstreamToken)
 	}
+}
+
+func (s *lifecycleTokenStore) CASClear(ctx context.Context, user, provider string, _ int64, _ string) (bool, error) {
+	return true, s.Delete(ctx, user, provider)
 }

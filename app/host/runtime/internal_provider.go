@@ -151,7 +151,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 			bindings = append(bindings, entry)
 		}
 	}
-	if len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources) > 0 && snapshot == nil {
+	if len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources)+len(config.PlaybookSources) > 0 && snapshot == nil {
 		var snapshotErr error
 		snapshot, snapshotErr = newInternalWindowSnapshot(context.Background(), registration.workspaceRoot, "", config)
 		if snapshotErr != nil {
@@ -164,7 +164,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 		return nil, err
 	}
 	bindings = append(bindings, toolfeeds...)
-	authored, err := host.BindAuthoredSources(context.Background(), registration.workspaceRoot, owner, config.TemplateSources, config.IntentSources, sourcePolicy, snapshot)
+	authored, err := host.BindAuthoredSources(context.Background(), registration.workspaceRoot, owner, config.TemplateSources, config.IntentSources, sourcePolicy, snapshot, config.PlaybookSources)
 	if err != nil {
 		return nil, err
 	}
@@ -186,6 +186,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 	if len(authored) > 0 {
 		localConfig.Validators["template"] = resources.ValidateTemplateDefinition
 		localConfig.Validators["intent"] = resources.ValidateIntentDefinition
+		localConfig.Validators["playbook"] = resources.ValidateIntentDefinition
 	}
 	if len(menus) > 0 {
 		localConfig.Validators["navigation"] = resources.ValidateMenu

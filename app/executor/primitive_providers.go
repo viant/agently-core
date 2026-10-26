@@ -7,6 +7,7 @@ import (
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	forge "github.com/viant/agently-core/service/primitiveprovider"
@@ -17,13 +18,23 @@ import (
 )
 
 func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
-	if err := b.configureMCPDefinitionSource(out); err != nil {
+	return b.configurePrimitiveProvidersObserved(context.Background(), out)
+}
+
+func (b *Builder) configurePrimitiveProvidersObserved(ctx context.Context, out *Runtime) error {
+	measure := func(name string, run func() error) error {
+		span := observe.Start(ctx, observe.Phase(name), observe.Labels{})
+		err := run()
+		span.End(observe.OutcomeFor(err), observe.CacheBypass)
+		return err
+	}
+	if err := measure("startup.runtime.primitive_mcp_source", func() error { return b.configureMCPDefinitionSource(out) }); err != nil {
 		return fmt.Errorf("MCP definition source: %w", err)
 	}
-	if err := b.configurePublicPrimitiveProviders(out); err != nil {
+	if err := measure("startup.runtime.primitive_public_sources", func() error { return b.configurePublicPrimitiveProviders(ctx, out) }); err != nil {
 		return fmt.Errorf("public primitive providers: %w", err)
 	}
-	if err := b.configureNativeHostDocuments(out); err != nil {
+	if err := measure("startup.runtime.primitive_native_documents", func() error { return b.configureNativeHostDocuments(out) }); err != nil {
 		return fmt.Errorf("native host documents: %w", err)
 	}
 	if out.LocalPrimitiveProvider != nil && !out.localPrimitiveRegistered {
@@ -66,7 +77,7 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 			out.PrimitiveProviders = resourcesvc.NewGateway(out.MCPManager, actor, verify, b.primitiveGatewayIdentity)
 		}
 	}
-	if err := b.configureDefaultWindowDelivery(out); err != nil {
+	if err := measure("startup.runtime.primitive_window_delivery", func() error { return b.configureDefaultWindowDelivery(out) }); err != nil {
 		return err
 	}
 	if out.NativeHostDocuments != nil {
@@ -98,7 +109,7 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 			return out.PrimitiveProviders.ResolveDependencyPins(ctx, parent, pin, refs, descriptors, original)
 		}, reportProof)
 	}
-	if err := b.configurePrimitiveReports(out); err != nil {
+	if err := measure("startup.runtime.primitive_reports", func() error { return b.configurePrimitiveReports(out) }); err != nil {
 		return fmt.Errorf("primitive reports: %w", err)
 	}
 	if b.primitiveTargetProof == nil || out.PrimitiveWindows != nil {

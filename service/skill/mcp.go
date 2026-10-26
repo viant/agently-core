@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,23 @@ import (
 	schema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
+
+var errSkillCapabilityUnavailable = errors.New("MCP skills extension not advertised")
+
+// Published native MCP definitions participate on demand without copying skill
+// names into consumer configuration. Explicit discovery settings retain their
+// opt-in/opt-out semantics. Capability negotiation still belongs to the client.
+func ordinarySkillDiscovery(config *mcpcfg.MCPClient) *mcpcfg.MCPClient {
+	if config == nil || config.SkillDiscovery != nil {
+		return config
+	}
+	if config.ResolvedIdentity == nil || !strings.HasPrefix(config.ResolvedIdentity.ResourceURI, "mcp://") {
+		return config
+	}
+	copy := *config
+	copy.SkillDiscovery = &mcpcfg.SkillDiscovery{Enabled: true, CatalogID: fmt.Sprintf("mcp-%x", sha256.Sum256([]byte(config.ResolvedIdentity.ResourceURI)))}
+	return &copy
+}
 
 // MCPSource uses the manager's authenticated, principal-isolated connections.
 // Implementations must resolve configuration locally in Names and Options.
@@ -45,6 +63,7 @@ func (s *Service) HasMCPSource() bool {
 	}
 	for _, name := range names {
 		cfg, err := s.mcpSource.Options(ctx, name)
+		cfg = ordinarySkillDiscovery(cfg)
 		if err == nil && cfg != nil && (cfg.SkillDiscovery != nil && cfg.SkillDiscovery.Enabled || s.delivery != nil && cfg.PrimitiveProviderIdentity != "") {
 			return true
 		}
@@ -129,6 +148,8 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 		if err != nil {
 			return nil, err
 		}
+		automatic := cfg != nil && cfg.SkillDiscovery == nil
+		cfg = ordinarySkillDiscovery(cfg)
 		if cfg == nil || cfg.SkillDiscovery == nil || !cfg.SkillDiscovery.Enabled {
 			continue
 		}
@@ -145,6 +166,9 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 		}
 		entries, err := s.listRemoteServer(ctx, agent, server, id, cfg)
 		if err != nil {
+			if automatic && only == "" && errors.Is(err, errSkillCapabilityUnavailable) {
+				continue
+			}
 			if only == "" && optionalSkillLinkRequired(err) {
 				continue
 			}
@@ -185,18 +209,26 @@ func (s *Service) remoteClient(ctx context.Context, server string, cfg *mcpcfg.M
 			opts = append(opts, mcpclient.WithAuthToken(token))
 		}
 	}
-	initialized, err := cli.Initialize(ctx, opts...)
+	var initialized *schema.InitializeResult
+	if negotiated, ok := cli.(interface {
+		NegotiatedServer() (*schema.InitializeResult, error)
+	}); ok {
+		initialized, _ = negotiated.NegotiatedServer()
+	}
+	if initialized == nil {
+		initialized, err = cli.Initialize(ctx, opts...)
+	}
 	if err != nil {
 		return ctx, nil, nil, err
 	}
 	if initialized == nil {
-		return ctx, nil, nil, fmt.Errorf("MCP skills extension not advertised")
+		return ctx, nil, nil, errSkillCapabilityUnavailable
 	}
 	if _, advertised := initialized.Capabilities.Extensions[schema.SkillsExtension]; !advertised {
-		return ctx, nil, nil, fmt.Errorf("MCP skills extension not advertised")
+		return ctx, nil, nil, errSkillCapabilityUnavailable
 	}
 	if _, ok := cli.(manager.SkillsClient); !ok {
-		return ctx, nil, nil, fmt.Errorf("MCP client lacks skills support")
+		return ctx, nil, nil, fmt.Errorf("%w: MCP client lacks skills support", errSkillCapabilityUnavailable)
 	}
 	return ctx, cli, opts, nil
 }
@@ -278,14 +310,23 @@ func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]ski
 	if err != nil {
 		return nil, err
 	}
-	for _, entry := range entries {
-		local = append(local, entry.metadata)
-	}
 	started = time.Now()
 	generic, err := s.primitiveMetadata(ctx, agent)
 	debugtrace.Write("skill", "list_visible_stage", map[string]any{"stage": "primitive_metadata", "count": len(generic), "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond)})
 	if err != nil {
 		return nil, err
+	}
+	// A native producer can publish the same skill through both namespace
+	// resources and the skills extension. Prefer its native resource identity;
+	// identical names or URIs from different authenticated connections stay apart.
+	native := make(map[string]bool, len(generic))
+	for _, entry := range generic {
+		native[entry.ServerID+"\x00"+entry.URI] = true
+	}
+	for _, entry := range entries {
+		if !native[entry.server+"\x00"+entry.uri] {
+			local = append(local, entry.metadata)
+		}
 	}
 	started = time.Now()
 	local = append(local, generic...)

@@ -39,6 +39,7 @@ type WindowGetOutput struct {
 }
 
 type windowEnvelope struct {
+	ObservedAt     int64  `json:"ts,omitempty"`
 	ConversationID string `json:"conversationId,omitempty"`
 	ClientID       string `json:"clientId,omitempty"`
 	Selected       struct {

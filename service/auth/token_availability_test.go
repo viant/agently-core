@@ -463,3 +463,7 @@ func TestCreateSession_PersistenceFailureDoesNotPublishSessionOrCookie(t *testin
 		t.Fatalf("cookie published after persistence failure: %#v", cookies)
 	}
 }
+
+func (s *availabilityTokenStore) CASClear(ctx context.Context, user, provider string, _ int64, _ string) (bool, error) {
+	return true, s.Delete(ctx, user, provider)
+}

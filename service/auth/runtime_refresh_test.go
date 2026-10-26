@@ -199,6 +199,9 @@ func runtimeRefreshHarness(configURL string, client *OAuthClient, store TokenSto
 		},
 	}
 	sessions.Put(context.Background(), sess)
+	if fixture, ok := store.(interface{ seedRefreshFixture(*Session) }); ok {
+		fixture.seedRefreshFixture(sess)
+	}
 	return runtime, sess
 }
 
@@ -388,6 +391,8 @@ func TestRuntimeRefresh_RotatedTokenDiscardedBeforeInvalidGrant(t *testing.T) {
 		"exp": time.Now().Add(-time.Minute).Unix(),
 	})
 
+	// The durable leased fixture represents the same expired credential as the session.
+	store.token.IDToken = sess.Tokens.IDToken
 	if got := runtime.tryRefreshToken(context.Background(), sess); got.state != tokenPreserveWithoutInjection {
 		t.Fatalf("first refresh state = %v, want preserve without injection", got.state)
 	}
@@ -669,4 +674,20 @@ func TestTryLoadFreshTokenFromStore_IgnoresCanceledCallerContext(t *testing.T) {
 	if store.gotCtxCanceled {
 		t.Fatalf("token store Get should not receive a canceled context")
 	}
+}
+
+func (s *runtimeRefreshTestStore) seedRefreshFixture(sess *Session) {
+	if s.token == nil {
+		s.token = &OAuthToken{Username: sess.UserID, Provider: sess.Provider, AccessToken: sess.Tokens.AccessToken, IDToken: sess.Tokens.IDToken, RefreshToken: sess.Tokens.RefreshToken, ExpiresAt: sess.Tokens.Expiry}
+	}
+}
+func (s *runtimeRefreshTestStore) CASPut(ctx context.Context, token *OAuthToken, _ int64, _ string) (bool, error) {
+	err := s.Put(ctx, token)
+	if err == nil {
+		s.token = token
+	}
+	return err == nil, err
+}
+func (s *runtimeRefreshTestStore) CASClear(ctx context.Context, user, provider string, _ int64, _ string) (bool, error) {
+	return true, s.Delete(ctx, user, provider)
 }

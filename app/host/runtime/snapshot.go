@@ -76,7 +76,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 	for _, definition := range menuDefinitions {
 		result.menuURIs[definition.URI] = true
 	}
-	if len(menuDefinitions) > 0 || len(config.WindowResources) > 0 || (root != "" && (len(config.FrameworkWindowResources) > 0 || len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources) > 0)) {
+	if len(menuDefinitions) > 0 || len(config.WindowResources) > 0 || (root != "" && (len(config.FrameworkWindowResources) > 0 || len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources)+len(config.PlaybookSources) > 0)) {
 		// This registry belongs to one serialized snapshot compilation. It is
 		// refreshed through the same confined reader before authored enrichment.
 		var current *registry.Registry
@@ -110,7 +110,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 			feedDirectories = append(feedDirectories, resources.ToolfeedDirectory(source.Namespace, source.Directory))
 
 		}
-		authoredDirs, compilers, e := host.AuthoredDirectories(config.TemplateSources, config.IntentSources)
+		authoredDirs, compilers, e := host.AuthoredDirectories(config.TemplateSources, config.IntentSources, config.PlaybookSources)
 		if e != nil {
 			return nil, e
 		}

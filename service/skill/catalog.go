@@ -40,7 +40,8 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 			if err != nil {
 				return nil, err
 			}
-			if cfg != nil && cfg.SkillDiscovery != nil && cfg.SkillDiscovery.Enabled {
+			cfg = ordinarySkillDiscovery(cfg)
+			if cfg != nil && (cfg.SkillDiscovery != nil && cfg.SkillDiscovery.Enabled || s.delivery != nil && cfg.PrimitiveProviderIdentity != "") {
 				names = append(names, name)
 			}
 		}

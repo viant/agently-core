@@ -435,3 +435,27 @@ func (s *TokenStoreDAO) CASPut(ctx context.Context, token *OAuthToken, expectedV
 	}
 	return out.Data != nil, nil
 }
+
+// CASClear invalidates only the exact version protected by this refresh lease.
+func (s *TokenStoreDAO) CASClear(ctx context.Context, username, provider string, version int64, owner string) (bool, error) {
+	if s == nil || s.invoker == nil || strings.TrimSpace(owner) == "" {
+		return false, nil
+	}
+	row := &write.Token{}
+	row.SetUserId(strings.TrimSpace(username))
+	row.SetProvider(strings.TrimSpace(provider))
+	input := &write.Input{}
+	input.SetToken(row)
+	input.SetMode("clear")
+	input.SetExpectedVersion(version)
+	input.SetExpectedLeaseOwner(strings.TrimSpace(owner))
+	out, err := s.writeRow(ctx, input)
+	var conflict *xhandler.Conflict
+	if errors.As(err, &conflict) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return out != nil && out.Data != nil, nil
+}

@@ -3,14 +3,15 @@ package context
 import (
 	"context"
 	"encoding/json"
+	"github.com/viant/forge/backend/uicontext"
 	"reflect"
 	"sort"
 	"strings"
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 )
 
 const Name = "ui/context"
@@ -28,6 +29,8 @@ type WindowContext struct {
 }
 
 type GetOutput struct {
+	ReadRedacted    bool                    `json:"readRedacted,omitempty"`
+	ReadTruncated   bool                    `json:"readTruncated,omitempty"`
 	ConversationID  string                  `json:"conversationId,omitempty"`
 	ClientID        string                  `json:"clientId,omitempty"`
 	FocusedWindowID string                  `json:"focusedWindowId,omitempty"`
@@ -143,6 +146,33 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	output.CurrentReports = buildCurrentReportContexts(
 		s.protectedEvents(ctx, conversationID, client.ClientID, strings.TrimSpace(input.WindowID), strings.TrimSpace(input.WindowKey), 100, 0),
 	)
+	// Read projection is distinct from stored snapshots and authorization pins.
+	// Metadata remains the source for sensitive-field declarations; no business
+	// reads or mutations occur while projecting already captured UI state.
+	metadata := map[string]interface{}{"containers": []interface{}{}}
+	for _, window := range output.Windows {
+		if window.Window != nil {
+			metadata["containers"] = append(metadata["containers"].([]interface{}), window.Window.Metadata)
+		}
+	}
+	raw, err := json.Marshal(output)
+	if err != nil {
+		return err
+	}
+	projected, err := uicontext.RedactReadJSON(raw, uicontext.ReadOptions{Metadata: metadata, PreservePaths: []string{
+		"windows.window.resource", "windows.window.resourceTarget", "windows.window.metadata.resource", "windows.window.metadata.resourceTarget", "windows.window.metadata.resourceDependencies",
+		"recentEvents.resource", "currentReports.contextEvent.resource", "currentReports.latestRun.resource", "currentReports.latestExport.resource",
+	}})
+	if err != nil {
+		return err
+	}
+	var safe GetOutput
+	if err = json.Unmarshal(projected.JSON, &safe); err != nil {
+		return err
+	}
+	safe.ReadRedacted = projected.Redacted
+	safe.ReadTruncated = projected.Truncated
+	*output = safe
 	return nil
 }
 

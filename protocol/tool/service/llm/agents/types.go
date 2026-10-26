@@ -2,6 +2,7 @@ package agents
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -106,11 +107,11 @@ type RunInput struct {
 	// ReasoningEffort optionally overrides agent-level reasoning effort
 	// (e.g., low|medium|high) for this run when supported by the backend.
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
-	// IntentProfileId optionally selects an intent profile whose instructions,
-	// tool bundles, knowledge, and output template apply to the child turn.
+	// PlaybookId selects the authored scenario for the child turn.
+	PlaybookId string `json:"playbookId,omitempty" yaml:"playbookId,omitempty"`
+	// IntentProfileId and PromptProfileId are deprecated decode/storage aliases.
 	IntentProfileId string `json:"intentProfileId,omitempty" yaml:"intentProfileId,omitempty"`
-	// PromptProfileId is the deprecated compatibility alias.
-	PromptProfileId string `json:"-" yaml:"-"`
+	PromptProfileId string `json:"promptProfileId,omitempty" yaml:"promptProfileId,omitempty"`
 	// ToolBundles optionally appends tool bundle ids on top of whatever the
 	// profile floor already provides.  Safe to leave empty.
 	ToolBundles []string `json:"toolBundles,omitempty"`
@@ -138,6 +139,9 @@ func (i *RunInput) effectiveIntentProfileID() string {
 	if i == nil {
 		return ""
 	}
+	if value := strings.TrimSpace(i.PlaybookId); value != "" {
+		return value
+	}
 	if value := strings.TrimSpace(i.IntentProfileId); value != "" {
 		return value
 	}
@@ -149,21 +153,37 @@ func (i *RunInput) normalizeIntentProfileID() {
 		return
 	}
 	value := i.effectiveIntentProfileID()
+	i.PlaybookId = value
 	i.IntentProfileId = value
 	i.PromptProfileId = value
+}
+
+func (i RunInput) MarshalJSON() ([]byte, error) {
+	type alias RunInput
+	copy := alias(i)
+	copy.PlaybookId = i.effectiveIntentProfileID()
+	copy.IntentProfileId = ""
+	copy.PromptProfileId = ""
+	return json.Marshal(copy)
 }
 
 func (i *RunInput) UnmarshalJSON(data []byte) error {
 	type alias RunInput
 	decoded := struct {
 		*alias
-		LegacyIntentProfileID string `json:"promptProfileId"`
+		IntentProfileID string `json:"intentProfileId"`
+		PromptProfileID string `json:"promptProfileId"`
 	}{alias: (*alias)(i)}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	if strings.TrimSpace(i.IntentProfileId) == "" {
-		i.IntentProfileId = strings.TrimSpace(decoded.LegacyIntentProfileID)
+	for _, legacy := range []string{decoded.IntentProfileID, decoded.PromptProfileID} {
+		if value := strings.TrimSpace(legacy); value != "" {
+			if existing := i.effectiveIntentProfileID(); existing != "" && existing != value {
+				return fmt.Errorf("conflicting playbook selection aliases")
+			}
+			i.PlaybookId = value
+		}
 	}
 	i.normalizeIntentProfileID()
 	return nil
@@ -175,13 +195,19 @@ func (i *RunInput) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	var compatibility struct {
-		LegacyIntentProfileID string `yaml:"promptProfileId"`
+		IntentProfileID string `yaml:"intentProfileId"`
+		PromptProfileID string `yaml:"promptProfileId"`
 	}
 	if err := node.Decode(&compatibility); err != nil {
 		return err
 	}
-	if strings.TrimSpace(i.IntentProfileId) == "" {
-		i.IntentProfileId = strings.TrimSpace(compatibility.LegacyIntentProfileID)
+	for _, legacy := range []string{compatibility.IntentProfileID, compatibility.PromptProfileID} {
+		if value := strings.TrimSpace(legacy); value != "" {
+			if existing := i.effectiveIntentProfileID(); existing != "" && existing != value {
+				return fmt.Errorf("conflicting playbook selection aliases")
+			}
+			i.PlaybookId = value
+		}
 	}
 	i.normalizeIntentProfileID()
 	return nil

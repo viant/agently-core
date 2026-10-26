@@ -127,6 +127,11 @@ func (hooks *Lifecycle) Init(ctx context.Context, entity *Token, state xhandler.
 	entity.SetUserId(entity.UserId)
 	entity.SetProvider(entity.Provider)
 	entity.SetEncToken(entity.EncToken)
+	// A new login/upsert supersedes every outstanding refresh attempt.
+	entity.SetVersion(state.Previous.Version + 1)
+	entity.SetLeaseOwner(nil)
+	entity.SetLeaseUntil(nil)
+	entity.SetRefreshStatus("idle")
 	if entity.UpdatedAt == nil {
 		entity.SetUpdatedAt(&now)
 	}

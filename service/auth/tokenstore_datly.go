@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/scy/kms"
 	"github.com/viant/scy/kms/blowfish"
@@ -291,7 +292,9 @@ func chooseTokenRow(rows []tokenRow, requestedProv string) (selected *tokenRow, 
 // A legacy hit is migrated in place with a ciphertext compare-and-swap, so a
 // concurrent refresh is never overwritten. Token material is never logged.
 func (s *TokenStoreDAO) decryptRow(ctx context.Context, username, provider, enc string) (*OAuthToken, error) {
+	decryptTiming := observe.Start(ctx, "mcp.auth.decrypt", observe.Labels{})
 	tok, usedPrevious, err := s.decryptWithPrevious(ctx, enc, provider)
+	decryptTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil || tok == nil {
 		return tok, err
 	}

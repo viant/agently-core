@@ -302,6 +302,78 @@ describe('Streaming', () => {
         es.emit({ type: 'text_delta', streamId: 'conv_1', content: 'late' });
         expect(text).toEqual(['hello']);
     });
+
+    it.each(['onEvent', 'onTurnEnd'] as const)('reports %s callback failures once and keeps subsequent frames flowing', callback => {
+        const onError = vi.fn();
+        const onObserverError = vi.fn();
+        const onTurnEnd = vi.fn();
+        const seen: string[] = [];
+        let fail = true;
+        const c = new AgentlyClient({ baseURL: 'http://fixture.invalid/v1', fetchImpl: mockFetch(200, {}), timeoutMs: 0, onError });
+        const sub = c.observeNativeEvents('conversation', {
+            onEvent: event => {
+                if (callback === 'onEvent' && fail) throw new Error('projection failed');
+                seen.push(event.type);
+            },
+            onTurnEnd: event => {
+                if (callback === 'onTurnEnd' && fail) throw new Error('projection failed');
+                onTurnEnd(event);
+            },
+            onError: onObserverError,
+        });
+        const es = MockEventSource.instances[0];
+        es.emit({ type: 'turn_completed', conversationId: 'conversation', turnId: 'first' });
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(onError.mock.calls[0][0]).toMatchObject({ status: 0, statusText: 'SSE Callback Error', body: 'projection failed' });
+        expect(onObserverError).toHaveBeenCalledOnce();
+        expect(onObserverError).toHaveBeenCalledWith('SSE callback failed: projection failed');
+        expect(es.closed).toBe(false);
+        fail = false;
+        es.emit({ type: 'turn_completed', conversationId: 'conversation', turnId: 'second' });
+        expect(onTurnEnd).toHaveBeenCalledOnce();
+        expect(seen.at(-1)).toBe('turn_completed');
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(onObserverError).toHaveBeenCalledTimes(1);
+        sub.close();
+        es.emit({ type: 'turn_completed', conversationId: 'conversation', turnId: 'closed' });
+        expect(onTurnEnd).toHaveBeenCalledOnce();
+    });
+
+    it('ignores malformed JSON and foreign frames without reporting a callback failure', () => {
+        const onError = vi.fn();
+        const onObserverError = vi.fn();
+        const onEvent = vi.fn();
+        const c = new AgentlyClient({ baseURL: 'http://fixture.invalid/v1', fetchImpl: mockFetch(200, {}), timeoutMs: 0, onError });
+        const sub = c.observeNativeEvents('conversation', { onEvent, onError: onObserverError });
+        const es = MockEventSource.instances[0];
+        es.emit('{malformed');
+        es.emit({ type: 'turn_completed', conversationId: 'another-conversation' });
+        expect(onEvent).not.toHaveBeenCalled();
+        expect(onError).not.toHaveBeenCalled();
+        expect(onObserverError).not.toHaveBeenCalled();
+        es.emit({ type: 'turn_completed', conversationId: 'conversation' });
+        expect(onEvent).toHaveBeenCalledOnce();
+        sub.close();
+    });
+
+    it.each(['callback', 'native-error'] as const)('does not recursively report an observer error handler failure from %s', source => {
+        const onError = vi.fn();
+        const observerFailure = new Error('observer error handler failed');
+        const onObserverError = vi.fn(() => { throw observerFailure; });
+        const c = new AgentlyClient({ baseURL: 'http://fixture.invalid/v1', fetchImpl: mockFetch(200, {}), timeoutMs: 0, onError });
+        const sub = c.observeNativeEvents('conversation', {
+            onEvent: () => { if (source === 'callback') throw new Error('projection failed'); },
+            onError: onObserverError,
+        });
+        const event = source === 'callback'
+            ? { type: 'turn_completed', conversationId: 'conversation' }
+            : { type: 'error', conversationId: 'conversation', error: 'native error' };
+        expect(() => MockEventSource.instances[0].emit(event)).toThrow(observerFailure);
+        expect(onError).toHaveBeenCalledTimes(source === 'callback' ? 1 : 0);
+        expect(onObserverError).toHaveBeenCalledOnce();
+        sub.close();
+    });
+
 });
 
 // ─── Steer ─────────────────────────────────────────────────────────────────────

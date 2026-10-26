@@ -1,0 +1,21 @@
+name: Design system contracts
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  foundation:
+    name: Design system contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+      - name: Validate portable contracts and style delivery
+        run: go test ./protocol/ui/theme ./service/ui/style
+      - name: Check contributor entry points
+        run: test -f AGENTS.md && python3 scripts/test_public_boundaries.py
