@@ -1,2 +1,4 @@
 github.com/viant/forge v0.3.45-0.20261015011117-38bb1cf13641 h1:yA6VXuZfTdnbkxDY3MN6NKiKavfsg/fjxQmlKqS5KDw=
 github.com/viant/forge v0.3.45-0.20261015011117-38bb1cf13641/go.mod h1:asQHHCMbgC0d3pc0dm+GFFQ5cDyzjG0qN86vrW85rCY=
+github.com/viant/forge v0.3.45 h1:12oMeORu1i/nIRdqJPbR5pdToMNVeZ62N4aYL9HDh4c=
+github.com/viant/forge v0.3.45/go.mod h1:LFwCJLTUSLZaA6c3txU8FuKhlhD8Tv/omGBFL9AKtrk=
