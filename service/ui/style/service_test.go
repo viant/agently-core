@@ -313,3 +313,55 @@ func TestInvalidWorkspaceOverrideRetainsSnapshot(t *testing.T) {
 		}
 	}
 }
+
+// Optional integration input keeps product fixtures out of the shared library.
+func TestWorkspaceIntegration(t *testing.T) {
+	root := os.Getenv("AGENTLY_STYLE_WORKSPACE")
+	if root == "" {
+		t.Skip("set AGENTLY_STYLE_WORKSPACE to verify a real workspace")
+	}
+	s := New(func() string { return root })
+	publication := s.Current(context.Background())
+	expectedDiagnostics := []string(nil)
+	if baseline := os.Getenv("AGENTLY_STYLE_BASELINE_WORKSPACE"); baseline != "" {
+		// Compare real upstream debt without permitting new compilation diagnostics.
+		expectedDiagnostics = New(func() string { return baseline }).Current(context.Background()).Diagnostics
+	}
+	if publication.Styles == nil || publication.Themes == nil || strings.Join(publication.Diagnostics, "\n") != strings.Join(expectedDiagnostics, "\n") {
+		t.Fatalf("workspace did not compile: %+v", publication)
+	}
+	css := request(s, publication.Styles.Href, "")
+	catalog := request(s, publication.Themes.Href, "")
+	if css.Code != 200 || catalog.Code != 200 {
+		t.Fatal("immutable assets unavailable")
+	}
+	fonts := regexp.MustCompile(`/v1/workspace/ui/fonts/[a-f0-9]{64}\.woff2`).FindAllString(css.Body.String(), -1)
+	if len(fonts) == 0 {
+		t.Fatal("workspace fonts were not emitted")
+	}
+	output := os.Getenv("AGENTLY_STYLE_PROOF_OUTPUT")
+	for _, url := range fonts {
+		font := request(s, url, "")
+		if font.Code != 200 || !strings.HasPrefix(font.Body.String(), "wOF2") {
+			t.Fatalf("font delivery failed: %s", url)
+		}
+		if output != "" {
+			file := filepath.Join(output, url)
+			if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, font.Body.Bytes(), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if output != "" {
+		metadata, _ := json.Marshal(map[string]interface{}{"workspaceId": "typography-proof", "uiStyles": publication.Styles, "uiThemes": publication.Themes})
+		for name, data := range map[string][]byte{"workspace.css": css.Body.Bytes(), "catalog.json": catalog.Body.Bytes(), "metadata.json": metadata} {
+			if err := os.WriteFile(filepath.Join(output, name), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	t.Logf("verified workspace catalog, scoped CSS and %d content-addressed font faces", len(fonts))
+}

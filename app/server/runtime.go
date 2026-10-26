@@ -24,6 +24,7 @@ import (
 	modelfinder "github.com/viant/agently-core/internal/finder/model"
 	"github.com/viant/agently-core/internal/sdkbackend"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	"github.com/viant/agently-core/sdk"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/workspace"
@@ -58,16 +59,20 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 	}
 	defaults := opts.Defaults
 	var workspaceConfig *wsconfig.Root
+	workspaceTiming := observe.Start(ctx, "startup.runtime.workspace_config", observe.Labels{})
 	if cfg, err := wsconfig.Load(workspace.Root()); err != nil {
+		workspaceTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 		return nil, nil, nil, err
 	} else {
 		workspaceConfig = cfg
 		defaults, err = cfg.ResolveDefaultsWithFallback(defaults)
 		if err != nil {
+			workspaceTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 			return nil, nil, nil, err
 		}
 	}
 	wsconfig.ApplyPathDefaults(defaults)
+	workspaceTiming.End(observe.OK, observe.CacheBypass)
 	wsMeta := meta.New(fs, workspaceRoot)
 	agentLdr := agentloader.New(agentloader.WithMetaService(wsMeta))
 	agentFndr := agentfinder.New(agentfinder.WithLoader(agentLdr))
@@ -131,11 +136,16 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 			return strings.TrimSpace(svcauth.EffectiveUserID(ctx))
 		})
 	if opts.ConfigureBuilder != nil {
+		configureTiming := observe.Start(ctx, "startup.runtime.configure_builder", observe.Labels{})
 		if err := opts.ConfigureBuilder(ctx, builder); err != nil {
+			configureTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 			return nil, nil, nil, err
 		}
+		configureTiming.End(observe.OK, observe.CacheBypass)
 	}
+	buildTiming := observe.Start(ctx, "startup.runtime.executor_build", observe.Labels{})
 	rt, err := builder.Build(ctx)
+	buildTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -143,9 +153,13 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 		rt.AuthorizationTool = workspaceConfig.AuthorizationTool()
 	}
 	if opts.ConfigureRuntime != nil {
+		runtimeTiming := observe.Start(ctx, "startup.runtime.configure_runtime", observe.Labels{})
 		opts.ConfigureRuntime(ctx, rt, workspaceRoot)
+		runtimeTiming.End(observe.OK, observe.CacheBypass)
 	}
+	backendTiming := observe.Start(ctx, "startup.runtime.sdk_backend", observe.Labels{})
 	client, err := sdkbackend.FromRuntime(rt)
+	backendTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 	if err != nil {
 		_ = rt.Close(context.Background())
 		return nil, nil, nil, err

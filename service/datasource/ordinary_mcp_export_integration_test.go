@@ -248,12 +248,9 @@ func TestOrdinaryMCPUnifiedExportIncludesEveryPageAndRejectsPartialPersistence(t
 			expectedRows := [][]string{{"ID"}, {"alpha"}, {"beta"}}
 			if scenario == "offset" || scenario == "page" {
 				expectedCalls = 3
+				// XLSX is read with RawCellValue: number formatting changes
+				// presentation, not the stored integer values checked here.
 				expectedRows = [][]string{{"ID"}, {"0"}, {"1"}, {"2"}, {"3"}, {"4"}, {"5"}}
-				if format == reporting.ExportFormatXLSX {
-					for i := 1; i < len(expectedRows); i++ {
-						expectedRows[i][0] += ".00000"
-					}
-				}
 			}
 			if scenario == "unpaged" {
 				expectedCalls = 1

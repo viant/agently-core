@@ -67,6 +67,9 @@ func TestPresentationPrincipalBindingUsesOnlyVerifiedFactsAndUpdates(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, 1, source.calls)
 	require.Zero(t, registry.calls)
+	require.Equal(t, "verified-user", first.AuthorizationSnapshot["principal"].(map[string]any)["subject"])
+	require.Equal(t, []any{"editor"}, first.AuthorizationSnapshot["principal"].(map[string]any)["roles"])
+	require.Equal(t, []any{"reports"}, first.AuthorizationSnapshot["principal"].(map[string]any)["features"])
 	require.Equal(t, []string{"role", "exposure", "account"}, []string{first.View.Content.Containers[0].ID, first.View.Content.Containers[1].ID, first.View.Content.Containers[2].ID})
 	require.Equal(t, "21", first.AuthorizationSnapshot["account"].(map[string]any)["id"])
 	require.Nil(t, first.AuthorizationSnapshot["resources"])
@@ -74,13 +77,20 @@ func TestPresentationPrincipalBindingUsesOnlyVerifiedFactsAndUpdates(t *testing.
 	require.Len(t, window.View.Content.Containers, 4)
 	source.principal.Facts.Roles[0] = "viewer"
 	source.principal.Facts.Exposures = nil
+	source.principal.Facts.Subject = "next-verified-user"
 	source.principal.AccountID = "22"
 	next, err := rt.UIBridge.ProjectWindow(context.Background(), window)
 	require.NoError(t, err)
 	require.Equal(t, 2, source.calls)
+	require.Equal(t, "next-verified-user", next.AuthorizationSnapshot["principal"].(map[string]any)["subject"])
+	require.Equal(t, "22", next.AuthorizationSnapshot["account"].(map[string]any)["id"])
+	require.Equal(t, []any{"viewer"}, next.AuthorizationSnapshot["principal"].(map[string]any)["roles"])
 	require.Empty(t, next.View.Content.Containers)
 	require.NotEqual(t, first.AuthorizationSnapshot["authorizationVersion"], next.AuthorizationSnapshot["authorizationVersion"])
 	require.Equal(t, "21", first.AuthorizationSnapshot["account"].(map[string]any)["id"], "previous snapshot remains owned")
+	require.Equal(t, "verified-user", first.AuthorizationSnapshot["principal"].(map[string]any)["subject"])
+	require.Equal(t, []any{"editor"}, first.AuthorizationSnapshot["principal"].(map[string]any)["roles"])
+	require.Equal(t, []any{"reports"}, first.AuthorizationSnapshot["principal"].(map[string]any)["features"])
 	require.Zero(t, registry.calls)
 }
 func TestPresentationPrincipalBindingEagerUnguardedAndProducerPriority(t *testing.T) {
@@ -93,6 +103,7 @@ func TestPresentationPrincipalBindingEagerUnguardedAndProducerPriority(t *testin
 	require.NotSame(t, unguarded, projected)
 	require.Nil(t, unguarded.AuthorizationSnapshot)
 	require.Equal(t, "21", projected.AuthorizationSnapshot["account"].(map[string]any)["id"])
+	require.Equal(t, "verified-user", projected.AuthorizationSnapshot["principal"].(map[string]any)["subject"])
 	require.Equal(t, []any{"editor"}, projected.AuthorizationSnapshot["principal"].(map[string]any)["roles"])
 	require.Equal(t, []any{"reports"}, projected.AuthorizationSnapshot["principal"].(map[string]any)["features"])
 	source.failure = errors.New("verified userinfo unavailable")

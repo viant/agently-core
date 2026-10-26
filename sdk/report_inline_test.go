@@ -628,3 +628,39 @@ func warningCodes(warnings []*RenderedContentWarning) []string {
 	}
 	return result
 }
+
+func TestNormalizeRenderedContent_ProgressiveSectionReferences(t *testing.T) {
+	fence := func(sequence int, mode, fields string) string {
+		return fmt.Sprintf("```forge-report\n{\"version\":1,\"scope\":\"neutral\",\"id\":\"review\",\"sequence\":%d,\"mode\":%q,\"grammar\":\"report-document-v1\"%s}\n```\n", sequence, mode, fields)
+	}
+	start := fence(1, "start", `,"blocks":[{"id":"tabs","kind":"tabGroupBlock","sectionIds":["performance"]}]`)
+	appendSection := fence(2, "append", `,"blocks":[{"id":"performance","kind":"sectionBlock"}]`)
+	for _, explicit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("explicit=%v", explicit), func(t *testing.T) {
+			valid, invalid := start+appendSection, start
+			if explicit {
+				valid += fence(3, "commit", "")
+				invalid += fence(2, "commit", "")
+			}
+			got := NormalizeRenderedContent(valid)
+			require.Empty(t, got.Diagnostics)
+			require.Equal(t, "committed", got.Reports[0].Status)
+			require.Equal(t, "neutral", got.Reports[0].Scope)
+			rejected := NormalizeRenderedContent(invalid)
+			require.Equal(t, "incomplete", rejected.Reports[0].Status)
+			require.Contains(t, warningCodes(rejected.Diagnostics), "REPORT_TRANSACTION_INVALID")
+			require.Contains(t, rejected.Diagnostics[0].Message, `unknown block "performance"`)
+		})
+	}
+	targeted := NormalizeRenderedContent(start + fence(2, "append", `,"target":{"kind":"block","ref":"tabs","slot":"sectionIds","position":"append"},"blocks":[{"id":"performance","kind":"sectionBlock"}]`) + fence(3, "commit", ""))
+	require.Empty(t, targeted.Diagnostics)
+	require.Equal(t, "committed", targeted.Reports[0].Status)
+	streaming := normalizeRenderedContent(start, false)
+	require.Empty(t, streaming.Diagnostics)
+	require.Equal(t, "rendering", streaming.Reports[0].Status)
+	wrongKind := NormalizeRenderedContent(start + fence(2, "append", `,"blocks":[{"id":"performance","kind":"markdownBlock"}]`))
+	require.Contains(t, wrongKind.Diagnostics[0].Message, "non-section block")
+	var source map[string]interface{}
+	require.NoError(t, json.Unmarshal(wrongKind.Reports[0].Source, &source))
+	require.Len(t, source["blocks"], 1) // Rejected append remains atomic.
+}

@@ -67,7 +67,7 @@ func TestRepository_Load(t *testing.T) {
 	_ = workspace.KindPrompt // ensure constant is accessible
 }
 
-func TestRepository_IntentPrecedence(t *testing.T) {
+func TestRepository_LegacyDuplicateRejected(t *testing.T) {
 	for _, backend := range []string{"store", "afs"} {
 		t.Run(backend, func(t *testing.T) {
 			root := t.TempDir()
@@ -96,12 +96,20 @@ func TestRepository_IntentPrecedence(t *testing.T) {
 			write("intents/shared.yaml", "id: shared\nname: preferred\n")
 			write("intents/new/new.yaml", "id: new\nmessages: $import(messages.yaml)\n")
 			write("intents/new/messages.yaml", "- role: system\n  text: intent relative import\n")
+			_, err = repo.List(ctx)
+			require.ErrorContains(t, err, "duplicate")
+			_, err = repo.Load(ctx, "shared")
+			require.ErrorContains(t, err, "duplicate")
+			require.NoError(t, os.Remove(filepath.Join(root, "prompts/shared.yaml")))
 			profiles, err := repo.LoadAll(ctx)
 			require.NoError(t, err)
 			require.Len(t, profiles, 3)
 			require.Equal(t, "legacy", profiles[0].ID)
 			require.Equal(t, "intent relative import", profiles[1].Messages[0].Text)
 			require.Equal(t, "preferred", profiles[2].Name)
+			preferred, err := repo.Load(ctx, "shared")
+			require.NoError(t, err)
+			require.Equal(t, "preferred", preferred.Name)
 			raw, err := repo.GetRaw(ctx, "shared")
 			require.NoError(t, err)
 			require.Contains(t, string(raw), "preferred")
@@ -112,11 +120,12 @@ func TestRepository_IntentPrecedence(t *testing.T) {
 			_, err = repo.LoadAll(ctx)
 			require.Error(t, err)
 			require.NoError(t, os.Remove(filepath.Join(root, "intents/shared.yaml")))
+			write("prompts/shared.yaml", "id: shared\nname: legacy\n")
 			profile, err := repo.Load(ctx, "shared")
 			require.NoError(t, err)
 			require.Equal(t, "legacy", profile.Name)
 			require.NoError(t, repo.Save(ctx, "saved", profile))
-			_, err = os.Stat(filepath.Join(root, "intents/saved.yaml"))
+			_, err = os.Stat(filepath.Join(root, "playbooks/saved.md"))
 			require.NoError(t, err)
 		})
 	}

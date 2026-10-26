@@ -1400,8 +1400,14 @@ github.com/viant/forge v0.3.45-0.20261021225600-e4d4a21a9a8a h1:jfiC+Tn4Zm8KfimB
 github.com/viant/forge v0.3.45-0.20261021225600-e4d4a21a9a8a/go.mod h1:33k4rfSc1sHfBUGuvsTRAskhulnlABsMfTUnTCmMtkk=
 github.com/viant/forge v0.3.45-0.20261022044732-998bd5d6b93d h1:jmxtF/pdkB4lLwWTliYGhQs6wWgH7lK+xdDQjE0zZ1Y=
 github.com/viant/forge v0.3.45-0.20261022044732-998bd5d6b93d/go.mod h1:33k4rfSc1sHfBUGuvsTRAskhulnlABsMfTUnTCmMtkk=
+github.com/viant/forge v0.3.45-0.20261023183416-959001d55005 h1:YEGcbaVdAVnfH9+IYanxRYu/3F8JgEVYl4AVyvIUu3o=
+github.com/viant/forge v0.3.45-0.20261023183416-959001d55005/go.mod h1:LFwCJLTUSLZaA6c3txU8FuKhlhD8Tv/omGBFL9AKtrk=
+github.com/viant/forge v0.3.45-0.20261023184412-a631d229fc60 h1:Is2UhkSrLUoIAV8xnMkLH3zA1rntMEG78O2r6AAZMRw=
+github.com/viant/forge v0.3.45-0.20261023184412-a631d229fc60/go.mod h1:LFwCJLTUSLZaA6c3txU8FuKhlhD8Tv/omGBFL9AKtrk=
 github.com/viant/forge v0.3.45-0.20261023191135-d146a168df27 h1:I4rwd5JLD3cH7vF7U1gP6Em3foFUsbGQpLPXMxO92DU=
 github.com/viant/forge v0.3.45-0.20261023191135-d146a168df27/go.mod h1:LFwCJLTUSLZaA6c3txU8FuKhlhD8Tv/omGBFL9AKtrk=
+github.com/viant/forge v0.3.45-0.20261026171513-147a715080c8 h1:gophc9M0xPr/sjBCtaKP5YpUrj1F5aaOFns8B0OsKoA=
+github.com/viant/forge v0.3.45-0.20261026171513-147a715080c8/go.mod h1:LFwCJLTUSLZaA6c3txU8FuKhlhD8Tv/omGBFL9AKtrk=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
 github.com/viant/gds v0.6.0/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.2 h1:zTdW9QrPk2P0i/do9fokxtHesFQCvYqIc5Yktzmyxtg=
@@ -1426,6 +1432,8 @@ github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb h1:xZ/QTDNgUOhn/M
 github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb/go.mod h1:b214Lo4zBwLqbu6Tf2bRlgQkFfPMBW5ap4qS+I3zcJ8=
 github.com/viant/jsonrpc v0.25.1-0.20261017043720-5809a36c92af h1:DP/6+g96z5rSNp12YFwPYMKmuG48QSkUjgn60MSvQAE=
 github.com/viant/jsonrpc v0.25.1-0.20261017043720-5809a36c92af/go.mod h1:b214Lo4zBwLqbu6Tf2bRlgQkFfPMBW5ap4qS+I3zcJ8=
+github.com/viant/jsonrpc v0.25.1-0.20261026172601-4b8c890b957f h1:YggkGMqK70jNmT0Gf6M8/KhuL0xgK/+ILQK1ylDEqfM=
+github.com/viant/jsonrpc v0.25.1-0.20261026172601-4b8c890b957f/go.mod h1:b214Lo4zBwLqbu6Tf2bRlgQkFfPMBW5ap4qS+I3zcJ8=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 h1:OWMFweaKPIdh1tkbxgb0vJ6YPHoUlZR4yWf9CTntHB4=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99/go.mod h1:7ovJ5fzlXnVcadUr9RjJVwVl2l3wbNvm5i4tSOj+VbE=
 github.com/viant/mcp v0.24.1-0.20261008165059-494f36529f6e h1:hILoyfX/JiD0HucE48QE4S4muvJUrQa8OF23RmaqM+U=

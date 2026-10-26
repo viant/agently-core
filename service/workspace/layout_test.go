@@ -322,3 +322,45 @@ func TestLayoutTopbarActionRespectsWindowPolicy(t *testing.T) {
 		t.Fatalf("denied topbar action remained visible: %+v", result.Topbar)
 	}
 }
+
+func TestProviderOwnedNavigationKeepsPresentationGuardsWithoutHostResourceGrant(t *testing.T) {
+	for _, roles := range [][]string{{"operator"}, {"guest"}} {
+		t.Run(strings.Join(roles, ","), func(t *testing.T) {
+			handler := NewMetadataHandler(nil, nil, "test")
+			handler.SetAuthorizationRuntimes(policy.NewRuntime(denyLayoutResolver{}, policy.OperationWindowView), permittedview.NewRuntime(layoutResolver{roles: roles}))
+			handler.SetLayoutDefault([]byte(`version: 1
+id: fixture
+applications: []
+topbar:
+ actions:
+ - {id: host, title: Host control, action: {type: window, windowKey: host}}
+`))
+			closed := 0
+			handler.SetLayoutMenuReader(func(context.Context) (*LayoutMenuRead, error) {
+				return &LayoutMenuRead{
+					ProviderOwnedApplications: true, Revision: "fixture", Close: func() error { closed++; return nil }, Revalidate: func(context.Context) error { return nil },
+					Applications: json.RawMessage(`[{"id":"external","title":"External","providerIdentity":"external-owner","resourceNamespace":"external","authorization":{"resourceType":"application"},"visibleWhen":{"source":"authorization","field":"principal.roles","contains":"operator"},"menus":[{"id":"open","title":"Open","action":{"type":"window","resourceUri":"window://external/main","providerIdentity":"external-owner"}},{"id":"foreign","title":"Foreign","action":{"type":"window","resourceUri":"window://foreign/main","providerIdentity":"foreign-owner"}}]}]`),
+				}, nil
+			})
+			got, err := handler.Layout(context.Background(), &LayoutRequest{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Layout.Topbar == nil || len(got.Layout.Topbar.Actions) != 0 {
+				t.Fatal("host control bypassed host resource policy")
+			}
+			if roles[0] == "guest" {
+				if len(got.Layout.Applications) != 0 {
+					t.Fatal("owning publication bypassed role/exposure guard")
+				}
+			} else {
+				if len(got.Layout.Applications) != 1 || len(got.Layout.Applications[0].Menus) != 1 || got.Layout.Applications[0].Menus[0].ID != "open" {
+					t.Fatalf("owning publication required a local resource grant: %+v", got.Layout.Applications)
+				}
+			}
+			if closed != 1 {
+				t.Fatalf("publication was not closed: %d", closed)
+			}
+		})
+	}
+}

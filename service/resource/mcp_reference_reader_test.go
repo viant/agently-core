@@ -28,16 +28,32 @@ type referenceCatalog struct {
 	mu                     sync.Mutex
 	namespace, owner, kind string
 	rows                   map[string]map[string]json.RawMessage
+	uriByName              map[string]string
 	denied                 map[string]bool
 	changes                producer.ResourceChanges
 	gets, lists            int
 }
 
 func (c *referenceCatalog) Namespaces() []primitive.NamespaceCapabilities {
+	if len(c.uriByName) > 0 {
+		seen := map[string]bool{}
+		var out []primitive.NamespaceCapabilities
+		for _, raw := range c.uriByName {
+			uri, err := identity.ParseResourceURI(raw)
+			if err == nil && !seen[uri.Namespace] {
+				seen[uri.Namespace] = true
+				out = append(out, primitive.NamespaceCapabilities{Namespace: uri.Namespace, Kinds: []primitive.KindSupport{{Kind: c.kind, FormatVersions: []int64{1}, Operations: []string{"list", "get"}}}})
+			}
+		}
+		return out
+	}
 	return []primitive.NamespaceCapabilities{{Namespace: c.namespace, Kinds: []primitive.KindSupport{{Kind: c.kind, FormatVersions: []int64{1}, Operations: []string{"list", "get"}}}}}
 }
 func (c *referenceCatalog) binding(raw json.RawMessage, name string) LocalResourceBinding {
 	uri := identity.ResourceURI{Kind: c.kind, Namespace: c.namespace, Name: name}
+	if selected, ok := c.uriByName[name]; ok {
+		uri, _ = identity.ParseResourceURI(selected)
+	}
 	return LocalResourceBinding{URI: uri.String(), FormatVersion: 1, Resolver: func(ctx context.Context, actor identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
 		policy, err := extensionPolicy(ctx, actor, uri, "resource.get")
 		if err != nil {
@@ -61,11 +77,15 @@ func (c *referenceCatalog) List(ctx context.Context, _ identity.VerifiedActor, k
 	defer c.mu.Unlock()
 	c.lists++
 	var bindings []LocalResourceBinding
-	if kind != c.kind || namespace != "" && namespace != c.namespace {
+	if kind != c.kind || len(c.uriByName) == 0 && namespace != "" && namespace != c.namespace {
 		return bindings, nil
 	}
 	for name, raw := range c.visible(ctx) {
-		bindings = append(bindings, c.binding(raw, name))
+		binding := c.binding(raw, name)
+		uri, _ := identity.ParseResourceURI(binding.URI)
+		if namespace == "" || uri.Namespace == namespace {
+			bindings = append(bindings, binding)
+		}
 	}
 	sort.Slice(bindings, func(i, j int) bool { return bindings[i].URI < bindings[j].URI })
 	return bindings, nil
@@ -76,6 +96,15 @@ func (c *referenceCatalog) Lookup(ctx context.Context, _ identity.VerifiedActor,
 	c.gets++
 	if c.denied[uri.Name] {
 		return LocalResourceBinding{}, identity.ErrResourceDenied
+	}
+	if len(c.uriByName) > 0 {
+		for name, raw := range c.visible(ctx) {
+			binding := c.binding(raw, name)
+			if binding.URI == uri.String() {
+				return binding, nil
+			}
+		}
+		return LocalResourceBinding{}, producer.ErrCatalogNotFound
 	}
 	raw, found := c.visible(ctx)[uri.Name]
 	if !found {
@@ -113,6 +142,94 @@ func referenceConfig(name, owner, scope string) *cfg.MCPClient {
 	return &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{Name: name, Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: "https://" + name + ".invalid/mcp"}}}, PrimitiveProviderIdentity: owner, ToolsListVisibility: cfg.ToolsListVisibilityPublic, ResourceCacheScopes: map[string]string{"*": scope, "conversation-only": cfg.ResourceCacheConversation}}
 }
 
+func TestMCPReferenceReaderLoadsProducerLogicalAndOpaqueNamespaceAliases(t *testing.T) {
+	const id = "f560c53611b11f84e5b5b4a4ac2b82117875bc9430bfbdd31c65c6d9f813883b"
+	actor, verify := PublicReadActors()
+	internal := &referenceCatalog{namespace: "workspace", owner: "configuration", kind: "mcp", rows: map[string]map[string]json.RawMessage{}, denied: map[string]bool{}}
+	producerCatalog := &referenceCatalog{namespace: "catalog", owner: "console-management", kind: "mcp", rows: map[string]map[string]json.RawMessage{}, denied: map[string]bool{}, uriByName: map[string]string{
+		"logical": "mcp://catalog/catalog", "opaque": "mcp://" + id + "/catalog",
+	}}
+	management := referenceConfig("console-management", "console-management", cfg.ResourceCacheUser)
+	management.PrimitiveNamespaces = nil
+	internal.set("", "console-management", management)
+	producerCatalog.set("alice", "logical", referenceConfig("catalog", "console-management", cfg.ResourceCacheUser))
+	producerCatalog.set("alice", "opaque", referenceConfig("catalog", "console-management", cfg.ResourceCacheUser))
+	mgr, err := manager.New(manager.NewRepoProvider(manager.WithRepoStateStore(fsstore.NewStateStore(t.TempDir()))), manager.WithClientFactory(func(_ context.Context, _, name string) (mcpclient.Interface, error) {
+		if name == "console-management" {
+			return referenceClient(t, producerCatalog)
+		}
+		return nil, fmt.Errorf("unselected producer %s", name)
+	}))
+	require.NoError(t, err)
+	require.NoError(t, mgr.RegisterLocal(context.Background(), "configuration", &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "configuration", ResourceCacheScopes: map[string]string{"workspace": cfg.ResourceCachePublic}}, func(context.Context) (mcpclient.Interface, error) { return referenceClient(t, internal) }))
+	gateway := NewGateway(mgr, actor, verify, "reader")
+	defer gateway.Close()
+	reader, err := NewMCPReferenceReader(gateway, MCPDefinitionSource{ConnectionName: "configuration", ProviderIdentity: "configuration", Namespace: "workspace"}, []identity.ResourceRef{{URI: "mcp://workspace/console-management"}})
+	require.NoError(t, err)
+	bound, err := mgr.BindDefinitionReader(reader)
+	require.NoError(t, err)
+	require.True(t, bound)
+	alice := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	for _, uri := range []string{"mcp://catalog/catalog", "mcp://" + id + "/catalog"} {
+		selected, loadErr := reader.Load(alice, uri)
+		require.NoError(t, loadErr)
+		require.Equal(t, uri, selected.ResolvedIdentity.ServiceName)
+		require.Equal(t, uri, selected.ResolvedIdentity.ResourceURI)
+		_, loadErr = mgr.Options(alice, uri)
+		require.NoError(t, loadErr, "both producer-issued URIs must bind without name collision")
+	}
+	listed, err := reader.List(alice)
+	require.NoError(t, err)
+	require.Contains(t, listed, "mcp://catalog/catalog")
+	require.Contains(t, listed, "mcp://"+id+"/catalog")
+	bob := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "bob"})
+	_, err = reader.Load(bob, "mcp://catalog/catalog")
+	require.Error(t, err, "another user cannot borrow the producer's visible alias")
+}
+
+func TestMCPReferenceReaderSingleNamespaceFilterExcludesCatalogAlias(t *testing.T) {
+	for _, restriction := range []struct {
+		name       string
+		namespaces []string
+	}{
+		{"single filtered namespace", []string{"ns://console"}},
+		{"invalid multi-namespace optimization", []string{"ns://console", "ns://catalog"}},
+	} {
+		t.Run(restriction.name, func(t *testing.T) { assertRestrictedAliasUndiscoverable(t, restriction.namespaces) })
+	}
+}
+
+func assertRestrictedAliasUndiscoverable(t *testing.T, restrictions []string) {
+	t.Helper()
+	actor, verify := PublicReadActors()
+	internal := &referenceCatalog{namespace: "workspace", owner: "configuration", kind: "mcp", rows: map[string]map[string]json.RawMessage{}, denied: map[string]bool{}}
+	producerCatalog := &referenceCatalog{namespace: "catalog", owner: "console-management", kind: "mcp", rows: map[string]map[string]json.RawMessage{}, denied: map[string]bool{}, uriByName: map[string]string{"logical": "mcp://catalog/catalog"}}
+	management := referenceConfig("console-management", "console-management", cfg.ResourceCacheUser)
+	management.PrimitiveNamespaces = restrictions
+	internal.set("", "console-management", management)
+	producerCatalog.set("alice", "logical", referenceConfig("catalog", "console-management", cfg.ResourceCacheUser))
+	mgr, err := manager.New(manager.NewRepoProvider(manager.WithRepoStateStore(fsstore.NewStateStore(t.TempDir()))), manager.WithClientFactory(func(_ context.Context, _, name string) (mcpclient.Interface, error) {
+		if name == "console-management" {
+			return referenceClient(t, producerCatalog)
+		}
+		return nil, fmt.Errorf("unselected producer %s", name)
+	}))
+	require.NoError(t, err)
+	require.NoError(t, mgr.RegisterLocal(context.Background(), "configuration", &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "configuration", ResourceCacheScopes: map[string]string{"workspace": cfg.ResourceCachePublic}}, func(context.Context) (mcpclient.Interface, error) { return referenceClient(t, internal) }))
+	gateway := NewGateway(mgr, actor, verify, "reader")
+	defer gateway.Close()
+	reader, err := NewMCPReferenceReader(gateway, MCPDefinitionSource{ConnectionName: "configuration", ProviderIdentity: "configuration", Namespace: "workspace"}, []identity.ResourceRef{{URI: "mcp://workspace/console-management"}})
+	require.NoError(t, err)
+	_, err = mgr.BindDefinitionReader(reader)
+	require.NoError(t, err)
+	alice := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	listed, err := reader.List(alice)
+	require.NoError(t, err)
+	require.NotContains(t, listed, "mcp://catalog/catalog", "restricted management source must not advertise the catalog")
+	_, err = reader.Load(alice, "mcp://catalog/catalog")
+	require.Error(t, err, "a restricted catalog cannot discover the producer's catalog alias")
+}
+
 func TestMCPReferenceReaderUsesExplicitRootsAndScopedNotifications(t *testing.T) {
 	actor, verify := PublicReadActors()
 	internal := &referenceCatalog{namespace: "workspace", owner: "configuration", kind: "mcp", rows: map[string]map[string]json.RawMessage{}, denied: map[string]bool{}}
@@ -121,9 +238,9 @@ func TestMCPReferenceReaderUsesExplicitRootsAndScopedNotifications(t *testing.T)
 	partial := &referenceCatalog{namespace: "partial", owner: "partial-owner", kind: "intent", rows: map[string]map[string]json.RawMessage{}, denied: map[string]bool{}}
 	// This definition exercises token-store alias identity, so authentication is
 	// explicit even though its authored catalog metadata is publicly cacheable.
-	steward := referenceConfig("sdk-client-name-not-service-alias", "", cfg.ResourceCachePublic)
-	steward.Auth = &mcp.ClientAuth{}
-	internal.set("", "steward", steward)
+	assistant := referenceConfig("sdk-client-name-not-service-alias", "", cfg.ResourceCachePublic)
+	assistant.Auth = &mcp.ClientAuth{}
+	internal.set("", "assistant", assistant)
 	internal.set("", "mcp_say_hello_auth", referenceConfig("legacy-client", "", cfg.ResourceCachePublic))
 	internal.set("", "alpha", referenceConfig("alpha", "alpha-owner", cfg.ResourceCacheUser))
 	internal.set("", "beta", referenceConfig("beta", "beta-owner", cfg.ResourceCacheConversation))
@@ -138,7 +255,7 @@ func TestMCPReferenceReaderUsesExplicitRootsAndScopedNotifications(t *testing.T)
 		calls[name]++
 		callsMu.Unlock()
 		switch name {
-		case "steward":
+		case "assistant":
 			return referenceClient(t, partial)
 		case "alpha":
 			return referenceClient(t, alpha)
@@ -174,38 +291,38 @@ func TestMCPReferenceReaderUsesExplicitRootsAndScopedNotifications(t *testing.T)
 	defer foreign.Close()
 	scoped, finish, err := foreign.BeginReadSequence(alice, nil)
 	require.NoError(t, err)
-	_, err = reader.Load(scoped, "steward")
+	_, err = reader.Load(scoped, "assistant")
 	require.NoError(t, err, "configuration reads do not borrow report actor or namespace memo")
-	_, err = mgr.Options(scoped, "steward")
+	_, err = mgr.Options(scoped, "assistant")
 	require.NoError(t, err)
 	require.Empty(t, ReadSelectionCount(scoped), "configuration contracts stay outside outer report read selection")
 	require.NoError(t, finish())
-	original, err := reader.Load(alice, "steward")
+	original, err := reader.Load(alice, "assistant")
 	require.NoError(t, err)
 	require.Equal(t, cfg.ToolsListVisibilityPublic, original.ToolsListVisibility)
 	_, err = reader.Load(alice, "mcp/say/hello/auth")
 	require.NoError(t, err)
 	catalogNames, err := mgr.CatalogNames(alice)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"configuration", "steward", "mcp_say_hello_auth", "alpha", "beta", "partial"}, catalogNames)
+	require.ElementsMatch(t, []string{"configuration", "assistant", "mcp_say_hello_auth", "alpha", "beta", "partial"}, catalogNames)
 	require.NotContains(t, catalogNames, "mcp://alpha/alice_only", "published tool backends are callable but not implicit catalog roots")
 	callsMu.Lock()
 	require.Empty(t, calls, "known internal aliases never enumerate external/unlinked MCPs")
 	callsMu.Unlock()
-	require.Equal(t, &cfg.ResolvedServiceIdentity{ServiceName: "steward", ResourceURI: "mcp://workspace/steward", ProviderIdentity: "configuration"}, original.ResolvedIdentity)
-	firstClient, err := mgr.Get(alice, "session", "steward")
+	require.Equal(t, &cfg.ResolvedServiceIdentity{ServiceName: "assistant", ResourceURI: "mcp://workspace/assistant", ProviderIdentity: "configuration"}, original.ResolvedIdentity)
+	firstClient, err := mgr.Get(alice, "session", "assistant")
 	require.NoError(t, err)
-	canonicalClient, err := mgr.Get(alice, "session", "mcp://workspace/steward")
+	canonicalClient, err := mgr.Get(alice, "session", "mcp://workspace/assistant")
 	require.NoError(t, err)
 	require.Same(t, firstClient, canonicalClient)
 	callsMu.Lock()
-	require.Equal(t, 1, calls["steward"])
+	require.Equal(t, 1, calls["assistant"])
 	callsMu.Unlock()
-	aliasOptions, err := mgr.Options(alice, "steward")
+	aliasOptions, err := mgr.Options(alice, "assistant")
 	require.NoError(t, err)
 	key := tokenstore.TokenKey{Issuer: "https://tokens.example", Scopes: "fixture"}
 	require.NoError(t, aliasOptions.Auth.Store.AddToken(key, &oauth2.Token{AccessToken: "fixture-only-token", Expiry: time.Now().Add(time.Minute)}))
-	canonicalOptions, err := mgr.Options(alice, "mcp://workspace/steward")
+	canonicalOptions, err := mgr.Options(alice, "mcp://workspace/assistant")
 	require.NoError(t, err)
 	token, found := canonicalOptions.Auth.Store.LookupToken(key)
 	require.True(t, found)
@@ -218,7 +335,7 @@ func TestMCPReferenceReaderUsesExplicitRootsAndScopedNotifications(t *testing.T)
 	require.NoError(t, endInventory())
 	names, err := reader.List(alice)
 	require.NoError(t, err)
-	require.Contains(t, names, "steward")
+	require.Contains(t, names, "assistant")
 	require.Contains(t, names, "mcp://alpha/alice_only")
 	require.Contains(t, names, "mcp://beta/beta_target")
 	require.NotContains(t, names, "bob_only")
@@ -274,13 +391,13 @@ func TestMCPReferenceReaderUsesExplicitRootsAndScopedNotifications(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, "updated-alice-client", fresh.Name)
 	memoAlice := manager.WithNamesMemo(alice)
-	firstOptions, err := mgr.Options(memoAlice, "steward")
+	firstOptions, err := mgr.Options(memoAlice, "assistant")
 	require.NoError(t, err)
 	internal.mu.Lock()
 	firstGets, firstLists := internal.gets, internal.lists
 	internal.mu.Unlock()
 	firstOptions.Name = "caller-mutation"
-	againOptions, err := mgr.Options(memoAlice, "steward")
+	againOptions, err := mgr.Options(memoAlice, "assistant")
 	require.NoError(t, err)
 	require.Equal(t, "sdk-client-name-not-service-alias", againOptions.Name)
 	internal.mu.Lock()
@@ -289,12 +406,12 @@ func TestMCPReferenceReaderUsesExplicitRootsAndScopedNotifications(t *testing.T)
 	internal.mu.Unlock()
 	_, err = mgr.Options(authctx.WithUserInfo(memoAlice, &authctx.UserInfo{Subject: "bob"}), "alice_only")
 	require.Error(t, err, "request-local definition reuse must not cross principals")
-	internal.set("", "steward", referenceConfig("updated-steward", "", cfg.ResourceCachePublic))
+	internal.set("", "assistant", referenceConfig("updated-assistant", "", cfg.ResourceCachePublic))
 	internal.changes.Publish(memoAlice)
-	changedOptions, err := mgr.Options(memoAlice, "steward")
+	changedOptions, err := mgr.Options(memoAlice, "assistant")
 	require.NoError(t, err)
-	require.Equal(t, "updated-steward", changedOptions.Name, "owner notification invalidates same-request definition reuse")
-	internal.set("", "steward", referenceConfig("sdk-client-name-not-service-alias", "", cfg.ResourceCachePublic))
+	require.Equal(t, "updated-assistant", changedOptions.Name, "owner notification invalidates same-request definition reuse")
+	internal.set("", "assistant", referenceConfig("sdk-client-name-not-service-alias", "", cfg.ResourceCachePublic))
 	internal.changes.Publish(memoAlice)
 	alpha.remove("alice", "new_alias")
 	alpha.changes.Publish(alice)

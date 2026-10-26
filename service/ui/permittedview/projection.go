@@ -117,7 +117,11 @@ func (r *Runtime) Project(ctx context.Context, window *types.Window, presentatio
 		}
 	}
 	if snapshot != nil && !contextualFacts {
-		snapshot = &Snapshot{AuthorizationVersion: snapshot.AuthorizationVersion, ExpiresAt: snapshot.ExpiresAt, Account: snapshot.Account, Principal: map[string]any{"roles": snapshot.Principal["roles"], "features": snapshot.Principal["features"], "exposures": snapshot.Principal["exposures"]}}
+		principal := map[string]any{"roles": snapshot.Principal["roles"], "features": snapshot.Principal["features"], "exposures": snapshot.Principal["exposures"]}
+		if subject, ok := snapshot.Principal["subject"].(string); ok {
+			principal["subject"] = subject
+		}
+		snapshot = &Snapshot{AuthorizationVersion: snapshot.AuthorizationVersion, ExpiresAt: snapshot.ExpiresAt, Account: snapshot.Account, Principal: principal}
 	}
 	scope := authorizationScope(snapshot, selectedResource)
 	for _, key := range []string{"view", "dialogs"} {

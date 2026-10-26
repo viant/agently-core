@@ -20,9 +20,11 @@ import (
 )
 
 const Name = "prompt"
+const PlaybookName = "playbook"
 
 // Service implements the prompt:list and prompt:get tools.
 type Service struct {
+	name   string
 	repo   *intakerepo.Repository
 	conv   apiconv.Client
 	finder agentmdl.Finder
@@ -31,12 +33,20 @@ type Service struct {
 }
 
 func New(repo *intakerepo.Repository, opts ...func(*Service)) *Service {
-	s := &Service{repo: repo}
+	s := &Service{name: Name, repo: repo}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(s)
 		}
 	}
+	return s
+}
+
+// NewPlaybook exposes the same admitted handlers under the preferred tool
+// namespace. prompt:list/get remain exact legacy aliases.
+func NewPlaybook(repo *intakerepo.Repository, opts ...func(*Service)) *Service {
+	s := New(repo, opts...)
+	s.name = PlaybookName
 	return s
 }
 
@@ -47,7 +57,12 @@ func WithAuthorizationPolicy(p *policy.Runtime) func(*Service) {
 	return func(s *Service) { s.policy = p }
 }
 
-func (s *Service) Name() string { return Name }
+func (s *Service) Name() string {
+	if s.name == "" {
+		return Name
+	}
+	return s.name
+}
 
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
@@ -258,7 +273,7 @@ func (s *Service) filterAuthorizedProfiles(ctx context.Context, profiles []*inte
 		return profiles, nil
 	}
 	candidates := make([]policy.Candidate, 0, len(profiles))
-	byID := make(map[string]*intent.Profile, len(profiles))
+	byID := make(map[string][]*intent.Profile, len(profiles))
 	for _, profile := range profiles {
 		if profile == nil {
 			continue
@@ -268,7 +283,7 @@ func (s *Service) filterAuthorizedProfiles(ctx context.Context, profiles []*inte
 			continue
 		}
 		candidates = append(candidates, policy.Candidate{ID: id, Kind: "promptProfile"})
-		byID[strings.ToLower(id)] = profile
+		byID[strings.ToLower(id)] = append(byID[strings.ToLower(id)], profile)
 	}
 	allowed, err := s.policy.Filter(ctx, policy.OperationIntentView,
 		runtimerequestctx.ConversationIDFromContext(ctx), candidates,
@@ -283,9 +298,15 @@ func (s *Service) filterAuthorizedProfiles(ctx context.Context, profiles []*inte
 		return nil, err
 	}
 	result := make([]*intent.Profile, 0, len(allowed))
+	seenAllowed := map[string]bool{}
 	for _, candidate := range allowed {
-		if profile := byID[strings.ToLower(strings.TrimSpace(candidate.ID))]; profile != nil {
-			result = append(result, profile)
+		key := strings.ToLower(strings.TrimSpace(candidate.ID))
+		if seenAllowed[key] {
+			continue
+		}
+		seenAllowed[key] = true
+		if items := byID[key]; len(items) > 0 {
+			result = append(result, items...)
 		}
 	}
 	return result, nil

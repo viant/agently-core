@@ -1,0 +1,231 @@
+{
+  "baseline": {
+    "ts": 1500,
+    "conversationId": "new-chat",
+    "selected": {
+      "windowId": "adopting-record-1",
+      "tabId": "adopting-record-1"
+    },
+    "focusedControl": null,
+    "windows": [
+      {
+        "windowId": "adopting-record-1",
+        "windowKey": "record",
+        "conversationId": "new-chat",
+        "presentation": null,
+        "region": null,
+        "workspaceSharePct": null,
+        "workspaceMinHeight": null,
+        "workspaceObject": null,
+        "navigation": null,
+        "navigationTrail": null,
+        "mcpUI": null,
+        "workspaceCollapsed": false,
+        "parameters": {
+          "RecordId": [
+            7
+          ]
+        },
+        "windowForm": {},
+        "viewState": {},
+        "inTab": true,
+        "isModal": false,
+        "isMinimized": false,
+        "zIndex": null,
+        "position": {
+          "x": null,
+          "y": null
+        },
+        "inlineMetadataExplicit": false,
+        "metadata": {
+          "loaded": false
+        },
+        "dialogs": [],
+        "dataSources": {},
+        "semanticContext": {
+          "version": 1,
+          "tabs": [],
+          "sources": [],
+          "dialogs": [],
+          "revision": 2101127885
+        },
+        "operationRevision": 1857006931
+      }
+    ]
+  },
+  "preserved": {
+    "ts": 1500,
+    "conversationId": "new-chat",
+    "selected": {
+      "windowId": "adopting-record-1",
+      "tabId": "adopting-record-1"
+    },
+    "focusedControl": null,
+    "windows": [
+      {
+        "windowId": "adopting-record-1",
+        "windowKey": "record",
+        "conversationId": "new-chat",
+        "presentation": null,
+        "region": null,
+        "workspaceSharePct": null,
+        "workspaceMinHeight": null,
+        "workspaceObject": null,
+        "navigation": null,
+        "navigationTrail": null,
+        "mcpUI": null,
+        "workspaceCollapsed": false,
+        "parameters": {
+          "RecordId": [
+            7
+          ]
+        },
+        "windowForm": {
+          "RecordId": [
+            7
+          ]
+        },
+        "viewState": {
+          "tabs": {
+            "primary": "properties"
+          }
+        },
+        "inTab": true,
+        "isModal": false,
+        "isMinimized": false,
+        "zIndex": null,
+        "position": {
+          "x": null,
+          "y": null
+        },
+        "inlineMetadataExplicit": false,
+        "metadata": {
+          "loaded": true,
+          "namespace": null,
+          "ns": [],
+          "dataSourceRefs": [
+            "record"
+          ],
+          "dialogs": [],
+          "view": {
+            "dataSourceRef": "record",
+            "contentType": null,
+            "contentId": "editor",
+            "tabs": [],
+            "controls": [
+              {
+                "id": "name",
+                "label": "name",
+                "type": "text",
+                "scope": "form",
+                "dataSourceRef": "record",
+                "bindingPath": null,
+                "dataField": "name"
+              }
+            ]
+          }
+        },
+        "dialogs": [],
+        "dataSources": {
+          "record": {
+            "dataSourceRef": "record",
+            "dataSourceId": "adopting-record-1DSrecord",
+            "identityFields": [
+              "id"
+            ],
+            "input": {
+              "fetch": false,
+              "refresh": false,
+              "filter": {
+                "status": "active"
+              },
+              "page": 3
+            },
+            "filter": {
+              "status": "active"
+            },
+            "control": {
+              "loading": false,
+              "error": null,
+              "inactive": false,
+              "loaded": true,
+              "stale": false,
+              "failedRequestSignature": null
+            },
+            "form": {
+              "id": 7,
+              "name": "local-draft",
+              "serverOnly": "baseline-2",
+              "nested": {
+                "editable": "nested-draft",
+                "serverOnly": "baseline-2"
+              }
+            },
+            "selection": {
+              "selected": {
+                "id": 7,
+                "name": "server-2",
+                "serverOnly": "baseline-2",
+                "nested": {
+                  "editable": "server-2",
+                  "serverOnly": "baseline-2"
+                }
+              },
+              "rowIndex": 0
+            },
+            "collection": [
+              {
+                "id": 7,
+                "name": "server-2",
+                "serverOnly": "baseline-2",
+                "nested": {
+                  "editable": "server-2",
+                  "serverOnly": "baseline-2"
+                }
+              }
+            ],
+            "collectionInfo": {},
+            "metrics": {},
+            "formStatus": {
+              "dirty": true,
+              "version": 2
+            }
+          }
+        },
+        "semanticContext": {
+          "version": 1,
+          "tabs": [
+            {
+              "containerId": "primary",
+              "tabId": "properties"
+            }
+          ],
+          "sources": [
+            {
+              "dataSourceRef": "record",
+              "selectedIds": [
+                7
+              ],
+              "selectedIdentities": [
+                {
+                  "id": 7
+                }
+              ],
+              "filters": {
+                "status": "active"
+              },
+              "page": 3,
+              "dirty": true,
+              "changedFields": [
+                "name"
+              ]
+            }
+          ],
+          "dialogs": [],
+          "revision": 3999710537
+        },
+        "operationRevision": 3237497445
+      }
+    ]
+  }
+}

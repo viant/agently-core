@@ -11,6 +11,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	auth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/planner"
+	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/agently-core/workspace"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 	"github.com/viant/forge/backend/types"
@@ -24,7 +25,7 @@ func TestDefaultHostDocumentsUseSameProviderAndTypedReaders(t *testing.T) {
 	old := workspace.Root()
 	workspace.SetRoot(root)
 	t.Cleanup(func() { workspace.SetRoot(old) })
-	files := map[string]string{"tools/bundles/basic.yaml": "id: basic\ndescription: Original bundle\nmatch: [{name: 'system/os:getEnv'}]\n", "tools/instructions/webdriver.md": "Original webdriver instructions.", "intake/root.tmpl": "Original sidecar\n$import(parts/detail.md)\n", "intake/parts/detail.md": "Imported original detail.", "agents/planner/planner.schema.json": "{\"type\":\"object\",\"properties\":{\"tasks\":{\"type\":\"array\"}}}", "agents/planner/planner.validation.json": "{\"rules\":[]}"}
+	files := map[string]string{"tools/bundles/basic.yaml": "id: basic\ndescription: Original bundle\nmatch: [{name: 'system/os:getEnv'}]\n", "tools/instructions/webdriver.md": "Original webdriver instructions.", "intake/root.tmpl": "Original sidecar\n$import(parts/detail.md)\n", "intake/parts/detail.md": "Imported original detail.", "agents/planner/planner.schema.json": "{\"type\":\"object\",\"properties\":{\"tasks\":{\"type\":\"array\"}}}", "agents/planner/planner.validation.json": "{\"rules\":[]}", "playbooks/review.md": "---\nkind: playbook\nid: review\n---\n---\nrole: system\n---\n# Instructions\nUse evidence.", "intents/scenarios/partial.user.md": "support fragment, not a playbook root"}
 	for name, raw := range files {
 		file := filepath.Join(root, filepath.FromSlash(name))
 		require.NoError(t, os.MkdirAll(filepath.Dir(file), 0700))
@@ -42,6 +43,16 @@ func TestDefaultHostDocumentsUseSameProviderAndTypedReaders(t *testing.T) {
 	require.NoError(t, builder.configurePrimitiveProviders(out))
 	require.Same(t, pointer, out.PrimitiveProviders)
 	require.Same(t, provider, out.LocalPrimitiveProvider)
+	playbooks, err := resources.NewPlaybookReader(out.PrimitiveProviders).LoadAll(context.Background())
+	require.NoError(t, err)
+	require.Len(t, playbooks, 1)
+	require.Equal(t, "playbook://workspace/review", playbooks[0].ResourceURI)
+	selected, err := resources.NewPlaybookReader(out.PrimitiveProviders).Load(context.Background(), "playbook://workspace/review")
+	require.NoError(t, err)
+	require.Equal(t, "# Instructions\nUse evidence.", selected.Messages[0].Text)
+	legacy, err := resources.NewIntentReader(out.PrimitiveProviders).LoadAll(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, legacy, "supporting Markdown fragments cannot become legacy intent roots")
 	reader := out.NativeHostDocuments
 	require.NotNil(t, reader)
 	bundles, err := reader.LoadAll(context.Background())

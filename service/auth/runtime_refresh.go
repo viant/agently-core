@@ -107,6 +107,12 @@ func (r *Runtime) resolveRuntimeOAuthTokenOwnerResolution(ctx context.Context, s
 }
 
 func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session) tokenAvailabilityResult {
+	return r.loadFreshTokenFromStore(ctx, sess, false)
+}
+
+// A CAS/lease winner may rotate credentials without extending their lifetime.
+// This narrow reload still performs all owned-provider, scope and identity checks.
+func (r *Runtime) loadFreshTokenFromStore(ctx context.Context, sess *Session, winnerReload bool) tokenAvailabilityResult {
 	if r == nil || r.ext == nil || r.ext.tokenStore == nil || sess == nil {
 		return preserveOAuthSession()
 	}
@@ -116,7 +122,13 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 	}
 	storeCtx, cancel := authStoreContext(ctx)
 	defer cancel()
-	dbTok, err := r.ext.tokenStore.Get(storeCtx, owner.id, provider)
+	var dbTok *OAuthToken
+	var err error
+	if winnerReload {
+		dbTok, err = exactRefreshToken(storeCtx, r.ext.tokenStore, owner.id, provider)
+	} else {
+		dbTok, err = r.ext.tokenStore.Get(storeCtx, owner.id, provider)
+	}
 	if err != nil {
 		authlog.Log(ctx, authlog.Event{
 			Op:             "store_get",
@@ -157,7 +169,7 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 		}
 		return preserveOAuthSession()
 	}
-	if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !dbTok.ExpiresAt.After(sess.Tokens.Expiry) && !oauthJWTExpired(sess.Tokens.IDToken, time.Now()) {
+	if !(winnerReload && changedStoredCredential(sess, dbTok)) && sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !dbTok.ExpiresAt.After(sess.Tokens.Expiry) && !oauthJWTExpired(sess.Tokens.IDToken, time.Now()) {
 		return preserveOAuthSession()
 	}
 	if err := validateStoredOAuthScopes(runtimeOAuthClient(r), sess.Scopes, dbTok); err != nil {
@@ -234,9 +246,12 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 		Source: refreshSource(ctx), Classification: "refresh", Action: "start",
 	})
 	tokenStore := r.ext.tokenStore
+	leaseOwner := refreshLeaseOwner()
+	var leaseVersion int64
+	var leasedToken *OAuthToken
 	if tokenStore != nil {
 		storeCtx, cancel := authStoreContext(ctx)
-		_, acquired, err := tokenStore.TryAcquireRefreshLease(storeCtx, owner.id, provider, runtimeWorkerID, 30*time.Second)
+		version, acquired, err := tokenStore.TryAcquireRefreshLease(storeCtx, owner.id, provider, leaseOwner, 30*time.Second)
 		cancel()
 		if err != nil {
 			authlog.Log(ctx, authlog.Event{
@@ -257,7 +272,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 		defer func() {
 			releaseCtx, releaseCancel := authStoreContext(ctx)
 			defer releaseCancel()
-			if err := tokenStore.ReleaseRefreshLease(releaseCtx, owner.id, provider, runtimeWorkerID); err != nil {
+			if err := tokenStore.ReleaseRefreshLease(releaseCtx, owner.id, provider, leaseOwner); err != nil {
 				authlog.Log(ctx, authlog.Event{
 					Op:             "lease_release",
 					UserID:         owner.id,
@@ -267,7 +282,25 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 				})
 			}
 		}()
+		leaseVersion = version
+		storeCtx, reloadCancel := authStoreContext(ctx)
+		latest, reloadErr := exactRefreshToken(storeCtx, tokenStore, owner.id, provider)
+		reloadCancel()
+		if reloadErr != nil {
+			return preserveOAuthSession()
+		}
+		if latest == nil || strings.TrimSpace(latest.RefreshToken) == "" {
+			return preserveOAuthSession()
+		}
+		leasedToken = latest
+		if changedStoredCredential(sess, latest) && usableOAuthToken(oauthTokenToSessionToken(latest), time.Now()) {
+			return r.recoverRefreshWinner(ctx, sess)
+		}
+		if latest.RefreshToken != sess.Tokens.RefreshToken {
+			sess.Tokens = oauthTokenToSessionToken(latest)
+		}
 	}
+	attemptedRefresh := sess.Tokens.RefreshToken
 
 	oauthCfg, err := loadOAuthClientConfig(ctx, r.ext.cfg.OAuth.Client.ConfigURL)
 	if err != nil || oauthCfg == nil {
@@ -301,8 +334,7 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 				Action:         "clear",
 				Elapsed:        time.Since(refreshStarted),
 			})
-			r.invalidateSessionTokens(ctx, sess, owner.id, provider)
-			return confirmedMissingOAuthToken()
+			return r.invalidateOwnedRefresh(ctx, sess, owner.id, provider, attemptedRefresh, leaseVersion, leaseOwner)
 		}
 		authlog.Log(ctx, authlog.Event{
 			Op:             "refresh_action",
@@ -382,15 +414,14 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 		if responseScopes, present := oauthResponseScopes(refreshed); present {
 			candidate.Scopes = append([]string(nil), responseScopes...)
 		}
-		// Preserve stored credential metadata across the refresh write — but
-		// only from the exact same provider row. Get may legacy-fall-back to a
-		// different provider, and delegated (mcp:v1) metadata must never be
-		// copied into a workspace token.
-		if prior, pErr := tokenStore.Get(storeCtx, owner.id, provider); pErr == nil && mergeableRefreshPrior(prior, provider) {
-			candidate.MergeMetadataFrom(prior)
+		if mergeableRefreshPrior(leasedToken, provider) {
+			candidate.MergeMetadataFrom(leasedToken)
 		}
-		err := tokenStore.Put(storeCtx, candidate)
+		swapped, err := tokenStore.CASPut(storeCtx, candidate, leaseVersion, leaseOwner)
 		cancel()
+		if err == nil && !swapped {
+			return r.recoverRefreshWinner(ctx, sess)
+		}
 		if err != nil {
 			authlog.Log(ctx, authlog.Event{
 				Op:             "store_put_candidate",
@@ -411,6 +442,9 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 			Source: refreshSource(ctx), RefreshRotated: fmt.Sprint(rotated),
 			Classification: "persistence", Action: "stored",
 		})
+	}
+	if !sameRefreshCredential(sess, attemptedRefresh) {
+		return r.recoverRefreshWinner(ctx, sess)
 	}
 	sess.Tokens = result
 	if len(sess.Scopes) == 0 {

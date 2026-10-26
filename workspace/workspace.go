@@ -54,6 +54,7 @@ const (
 	KindToolBundle       = "tools/bundles"
 	KindToolInstructions = "tools/instructions"
 	KindTemplate         = "templates"
+	KindPlaybook         = "playbooks"
 	KindIntent           = "intents"
 	KindPrompt           = "prompts" // Legacy intake profile directory.
 	KindTemplateBundle   = "templates/bundles"
@@ -78,7 +79,7 @@ const (
 func AllKinds() []string {
 	return []string{
 		KindAgent, KindModel, KindEmbedder, KindMCP, KindWorkflow, KindSkill,
-		KindTool, KindToolBundle, KindToolInstructions, KindIntent, KindPrompt, KindTemplate, KindTemplateBundle, KindOAuth, KindOAuthProvider, KindFeeds, KindA2A, KindCallback,
+		KindTool, KindToolBundle, KindToolInstructions, KindPlaybook, KindIntent, KindPrompt, KindTemplate, KindTemplateBundle, KindOAuth, KindOAuthProvider, KindFeeds, KindA2A, KindCallback,
 		KindForgeDataSource, KindForgeDialog, KindForgeLookup, KindForgeModel, KindForgeWindow,
 	}
 }
