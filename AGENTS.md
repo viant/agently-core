@@ -14,3 +14,5 @@ Before changing UI or its theme contract, read [the canonical usage guide](proto
 Reuse the documented shared components and semantic roles. Extend the owning
 shared component with its usage example, states and existing checks when a
 reusable capability is missing. Record remaining legacy scope in the change.
+
+- Producer-specific schemas, tool names, business rules, and report gates must remain in data producers. Renaming domain fields does not make business-specific behavior a framework responsibility. Generic MCP payloads must remain opaque to the execution framework.

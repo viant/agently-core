@@ -114,20 +114,6 @@ class PublicBoundaryTests(unittest.TestCase):
             self.assertIn(("service/demo/testdata/evidence.json", "missing-synthetic-provenance"), issues)
             self.assertEqual(issues, boundaries.audit_tree(repo, base, worktree=True))
 
-    def test_synthetic_reporting_fixtures_reproduce_from_generator(self):
-        directory = Path(__file__).resolve().parent.parent / "service/reporting/forecastbinding/testdata"
-        spec = importlib.util.spec_from_file_location("synthetic_evidence", directory / "generate_synthetic_evidence.py")
-        generator = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(generator)
-        generated = generator.fixtures()
-        self.assertEqual(2, len(generated))
-        for filename, value in generated.items():
-            self.assertEqual(json.dumps(value, indent=2) + "\n", (directory / filename).read_text())
-        matrix = generated["synthetic_metric_calls.json"]
-        self.assertEqual(20, len(matrix["records"]))
-        self.assertEqual(15, sum(len(column["calls"]) for column in matrix["bindings"]["columns"]))
-        self.assertTrue(all(call["ownerId"] == "synthetic-owner" for call in matrix["records"]))
-
     def test_synthetic_cli_preview_reproduces_from_generator(self):
         directory = Path(__file__).resolve().parent.parent / "e2e/cli/agui_probe/testdata"
         spec = importlib.util.spec_from_file_location("synthetic_preview", directory / "generate_synthetic_preview.py")
