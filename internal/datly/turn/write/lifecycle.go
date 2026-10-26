@@ -35,6 +35,10 @@ func (hooks *Lifecycle) Init(ctx context.Context, entity *Turn, state xhandler.L
 	if state.Previous == nil {
 		now := time.Now()
 		entity.SetCreatedAt(&now)
+		if entity.FeedbackRating == nil {
+			rating := 0
+			entity.SetFeedbackRating(&rating)
+		}
 	}
 	return nil
 }

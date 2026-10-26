@@ -1378,3 +1378,32 @@ func (c *HTTPClient) doJSON(ctx context.Context, method, path string, in interfa
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
+
+// SetTurnFeedback replaces a turn's rating and optional comment.
+func (c *HTTPClient) SetTurnFeedback(ctx context.Context, input *SetTurnFeedbackInput) (*TurnFeedback, error) {
+	if err := validateTurnFeedback(input); err != nil {
+		return nil, err
+	}
+	return c.doTurnFeedback(ctx, http.MethodPut, input.ConversationID, input.TurnID, input)
+}
+
+func (c *HTTPClient) ClearTurnFeedback(ctx context.Context, conversationID, turnID string) (*TurnFeedback, error) {
+	return c.doTurnFeedback(ctx, http.MethodDelete, conversationID, turnID, nil)
+}
+
+func (c *HTTPClient) doTurnFeedback(ctx context.Context, method, conversationID, turnID string, input *SetTurnFeedbackInput) (*TurnFeedback, error) {
+	conversationID, turnID = strings.TrimSpace(conversationID), strings.TrimSpace(turnID)
+	if conversationID == "" || turnID == "" {
+		return nil, errors.New("conversation ID and turn ID are required")
+	}
+	path := strings.TrimRight(c.conversationsPath, "/") + "/" + url.PathEscape(conversationID) + "/turns/" + url.PathEscape(turnID) + "/feedback"
+	var body any
+	if input != nil {
+		body = input
+	}
+	var out TurnFeedback
+	if err := c.doJSON(ctx, method, path, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

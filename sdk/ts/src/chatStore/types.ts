@@ -16,7 +16,7 @@
  * Canonical client state).
  */
 
-import type { JSONObject, JSONValue, ModelUsageState, PlannedToolCall } from '../types';
+import type { TurnFeedback, JSONObject, JSONValue, ModelUsageState, PlannedToolCall } from '../types';
 
 // ─── Provenance ────────────────────────────────────────────────────────────────
 
@@ -281,6 +281,8 @@ export interface ClientPlannerState extends EntityIdentity {
 // ─── Turn ──────────────────────────────────────────────────────────────────────
 
 export interface ClientTurnState extends EntityIdentity {
+    feedback?: TurnFeedback;
+    feedbackEditable?: boolean;
     operationalNarration?: string;
     /** Backend turnId; '' during pending-bootstrap (§4.1). */
     turnId: string;
@@ -381,6 +383,8 @@ export type CanonicalTurnStatus =
     | 'canceled';
 
 export interface CanonicalTurnState extends HostTrust {
+    feedback?: TurnFeedback;
+    feedbackEditable?: boolean;
     turnId: string;
     status: CanonicalTurnStatus;
     errorMessage?: string;

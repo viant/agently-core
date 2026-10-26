@@ -385,6 +385,9 @@ func TestService_Ensure_UpgradesLegacyTurnSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create legacy turn: %v", err)
 	}
+	if _, err := db.Exec("INSERT INTO turn(id,conversation_id,status) VALUES('old-turn','old-conversation','succeeded')"); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Close(); err != nil {
 		t.Fatalf("close legacy db: %v", err)
 	}
@@ -400,7 +403,7 @@ func TestService_Ensure_UpgradesLegacyTurnSchema(t *testing.T) {
 	}
 	defer upgraded.Close()
 
-	for _, column := range []string{"origin", "goal_id", "status_reason"} {
+	for _, column := range []string{"origin", "goal_id", "status_reason", "feedback_rating", "feedback_comment", "feedback_updated_at"} {
 		ok, err := sqliteColumnExists(context.Background(), upgraded, "turn", column)
 		if err != nil {
 			t.Fatalf("sqliteColumnExists(turn.%s) error = %v", column, err)
@@ -409,6 +412,18 @@ func TestService_Ensure_UpgradesLegacyTurnSchema(t *testing.T) {
 			t.Fatalf("expected turn.%s column to exist after Ensure()", column)
 		}
 	}
+	if _, err := svc.Ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var rating int
+	var comment, updated sql.NullString
+	if err := upgraded.QueryRow("SELECT feedback_rating,feedback_comment,feedback_updated_at FROM turn WHERE id='old-turn'").Scan(&rating, &comment, &updated); err != nil {
+		t.Fatal(err)
+	}
+	if rating != 0 || comment.Valid || updated.Valid {
+		t.Fatalf("unexpected legacy feedback: %d %v %v", rating, comment, updated)
+	}
+
 }
 
 func TestService_Ensure_UpgradesLegacyScheduleSchema(t *testing.T) {

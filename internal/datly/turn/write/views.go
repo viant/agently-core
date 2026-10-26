@@ -17,6 +17,9 @@ type Turn struct {
 	Origin                *string    `sqlx:"origin" json:"origin,omitempty"`
 	GoalId                *string    `sqlx:"goal_id" json:"goalId,omitempty"`
 	StatusReason          *string    `sqlx:"status_reason" json:"statusReason,omitempty"`
+	FeedbackRating        *int       `sqlx:"feedback_rating,required=true" json:"feedbackRating,omitempty"`
+	FeedbackComment       *string    `sqlx:"feedback_comment" json:"feedbackComment,omitempty"`
+	FeedbackUpdatedAt     *time.Time `sqlx:"feedback_updated_at" json:"feedbackUpdatedAt,omitempty"`
 	ErrorMessage          *string    `sqlx:"error_message" json:"errorMessage,omitempty"`
 	StartedByMessageId    *string    `sqlx:"started_by_message_id" json:"startedByMessageId,omitempty"`
 	RetryOf               *string    `sqlx:"retry_of" json:"retryOf,omitempty"`
@@ -39,6 +42,9 @@ type TurnHas struct {
 	Origin                bool
 	GoalId                bool
 	StatusReason          bool
+	FeedbackRating        bool
+	FeedbackComment       bool
+	FeedbackUpdatedAt     bool
 	ErrorMessage          bool
 	StartedByMessageId    bool
 	RetryOf               bool
@@ -60,6 +66,9 @@ type CurrentWriterView struct {
 	Origin                *string    `sqlx:"origin" json:"origin,omitempty"`
 	GoalId                *string    `sqlx:"goal_id" json:"goalId,omitempty"`
 	StatusReason          *string    `sqlx:"status_reason" json:"statusReason,omitempty"`
+	FeedbackRating        *int       `sqlx:"feedback_rating,required=true" json:"feedbackRating,omitempty"`
+	FeedbackComment       *string    `sqlx:"feedback_comment" json:"feedbackComment,omitempty"`
+	FeedbackUpdatedAt     *time.Time `sqlx:"feedback_updated_at" json:"feedbackUpdatedAt,omitempty"`
 	ErrorMessage          *string    `sqlx:"error_message" json:"errorMessage,omitempty"`
 	StartedByMessageId    *string    `sqlx:"started_by_message_id" json:"startedByMessageId,omitempty"`
 	RetryOf               *string    `sqlx:"retry_of" json:"retryOf,omitempty"`
