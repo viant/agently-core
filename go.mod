@@ -28,27 +28,27 @@ require (
 	github.com/sourcegraph/go-diff v0.7.0
 	github.com/stretchr/testify v1.12.1
 	github.com/tdewolff/parse/v2 v2.8.16
-	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
+	github.com/viant/afs v1.30.1
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core/protocol/primitive v0.0.0-20261015021722-e84334ca688f
-	github.com/viant/agently-core/protocol/resource v0.0.0-20261015021722-e84334ca688f
-	github.com/viant/agently-core/protocol/window v0.0.0-20261015021722-e84334ca688f
-	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e
+	github.com/viant/agently-core/protocol/primitive v0.1.0
+	github.com/viant/agently-core/protocol/resource v0.1.0
+	github.com/viant/agently-core/protocol/window v0.1.0
+	github.com/viant/bindly v0.4.1
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
-	github.com/viant/embedius v0.5.7-0.20261026203205-910777b05175
-	github.com/viant/forge v0.3.45-0.20261026183523-5a14d008dc68
+	github.com/viant/embedius v0.5.7
+	github.com/viant/forge v0.3.45
 	github.com/viant/gds v0.6.0
-	github.com/viant/gosh v0.3.1-0.20261007222529-b829eaaf687b
-	github.com/viant/jsonrpc v0.25.1-0.20261026172601-4b8c890b957f
-	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.24.1-0.20261019131854-bc54c4ac748a
-	github.com/viant/mcp-protocol v0.19.1-0.20261014173008-af92f34f304b
-	github.com/viant/mcp-tasks v0.0.0-20261008153829-762637b5ea3a
-	github.com/viant/mcp-ui v0.2.1-0.20261011073152-8f30de0c7bc3
+	github.com/viant/gosh v0.3.1
+	github.com/viant/jsonrpc v0.25.1
+	github.com/viant/linager v0.1.0
+	github.com/viant/mcp v0.24.1
+	github.com/viant/mcp-protocol v0.19.1
+	github.com/viant/mcp-tasks v0.1.0
+	github.com/viant/mcp-ui v0.2.1
 	github.com/viant/parsly v0.3.3
-	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
+	github.com/viant/scy v0.35.1
 	github.com/viant/toolbox v0.39.0
-	github.com/viant/velty v0.4.1-0.20260915052314-fca47c0595f8
+	github.com/viant/velty v0.4.1
 	github.com/viant/xdatly v1.0.1-0.20261015075741-94be032b69bb
 	github.com/xeipuuv/gojsonschema v1.2.0
 	github.com/xuri/excelize/v2 v2.11.0
@@ -150,22 +150,22 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
-	github.com/viant/authz v0.0.0-20261022171511-cc9325165338
+	github.com/viant/authz v0.1.1
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
-	github.com/viant/govalidator v0.3.4-0.20260913213120-027a9dd54d73 // indirect
+	github.com/viant/govalidator v0.3.4 // indirect
 	github.com/viant/igo v0.2.0 // indirect
-	github.com/viant/sqlite-vec v0.3.1-0.20261026203134-2a65d6adc1e1 // indirect
-	github.com/viant/sqlparser v0.13.1-0.20261012001419-edea4bd5d9c1 // indirect
-	github.com/viant/sqlx v0.26.1-0.20261014054800-54a7a6e2e31d
-	github.com/viant/structology v0.10.1-0.20261015025741-5750986d416b
-	github.com/viant/structql v0.5.5-0.20261012183420-6a47e96ff5b5 // indirect
-	github.com/viant/tagly v0.4.1-0.20261007173811-969600917520 // indirect
-	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
-	github.com/viant/x v0.5.1-0.20261011035805-d5b69cd4d43c
+	github.com/viant/sqlite-vec v0.3.1 // indirect
+	github.com/viant/sqlparser v0.13.1 // indirect
+	github.com/viant/sqlx v0.26.1
+	github.com/viant/structology v0.10.1
+	github.com/viant/structql v0.5.5 // indirect
+	github.com/viant/tagly v0.4.1 // indirect
+	github.com/viant/vec v0.2.4 // indirect
+	github.com/viant/x v0.5.1
 	github.com/viant/xlsy v0.3.1 // indirect
-	github.com/viant/xmlify v0.1.2-0.20260914155716-e525a8788fd0 // indirect
-	github.com/viant/xreflect v0.7.5-0.20260314170600-13f09f37d46e // indirect
+	github.com/viant/xmlify v0.2.0 // indirect
+	github.com/viant/xreflect v0.7.5 // indirect
 	github.com/viant/xunsafe v0.11.0 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
