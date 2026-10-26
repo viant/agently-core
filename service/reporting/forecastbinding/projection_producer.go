@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// ProjectionPolicyProducer is a synthetic test adapter for the documented
-// report evidence envelope. Production hosts provide their own PolicyProducer.
+// ProjectionPolicyProducer validates the generic report evidence envelope
+// emitted by a host-configured producer.
 type ProjectionPolicyProducer struct{}
 
 func (ProjectionPolicyProducer) Produce(_ context.Context, a Admission, s PlanSources) (*ProducedPolicy, error) {
