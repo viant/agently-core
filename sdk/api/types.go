@@ -257,8 +257,9 @@ type WorkspaceAssetDescriptor struct {
 }
 
 type WorkspaceComposer struct {
-	AllowAgentSelection bool `json:"allowAgentSelection"`
-	AllowModelSelection bool `json:"allowModelSelection"`
+	Placeholder         string `json:"placeholder,omitempty"`
+	AllowAgentSelection bool   `json:"allowAgentSelection"`
+	AllowModelSelection bool   `json:"allowModelSelection"`
 }
 
 type WorkspaceMetadata struct {
