@@ -9,6 +9,7 @@ import (
 
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
+	authctx "github.com/viant/agently-core/internal/auth"
 	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/agent/execution"
 	"github.com/viant/agently-core/protocol/primitive/observe"
@@ -142,6 +143,11 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 		includePayloads = *optState.includeModelPayloads
 	}
 	state := buildCanonicalState(input.ConversationID, turns, includePayloads)
+	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
+	owner := userID != "" && conv.CreatedByUserId != nil && strings.TrimSpace(*conv.CreatedByUserId) == userID
+	for _, turn := range state.Turns {
+		turn.FeedbackEditable = owner && turnFeedbackEligible(turn)
+	}
 	projectionTiming.End(observe.OK, observe.CacheUnknown)
 	queueTiming := observe.Start(ctx, "history.transcript.queue", observe.Labels{})
 	err = c.populateCanonicalQueueSequences(ctx, state)

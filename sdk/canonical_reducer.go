@@ -130,6 +130,7 @@ func reduceTurnStarted(state *ConversationState, event *streaming.Event) *Conver
 		}
 	}
 	turn := &TurnState{
+		Feedback:  &TurnFeedback{},
 		TurnID:    turnID,
 		Status:    TurnStatusRunning,
 		CreatedAt: event.CreatedAt,
@@ -177,6 +178,7 @@ func reduceTurnQueued(state *ConversationState, event *streaming.Event) *Convers
 		}
 	}
 	turn := &TurnState{
+		Feedback:     &TurnFeedback{},
 		TurnID:       turnID,
 		Status:       TurnStatusQueued,
 		CreatedAt:    event.CreatedAt,

@@ -396,6 +396,153 @@ func (index WriterHandlerCurrentWriterGroupedByStatusReason) Has(key string) boo
 	_, ok := index[key]
 	return ok
 }
+func WriterHandlerCurrentWriterIndexByFeedbackRatingKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	if value.FeedbackRating == nil {
+		return zero, false
+	}
+	return *value.FeedbackRating, true
+}
+
+type WriterHandlerCurrentWriterIndexedByFeedbackRating map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByFeedbackRating() (WriterHandlerCurrentWriterIndexedByFeedbackRating, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByFeedbackRating)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByFeedbackRatingKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByFeedbackRating")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByFeedbackRating) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByFeedbackRating map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByFeedbackRating() WriterHandlerCurrentWriterGroupedByFeedbackRating {
+	result := make(WriterHandlerCurrentWriterGroupedByFeedbackRating)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByFeedbackRatingKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByFeedbackRating) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByFeedbackCommentKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.FeedbackComment == nil {
+		return zero, false
+	}
+	return *value.FeedbackComment, true
+}
+
+type WriterHandlerCurrentWriterIndexedByFeedbackComment map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByFeedbackComment() (WriterHandlerCurrentWriterIndexedByFeedbackComment, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByFeedbackComment)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByFeedbackCommentKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByFeedbackComment")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByFeedbackComment) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByFeedbackComment map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByFeedbackComment() WriterHandlerCurrentWriterGroupedByFeedbackComment {
+	result := make(WriterHandlerCurrentWriterGroupedByFeedbackComment)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByFeedbackCommentKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByFeedbackComment) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByFeedbackUpdatedAtKey(value *CurrentWriterView) (time.Time, bool) {
+	var zero time.Time
+	if value == nil {
+		return zero, false
+	}
+	if value.FeedbackUpdatedAt == nil {
+		return zero, false
+	}
+	return *value.FeedbackUpdatedAt, true
+}
+
+type WriterHandlerCurrentWriterIndexedByFeedbackUpdatedAt map[time.Time]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByFeedbackUpdatedAt() (WriterHandlerCurrentWriterIndexedByFeedbackUpdatedAt, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByFeedbackUpdatedAt)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByFeedbackUpdatedAtKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByFeedbackUpdatedAt")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByFeedbackUpdatedAt) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByFeedbackUpdatedAt map[time.Time][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByFeedbackUpdatedAt() WriterHandlerCurrentWriterGroupedByFeedbackUpdatedAt {
+	result := make(WriterHandlerCurrentWriterGroupedByFeedbackUpdatedAt)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByFeedbackUpdatedAtKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByFeedbackUpdatedAt) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
 func WriterHandlerCurrentWriterIndexByErrorMessageKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -929,6 +1076,15 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("StatusReason") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.StatusReason")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("FeedbackRating") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.FeedbackRating")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("FeedbackComment") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.FeedbackComment")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("FeedbackUpdatedAt") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.FeedbackUpdatedAt")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ErrorMessage") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ErrorMessage")

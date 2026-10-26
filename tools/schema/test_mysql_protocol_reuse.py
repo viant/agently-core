@@ -41,7 +41,8 @@ INSERT INTO call_payload(id,kind,mime_type,size_bytes,storage,inline_body) VALUE
 """)
         query(full)
         query(full)
-        assert query(f"SELECT version_number FROM `{name}`.schema_version;") == "41"
+        assert query(f"SELECT version_number FROM `{name}`.schema_version;") == "44"
+        assert query(f"SELECT feedback_rating,feedback_comment,feedback_updated_at FROM `{name}`.turn WHERE id='turn';") == "0\tNULL\tNULL"
         assert query(f"SELECT title,protocol_only FROM `{name}`.conversation WHERE id='keep';") == "Original\t0"
         assert query(f"SELECT status,run_kind,checkpoint_data FROM `{name}`.run WHERE id='execution';") == "completed\texecution\tcheckpoint"
         assert query(f"SELECT kind,inline_body FROM `{name}`.call_payload WHERE id='payload';") == "tool_response\t{}"

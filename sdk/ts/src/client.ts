@@ -18,7 +18,7 @@ import type {
     UpdateConversationInput, Goal, GoalEnvelope, CreateGoalInput, UpdateGoalInput,
     ListAsyncOperationsOutput,
     Message, MessagePage, GetMessagesInput,
-    Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
+    TurnFeedback, SetTurnFeedbackInput, Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
     QueryInput, QueryOutput,
     SteerTurnInput, SteerTurnOutput, MoveQueuedTurnInput, EditQueuedTurnInput,
     SSEEvent, StreamEventsInput,
@@ -457,6 +457,16 @@ export class AgentlyClient {
     }
 
     // ── Turns ────────────────────────────────────────────────────────────────
+
+    /** Replace the owner's optional feedback on a completed final answer. */
+    async setTurnFeedback(conversationId: string, turnId: string, input: SetTurnFeedbackInput): Promise<TurnFeedback> {
+        return this.put<TurnFeedback>(`/conversations/${enc(conversationId)}/turns/${enc(turnId)}/feedback`, input);
+    }
+
+    /** Clear both the rating and comment; repeated calls are idempotent. */
+    async clearTurnFeedback(conversationId: string, turnId: string): Promise<TurnFeedback> {
+        return this.request<TurnFeedback>('DELETE', `${this.baseURL}/conversations/${enc(conversationId)}/turns/${enc(turnId)}/feedback`);
+    }
 
     /** Cancel a running turn. Returns true if a running turn was found. */
     async cancelTurn(turnId: string): Promise<boolean> {

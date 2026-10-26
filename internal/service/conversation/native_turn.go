@@ -32,6 +32,15 @@ func (s *Service) patchTurnNative(ctx context.Context, turn *convcli.MutableTurn
 		if h.GoalID {
 			row.SetGoalId(turn.GoalID)
 		}
+		if h.FeedbackRating {
+			row.SetFeedbackRating(turn.FeedbackRating)
+		}
+		if h.FeedbackComment {
+			row.SetFeedbackComment(turn.FeedbackComment)
+		}
+		if h.FeedbackUpdatedAt {
+			row.SetFeedbackUpdatedAt(turn.FeedbackUpdatedAt)
+		}
 		if h.StatusReason {
 			row.SetStatusReason(turn.StatusReason)
 		}

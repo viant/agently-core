@@ -76,6 +76,11 @@ type Client interface {
 	// ForceSteerQueuedTurn cancels queued turn and injects its message into active turn.
 	ForceSteerQueuedTurn(ctx context.Context, conversationID, turnID string) (*SteerTurnOutput, error)
 
+	// SetTurnFeedback replaces the owner assessment of a completed final answer.
+	SetTurnFeedback(ctx context.Context, input *SetTurnFeedbackInput) (*TurnFeedback, error)
+	// ClearTurnFeedback removes the assessment and its comment.
+	ClearTurnFeedback(ctx context.Context, conversationID, turnID string) (*TurnFeedback, error)
+
 	// ResolveElicitation delivers the user response for an elicitation prompt.
 	ResolveElicitation(ctx context.Context, input *ResolveElicitationInput) error
 	// ListPendingElicitations returns unresolved elicitation prompts for a conversation.
