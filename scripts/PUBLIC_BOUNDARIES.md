@@ -9,12 +9,17 @@ Before publishing, stage the intended files and run:
 
 ```sh
 python3 -m unittest discover -s scripts -p 'test_public_boundaries.py'
+python3 scripts/check_public_boundaries.py --base <reviewed-clean-ancestor> --worktree
 python3 scripts/check_public_boundaries.py --base <reviewed-clean-ancestor>
 python3 scripts/check_public_boundaries.py --base <reviewed-clean-ancestor> --head HEAD
 ```
 
-The second command checks the index. The third checks every outgoing commit and
-its message, including intermediate trees that a later deletion cannot clean.
+The worktree option checks current source before staging. The default checks the
+index. The head option checks every outgoing commit and its message, including
+intermediate trees that a later deletion cannot clean. Every selected tree's text
+is inspected, including unchanged baseline comments, documentation, and tests.
+Persisted JSON request/response evidence also requires synthetic provenance when
+it is unchanged relative to the clean ancestor.
 Ignored output paths are also rejected if force-added. New or changed standalone
 JSON test fixtures and JSON examples require a reviewed SHA-256 attestation of independently
 constructed synthetic provenance in `service/agent/testdata/synthetic-fixtures.json`.
@@ -26,3 +31,9 @@ It supplements manual review of the complete outgoing diff and history; it canno
 identify every possible business record or private identifier. Rewriting a public
 branch does not erase hosting caches, pull request refs, clones, or forks; exposed
 history may also require repository-maintainer and hosting-support cleanup.
+
+Security tests may need credential-shaped negative inputs. These require an exact
+reviewed source checksum with purpose `security-negative-example` in the same
+provenance manifest. That narrow attestation allows synthetic URL userinfo in the
+specified Go test only; private checkout and private deployment host checks still
+apply. Any source edit invalidates the attestation and requires review.

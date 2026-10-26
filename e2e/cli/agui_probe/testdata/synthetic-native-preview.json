@@ -1,0 +1,8 @@
+{
+  "messages": [
+    {
+      "role": "tool",
+      "content": "{\"body\":\"demo\",\"messageId\":\"synthetic-message\",\"returned\":4,\"remaining\":12,\"continuationHint\":\"use message-show for the next byte range\",\"continuation\":{\"hasMore\":true,\"returned\":4,\"remaining\":12,\"nextRange\":{\"bytes\":{\"offset\":4,\"length\":4}}},\"nextArgs\":{\"messageId\":\"synthetic-message\",\"byteRange\":{\"from\":4,\"to\":8}}}"
+    }
+  ]
+}

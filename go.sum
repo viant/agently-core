@@ -1314,6 +1314,8 @@ github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4 h1:WeqhWszieY6EVdafw
 github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4/go.mod h1:9IG1rf1J7ShSJnwGhXxSyyNkVy7f7h7E/PacSAHEz6I=
 github.com/viant/embedius v0.5.6 h1:CLpwc/tztpQArGyea5D+xiYSlHjwTv01ytUJRfs1k1k=
 github.com/viant/embedius v0.5.6/go.mod h1:klyTcRglmMvW/EzFCS4S3RmgCDwaXqC9FWu7RZOtBkc=
+github.com/viant/embedius v0.5.7-0.20261026203205-910777b05175 h1:nKByJ9Y3YtNfXi4j7wQwJQAks5b9bA7dyvwQx9ijR6g=
+github.com/viant/embedius v0.5.7-0.20261026203205-910777b05175/go.mod h1:xl+kkyKs8COdxz9L/Lz0SzDyU0Z+S0i4Ew6i+2/+uiw=
 github.com/viant/forge v0.3.45-0.20261006144249-3feb061490cf h1:rydAR1bhraVhCB/Y5LFVcmEVStbg9pgQPzG7z9zQ7Uc=
 github.com/viant/forge v0.3.45-0.20261006144249-3feb061490cf/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
 github.com/viant/forge v0.3.45-0.20261009005350-a9ed9fff26ed h1:lDiss8BJGgfNo87KNOcCAl8AAaGAoRy/0fzuakxPoEY=
@@ -1488,6 +1490,8 @@ github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726 h1:vXZewpcbOqVvj1yNxw
 github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726/go.mod h1:g0VcBa8khWhEZcqdIucss4irMGL+qpbRMnjr5IvB7Bw=
 github.com/viant/sqlite-vec v0.3.0 h1:D0wCrkJ0KsO3sanmHV/m+58UwCZMFxU0wcK8LsYk00o=
 github.com/viant/sqlite-vec v0.3.0/go.mod h1:SA89LGdU/cxpc/gsvat2MYtJYrv3bg9mtW/uHMs2nBs=
+github.com/viant/sqlite-vec v0.3.1-0.20261026203134-2a65d6adc1e1 h1:Bu33XvvYzSf/CiMIlqMDISH6Ua51zYjhoanNM2z2A+U=
+github.com/viant/sqlite-vec v0.3.1-0.20261026203134-2a65d6adc1e1/go.mod h1:SA89LGdU/cxpc/gsvat2MYtJYrv3bg9mtW/uHMs2nBs=
 github.com/viant/sqlparser v0.13.1-0.20261008165000-6fb4cdcd96a5 h1:3SaAkrjxpK/5NfOsIXy4hZZG4pEORrcmYyWfjOJmLjo=
 github.com/viant/sqlparser v0.13.1-0.20261008165000-6fb4cdcd96a5/go.mod h1:2QRGiGZYk2/pjhORGG1zLVQ9JO+bXFhqIVi31mkCRPg=
 github.com/viant/sqlparser v0.13.1-0.20261011113312-d70d5ae3f97c h1:Z9pbg5z2U3cZCHwBJmcDAR8PVbyiNo1LR5s+D8IaGS0=

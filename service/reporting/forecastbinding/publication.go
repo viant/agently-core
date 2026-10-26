@@ -14,24 +14,24 @@ type DataBindings struct {
 	Columns []Column `json:"columns"`
 }
 
-// BindDataEnvelope verifies or materializes a newly authored forecast data
+// BindDataEnvelope verifies or materializes a newly authored report data
 // envelope from immutable source records. It is never applied to historical
 // reads. Supplied rows must match exactly; absent rows are deterministically
 // materialized. The model-only binding field is removed before publication.
 func (r *Runtime) BindDataEnvelope(ctx context.Context, scope Scope, raw json.RawMessage) (json.RawMessage, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &envelope); err != nil || envelope == nil {
-		return nil, reject("invalid forecast data envelope")
+		return nil, reject("invalid report data envelope")
 	}
 	bindingRaw, ok := envelope["sourceBindings"]
 	if !ok {
-		return nil, reject("forecast data requires sourceBindings")
+		return nil, reject("report data requires sourceBindings")
 	}
 	var binding DataBindings
 	decoder := json.NewDecoder(bytes.NewReader(bindingRaw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&binding); err != nil || binding.PlanID == "" {
-		return nil, reject("invalid forecast sourceBindings")
+		return nil, reject("invalid report sourceBindings")
 	}
 	plan, err := r.store.LoadPlan(ctx, scope, binding.PlanID)
 	if err != nil {

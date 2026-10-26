@@ -48,10 +48,10 @@ If these layers stay separate, Agently can add sophisticated context reduction w
 
 Agently already has important pieces:
 
-- request-time overflow pruning in `/Users/awitas/go/src/github.com/viant/agently-core/service/reactor/overflow.go`
-- LLM-assisted message removal candidates in `/Users/awitas/go/src/github.com/viant/agently-core/service/reactor/service_context_limit.go`
-- durable soft removal via `message:remove` in `/Users/awitas/go/src/github.com/viant/agently-core/protocol/tool/service/message/remove.go`
-- transcript/UI hidden-state interpretation in `/Users/awitas/go/src/github.com/viant/agently-core/sdk/ts/src/interpret.ts`
+- request-time overflow pruning in `./service/reactor/overflow.go`
+- LLM-assisted message removal candidates in `./service/reactor/service_context_limit.go`
+- durable soft removal via `message:remove` in `./protocol/tool/service/message/remove.go`
+- transcript/UI hidden-state interpretation in `./sdk/ts/src/interpret.ts`
 - canonical state/reducer direction in the SDK
 - anchor continuation and response-anchor semantics in core generation
 
@@ -1077,7 +1077,7 @@ Purpose:
 
 Implementation path:
 
-- use existing candidate generation in `/Users/awitas/go/src/github.com/viant/agently-core/service/reactor/service_context_limit.go`
+- use existing candidate generation in `./service/reactor/service_context_limit.go`
 - improve `service/agent/maintenance.go` to call LLM selection and then `message:remove`
 
 ### Compact

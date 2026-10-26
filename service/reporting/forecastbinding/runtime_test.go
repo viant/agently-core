@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-func actualSources(t *testing.T) PlanSources {
+func syntheticSources(t *testing.T) PlanSources {
 	t.Helper()
-	b, e := os.ReadFile("testdata/actual_profile_conversion_projection.json")
+	b, e := os.ReadFile("testdata/synthetic_profile_projection.json")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -21,15 +21,15 @@ func actualSources(t *testing.T) PlanSources {
 	if e = json.Unmarshal(b, &v); e != nil {
 		t.Fatal(e)
 	}
-	return PlanSources{Profile: v.Profile, Conversion: v.Conversion}
+	return PlanSources{Profile: v.Profile, Conversion: v.Conversion, Tools: syntheticToolBindings()}
 }
-func actualAdmission(t *testing.T) Admission {
+func syntheticAdmission(t *testing.T) Admission {
 	f := loadFixture(t)
-	return Admission{Scope: f.Scope, StarterMessageID: "starter", ReceivedAt: time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC), TimeZone: "UTC", SelectionOrigin: SelectionUser, AudienceIDs: []int64{7366798}, DateOrigin: DateUserWindow, Dates: f.Policy.Dates}
+	return Admission{Scope: f.Scope, StarterMessageID: "starter", ReceivedAt: time.Date(2000, 1, 4, 12, 0, 0, 0, time.UTC), TimeZone: "UTC", SelectionOrigin: SelectionUser, EntityIDs: []int64{7}, DateOrigin: DateUserWindow, Dates: f.Policy.Dates}
 }
-func TestProductionProjectionPlanAndExplicitAdmission(t *testing.T) {
-	a := actualAdmission(t)
-	sources := actualSources(t)
+func TestSyntheticProjectionPlanAndExplicitAdmission(t *testing.T) {
+	a := syntheticAdmission(t)
+	sources := syntheticSources(t)
 	p, e := NewPlan(context.Background(), ProjectionPolicyProducer{}, a, sources)
 	if e != nil {
 		t.Fatal(e)
@@ -46,18 +46,18 @@ func TestProductionProjectionPlanAndExplicitAdmission(t *testing.T) {
 	if string(got.Data) != string(want) {
 		t.Fatalf("wrong projected rows %s", got.Data)
 	}
-	a.AudienceIDs = []int64{7366799}
+	a.EntityIDs = []int64{8}
 	if _, e = NewPlan(context.Background(), ProjectionPolicyProducer{}, a, sources); e == nil {
 		t.Fatal("selection mismatch downgraded")
 	}
-	a = actualAdmission(t)
-	a.Dates = []string{"2026-10-01"}
+	a = syntheticAdmission(t)
+	a.Dates = []string{"2000-01-01"}
 	if _, e = NewPlan(context.Background(), ProjectionPolicyProducer{}, a, sources); e == nil {
 		t.Fatal("date mismatch downgraded")
 	}
-	a = actualAdmission(t)
+	a = syntheticAdmission(t)
 	a.SelectionOrigin = SelectionToolEvidence
-	a.AudienceIDs = nil
+	a.EntityIDs = nil
 	a.DateOrigin = DateToolEvidence
 	a.Dates = nil
 	p, e = NewPlan(context.Background(), ProjectionPolicyProducer{}, a, sources)
@@ -98,14 +98,14 @@ func (s *receiptStore) LoadCompletedCall(_ context.Context, scope Scope, id stri
 }
 func TestReceiptsReleaseOnlyAfterDurableCompletionAndSurviveRuntimeRestart(t *testing.T) {
 	f := loadFixture(t)
-	a := actualAdmission(t)
-	sources := actualSources(t)
+	a := syntheticAdmission(t)
+	sources := syntheticSources(t)
 	p, e := NewPlan(context.Background(), ProjectionPolicyProducer{}, a, sources)
 	if e != nil {
 		t.Fatal(e)
 	}
 	store := &receiptStore{admission: a, plan: p, calls: map[string]Call{}}
-	runtime, e := NewRuntime(ProjectionPolicyProducer{}, store)
+	runtime, e := NewRuntime(ProjectionPolicyProducer{}, store, syntheticToolBindings())
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -121,7 +121,7 @@ func TestReceiptsReleaseOnlyAfterDurableCompletionAndSurviveRuntimeRestart(t *te
 	if e != nil {
 		t.Fatal(e)
 	}
-	restarted, _ := NewRuntime(ProjectionPolicyProducer{}, store)
+	restarted, _ := NewRuntime(ProjectionPolicyProducer{}, store, syntheticToolBindings())
 	second, e := restarted.DecorateCompleted(context.Background(), a.Scope, p.ID, c.OpID)
 	if e != nil || string(first) != string(second) {
 		t.Fatal("restart changed receipt", e)
@@ -143,7 +143,7 @@ func TestReceiptsReleaseOnlyAfterDurableCompletionAndSurviveRuntimeRestart(t *te
 		t.Fatal("released unconfirmed receipt")
 	}
 	store.fail = false
-	c.Response = json.RawMessage(`{"status":"ok","data":[{"avails":1}],"continuation":{"hasMore":true,"remaining":2}}`)
+	c.Response = json.RawMessage(`{"status":"ok","data":[{"value":1}],"continuation":{"hasMore":true,"remaining":2}}`)
 	store.calls[c.OpID] = c
 	if _, e = runtime.DecorateCompleted(context.Background(), a.Scope, p.ID, c.OpID); e == nil {
 		t.Fatal("partial overflow acquired receipt")
@@ -156,11 +156,11 @@ func TestReceiptsReleaseOnlyAfterDurableCompletionAndSurviveRuntimeRestart(t *te
 }
 
 func TestPrepareConversionUsesLoadedProfileAndAdvertisesStableRequestHashes(t *testing.T) {
-	a := actualAdmission(t)
-	sources := actualSources(t)
+	a := syntheticAdmission(t)
+	sources := syntheticSources(t)
 	store := &receiptStore{admission: a, calls: map[string]Call{sources.Profile.OpID: sources.Profile, sources.Conversion.OpID: sources.Conversion}}
-	runtime, _ := NewRuntime(ProjectionPolicyProducer{}, store)
-	original := json.RawMessage(`{"Request":{"from":"2026-10-02","to":"2026-10-04"},"timeoutMs":600000}`)
+	runtime, _ := NewRuntime(ProjectionPolicyProducer{}, store, syntheticToolBindings())
+	original := json.RawMessage(`{"Request":{"from":"2000-01-02","to":"2000-01-04"},"timeoutMs":600000}`)
 	effective, e := runtime.PrepareConversion(context.Background(), a.Scope, sources.Profile.OpID, original)
 	if e != nil {
 		t.Fatal(e)
@@ -170,11 +170,11 @@ func TestPrepareConversionUsesLoadedProfileAndAdvertisesStableRequestHashes(t *t
 	if args["evidenceProfile"] == nil || args["inclusion"] == nil {
 		t.Fatal("missing source-derived conversion fields")
 	}
-	if string(original) != `{"Request":{"from":"2026-10-02","to":"2026-10-04"},"timeoutMs":600000}` {
+	if string(original) != `{"Request":{"from":"2000-01-02","to":"2000-01-04"},"timeoutMs":600000}` {
 		t.Fatal("rewrote original request")
 	}
-	if _, e = runtime.PrepareConversion(context.Background(), a.Scope, sources.Profile.OpID, json.RawMessage(`{"Request":{"inclusion":"other","from":"2026-10-02","to":"2026-10-04"}}`)); e == nil {
-		t.Fatal("explicit targeting mismatch discarded")
+	if _, e = runtime.PrepareConversion(context.Background(), a.Scope, sources.Profile.OpID, json.RawMessage(`{"Request":{"inclusion":"other","from":"2000-01-02","to":"2000-01-04"}}`)); e == nil {
+		t.Fatal("explicit selection mismatch discarded")
 	}
 	if _, e = runtime.PrepareConversion(context.Background(), a.Scope, sources.Profile.OpID, json.RawMessage(`{"Request":{"evidenceProfile":{}}}`)); e == nil {
 		t.Fatal("model supplied trusted profile")

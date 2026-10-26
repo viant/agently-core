@@ -11,7 +11,7 @@ import (
 	forgefenced "github.com/viant/forge/backend/reporting/fenced"
 )
 
-// Guard enforces the initial closed forecast boundary: once a trusted plan is
+// Guard enforces the initial closed report boundary: once a trusted plan is
 // admitted, all new structured datasets in this turn need bindings. A model's
 // label cannot exempt an unrelated table in that same turn.
 type Guard struct {
@@ -74,7 +74,7 @@ func (g *Guard) Stream(ctx context.Context, message, delta string, final bool) (
 
 func (g *Guard) fenceLocked(ctx context.Context, kind, body string) (string, error) {
 	if kind == "forge-config" {
-		return "", reject("forecast proof supports canonical forge-report layout; forge-config inline/runtime data is unsupported")
+		return "", reject("report proof supports canonical forge-report layout; forge-config inline/runtime data is unsupported")
 	}
 	if kind != "forge-data" && kind != "forge-report" {
 		return body, nil
@@ -91,7 +91,7 @@ func (g *Guard) fenceLocked(ctx context.Context, kind, body string) (string, err
 	if kind == "forge-data" {
 		mode, _ := value["mode"].(string)
 		if mode != "" && mode != "replace" {
-			return "", reject("forecast bound datasets require replace mode")
+			return "", reject("report bound datasets require replace mode")
 		}
 		hash, err := RequestHash(json.RawMessage(body))
 		if err != nil {
@@ -129,7 +129,7 @@ func (g *Guard) fenceLocked(ctx context.Context, kind, body string) (string, err
 			return "", err
 		}
 		if assembly == nil || assembly.Assembly == nil || assembly.Assembly.Scope != scope || assembly.Assembly.Status != "committed" {
-			return "", reject("forecast report commit is incomplete")
+			return "", reject("report report commit is incomplete")
 		}
 		for _, diagnostic := range assembly.Diagnostics {
 			if diagnostic.Severity == "error" {
@@ -153,15 +153,15 @@ func rejectInlineData(value any) error {
 				if values, ok := child.([]any); ok {
 					for _, item := range values {
 						if _, numeric := item.(json.Number); numeric {
-							return reject("inline chart array bypasses bound forecast data")
+							return reject("inline chart array bypasses bound report data")
 						}
 					}
 				}
 			case "rows", "data", "cells", "dataSources", "staticDataSources", "datasets":
-				return reject("inline " + key + " bypasses bound forecast data")
+				return reject("inline " + key + " bypasses bound report data")
 			case "value":
 				if _, numeric := child.(json.Number); numeric {
-					return reject("inline numeric value bypasses bound forecast data")
+					return reject("inline numeric value bypasses bound report data")
 				}
 			}
 			if err := rejectInlineData(child); err != nil {
@@ -188,7 +188,7 @@ func validateReportReferences(source map[string]any, datasets map[string]json.Ra
 			kind, _ := v["kind"].(string)
 			if strings.HasSuffix(kind, "Block") {
 				if !dataKinds[kind] && !layoutKinds[kind] {
-					return reject("unsupported forecast block kind " + kind)
+					return reject("unsupported report block kind " + kind)
 				}
 				if dataKinds[kind] {
 					ref, _ := v["datasetRef"].(string)
@@ -198,7 +198,7 @@ func validateReportReferences(source map[string]any, datasets map[string]json.Ra
 						}
 					}
 					if _, exists := datasets[ref]; !exists {
-						return reject(fmt.Sprintf("forecast block %v requires a verified datasetRef", v["id"]))
+						return reject(fmt.Sprintf("report block %v requires a verified datasetRef", v["id"]))
 					}
 				}
 			}

@@ -75,7 +75,7 @@ unit tests were explicitly rerun, and both debug/release AARs assembled:
 
 ```sh
 cd sdk/android
-ANDROID_HOME=/Users/awitas/Library/Android/sdk ./gradlew \
+ANDROID_HOME=../Library/Android/sdk ./gradlew \
   testDebugUnitTest --rerun testReleaseUnitTest --rerun \
   assembleDebug assembleRelease --no-daemon
 ```
@@ -94,7 +94,7 @@ each variant (four executions total), with no skips or failures. Log:
 `/tmp/agui-android-sdk-live-20261004.log`.
 
 ```sh
-ANDROID_HOME=/Users/awitas/Library/Android/sdk \
+ANDROID_HOME=../Library/Android/sdk \
 AGENTLY_AGUI_LIVE_URL=http://127.0.0.1:20541/v1/ag-ui/run ./gradlew \
   testDebugUnitTest \
   --tests 'com.viant.agentlysdk.agui.AgUiTest.liveStandardEndpointWhenConfigured' \

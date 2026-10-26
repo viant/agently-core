@@ -60,7 +60,7 @@ func TestMCPConnectorCatalogRequiresSessionAndListsUnboundProviders(t *testing.T
 	rec := httptest.NewRecorder()
 	f.mux().ServeHTTP(rec, f.request(http.MethodGet, "/v1/api/auth/mcp/connectors", false, ""))
 	require.Equal(t, 401, rec.Code)
-	doc := dev6ProviderDoc(false)
+	doc := sampleProviderDoc(false)
 	f.delegated.registry = providerregistry.NewWithLoader(&fakeProviderLoader{docs: map[string]*oauthprovider.Document{doc.ID: doc}})
 	rec = httptest.NewRecorder()
 	f.mux().ServeHTTP(rec, f.request(http.MethodGet, "/v1/api/auth/mcp/connectors", true, ""))

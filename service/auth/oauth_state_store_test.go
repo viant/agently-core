@@ -64,7 +64,7 @@ func stateRecord(state, flow, user, session string, expiresAt time.Time) *OAuthS
 		FlowHash:        flow,
 		CanonicalUserID: user,
 		SessionHash:     session,
-		Provider:        "adelphic-dev6",
+		Provider:        "sample-provider",
 		ExpiresAt:       expiresAt,
 	}
 }

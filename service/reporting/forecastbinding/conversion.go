@@ -26,11 +26,11 @@ func (r *Runtime) PrepareConversion(ctx context.Context, scope Scope, profileOp 
 	if e != nil {
 		return nil, e
 	}
-	return prepareConversion(a, c, scope, raw)
+	return prepareConversion(a, c, scope, raw, r.tools)
 }
 
-func prepareConversion(a *Admission, c *Call, scope Scope, raw json.RawMessage) (json.RawMessage, error) {
-	if c == nil || c.Scope != scope || c.Status != "completed" || c.Tool != "steward/AdTargetingProfile" {
+func prepareConversion(a *Admission, c *Call, scope Scope, raw json.RawMessage, tools ToolBindings) (json.RawMessage, error) {
+	if c == nil || c.Scope != scope || c.Status != "completed" || !tools.isProfile(c.Tool) {
 		return nil, reject("authorized profile unavailable")
 	}
 	response, e := object(c.Response)
@@ -45,28 +45,28 @@ func prepareConversion(a *Admission, c *Call, scope Scope, raw json.RawMessage) 
 	if !ok {
 		return nil, reject("invalid profile")
 	}
-	idRaw, _ := json.Marshal(row["audienceId"])
+	idRaw, _ := json.Marshal(row["entityId"])
 	var id int64
 	if e = json.Unmarshal(idRaw, &id); e != nil || id <= 0 {
-		return nil, reject("profile audience missing")
+		return nil, reject("profile entity missing")
 	}
-	if a.SelectionOrigin == SelectionUser && !reflect.DeepEqual(a.AudienceIDs, []int64{id}) {
+	if a.SelectionOrigin == SelectionUser && !reflect.DeepEqual(a.EntityIDs, []int64{id}) {
 		return nil, reject("explicit selection mismatch")
 	}
 	profileRequest, e := object(c.Request)
 	if e != nil {
 		return nil, e
 	}
-	idsRaw, _ := json.Marshal(profileRequest["AudienceId"])
+	idsRaw, _ := json.Marshal(profileRequest["EntityId"])
 	var ids []int64
 	if e = json.Unmarshal(idsRaw, &ids); e != nil || !reflect.DeepEqual(ids, []int64{id}) {
 		return nil, reject("profile request identity mismatch")
 	}
-	audience, ok := row["audience"].(map[string]any)
+	entity, ok := row["entity"].(map[string]any)
 	if !ok {
-		return nil, reject("profile audience missing")
+		return nil, reject("profile entity missing")
 	}
-	nestedRaw, _ := json.Marshal(audience["id"])
+	nestedRaw, _ := json.Marshal(entity["id"])
 	var nestedID int64
 	if e = json.Unmarshal(nestedRaw, &nestedID); e != nil || nestedID != id {
 		return nil, reject("profile nested entity mismatch")
@@ -79,13 +79,13 @@ func prepareConversion(a *Admission, c *Call, scope Scope, raw json.RawMessage) 
 	if !ok {
 		return nil, reject("conversion request missing")
 	}
-	for _, key := range []string{"evidenceProfile", "evidenceAudienceId"} {
+	for _, key := range []string{"evidenceProfile", "evidenceEntityId"} {
 		if _, exists := args[key]; exists {
 			return nil, reject("model cannot supply trusted profile body")
 		}
 	}
 	for _, pair := range [][2]string{{"inclusion", "target"}, {"exclusion", "exclusion"}} {
-		expected, _ := audience[pair[1]].(string)
+		expected, _ := entity[pair[1]].(string)
 		if supplied, exists := args[pair[0]]; exists && supplied != nil && textValue(supplied) != strings.TrimSpace(expected) {
 			return nil, reject("conversion target differs from selected profile")
 		}
@@ -102,7 +102,7 @@ func prepareConversion(a *Admission, c *Call, scope Scope, raw json.RawMessage) 
 		}
 	}
 	args["evidenceProfile"] = row
-	args["evidenceAudienceId"] = id
+	args["evidenceEntityId"] = id
 	return json.Marshal(request)
 }
 
@@ -110,7 +110,7 @@ type PlanReceipt struct {
 	Profile         string            `json:"profile"`
 	PlanID          string            `json:"planId"`
 	Dates           []string          `json:"dates"`
-	AudienceIDs     []int64           `json:"audienceIds"`
+	EntityIDs       []int64           `json:"entityIds"`
 	SelectionOrigin SelectionOrigin   `json:"selectionOrigin"`
 	DateOrigin      DateOrigin        `json:"dateOrigin"`
 	Expected        []ExpectedRequest `json:"expectedRequests"`
@@ -135,7 +135,7 @@ func (r *Runtime) AdvertisePlan(ctx context.Context, scope Scope, id string) (*P
 	if e = p.ValidateIdentity(); e != nil {
 		return nil, e
 	}
-	result := &PlanReceipt{Profile: Profile, PlanID: id, Dates: append([]string(nil), p.Produced.Policy.Dates...), AudienceIDs: append([]int64(nil), p.Produced.AudienceIDs...), SelectionOrigin: p.Admission.SelectionOrigin, DateOrigin: p.Admission.DateOrigin}
+	result := &PlanReceipt{Profile: Profile, PlanID: id, Dates: append([]string(nil), p.Produced.Policy.Dates...), EntityIDs: append([]int64(nil), p.Produced.EntityIDs...), SelectionOrigin: p.Admission.SelectionOrigin, DateOrigin: p.Admission.DateOrigin}
 	sort.Strings(result.Dates)
 	var keys []string
 	for key := range p.Produced.Policy.Templates {

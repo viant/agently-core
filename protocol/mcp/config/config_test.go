@@ -10,10 +10,10 @@ import (
 func delegatedClient(tokenType string, useIDToken bool) *MCPClient {
 	return &MCPClient{
 		ClientOptions: &mcp.ClientOptions{
-			Name: "dev6",
+			Name: "sample",
 			Auth: &mcp.ClientAuth{
 				Mode:        authcfg.ModeOAuth,
-				ProviderRef: "adelphic-dev6",
+				ProviderRef: "sample-provider",
 				TokenType:   tokenType,
 				UseIdToken:  useIDToken,
 			},

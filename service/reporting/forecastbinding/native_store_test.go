@@ -57,7 +57,7 @@ func (f *nativeFixture) Save(_ context.Context, scope evidence.Scope, subtype, i
 func nativeTestStore(t *testing.T) (*NativeSourceStore, *nativeFixture, context.Context, Admission) {
 	t.Helper()
 	f := loadFixture(t)
-	a := actualAdmission(t)
+	a := syntheticAdmission(t)
 	call := *firstCall(&f)
 	wire := map[string]any{"id": a.ConversationID, "createdByUserId": a.OwnerID, "transcript": []any{map[string]any{"id": a.TurnID, "conversationId": a.ConversationID, "message": []any{map[string]any{"id": "tool-message", "conversationId": a.ConversationID, "turnId": a.TurnID, "role": "tool", "messageToolCall": map[string]any{"opId": call.OpID, "toolName": call.Tool, "status": "completed", "turnId": a.TurnID, "messageRequestPayload": map[string]any{"inlineBody": string(call.Request)}, "messageResponsePayload": map[string]any{"inlineBody": string(call.Response)}}}}}}}
 	raw, _ := json.Marshal(wire)
@@ -69,7 +69,7 @@ func nativeTestStore(t *testing.T) (*NativeSourceStore, *nativeFixture, context.
 	checkpoint := `{"unrelated":{"retain":true}}`
 	fixture := &nativeFixture{conversation: &conversation, run: &runmodel.RunRowsView{Id: a.TurnID, ConversationId: &a.ConversationID, TurnId: &a.TurnID, EffectiveUserId: &a.OwnerID, Status: "running", Attempt: 1, LeaseOwner: &lease, CheckpointData: &checkpoint}}
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: a.OwnerID})
-	return NewNativeSourceStore(fixture, fixture, fixture), fixture, ctx, a
+	return NewNativeSourceStore(fixture, fixture, syntheticToolBindings(), fixture), fixture, ctx, a
 }
 func TestNativeSourceStoreAuthenticatesScopeAndCompleteness(t *testing.T) {
 	s, f, ctx, a := nativeTestStore(t)
@@ -102,7 +102,7 @@ func TestNativeEvidenceDoesNotWriteCheckpointAndAdmissionIsImmutableAcrossRestar
 	if checkpoint["unrelated"].(map[string]any)["retain"] != true {
 		t.Fatal("clobbered other checkpoint")
 	}
-	restarted := NewNativeSourceStore(f, f, f)
+	restarted := NewNativeSourceStore(f, f, syntheticToolBindings(), f)
 	loaded, e := restarted.LoadAdmission(ctx, a.Scope)
 	if e != nil || loaded.StarterMessageID != a.StarterMessageID {
 		t.Fatal("restart admission", e)
@@ -116,7 +116,7 @@ func TestNativeEvidenceDoesNotWriteCheckpointAndAdmissionIsImmutableAcrossRestar
 	if *f.run.CheckpointData != before {
 		t.Fatal("changed rejected checkpoint")
 	}
-	p, e := NewPlan(ctx, ProjectionPolicyProducer{}, a, actualSources(t))
+	p, e := NewPlan(ctx, ProjectionPolicyProducer{}, a, syntheticSources(t))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -159,7 +159,7 @@ func TestNativeReceiptProjectionPreservesOriginalPayloadAndRestartHistory(t *tes
 	if e := s.SaveAdmission(ctx, a, "worker"); e != nil {
 		t.Fatal(e)
 	}
-	p, e := NewPlan(ctx, ProjectionPolicyProducer{}, a, actualSources(t))
+	p, e := NewPlan(ctx, ProjectionPolicyProducer{}, a, syntheticSources(t))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -172,12 +172,12 @@ func TestNativeReceiptProjectionPreservesOriginalPayloadAndRestartHistory(t *tes
 	if e != nil {
 		t.Fatal(e)
 	}
-	runtime, _ := NewRuntime(ProjectionPolicyProducer{}, s)
+	runtime, _ := NewRuntime(ProjectionPolicyProducer{}, s, syntheticToolBindings())
 	body, e := runtime.DecorateAndPublishCompleted(ctx, a.Scope, p.ID, op)
 	if e != nil {
 		t.Fatal(e)
 	}
-	restarted := NewNativeSourceStore(f, f, f)
+	restarted := NewNativeSourceStore(f, f, syntheticToolBindings(), f)
 	after, e := restarted.LoadCompletedCall(ctx, a.Scope, op)
 	if e != nil {
 		t.Fatal(e)

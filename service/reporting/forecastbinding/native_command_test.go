@@ -31,35 +31,35 @@ func exerciseNativeCommand(t *testing.T, ctx context.Context, conv apiconv.Clien
 	require.NoError(t, json.Unmarshal(sources.Conversion.Request, &request))
 	args := request["Request"].(map[string]interface{})
 	delete(args, "evidenceProfile")
-	delete(args, "evidenceAudienceId")
+	delete(args, "evidenceEntityId")
 	raw, err := json.Marshal(request)
 	require.NoError(t, err)
-	effective, handled, err := controller.Prepare(ctx, "steward/ForecastingTargetingConvert", "controller-convert-op", raw)
+	effective, handled, err := controller.Prepare(ctx, "sample/NormalizeSelection", "controller-convert-op", raw)
 	require.NoError(t, err)
 	require.True(t, handled)
 	conversion := sources.Conversion
 	conversion.OpID = "controller-convert-op"
 	conversion.Request = effective
-	persistCapturedNativeCall(t, ctx, conv, conversion, "controller-convert-message")
+	persistSyntheticNativeCall(t, ctx, conv, conversion, "controller-convert-message")
 	projected, handled, err := controller.Completed(ctx, conversion.Tool, conversion.OpID)
 	require.NoError(t, err)
 	require.True(t, handled)
 	var result struct {
-		Plan fb.PlanReceipt `json:"_agentlyForecastPlan"`
+		Plan fb.PlanReceipt `json:"_agentlyReportPlan"`
 	}
 	require.NoError(t, json.Unmarshal(projected, &result))
 	require.NotEmpty(t, result.Plan.PlanID)
 
-	windowID := "forecast-builder__" + admission.ConversationID
+	windowID := "report-builder__" + admission.ConversationID
 	viewCtx := requestctx.WithToolMessageID(ctx, "view-origin-message")
 	workspace := workspaceproto.New(viewCtx, windowID, admission.ConversationID)
 	workspace.Kind = "report"
 	workspace.Content.WindowID = windowID
-	workspace.Content.WindowKey = "forecast-builder"
-	workspace.Content.Parameters = map[string]interface{}{"reportBuilderRef": "forecast-builder"}
+	workspace.Content.WindowKey = "report-builder"
+	workspace.Content.Parameters = map[string]interface{}{"reportBuilderRef": "report-builder"}
 	workspace.Lifecycle.State = "ready"
 	viewBody, _ := json.Marshal(map[string]interface{}{"workspaceObject": workspace})
-	persistCapturedNativeCall(t, ctx, conv, fb.Call{Scope: admission.Scope, OpID: "view-origin-op", Tool: "ui/view:open", Status: "completed", Request: json.RawMessage(`{"viewId":"forecast-builder"}`), Response: viewBody}, "view-origin-message")
+	persistSyntheticNativeCall(t, ctx, conv, fb.Call{Scope: admission.Scope, OpID: "view-origin-op", Tool: "ui/view:open", Status: "completed", Request: json.RawMessage(`{"viewId":"report-builder"}`), Response: viewBody}, "view-origin-message")
 	pendingNativeCommand(t, ctx, conv, admission.Scope, "command-op", "command-message", windowID)
 	commandCtx := requestctx.WithToolMessageID(ctx, "command-message")
 	workspaceRaw, _ := json.Marshal(workspace)
@@ -76,7 +76,7 @@ func exerciseNativeCommand(t *testing.T, ctx context.Context, conv apiconv.Clien
 	require.Error(t, err, "stale/forged workspace revision")
 	backend, err := fb.NewReportCommandBackend(runtime, store)
 	require.NoError(t, err)
-	admissionInput := runtimeevidence.ReportAdmissionInput{ConversationID: admission.ConversationID, BuilderRef: "forecast-builder", RequestID: command.RequestID, AdmissionRef: command.AdmissionRef}
+	admissionInput := runtimeevidence.ReportAdmissionInput{ConversationID: admission.ConversationID, BuilderRef: "report-builder", RequestID: command.RequestID, AdmissionRef: command.AdmissionRef}
 	link, err := backend.AdmitReport(ctx, admissionInput)
 	require.NoError(t, err)
 	wrongConversation := admissionInput

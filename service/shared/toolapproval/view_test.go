@@ -121,7 +121,7 @@ func TestApplyReview_GroupRows(t *testing.T) {
 				"publisher_id": 37,
 				"site_id":      3945613211,
 				"location":     "37/3945613211",
-				"audience_id":  7301206,
+				"audience_id":  1206,
 				"relationship": "target",
 				"selected":     true,
 			},
@@ -129,13 +129,13 @@ func TestApplyReview_GroupRows(t *testing.T) {
 				"publisher_id": 48,
 				"site_id":      3004169891,
 				"location":     "48/3004169891",
-				"audience_id":  7301206,
+				"audience_id":  1206,
 				"relationship": "target",
 				"selected":     true,
 			},
 		},
 		"Recommendation": map[string]interface{}{
-			"recommendation_id": 7301206001,
+			"recommendation_id": 1206001,
 			"change_reason":     "Expand reachable supply with the strongest passing add bundle.",
 			"metadata": map[string]interface{}{
 				"source": "entity_list_planner_submit",
@@ -174,12 +174,12 @@ func TestApplyReview_GroupRows(t *testing.T) {
 	assert.NotContains(t, args, "rows")
 	assert.NotContains(t, args, "intent")
 	assert.EqualValues(t, map[string]interface{}{
-		"recommendation_id": float64(7301206001),
+		"recommendation_id": float64(1206001),
 		"change_reason":     "Expand reachable supply with the strongest passing add bundle.",
 		"metadata": map[string]interface{}{
 			"source": "entity_list_planner_submit",
 		},
-		"audience_id":        float64(7301206),
+		"audience_id":        float64(1206),
 		"mode":               "ADD",
 		"selector_direction": "INCLUDE",
 		"target_field":       "target",
@@ -203,7 +203,7 @@ func TestApplyReview_GroupRowsRejectsMixedGroupsWithoutSplitCall(t *testing.T) {
 				"publisher_id": 37,
 				"site_id":      3945613211,
 				"location":     "37/3945613211",
-				"audience_id":  7301206,
+				"audience_id":  1206,
 				"relationship": "target",
 				"selected":     true,
 			},
@@ -211,7 +211,7 @@ func TestApplyReview_GroupRowsRejectsMixedGroupsWithoutSplitCall(t *testing.T) {
 				"publisher_id": 509,
 				"site_id":      3966455595,
 				"location":     "509/3966455595",
-				"audience_id":  7301206,
+				"audience_id":  1206,
 				"relationship": "exclusion",
 				"selected":     true,
 			},
@@ -255,15 +255,15 @@ func TestApplyReview_GroupRowsReplaceTargetCopiesConfiguredFields(t *testing.T) 
 				"publisher_id":   37,
 				"site_id":        3945613211,
 				"publisher":      "37/3945613211",
-				"audience_id":    7301206,
+				"audience_id":    1206,
 				"recommendation": "EXCLUDE",
 				"selected":       true,
 			},
 		},
 		"Recommendation": map[string]interface{}{
-			"id":                 7301206001,
+			"id":                 1206001,
 			"change_reason":      "Sparse delivery and low-value site evidence support exclusion.",
-			"change_summary":     "Exclude 1 low-value site for audience 7301206.",
+			"change_summary":     "Exclude 1 low-value site for audience 1206.",
 			"selector_direction": "EXCLUDE",
 			"target_field":       "exclusion",
 		},
@@ -295,12 +295,12 @@ func TestApplyReview_GroupRowsReplaceTargetCopiesConfiguredFields(t *testing.T) 
 	err := ApplyReview(args, review, args)
 	assert.NoError(t, err)
 	assert.EqualValues(t, map[string]interface{}{
-		"audience_id":        float64(7301206),
+		"audience_id":        float64(1206),
 		"mode":               "ADD",
 		"selector_direction": "EXCLUDE",
 		"target_field":       "exclusion",
 		"change_reason":      "Sparse delivery and low-value site evidence support exclusion.",
-		"change_summary":     "Exclude 1 low-value site for audience 7301206.",
+		"change_summary":     "Exclude 1 low-value site for audience 1206.",
 		"proposed_value": map[string]interface{}{
 			"exclusion": map[string]interface{}{
 				"clauses": []interface{}{
@@ -319,14 +319,14 @@ func TestApplyReview_GroupRowsSupportsGenericAssignments(t *testing.T) {
 		"rows": []interface{}{
 			map[string]interface{}{
 				"publisher":      "37/3945613211",
-				"audience_id":    7301206,
+				"audience_id":    1206,
 				"recommendation": "EXCLUDE",
 				"selected":       true,
 			},
 		},
 		"Recommendation": map[string]interface{}{
 			"change_reason":  "Sparse delivery and low-value site evidence support exclusion.",
-			"change_summary": "Exclude 1 low-value site for audience 7301206.",
+			"change_summary": "Exclude 1 low-value site for audience 1206.",
 		},
 	}
 	review := &llm.ApprovalReviewConfig{
@@ -363,10 +363,10 @@ func TestApplyReview_GroupRowsSupportsGenericAssignments(t *testing.T) {
 		"selector_direction": "EXCLUDE",
 		"target_field":       "exclusion",
 		"change_reason":      "Sparse delivery and low-value site evidence support exclusion.",
-		"change_summary":     "Exclude 1 low-value site for audience 7301206.",
+		"change_summary":     "Exclude 1 low-value site for audience 1206.",
 		"metadata": map[string]interface{}{
 			"entity_kind": "CI_AUDIENCE",
-			"entity_id":   float64(7301206),
+			"entity_id":   float64(1206),
 		},
 		"proposed_value": map[string]interface{}{
 			"exclusion": map[string]interface{}{

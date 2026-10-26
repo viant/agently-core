@@ -939,7 +939,7 @@ describe('ConversationStreamTracker', () => {
                     role: 'assistant',
                     turnId: 'turn-1',
                     createdAt: '2026-01-01T00:00:02Z',
-                    content: 'Your report summary is now open for entity 2656980.',
+                    content: 'Your report summary is now open for entity 6980.',
                     interim: 0,
                     _bubbleSource: 'message_add',
                     executionGroups: [],
@@ -962,7 +962,7 @@ describe('ConversationStreamTracker', () => {
 
         expect(row).toMatchObject({
             id: 'assistant-final',
-            content: 'Your report summary is now open for entity 2656980.',
+            content: 'Your report summary is now open for entity 6980.',
         });
     });
 
@@ -996,7 +996,7 @@ describe('ConversationStreamTracker', () => {
                     role: 'assistant',
                     turnId: 'turn-1',
                     createdAt: '2026-01-01T00:00:02Z',
-                    content: 'Your report summary is now open for entity 2656980.',
+                    content: 'Your report summary is now open for entity 6980.',
                     interim: 0,
                     _bubbleSource: 'message_add',
                     executionGroups: [],
@@ -1008,7 +1008,7 @@ describe('ConversationStreamTracker', () => {
 
         expect(row).toMatchObject({
             id: 'assistant-final',
-            content: 'Your report summary is now open for entity 2656980.',
+            content: 'Your report summary is now open for entity 6980.',
         });
     });
 });

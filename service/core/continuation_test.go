@@ -294,7 +294,7 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 		// Full LLM request messages for iteration 2
 		req := &llm.GenerateRequest{}
 		req.Messages = append(req.Messages,
-			llm.Message{ID: "iter2-user", Role: llm.RoleUser, Content: "analyze /Users/awitas/go/src/github.com/viant/xdatly"},
+			llm.Message{ID: "iter2-user", Role: llm.RoleUser, Content: "analyze /workspace/go/src/github.com/viant/xdatly"},
 			// synthetic assistant+tool pair from toolResultLLMMessages for op-1
 			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "op-1", Name: "orchestration-updatePlan"}}},
 			llm.Message{Role: llm.RoleTool, ToolCallId: "op-1", Content: `{"status":"ok"}`},
@@ -324,7 +324,7 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 		// Full LLM request messages for iteration 3 (includes all prior tool results)
 		req := &llm.GenerateRequest{}
 		req.Messages = append(req.Messages,
-			llm.Message{ID: "iter3-user", Role: llm.RoleUser, Content: "analyze /Users/awitas/go/src/github.com/viant/xdatly"},
+			llm.Message{ID: "iter3-user", Role: llm.RoleUser, Content: "analyze /workspace/go/src/github.com/viant/xdatly"},
 			// from iteration 1: op-1 → resp_A
 			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "op-1", Name: "orchestration-updatePlan"}}},
 			llm.Message{Role: llm.RoleTool, ToolCallId: "op-1", Content: `{"status":"ok"}`},
@@ -364,7 +364,7 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 
 		req := &llm.GenerateRequest{}
 		req.Messages = append(req.Messages,
-			llm.Message{Role: llm.RoleUser, Content: "analyze /Users/awitas/go/src/github.com/viant/xdatly"},
+			llm.Message{Role: llm.RoleUser, Content: "analyze /workspace/go/src/github.com/viant/xdatly"},
 			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "op-1", Name: "orchestration-updatePlan"}}},
 			llm.Message{Role: llm.RoleTool, ToolCallId: "op-1", Content: `{"status":"ok"}`},
 			llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "op-2", Name: "resources-list"}}},

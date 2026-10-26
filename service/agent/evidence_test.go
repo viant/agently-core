@@ -63,14 +63,14 @@ func TestQueryEvidenceCaptureOwnsOriginalContextBytes(t *testing.T) {
 	factory := &captureEvidenceFactory{}
 	service := &Service{}
 	WithEvidenceFactory(factory)(service)
-	client := map[string]interface{}{"forecastIntent": map[string]interface{}{"version": 1}}
+	client := map[string]interface{}{"reportIntent": map[string]interface{}{"version": 1}}
 	input := &QueryInput{Context: map[string]interface{}{"client": client}}
 	at := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
 	_, err := service.captureEvidence(context.Background(), input, at)
 	require.NoError(t, err)
-	input.Context["client"] = map[string]interface{}{"forecastIntent": "routing rewrite"}
-	client["forecastIntent"] = "nested mutation"
-	require.JSONEq(t, `{"client":{"forecastIntent":{"version":1}}}`, string(factory.input.Context))
+	input.Context["client"] = map[string]interface{}{"reportIntent": "routing rewrite"}
+	client["reportIntent"] = "nested mutation"
+	require.JSONEq(t, `{"client":{"reportIntent":{"version":1}}}`, string(factory.input.Context))
 	require.Equal(t, at, factory.input.ReceivedAt)
 	require.False(t, factory.input.Nested)
 	input.ParentConversationID = "parent"

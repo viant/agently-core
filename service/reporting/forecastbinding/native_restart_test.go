@@ -23,15 +23,15 @@ import (
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
-// This is a replay of captured evidence into a disposable native store. No tool,
-// provider or business endpoint is called; requests/results retain their bytes.
-func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
+// Replay independently generated synthetic evidence into a disposable native store.
+// No tool or provider endpoint is called; request/result immutability is preserved.
+func TestSyntheticTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 	fixture := loadFixture(t)
-	admission := actualAdmission(t)
-	// The captured older workflow did not record typed user-origin selection or
-	// dates. Preserve that limitation instead of inventing authenticated intent.
+	admission := syntheticAdmission(t)
+	// This scenario supplies executed evidence without typed user-origin selection
+	// or dates. Evidence must not be promoted into authenticated intent.
 	admission.SelectionOrigin = fb.SelectionToolEvidence
-	admission.AudienceIDs = nil
+	admission.EntityIDs = nil
 	admission.DateOrigin = fb.DateToolEvidence
 	admission.Dates = nil
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: admission.OwnerID})
@@ -61,7 +61,7 @@ func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 	starter.SetTurnID(admission.TurnID)
 	starter.SetRole("user")
 	starter.SetType("text")
-	starter.SetContent("Captured forecast evidence fixture")
+	starter.SetContent("Captured report evidence fixture")
 	require.NoError(t, conv.PatchMessage(ctx, starter))
 	nativeData := data.NewService(server)
 	run := &runmodel.MutableRunView{}
@@ -75,8 +75,8 @@ func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 	run.SetCheckpointData(`{"unrelated":{"generation":1}}`)
 	_, err = nativeData.PatchRuns(ctx, []*runmodel.MutableRunView{run})
 	require.NoError(t, err)
-	store := fb.NewNativeSourceStore(conv, nativeData, evidence.New(server))
-	factory, err := fb.NewFactory(fb.ProjectionPolicyProducer{}, store, admission.TimeZone)
+	store := fb.NewNativeSourceStore(conv, nativeData, nativeSyntheticToolBindings(), evidence.New(server))
+	factory, err := fb.NewFactory(fb.ProjectionPolicyProducer{}, store, admission.TimeZone, nativeSyntheticToolBindings())
 	require.NoError(t, err)
 	pending, err := factory.Capture(ctx, runtimeevidence.Input{ReceivedAt: admission.ReceivedAt})
 	require.NoError(t, err)
@@ -85,13 +85,13 @@ func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 	ctx, err = pending.Begin(ctx, lifecycleTurn)
 	require.NoError(t, err)
 	require.NotNil(t, runtimeevidence.ToolsFromContext(ctx))
-	sources := actualSources(t)
+	sources := syntheticSources(t)
 	all := append([]fb.Call{sources.Profile, sources.Conversion}, fixture.Records...)
 	require.Len(t, fixture.Records, 20)
 	for i, call := range all {
-		persistCapturedNativeCall(t, ctx, conv, call, fmt.Sprintf("captured-call-%02d", i))
+		persistSyntheticNativeCall(t, ctx, conv, call, fmt.Sprintf("captured-call-%02d", i))
 	}
-	runtime, err := fb.NewRuntime(fb.ProjectionPolicyProducer{}, store)
+	runtime, err := fb.NewRuntime(fb.ProjectionPolicyProducer{}, store, nativeSyntheticToolBindings())
 	require.NoError(t, err)
 	plan, err := runtime.AdmitPlan(ctx, admission.Scope, sources.Profile.OpID, sources.Conversion.OpID, "fixture-worker")
 	require.NoError(t, err)
@@ -117,11 +117,11 @@ func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 	// Generic profile/cube receipts are also persisted separately from payload
 	// truth and survive restart; grouped cube reads do not acquire a plan claim.
 	projected := map[string]json.RawMessage{}
-	for _, op := range []string{sources.Profile.OpID, fixture.Records[1].OpID} {
+	for _, op := range []string{sources.Profile.OpID, fixture.Records[0].OpID} {
 		projected[op], err = runtime.ProjectCompleted(ctx, admission.Scope, op, "fixture-worker")
 		require.NoError(t, err)
 	}
-	catalog, err := store.CompletedOperations(ctx, admission.Scope, "steward/ForecastingCube")
+	catalog, err := store.CompletedOperations(ctx, admission.Scope, "sample/MetricSource")
 	require.NoError(t, err)
 	require.Len(t, catalog, 20)
 	commandProof := exerciseNativeCommand(t, ctx, conv, store, runtime, admission, sources, fixture.Bindings)
@@ -139,8 +139,8 @@ func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 	restartedConv, err := convservice.New(ctx, restarted)
 	require.NoError(t, err)
 	restartedData := data.NewService(restarted)
-	restored := fb.NewNativeSourceStore(restartedConv, restartedData, evidence.New(restarted))
-	restoredFactory, err := fb.NewFactory(fb.ProjectionPolicyProducer{}, restored, "Asia/Tokyo", fb.WithRestoreOnly())
+	restored := fb.NewNativeSourceStore(restartedConv, restartedData, nativeSyntheticToolBindings(), evidence.New(restarted))
+	restoredFactory, err := fb.NewFactory(fb.ProjectionPolicyProducer{}, restored, "Asia/Tokyo", nativeSyntheticToolBindings(), fb.WithRestoreOnly())
 	require.NoError(t, err)
 	ctx, err = restoredFactory.Restore(ctx, lifecycleTurn)
 	require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 		require.NotContains(t, original, fb.SourceReceiptKey)
 		require.NotContains(t, original, fb.ProfileReceiptKey)
 	}
-	restoredRuntime, err := fb.NewRuntime(fb.ProjectionPolicyProducer{}, restored)
+	restoredRuntime, err := fb.NewRuntime(fb.ProjectionPolicyProducer{}, restored, nativeSyntheticToolBindings())
 	require.NoError(t, err)
 	commandBackend, err := fb.NewReportCommandBackend(restoredRuntime, restored)
 	require.NoError(t, err)
@@ -195,7 +195,7 @@ func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 	require.Error(t, restored.SaveAdmission(ctx, changed, "fixture-worker"), "restart cannot replace immutable admission")
 }
 
-func persistCapturedNativeCall(t *testing.T, ctx context.Context, conv apiconv.Client, call fb.Call, messageID string) {
+func persistSyntheticNativeCall(t *testing.T, ctx context.Context, conv apiconv.Client, call fb.Call, messageID string) {
 	t.Helper()
 	ids := []string{messageID + "-request", messageID + "-response"}
 	for i, body := range []json.RawMessage{call.Request, call.Response} {
@@ -279,22 +279,26 @@ type fixture struct {
 
 func loadFixture(t *testing.T) fixture {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/actual_forecast_20_calls.json")
+	raw, err := os.ReadFile("testdata/synthetic_metric_calls.json")
 	require.NoError(t, err)
 	var f fixture
 	require.NoError(t, json.Unmarshal(raw, &f))
 	return f
 }
-func actualAdmission(t *testing.T) fb.Admission {
-	f := loadFixture(t)
-	return fb.Admission{Scope: f.Scope, StarterMessageID: "fixture-starter", ReceivedAt: time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC), TimeZone: "UTC", SelectionOrigin: fb.SelectionToolEvidence, DateOrigin: fb.DateToolEvidence}
+func nativeSyntheticToolBindings() fb.ToolBindings {
+	return fb.ToolBindings{Profile: "sample/EntityProfile", Conversion: "sample/NormalizeSelection", Data: "sample/MetricSource"}
 }
-func actualSources(t *testing.T) fb.PlanSources {
+func syntheticAdmission(t *testing.T) fb.Admission {
+	f := loadFixture(t)
+	return fb.Admission{Scope: f.Scope, StarterMessageID: "fixture-starter", ReceivedAt: time.Date(2000, 1, 4, 12, 0, 0, 0, time.UTC), TimeZone: "UTC", SelectionOrigin: fb.SelectionToolEvidence, DateOrigin: fb.DateToolEvidence}
+}
+func syntheticSources(t *testing.T) fb.PlanSources {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/actual_profile_conversion_projection.json")
+	raw, err := os.ReadFile("testdata/synthetic_profile_projection.json")
 	require.NoError(t, err)
 	var source fb.PlanSources
 	require.NoError(t, json.Unmarshal(raw, &source))
+	source.Tools = nativeSyntheticToolBindings()
 	return source
 }
 func firstCall(f *fixture) *fb.Call {

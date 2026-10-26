@@ -1,4 +1,4 @@
-// Package forecastbinding materializes forecast rows from immutable completed
+// Package forecastbinding materializes report rows from immutable completed
 // evidence. It deliberately has no store, network, or tool-dispatch dependency.
 package forecastbinding
 
@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-const Profile = "forecast-daily-v1"
-const AvailsPointer = "/data/0/avails"
+const Profile = "daily-metric-v1"
+const ValuePointer = "/data/0/value"
 
 type Scope struct {
 	OwnerID        string `json:"ownerId"`
@@ -36,8 +36,9 @@ type Call struct {
 // Policy is supplied by the authorized host, never decoded from model bindings.
 // Templates include every expected request field except filters.date.
 type Policy struct {
-	Dates     []string                   `json:"dates"`
-	Templates map[string]json.RawMessage `json:"templates"`
+	SourceTool string                     `json:"sourceTool"`
+	Dates      []string                   `json:"dates"`
+	Templates  map[string]json.RawMessage `json:"templates"`
 }
 type Reference struct {
 	OpID            string `json:"opId"`
@@ -101,7 +102,7 @@ func RequestHash(raw json.RawMessage) (string, error) {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:]), nil
 }
-func reject(reason string) error { return fmt.Errorf("forecast evidence: %s", reason) }
+func reject(reason string) error { return fmt.Errorf("report evidence: %s", reason) }
 
 func Materialize(scope Scope, policy Policy, bindings Bindings, records []Call) (*Result, error) {
 	if scope.OwnerID == "" || scope.ConversationID == "" || scope.TurnID == "" {
@@ -159,8 +160,8 @@ func Materialize(scope Scope, policy Policy, bindings Bindings, records []Call) 
 			return nil, reject("unsupported policy dimensions")
 		}
 		measures, ok := expected["measures"].(map[string]any)
-		if !ok || measures["avails"] != true {
-			return nil, reject("missing policy avails measure")
+		if !ok || measures["value"] != true {
+			return nil, reject("missing policy value measure")
 		}
 		boundDays := map[string]bool{}
 		for _, ref := range column.Calls {
@@ -171,14 +172,14 @@ func Materialize(scope Scope, policy Policy, bindings Bindings, records []Call) 
 			if call.Scope != scope {
 				return nil, reject("evidence scope mismatch")
 			}
-			if call.Tool != "steward/ForecastingCube" || call.Status != "completed" {
+			if !toolMatches(call.Tool, policy.SourceTool) || call.Status != "completed" {
 				return nil, reject("unsupported or incomplete evidence")
 			}
 			hash, e := RequestHash(call.Request)
 			if e != nil || hash != ref.RequestHash {
 				return nil, reject("request hash mismatch")
 			}
-			if ref.ResponsePointer != AvailsPointer {
+			if ref.ResponsePointer != ValuePointer {
 				return nil, reject("unsupported response pointer")
 			}
 			request, e := object(call.Request)
@@ -230,13 +231,13 @@ func Materialize(scope Scope, policy Policy, bindings Bindings, records []Call) 
 			if eventDate, exists := row["eventDate"]; exists && eventDate != nil && eventDate != date {
 				return nil, reject("response date conflicts with request")
 			}
-			number, ok := row["avails"].(json.Number)
+			number, ok := row["value"].(json.Number)
 			if !ok {
-				return nil, reject("missing numeric avails")
+				return nil, reject("missing numeric value")
 			}
 			n, e := strconv.ParseFloat(number.String(), 64)
 			if e != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
-				return nil, reject("invalid numeric avails")
+				return nil, reject("invalid numeric value")
 			}
 			rows[day][column.Key] = number
 			proof = append(proof, CellProvenance{Date: day, Column: column.Key, Reference: ref})

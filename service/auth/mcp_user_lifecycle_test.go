@@ -25,24 +25,24 @@ func (f *fakeUserLookup) GetByID(_ context.Context, id string) (*User, error) {
 
 func TestDelegatedResolver_DisabledUserFailsClosed(t *testing.T) {
 	store := newFakeDelegatedStore()
-	storageKey := DelegatedProviderStorageKey("test-ns", "adelphic-dev6")
+	storageKey := DelegatedProviderStorageKey("test-ns", "sample-provider")
 	store.seed(&OAuthToken{
 		Username:     "user-1",
 		Provider:     storageKey,
 		AccessToken:  "access",
 		RefreshToken: "refresh",
 		ExpiresAt:    time.Now().Add(time.Hour),
-		ProviderRef:  "adelphic-dev6",
-		Issuer:       "https://idp-dev6.example.com",
-		Resource:     "https://mcp6.example.com/mcp",
+		ProviderRef:  "sample-provider",
+		Issuer:       "https://idp.example.invalid",
+		Resource:     "https://mcp.example.invalid/mcp",
 		Scopes:       []string{"plan:create", "plan:edit", "plan:read"},
 	})
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	resolver.users = &fakeUserLookup{users: map[string]*User{"user-1": {ID: "user-1", Disabled: true}}}
 
 	ctx := iauth.WithCanonicalUserID(context.Background(), "user-1")
 	ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: "subject-1"})
-	_, err := resolver.Resolve(ctx, dev6Requirement())
+	_, err := resolver.Resolve(ctx, sampleRequirement())
 	if err == nil || !strings.Contains(err.Error(), "disabled") {
 		t.Fatalf("Resolve() for disabled user = %v, want disabled failure", err)
 	}
@@ -58,12 +58,12 @@ func TestDelegatedResolver_DisabledUserFailsClosed(t *testing.T) {
 
 	// Deleted users (no row) also fail closed.
 	resolver.users = &fakeUserLookup{users: map[string]*User{}}
-	if _, err := resolver.Resolve(ctx, dev6Requirement()); err == nil {
+	if _, err := resolver.Resolve(ctx, sampleRequirement()); err == nil {
 		t.Fatalf("Resolve() for deleted user succeeded")
 	}
 	// Lookup failures fail closed rather than serving a credential.
 	resolver.users = &fakeUserLookup{err: fmt.Errorf("lookup down")}
-	if _, err := resolver.Resolve(ctx, dev6Requirement()); err == nil {
+	if _, err := resolver.Resolve(ctx, sampleRequirement()); err == nil {
 		t.Fatalf("Resolve() with failing lookup succeeded")
 	}
 }

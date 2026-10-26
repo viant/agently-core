@@ -2,10 +2,8 @@ package toolexec
 
 import (
 	"context"
-	"strings"
 
 	authctx "github.com/viant/agently-core/internal/auth"
-	"github.com/viant/agently-core/protocol/mcpname"
 	"github.com/viant/agently-core/runtime/evidence"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/reporting/forecastbinding"
@@ -36,25 +34,25 @@ func decorateDurableResult(ctx context.Context, step StepInfo, body string) (str
 	return fn(ctx, step, body)
 }
 
-// WithForecastEvidencePlan binds receipt production to a server-admitted plan.
+// WithReportEvidencePlan binds receipt production to a server-admitted plan.
 // It does not install report writer/stream enforcement or accept client claims.
-func WithForecastEvidencePlan(ctx context.Context, runtime *forecastbinding.Runtime, planID string) context.Context {
+func WithReportEvidencePlan(ctx context.Context, runtime *forecastbinding.Runtime, planID string) context.Context {
 	if runtime == nil || planID == "" {
 		return ctx
 	}
 	return WithDurableResultDecorator(ctx, func(ctx context.Context, step StepInfo, _ string) (string, bool, error) {
-		if !strings.EqualFold(mcpname.Display(step.Name), "steward/ForecastingCube") {
+		if !runtime.IsDataTool(step.Name) {
 			return "", false, nil
 		}
 		turn, ok := requestctx.TurnMetaFromContext(ctx)
 		if !ok {
-			return "", true, forecastDecoratorError("missing turn")
+			return "", true, evidenceDecoratorError("missing turn")
 		}
 		body, e := runtime.DecorateAndPublishCompleted(ctx, forecastbinding.Scope{OwnerID: authctx.EffectiveUserID(ctx), ConversationID: turn.ConversationID, TurnID: turn.TurnID}, planID, step.ID)
 		return string(body), true, e
 	})
 }
 
-type forecastDecoratorError string
+type evidenceDecoratorError string
 
-func (e forecastDecoratorError) Error() string { return "forecast receipt: " + string(e) }
+func (e evidenceDecoratorError) Error() string { return "report evidence: " + string(e) }

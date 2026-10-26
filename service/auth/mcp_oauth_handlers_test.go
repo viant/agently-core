@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	testMCPServer   = "viant-mcp-dev6"
+	testMCPServer   = "sample-mcp"
 	testMCPResource = "https://mcp.test/mcp"
 	testIssuer      = "https://idp.test/"
 	testClientID    = "client-123"
@@ -479,7 +479,7 @@ func TestMCPLinkEndpoints_DerivesHostedCallbackFromForwardedOriginAndKeepsSessio
 
 	initiateRequest := fixture.request(http.MethodPost, "/v1/api/auth/mcp/"+testMCPServer+"/initiate", true, csrf)
 	initiateRequest.Header.Set("X-Forwarded-Proto", "https")
-	initiateRequest.Header.Set("X-Forwarded-Host", "steward-local.viant.ai")
+	initiateRequest.Header.Set("X-Forwarded-Host", "studio.example.invalid")
 	initiateRecorder := httptest.NewRecorder()
 	mux.ServeHTTP(initiateRecorder, initiateRequest)
 	if initiateRecorder.Code != http.StatusOK {
@@ -490,7 +490,7 @@ func TestMCPLinkEndpoints_DerivesHostedCallbackFromForwardedOriginAndKeepsSessio
 	if err != nil {
 		t.Fatalf("parse authorization URL: %v", err)
 	}
-	const expectedCallback = "https://steward-local.viant.ai/v1/api/auth/mcp/callback"
+	const expectedCallback = "https://studio.example.invalid/v1/api/auth/mcp/callback"
 	if got := parsed.Query().Get("redirect_uri"); got != expectedCallback {
 		t.Fatalf("redirect_uri = %q, want %q", got, expectedCallback)
 	}
@@ -500,9 +500,9 @@ func TestMCPLinkEndpoints_DerivesHostedCallbackFromForwardedOriginAndKeepsSessio
 	}
 
 	callbackRequest := fixture.request(http.MethodGet, "/v1/api/auth/mcp/callback?code=good-code&state="+url.QueryEscape(state), true, "")
-	callbackRequest.Host = "steward-local.viant.ai"
+	callbackRequest.Host = "studio.example.invalid"
 	callbackRequest.Header.Set("X-Forwarded-Proto", "https")
-	callbackRequest.Header.Set("X-Forwarded-Host", "steward-local.viant.ai")
+	callbackRequest.Header.Set("X-Forwarded-Host", "studio.example.invalid")
 	callbackRecorder := httptest.NewRecorder()
 	mux.ServeHTTP(callbackRecorder, callbackRequest)
 	if callbackRecorder.Code != http.StatusOK {

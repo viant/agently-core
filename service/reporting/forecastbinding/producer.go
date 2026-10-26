@@ -2,8 +2,38 @@ package forecastbinding
 
 import (
 	"context"
+	"strings"
 	"time"
+
+	"github.com/viant/agently-core/protocol/mcpname"
 )
+
+// ToolBindings is supplied by the host. The core evidence adapter does not
+// bake application MCP names into its public contracts.
+type ToolBindings struct {
+	Profile    string
+	Conversion string
+	Data       string
+}
+
+func (b ToolBindings) Validate() error {
+	names := []string{b.Profile, b.Conversion, b.Data}
+	for _, name := range names {
+		normalized := strings.ToLower(strings.TrimSpace(mcpname.Display(name)))
+		if normalized == "" {
+			return reject("invalid tool bindings")
+		}
+	}
+	return nil
+}
+
+func (b ToolBindings) isProfile(tool string) bool    { return toolMatches(tool, b.Profile) }
+func (b ToolBindings) isConversion(tool string) bool { return toolMatches(tool, b.Conversion) }
+func (b ToolBindings) isData(tool string) bool       { return toolMatches(tool, b.Data) }
+
+func toolMatches(actual, configured string) bool {
+	return configured != "" && strings.EqualFold(mcpname.Display(actual), mcpname.Display(configured))
+}
 
 // SelectionOrigin describes the evidence for entity selection; it is assigned
 // by the authenticated host, never copied from client or model-supplied JSON.
@@ -34,7 +64,7 @@ type Admission struct {
 	DateOrigin       DateOrigin      `json:"dateOrigin"`
 	Dates            []string        `json:"dates"`
 	SelectionOrigin  SelectionOrigin `json:"selectionOrigin"`
-	AudienceIDs      []int64         `json:"audienceIds,omitempty"`
+	EntityIDs        []int64         `json:"entityIds,omitempty"`
 }
 
 // PlanSources must be loaded through the host's authorized native store adapter.
@@ -42,13 +72,14 @@ type Admission struct {
 type PlanSources struct {
 	Profile    Call
 	Conversion Call
+	Tools      ToolBindings `json:"-"`
 }
 
 // ProducedPolicy includes source identity because target correctness must be
 // checked before a valid request matrix can become an admitted plan.
 type ProducedPolicy struct {
 	Policy                 Policy
-	AudienceIDs            []int64
+	EntityIDs              []int64
 	ProducerVersion        string
 	ProfileRequestHash     string
 	ProfileResponseHash    string
@@ -56,9 +87,9 @@ type ProducedPolicy struct {
 	ConversionResponseHash string
 }
 
-// PolicyProducer is injected by the host at composition time. Implementations
-// use the authoritative targeting converter/profile projection. Core deliberately
-// does not import a private Steward package or infer mappings from cube calls.
+// PolicyProducer is injected by the host at composition time. It adapts the
+// host's configured producer contract to the evidence plan without embedding
+// application tool names or schema in this package.
 // A nil/unregistered producer means unsupported policy, never unchecked fallback.
 type PolicyProducer interface {
 	Produce(context.Context, Admission, PlanSources) (*ProducedPolicy, error)
@@ -77,4 +108,5 @@ type SourceStore interface {
 type Dependencies struct {
 	Producer PolicyProducer
 	Store    SourceStore
+	Tools    ToolBindings
 }

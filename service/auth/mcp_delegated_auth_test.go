@@ -39,11 +39,11 @@ func TestNewDelegatedMCPAuthKeyDerivation(t *testing.T) {
 	if unkeyed == nil || unkeyed.resolver == nil {
 		t.Fatalf("missing key must not silently disable delegated auth")
 	}
-	if _, err := unkeyed.Resolver().Resolve(delegatedCtx("uuid-1"), dev6Requirement()); err == nil ||
+	if _, err := unkeyed.Resolver().Resolve(delegatedCtx("uuid-1"), sampleRequirement()); err == nil ||
 		!strings.Contains(err.Error(), "tokenEncryptionKey") {
 		t.Fatalf("resolution without an encryption key must fail with the configuration requirement, got %v", err)
 	}
-	row := seededDev6Token(time.Now().Add(time.Minute))
+	row := seededSampleToken(time.Now().Add(time.Minute))
 	if err := unkeyed.TokenRefresher().RefreshStoredDelegatedToken(context.Background(), row); err == nil ||
 		!strings.Contains(err.Error(), "tokenEncryptionKey") {
 		t.Fatalf("background refresh without an encryption key must fail loudly, got %v", err)

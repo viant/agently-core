@@ -3,12 +3,10 @@ package forecastbinding
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"sync"
 	"sync/atomic"
 
 	authctx "github.com/viant/agently-core/internal/auth"
-	"github.com/viant/agently-core/protocol/mcpname"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -51,7 +49,7 @@ func (c *Controller) check(ctx context.Context) error {
 }
 
 func (c *Controller) Prepare(ctx context.Context, tool, _ string, raw json.RawMessage) (json.RawMessage, bool, error) {
-	if !strings.EqualFold(mcpname.Display(tool), "steward/ForecastingTargetingConvert") {
+	if !c.runtime.tools.isConversion(tool) {
 		return nil, false, nil
 	}
 	if err := c.check(ctx); err != nil {
@@ -81,7 +79,7 @@ func (c *Controller) Prepare(ctx context.Context, tool, _ string, raw json.RawMe
 		if !ok {
 			return nil, true, reject("profile operation catalog unavailable")
 		}
-		candidates, err = catalog.CompletedOperations(ctx, c.scope, "steward/AdTargetingProfile")
+		candidates, err = catalog.CompletedOperations(ctx, c.scope, c.runtime.tools.Profile)
 		if err != nil {
 			return nil, true, err
 		}
@@ -112,7 +110,7 @@ func (c *Controller) Prepare(ctx context.Context, tool, _ string, raw json.RawMe
 		if err != nil {
 			return nil, true, err
 		}
-		prepared, err := prepareConversion(admission, source, c.scope, clean)
+		prepared, err := prepareConversion(admission, source, c.scope, clean, c.runtime.tools)
 		if err != nil {
 			continue
 		}
@@ -134,16 +132,14 @@ func (c *Controller) Prepare(ctx context.Context, tool, _ string, raw json.RawMe
 }
 
 func (c *Controller) Completed(ctx context.Context, tool, op string) (json.RawMessage, bool, error) {
-	switch strings.ToLower(mcpname.Display(tool)) {
-	case "steward/adtargetingprofile", "steward/forecastingtargetingconvert", "steward/forecastingcube":
-	default:
+	if !c.runtime.tools.isProfile(tool) && !c.runtime.tools.isConversion(tool) && !c.runtime.tools.isData(tool) {
 		return nil, false, nil
 	}
 	if err := c.check(ctx); err != nil {
 		return nil, true, err
 	}
 	body, err := c.runtime.ProjectCompleted(ctx, c.scope, op, c.lease())
-	if err == nil && strings.EqualFold(mcpname.Display(tool), "steward/ForecastingTargetingConvert") {
+	if err == nil && c.runtime.tools.isConversion(tool) {
 		err = c.rememberPlan(body)
 	}
 	return body, true, err
@@ -160,7 +156,7 @@ func (c *Controller) RestorePlans(ctx context.Context) error {
 	if !ok {
 		return reject("conversion operation catalog unavailable")
 	}
-	operations, err := catalog.CompletedOperations(ctx, c.scope, "steward/ForecastingTargetingConvert")
+	operations, err := catalog.CompletedOperations(ctx, c.scope, c.runtime.tools.Conversion)
 	if err != nil {
 		return err
 	}

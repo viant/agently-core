@@ -7,7 +7,7 @@ import (
 )
 
 const SourceReceiptKey = "_agentlySource"
-const ProfileReceiptKey = "_agentlyForecastProfile"
+const ProfileReceiptKey = "_agentlyReportProfile"
 
 // SourceReceipt describes executed evidence, not a claim that a request matches
 // any plan or user intent. The publication binder checks those independently.
@@ -20,7 +20,7 @@ type SourceReceipt struct {
 	ResponsePointer string `json:"responsePointer,omitempty"`
 }
 
-func sourceProjection(call *Call) (json.RawMessage, error) {
+func sourceProjection(call *Call, tools ToolBindings) (json.RawMessage, error) {
 	response, err := object(call.Response)
 	if err != nil {
 		return nil, err
@@ -40,11 +40,11 @@ func sourceProjection(call *Call) (json.RawMessage, error) {
 	}
 	receipt := SourceReceipt{Profile: Profile, OpID: call.OpID, RequestHash: requestHash, ResponseHash: responseHash}
 	key := ProfileReceiptKey
-	switch call.Tool {
-	case "steward/AdTargetingProfile":
+	switch {
+	case tools.isProfile(call.Tool):
 		// This is an identity receipt only. PrepareConversion validates the profile's
 		// selected entity and target before the profile can become policy authority.
-	case "steward/ForecastingCube":
+	case tools.isData(call.Tool):
 		request, err := object(call.Request)
 		if err != nil {
 			return nil, err
@@ -61,9 +61,9 @@ func sourceProjection(call *Call) (json.RawMessage, error) {
 		if receipt.Date != "" {
 			delete(filters, "date")
 			template, _ := json.Marshal(request)
-			_, eligible := Materialize(call.Scope, Policy{Dates: []string{receipt.Date}, Templates: map[string]json.RawMessage{"source": template}}, Bindings{Profile: Profile, Columns: []Column{{Key: "source", Calls: []Reference{{OpID: call.OpID, RequestHash: requestHash, ResponsePointer: AvailsPointer}}}}}, []Call{*call})
+			_, eligible := Materialize(call.Scope, Policy{SourceTool: tools.Data, Dates: []string{receipt.Date}, Templates: map[string]json.RawMessage{"source": template}}, Bindings{Profile: Profile, Columns: []Column{{Key: "source", Calls: []Reference{{OpID: call.OpID, RequestHash: requestHash, ResponsePointer: ValuePointer}}}}}, []Call{*call})
 			if eligible == nil {
-				receipt.ResponsePointer = AvailsPointer
+				receipt.ResponsePointer = ValuePointer
 			}
 		}
 		// General cube reads (including grouped/range queries) remain valid
@@ -88,7 +88,7 @@ func (r *Runtime) ProjectCompleted(ctx context.Context, scope Scope, op, lease s
 		return nil, reject("source completion unconfirmed")
 	}
 	var body json.RawMessage
-	if call.Tool == "steward/ForecastingTargetingConvert" {
+	if r.tools.isConversion(call.Tool) {
 		request, err := object(call.Request)
 		if err != nil {
 			return nil, err
@@ -110,7 +110,7 @@ func (r *Runtime) ProjectCompleted(ctx context.Context, scope Scope, op, lease s
 			return nil, err
 		}
 	} else {
-		body, err = sourceProjection(call)
+		body, err = sourceProjection(call, r.tools)
 		if err != nil {
 			return nil, err
 		}

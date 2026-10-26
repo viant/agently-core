@@ -1,0 +1,146 @@
+{
+  "profile": {
+    "ownerId": "synthetic-owner",
+    "conversationId": "synthetic-conversation",
+    "turnId": "synthetic-turn",
+    "opId": "synthetic-profile",
+    "messageId": "synthetic-profile-message",
+    "tool": "sample/EntityProfile",
+    "status": "completed",
+    "request": {
+      "EntityId": [
+        7
+      ]
+    },
+    "response": {
+      "status": "ok",
+      "data": [
+        {
+          "entityId": 7,
+          "entity": {
+            "id": 7,
+            "name": "Synthetic record",
+            "target": "entityId=7",
+            "exclusion": ""
+          }
+        }
+      ]
+    }
+  },
+  "conversion": {
+    "ownerId": "synthetic-owner",
+    "conversationId": "synthetic-conversation",
+    "turnId": "synthetic-turn",
+    "opId": "synthetic-conversion",
+    "messageId": "synthetic-conversion-message",
+    "tool": "sample/NormalizeSelection",
+    "status": "completed",
+    "request": {
+      "Request": {
+        "from": "2000-01-02",
+        "to": "2000-01-04",
+        "inclusion": "entityId=7",
+        "exclusion": "",
+        "evidenceProfile": {
+          "entityId": 7,
+          "entity": {
+            "id": 7,
+            "name": "Synthetic record",
+            "target": "entityId=7",
+            "exclusion": ""
+          }
+        },
+        "evidenceEntityId": 7
+      }
+    },
+    "response": {
+      "status": "ok",
+      "body": {
+        "from": "2000-01-02",
+        "to": "2000-01-04"
+      },
+      "reportEvidence": {
+        "version": 1,
+        "producerVersion": "sample-profile-v1",
+        "entityIds": [
+          7
+        ],
+        "sourceProfileHash": "ef7f6fad2142e6b7d88fcba1b3cb5212fa4884881f142e3343cbad14856f5fd9",
+        "inclusion": "entityId=7",
+        "exclusion": "",
+        "templates": {
+          "column1": {
+            "dimensions": {},
+            "measures": {
+              "value": true
+            },
+            "filters": {
+              "entityId": [
+                7
+              ],
+              "category": [
+                1
+              ]
+            }
+          },
+          "column2": {
+            "dimensions": {},
+            "measures": {
+              "value": true
+            },
+            "filters": {
+              "entityId": [
+                7
+              ],
+              "category": [
+                2
+              ]
+            }
+          },
+          "column3": {
+            "dimensions": {},
+            "measures": {
+              "value": true
+            },
+            "filters": {
+              "entityId": [
+                7
+              ],
+              "category": [
+                3
+              ]
+            }
+          },
+          "column4": {
+            "dimensions": {},
+            "measures": {
+              "value": true
+            },
+            "filters": {
+              "entityId": [
+                7
+              ],
+              "category": [
+                4
+              ]
+            }
+          },
+          "column5": {
+            "dimensions": {},
+            "measures": {
+              "value": true
+            },
+            "filters": {
+              "entityId": [
+                7
+              ],
+              "category": [
+                5
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -204,7 +204,7 @@ func TestEnsureAgent_AutoSelectionIncludesRecentTranscript(t *testing.T) {
 	user.SetTurnID("turn-prior")
 	user.SetRole("user")
 	user.SetType("text")
-	user.SetContent("Troubleshoot order 2664518")
+	user.SetContent("Troubleshoot order 4518")
 	user.SetCreatedAt(time.Now())
 	require.NoError(t, client.PatchMessage(ctx, user))
 
@@ -214,7 +214,7 @@ func TestEnsureAgent_AutoSelectionIncludesRecentTranscript(t *testing.T) {
 	assistant.SetTurnID("turn-prior")
 	assistant.SetRole("assistant")
 	assistant.SetType("text")
-	assistant.SetContent("Order 2664518 is underdelivering; audience 7288336 is active.")
+	assistant.SetContent("Order 4518 is underdelivering; audience 8336 is active.")
 	assistant.SetCreatedAt(time.Now().Add(time.Second))
 	require.NoError(t, client.PatchMessage(ctx, assistant))
 
@@ -254,8 +254,8 @@ func TestEnsureAgent_AutoSelectionIncludesRecentTranscript(t *testing.T) {
 	require.Len(t, requests[0].Messages, 2)
 	userText := llm.MessageText(requests[0].Messages[1])
 	require.Contains(t, userText, "Recent conversation context")
-	require.Contains(t, userText, "Troubleshoot order 2664518")
-	require.Contains(t, userText, "Order 2664518 is underdelivering")
+	require.Contains(t, userText, "Troubleshoot order 4518")
+	require.Contains(t, userText, "Order 4518 is underdelivering")
 	require.Contains(t, userText, "show me audience that deliver the most")
 }
 

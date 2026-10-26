@@ -491,9 +491,9 @@ func TestMergeStreamContent(t *testing.T) {
 		},
 		{
 			name:     "dedupes same content with formatting differences",
-			current:  "```json{\"values\":{\"HOME\":\"/Users/awitas\"}}\n```",
-			incoming: "```json\n{\"values\":{\"HOME\":\"/Users/awitas\"}}\n```",
-			expect:   "```json{\"values\":{\"HOME\":\"/Users/awitas\"}}\n```",
+			current:  "```json{\"values\":{\"HOME\":\"/workspace/example-1\"}}\n```",
+			incoming: "```json\n{\"values\":{\"HOME\":\"/workspace/example-1\"}}\n```",
+			expect:   "```json{\"values\":{\"HOME\":\"/workspace/example-1\"}}\n```",
 		},
 		{
 			name:     "appends unrelated chunk",

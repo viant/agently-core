@@ -38,7 +38,7 @@ func TestContinuationAcceptsRenewedHTTPPrincipalAndRejectsChangedAuthority(t *te
 		json.NewEncoder(w).Encode(map[string]any{"sub": "reader", "account": "21", "roles": roles, "source": source})
 	}))
 	defer server.Close()
-	providers, err := oauth.NewHTTPProviders(context.Background(), oauth.HTTPIdentityConfig{Kind: "oidc-userinfo", Issuer: server.URL, Audience: "owned", Algorithms: []string{"RS256"}, JWKSURL: server.URL + "/jwks", JWKSRefreshInterval: "1m", UserInfoURL: server.URL + "/userinfo", FactLease: "30s", TenantForAllAccounts: "workspace", Mapping: oauth.HTTPIdentityMapping{Subject: "sub", AccountID: "account", JWTAccountID: "account", Roles: "roles", AuthorityRevision: "source"}}, nil)
+	providers, err := oauth.NewHTTPProviders(context.Background(), oauth.HTTPIdentityConfig{Kind: "oidc-userinfo", Issuer: server.URL, Audience: "owned", Algorithms: []string{"RS256"}, JWKSURL: server.URL + "/jwks", JWKSRefreshInterval: "1m", UserInfoURL: server.URL + "/userinfo", FactLease: "30s", UserInfoCacheTTL: "0s", TenantForAllAccounts: "workspace", Mapping: oauth.HTTPIdentityMapping{Subject: "sub", AccountID: "account", JWTAccountID: "account", Roles: "roles", AuthorityRevision: "source"}}, nil)
 	require.NoError(t, err)
 	bearer := func(expiry time.Time) string {
 		token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"iss": server.URL, "aud": "owned", "sub": "reader", "account": "21", "exp": expiry.Unix()})

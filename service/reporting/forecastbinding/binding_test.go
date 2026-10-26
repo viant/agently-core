@@ -18,7 +18,7 @@ type fixture struct {
 
 func loadFixture(t *testing.T) fixture {
 	t.Helper()
-	b, e := os.ReadFile("testdata/actual_forecast_20_calls.json")
+	b, e := os.ReadFile("testdata/synthetic_metric_calls.json")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -28,7 +28,7 @@ func loadFixture(t *testing.T) fixture {
 	}
 	return f
 }
-func TestActualTwentyCallsMaterializeFifteenCellsWithoutReorderingAssociations(t *testing.T) {
+func TestSyntheticTwentyCallsMaterializeFifteenCellsWithoutReorderingAssociations(t *testing.T) {
 	f := loadFixture(t)
 	before, _ := json.Marshal(f)
 	got, e := Materialize(f.Scope, f.Policy, f.Bindings, f.Records)
@@ -100,23 +100,23 @@ func TestEvidenceFailuresRejectCompletion(t *testing.T) {
 			changeRequest(f, func(r map[string]any) { r["filters"].(map[string]any)["includeMetrocode"] = []any{json.Number("999")} })
 		},
 		"wrongDay": func(f *fixture) {
-			changeRequest(f, func(r map[string]any) { r["filters"].(map[string]any)["date"] = "2026-10-01T00:00:00Z" })
+			changeRequest(f, func(r map[string]any) { r["filters"].(map[string]any)["date"] = "2000-01-01T00:00:00Z" })
 		},
 		"duplicateDate": func(f *fixture) { f.Bindings.Columns[0].Calls[1] = f.Bindings.Columns[0].Calls[0] },
 		"missingDate":   func(f *fixture) { f.Bindings.Columns[0].Calls = f.Bindings.Columns[0].Calls[:2] },
 		"missingColumn": func(f *fixture) { f.Bindings.Columns = f.Bindings.Columns[:4] },
 		"duplicateConflictingRecord": func(f *fixture) {
 			c := *firstCall(f)
-			c.Response = json.RawMessage(`{"status":"ok","data":[{"avails":1}]}`)
+			c.Response = json.RawMessage(`{"status":"ok","data":[{"value":1}]}`)
 			f.Records = append(f.Records, c)
 		},
 		"conflictingResponseDate": func(f *fixture) {
-			changeResponse(f, func(r map[string]any) { r["data"].([]any)[0].(map[string]any)["eventDate"] = "2026-10-03T00:00:00Z" })
+			changeResponse(f, func(r map[string]any) { r["data"].([]any)[0].(map[string]any)["eventDate"] = "2000-01-03T00:00:00Z" })
 		},
 		"unsuccessfulResponse": func(f *fixture) { changeResponse(f, func(r map[string]any) { r["status"] = "error" }) },
 		"missingRow":           func(f *fixture) { changeResponse(f, func(r map[string]any) { r["data"] = []any{} }) },
 		"nonnumeric": func(f *fixture) {
-			changeResponse(f, func(r map[string]any) { r["data"].([]any)[0].(map[string]any)["avails"] = "397765284" })
+			changeResponse(f, func(r map[string]any) { r["data"].([]any)[0].(map[string]any)["value"] = "7" })
 		},
 	}
 	for name, change := range cases {
