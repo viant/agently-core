@@ -103,3 +103,12 @@ func TestIndependentCallsDecorateTheirOwnDurableOperation(t *testing.T) {
 // Compile-time check that existing conversation clients are unaffected by the
 // optional decoration hook; no new methods were added to the store interface.
 var _ apiconv.Client = (*stubConv)(nil)
+
+func TestUndecoratedToolResultPreservesOpaqueProducerPayload(t *testing.T) {
+	body := `{"profile":"producer-defined-v9","measure":{"customUnits":17},"unknown":[null,false,{"value":"keep"}]}`
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "opaque-conversation", TurnID: "opaque-turn"})
+	reg := &scriptedRegistry{script: []scriptedResult{{result: body}}}
+	out, _, err := ExecuteToolStep(ctx, reg, StepInfo{ID: "opaque-op", Name: "sample/arbitrary"}, &stubConv{})
+	require.NoError(t, err)
+	require.Equal(t, body, out.Result)
+}
