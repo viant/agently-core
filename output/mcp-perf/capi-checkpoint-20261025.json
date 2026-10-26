@@ -1,0 +1,49 @@
+{
+  "status": "passed",
+  "fullCaseQualified": true,
+  "caseId": "advertiser/400_measurement_capi",
+  "caseSHA256": "ee3614674b915d362d1c8e4e88143584c3be26e4a63dba0b8106c83fa3e0b733",
+  "sourceFiles": 19,
+  "operationId": "96714810-af3e-4fd4-9a55-daaf58b5917b",
+  "assertions": {
+    "passed": 296,
+    "failed": 0
+  },
+  "runtime": {
+    "aistudioBinarySHA256": "bbee15ae717727470913ad95f924df2e9bdb6cc577bb77ebb5c298de71bf5934",
+    "aistudioPID": 62747,
+    "stewardBinarySHA256": "c84021da4ffb72fd82b12da4f3bdba2860ff1be8544563bcfecfbec46f24b291",
+    "forgeCommit": "57a007a"
+  },
+  "controlledQuiet": true,
+  "businessWarmup": false,
+  "timingSummary": {
+    "totalMs": 1303.7999999821186,
+    "pageLoadMs": 132.7999999821186,
+    "finalRequestStartMs": 586.2999999821186,
+    "finalRequestDurationMs": 649.5999999940395,
+    "producerElapsedMs": 486.9261250048876,
+    "finalResponseToMeasuredDOMMs": 67.90000000596046,
+    "beforeFinalRequestAfterPageLoadMs": 453.5,
+    "finalRequestBeyondProducerMs": 162.67387498915195
+  },
+  "timingInterpretation": "1,000ms target SLOW; 2,000ms hard PASS. Earlier requests overlap. Final request beyond producer is an approximate Studio/transport residual; no deeper phase or paint claim.",
+  "largerAcceptance": {
+    "advertiserFullGroup": false,
+    "freshPlainEndlyBootstrap": false
+  },
+  "persistence": {
+    "passedCount": 8,
+    "failedCount": 0,
+    "verified": true
+  },
+  "timing": {
+    "readMs": 1303.7999999821186,
+    "targetMs": 1000,
+    "hardMs": 2000,
+    "status": "SLOW",
+    "hardLimitExceeded": false,
+    "scope": "navigation through populated CAPI DOM; not a paint measurement"
+  },
+  "sourceEvidenceSHA256": "0afe87ae40fe516fd08c413fe9bae25bbad526ec698f9d27d6ef8d22968363fb"
+}
