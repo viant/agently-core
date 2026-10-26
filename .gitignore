@@ -18,3 +18,13 @@ service/workspace/.agently/
 # Local runtime and test workspaces must not become source fixtures.
 .agently/
 .gocache/
+
+# Private investigation artifacts and generated test binaries are not source.
+/output/
+/.cache/
+/captures/
+/private-evidence/
+*.test
+
+# Python static-check cache.
+__pycache__/

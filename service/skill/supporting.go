@@ -61,6 +61,7 @@ func (s *Service) readSupporting(ctx context.Context, item *proto.Skill, relativ
 		if err != nil {
 			return "", "", "", err
 		}
+		cfg = ordinarySkillDiscovery(cfg)
 		if cfg == nil || cfg.SkillDiscovery == nil || !cfg.SkillDiscovery.Enabled {
 			return "", "", "", fmt.Errorf("skill not available")
 		}

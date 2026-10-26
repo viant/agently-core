@@ -221,3 +221,33 @@ func TestNewestFirstUIEventsUsesSequenceThenTimestamp(t *testing.T) {
 		t.Fatalf("expected newest-first events, got %#v", got)
 	}
 }
+
+func TestContextReadRedactsSensitiveStateWithoutChangingScopeOrRuntimeProofs(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postContextUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "private-read"})
+	postContextUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{"clientId": "private-read", "data": map[string]interface{}{"conversationId": "chat", "selected": map[string]interface{}{"windowId": "entity"}, "windows": []interface{}{map[string]interface{}{
+		"windowId": "entity", "windowKey": "entity", "conversationId": "chat", "presentation": "hosted", "operationRevision": 123,
+		"resourceTarget": map[string]interface{}{"platform": "web", "selectionToken": "existing-runtime-proof"},
+		"windowForm":     map[string]interface{}{"Name": "Visible", "pin": "opaque-private-value", "apiKey": "opaque-private-value", "note": "Basic dXNlcjpwYXNz"},
+		"metadata":       map[string]interface{}{"view": map[string]interface{}{"dataSourceRef": "rows", "controls": []interface{}{map[string]interface{}{"id": "pin", "type": "password", "scope": "windowForm", "dataField": "pin", "dataSourceRef": "rows"}}}},
+	}}}})
+	var output GetOutput
+	if err := New(bridge).get(runtimerequestctx.WithConversationID(context.Background(), "chat"), &GetInput{ClientID: "private-read"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"opaque-private-value", "dXNlcjpwYXNz"} {
+		if bytes.Contains(encoded, []byte(secret)) {
+			t.Fatalf("read leaked sensitive value %q", secret)
+		}
+	}
+	if !output.ReadRedacted || len(output.Windows) != 1 || output.Windows[0].Window.OperationRevision != 123 || output.Windows[0].Window.WindowForm["Name"] != "Visible" {
+		t.Fatalf("safe read state/scope was changed: %s", encoded)
+	}
+	if output.Windows[0].Window.ResourceTarget.SelectionToken != "existing-runtime-proof" {
+		t.Fatal("existing runtime target proof contract changed")
+	}
+}

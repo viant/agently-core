@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -148,5 +149,56 @@ func TestSetValueFallsBackToExactWindowIDWhenClientIDIsStale(t *testing.T) {
 	})
 	if err := <-done; err != nil {
 		t.Fatalf("setValue failed: %v", err)
+	}
+}
+
+func TestOperateRejectsStaleRevisionAndForeignConversation(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "operate-client"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{"clientId": "operate-client", "data": map[string]interface{}{"conversationId": "current-chat", "windows": []interface{}{map[string]interface{}{"windowId": "operate-window", "windowKey": "operate", "conversationId": "current-chat", "operationRevision": uint32(17)}}}})
+	postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "operate-client", "timeoutMs": 1})
+	service := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "current-chat")
+	stale := uint32(16)
+	err := service.setValue(ctx, &SetValueInput{WindowID: "operate-window", ControlID: "name", Value: "new", ExpectedRevision: &stale}, &CommandOutput{})
+	if err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("expected stale rejection before enqueue: %v", err)
+	}
+	err = service.click(ctx, &ClickInput{WindowID: "operate-window", ControlID: "save", ConversationID: "foreign-chat"}, &CommandOutput{})
+	if err == nil || !strings.Contains(err.Error(), "foreign conversation") {
+		t.Fatalf("expected foreign chat rejection: %v", err)
+	}
+	for _, name := range []string{"setValue", "click", "focus"} {
+		if _, err := service.Method(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestClickUsesScopedNormalActionAndReturnsCurrentRevision(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "operate-client"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{"clientId": "operate-client", "data": map[string]interface{}{"conversationId": "current-chat", "windows": []interface{}{map[string]interface{}{"windowId": "operate-window", "windowKey": "operate", "conversationId": "current-chat", "operationRevision": uint32(17)}}}})
+	postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "operate-client", "timeoutMs": 1})
+	service := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "current-chat")
+	done := make(chan error, 1)
+	expected := uint32(17)
+	output := &CommandOutput{}
+	go func() {
+		done <- service.click(ctx, &ClickInput{WindowID: "operate-window", ControlID: "save", ExpectedRevision: &expected}, output)
+	}()
+	response := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "operate-client", "timeoutMs": 1000})
+	command := response["params"].(map[string]interface{})
+	params := command["params"].(map[string]interface{})
+	if command["method"] != "ui.control.click" || params["conversationId"] != "current-chat" || params["expectedRevision"] != float64(17) {
+		t.Fatalf("lost scoped operation: %#v", command)
+	}
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{"id": command["id"], "ok": true, "result": map[string]interface{}{"ok": true, "operationRevision": 18}})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !output.OK || output.OperationRevision != 18 {
+		t.Fatalf("lost live operation result: %+v", output)
 	}
 }

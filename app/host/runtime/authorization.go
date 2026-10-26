@@ -43,6 +43,7 @@ type hostAuthorizationFile struct {
 	HostedApps                []resourcesvc.HostedAppBinding `json:"hostedApps,omitempty"`
 	TemplateSources           []HostAuthoredSource           `json:"templateSources,omitempty"`
 	IntentSources             []HostAuthoredSource           `json:"intentSources,omitempty"`
+	PlaybookSources           []HostAuthoredSource           `json:"playbookSources,omitempty"`
 	ToolfeedSources           []HostToolfeedSource           `json:"toolfeedSources,omitempty"`
 	nativeWindows             bool
 	FrameworkWindowResources  []windowloader.ResourceBinding   `json:"frameworkWindowResources,omitempty"`
@@ -472,11 +473,11 @@ func ConfigureAuthorization(options Options, workspaceRoot string, workspaceConf
 				return nil, err
 			}
 		}
-		nativeWindows, err = newInternalWindowSnapshot(context.Background(), workspaceRoot, workspaceConfig.ForgeReportingRoot(), config, config.nativeWindows || len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources) > 0)
+		nativeWindows, err = newInternalWindowSnapshot(context.Background(), workspaceRoot, workspaceConfig.ForgeReportingRoot(), config, config.nativeWindows || len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources)+len(config.PlaybookSources) > 0)
 		if err != nil {
 			return nil, err
 		}
-		if config.nativeWindows || len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources) > 0 {
+		if config.nativeWindows || len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources)+len(config.PlaybookSources) > 0 {
 			if len(internal) != 1 || internal[0] == nil {
 				return nil, fmt.Errorf("native source initialization requires runtime registration")
 			}
@@ -570,7 +571,7 @@ func ConfigureAuthorization(options Options, workspaceRoot string, workspaceConf
 			return nil, fmt.Errorf("local menu sources require explicit internal provider")
 		}
 	}
-	if len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources) > 0 && options.InternalResourceProviderIdentity == "" {
+	if len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources)+len(config.PlaybookSources) > 0 && options.InternalResourceProviderIdentity == "" {
 		return nil, fmt.Errorf("toolfeed sources require explicit internal resource provider")
 	}
 	if options.InternalResourceProviderIdentity != "" {

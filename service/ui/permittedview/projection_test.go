@@ -122,3 +122,91 @@ func TestContextualMCPPresentationPreservesAuthoredHintsWithoutReadAdmission(t *
 	require.NoError(t, err)
 	require.Equal(t, 1, executor.calls, "browser-only conditions require no UI-facts RPC or selector binding")
 }
+
+type projectionFactSnapshot struct {
+	snapshot *Snapshot
+	calls    int
+	requests []*Request
+}
+
+func (r *projectionFactSnapshot) Resolve(_ context.Context, request *Request) (*Snapshot, error) {
+	r.calls++
+	r.requests = append(r.requests, request)
+	return r.snapshot, nil
+}
+
+func TestGuardedProjectionPreservesVerifiedSubjectAndSnapshotOwnership(t *testing.T) {
+	window := &types.Window{}
+	require.NoError(t, json.Unmarshal([]byte(`{"view":{"content":{"id":"root","containers":[{"id":"editor","visibleWhen":{"source":"authorization","field":"principal.roles","contains":"editor"}}]}}}`), window))
+	snapshot := &Snapshot{AuthorizationVersion: "principal-first", ExpiresAt: time.Now().Add(time.Minute), Account: map[string]any{"id": "21"}, Principal: map[string]any{"subject": "verified-first", "roles": []string{"editor"}, "features": []string{"reports"}, "exposures": []string{"compatibility-feature"}, "privateDetail": "must-not-be-forwarded", "issuer": "not-added-to-projection-contract"}, Resources: map[string]*Resource{"7": {Capabilities: map[string]bool{"write": true}}}, GlobalCapabilities: map[string]bool{"write": true}}
+	resolver := &projectionFactSnapshot{snapshot: snapshot}
+	runtime := NewRuntime(resolver)
+	before, err := json.Marshal(snapshot)
+	require.NoError(t, err)
+	first, err := runtime.Project(context.Background(), window)
+	require.NoError(t, err)
+	require.Equal(t, 1, resolver.calls)
+	require.Equal(t, &Request{IncludePrincipal: true}, resolver.requests[0], "projection requests no entity/capability facts")
+	require.Nil(t, window.AuthorizationSnapshot)
+	principal := first.Window.AuthorizationSnapshot["principal"].(map[string]any)
+	require.Equal(t, "verified-first", principal["subject"])
+	require.ElementsMatch(t, []string{"subject", "roles", "features", "exposures"}, keysOfProjectionPrincipal(principal))
+	require.Equal(t, []any{"editor"}, principal["roles"])
+	require.Equal(t, []any{"reports"}, principal["features"])
+	require.Equal(t, []any{"compatibility-feature"}, principal["exposures"])
+	require.Nil(t, first.Window.AuthorizationSnapshot["resources"])
+	require.Nil(t, first.Window.AuthorizationSnapshot["globalCapabilities"])
+	after, err := json.Marshal(snapshot)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "source snapshot not mutated")
+	// Browser-owned output must not alias the verified provider's maps or arrays.
+	principal["roles"].([]any)[0] = "caller mutation"
+	first.Window.AuthorizationSnapshot["account"].(map[string]any)["id"] = "caller account"
+	require.Equal(t, []string{"editor"}, snapshot.Principal["roles"])
+	require.Equal(t, "21", snapshot.Account["id"])
+	snapshot.Principal["subject"] = "verified-next"
+	snapshot.Principal["roles"].([]string)[0] = "viewer"
+	snapshot.Principal["features"] = []string{}
+	snapshot.Account["id"] = "22"
+	snapshot.AuthorizationVersion = "principal-next"
+	next, err := runtime.Project(context.Background(), window)
+	require.NoError(t, err)
+	require.Equal(t, 2, resolver.calls)
+	require.Equal(t, "verified-next", next.Window.AuthorizationSnapshot["principal"].(map[string]any)["subject"])
+	require.Equal(t, "22", next.Window.AuthorizationSnapshot["account"].(map[string]any)["id"])
+	require.Empty(t, next.Window.View.Content.Containers)
+	require.Equal(t, "verified-first", principal["subject"], "old snapshot retains old principal")
+	require.Equal(t, []any{"reports"}, principal["features"], "old snapshot retains old exposures")
+}
+
+func keysOfProjectionPrincipal(principal map[string]any) []string {
+	keys := make([]string, 0, len(principal))
+	for key := range principal {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func TestGuardedProjectionDoesNotManufactureSubject(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		subject any
+	}{
+		{name: "absent"},
+		{name: "nonstring", subject: map[string]any{"privateDetail": "not-a-subject"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			window := &types.Window{}
+			require.NoError(t, json.Unmarshal([]byte(`{"view":{"content":{"id":"root","visibleWhen":{"source":"authorization","field":"principal.roles","contains":"reader"}}}}`), window))
+			principal := map[string]any{"roles": []string{"reader"}, "features": []string{}}
+			if tc.subject != nil {
+				principal["subject"] = tc.subject
+			}
+			resolver := &projectionFactSnapshot{snapshot: &Snapshot{AuthorizationVersion: "verified-facts", ExpiresAt: time.Now().Add(time.Minute), Principal: principal}}
+			result, err := NewRuntime(resolver).Project(context.Background(), window)
+			require.NoError(t, err)
+			require.NotContains(t, result.Window.AuthorizationSnapshot["principal"].(map[string]any), "subject")
+			require.Equal(t, 1, resolver.calls)
+		})
+	}
+}

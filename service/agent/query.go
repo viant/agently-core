@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/viant/agently-core/runtime/clienttool"
 	"strings"
 	"time"
@@ -86,12 +87,11 @@ type QueryInput struct {
 	// Populated by the llm/agents runtime when a PromptProfile specifies a template.
 	TemplateId string `json:"templateId,omitempty"`
 
-	// IntentProfileId optionally selects an intent profile for this turn.
-	// For direct agent turns this is typically populated by intake/routing.
+	// PlaybookId is the preferred authored scenario selection for this turn.
+	PlaybookId string `json:"playbookId,omitempty" yaml:"playbookId,omitempty"`
+	// IntentProfileId and PromptProfileId are deprecated decode/storage aliases.
 	IntentProfileId string `json:"intentProfileId,omitempty" yaml:"intentProfileId,omitempty"`
-	// PromptProfileId is the deprecated compatibility alias for
-	// IntentProfileId. New callers should use intentProfileId.
-	PromptProfileId string `json:"-" yaml:"-"`
+	PromptProfileId string `json:"promptProfileId,omitempty" yaml:"promptProfileId,omitempty"`
 	// ParallelToolCalls optionally overrides the agent-level parallel tool
 	// execution preference for this specific turn.
 	ParallelToolCalls *bool `json:"parallelToolCalls,omitempty"`
@@ -114,11 +114,12 @@ type QueryInput struct {
 	toolBundlesAutoSelected bool
 }
 
-// EffectiveIntentProfileID returns the canonical intent-profile selection,
-// preferring intentProfileId over the legacy promptProfileId alias.
-func (i *QueryInput) EffectiveIntentProfileID() string {
+func (i *QueryInput) EffectivePlaybookID() string {
 	if i == nil {
 		return ""
+	}
+	if value := strings.TrimSpace(i.PlaybookId); value != "" {
+		return value
 	}
 	if value := strings.TrimSpace(i.IntentProfileId); value != "" {
 		return value
@@ -126,19 +127,37 @@ func (i *QueryInput) EffectiveIntentProfileID() string {
 	return strings.TrimSpace(i.PromptProfileId)
 }
 
+// EffectiveIntentProfileID preserves existing internal callers while the
+// public field moves to playbookId.
+func (i *QueryInput) EffectiveIntentProfileID() string { return i.EffectivePlaybookID() }
+
 // SetIntentProfileID mirrors the canonical value to the legacy field while
 // compatibility consumers are still supported.
 func (i *QueryInput) SetIntentProfileID(value string) {
+	i.SetPlaybookID(value)
+}
+
+func (i *QueryInput) SetPlaybookID(value string) {
 	if i == nil {
 		return
 	}
 	value = strings.TrimSpace(value)
+	i.PlaybookId = value
 	i.IntentProfileId = value
 	i.PromptProfileId = value
 }
 
 func (i *QueryInput) normalizeIntentProfileID() {
-	i.SetIntentProfileID(i.EffectiveIntentProfileID())
+	i.SetPlaybookID(i.EffectivePlaybookID())
+}
+
+func (i QueryInput) MarshalJSON() ([]byte, error) {
+	type alias QueryInput
+	copy := alias(i)
+	copy.PlaybookId = i.EffectivePlaybookID()
+	copy.IntentProfileId = ""
+	copy.PromptProfileId = ""
+	return json.Marshal(copy)
 }
 
 // UnmarshalJSON accepts the legacy promptProfileId key without exposing it in
@@ -147,13 +166,19 @@ func (i *QueryInput) UnmarshalJSON(data []byte) error {
 	type alias QueryInput
 	decoded := struct {
 		*alias
-		LegacyIntentProfileID string `json:"promptProfileId"`
+		IntentProfileID string `json:"intentProfileId"`
+		PromptProfileID string `json:"promptProfileId"`
 	}{alias: (*alias)(i)}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	if strings.TrimSpace(i.IntentProfileId) == "" {
-		i.IntentProfileId = strings.TrimSpace(decoded.LegacyIntentProfileID)
+	for _, legacy := range []string{decoded.IntentProfileID, decoded.PromptProfileID} {
+		if value := strings.TrimSpace(legacy); value != "" {
+			if existing := i.EffectivePlaybookID(); existing != "" && existing != value {
+				return fmt.Errorf("conflicting playbook selection aliases")
+			}
+			i.PlaybookId = value
+		}
 	}
 	i.normalizeIntentProfileID()
 	return nil
@@ -167,13 +192,19 @@ func (i *QueryInput) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	var compatibility struct {
-		LegacyIntentProfileID string `yaml:"promptProfileId"`
+		IntentProfileID string `yaml:"intentProfileId"`
+		PromptProfileID string `yaml:"promptProfileId"`
 	}
 	if err := node.Decode(&compatibility); err != nil {
 		return err
 	}
-	if strings.TrimSpace(i.IntentProfileId) == "" {
-		i.IntentProfileId = strings.TrimSpace(compatibility.LegacyIntentProfileID)
+	for _, legacy := range []string{compatibility.IntentProfileID, compatibility.PromptProfileID} {
+		if value := strings.TrimSpace(legacy); value != "" {
+			if existing := i.EffectivePlaybookID(); existing != "" && existing != value {
+				return fmt.Errorf("conflicting playbook selection aliases")
+			}
+			i.PlaybookId = value
+		}
 	}
 	i.normalizeIntentProfileID()
 	return nil

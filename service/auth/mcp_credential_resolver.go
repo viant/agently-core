@@ -10,6 +10,7 @@ import (
 
 	token "github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/authlog"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	"github.com/viant/agently-core/service/auth/providerregistry"
 	"golang.org/x/oauth2"
 
@@ -222,7 +223,9 @@ func (r *DelegatedCredentialResolver) requireActiveUser(ctx context.Context, can
 	if r == nil || r.users == nil {
 		return nil
 	}
+	lookupTiming := observe.Start(ctx, "mcp.auth.user.lookup", observe.Labels{})
 	user, err := r.users.GetByID(ctx, canonical)
+	lookupTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return fmt.Errorf("delegated mcp auth could not verify the canonical user status: %w", err)
 	}
@@ -278,17 +281,24 @@ func (r *DelegatedCredentialResolver) resolve(ctx context.Context, requirement *
 	if r == nil || r.store == nil {
 		return nil, fmt.Errorf("delegated credential resolver is not configured")
 	}
+	userTiming := observe.Start(ctx, "mcp.auth.user", observe.Labels{})
 	canonical, err := r.canonicalUser(ctx)
+	userTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, err
 	}
+	providerTiming := observe.Start(ctx, "mcp.auth.provider", observe.Labels{})
 	resolved, err := r.resolveProvider(ctx, requirement)
+	providerTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, err
 	}
+	columnTiming := observe.Start(ctx, "mcp.auth.schema", observe.Labels{})
 	if err := r.ensureColumnWidth(ctx); err != nil {
+		columnTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 		return nil, err
 	}
+	columnTiming.End(observe.OK, observe.CacheUnknown)
 	// Validated workspace-token reuse: only on explicit ifCompatible policy
 	// and only after full issuer/audience/scope/type/expiry verification of a
 	// parseable JWT. A refresh request must mint through the provider, so
@@ -306,16 +316,21 @@ func (r *DelegatedCredentialResolver) resolve(ctx context.Context, requirement *
 		}
 	}
 
+	storeTiming := observe.Start(ctx, "mcp.auth.store", observe.Labels{})
 	stored, err := r.store.GetExact(ctx, canonical, resolved.storageKey)
+	storeTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, err
 	}
 	if stored == nil {
 		return nil, authcfg.NewLinkRequired(requirement, fmt.Errorf("no stored credential for provider %q", resolved.refKey))
 	}
+	validationTiming := observe.Start(ctx, "mcp.auth.validate", observe.Labels{})
 	if err := r.validateStored(stored, requirement, resolved); err != nil {
+		validationTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 		return nil, authcfg.NewLinkRequired(requirement, err)
 	}
+	validationTiming.End(observe.OK, observe.CacheUnknown)
 
 	// Expiry, validity and refresh thresholds all derive from the *selected*
 	// token: for tokenType=idToken that is the verified ID-token exp, never
@@ -343,7 +358,9 @@ func (r *DelegatedCredentialResolver) resolve(ctx context.Context, requirement *
 			}
 			return nil, authcfg.NewLinkRequired(requirement, fmt.Errorf("stored credential for provider %q has no refresh token", resolved.refKey))
 		}
+		refreshTiming := observe.Start(ctx, "mcp.auth.refresh", observe.Labels{})
 		refreshed, err := r.refreshDelegated(ctx, canonical, requirement, resolved, stored, forceRefresh)
+		refreshTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 		if err != nil {
 			if authcfg.IsLinkRequired(err) {
 				return nil, err

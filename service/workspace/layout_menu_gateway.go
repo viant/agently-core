@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
 	identity "github.com/viant/agently-core/protocol/resource"
 	resources "github.com/viant/agently-core/service/resource"
+	authconfig "github.com/viant/mcp/client/auth/config"
 )
 
 // GatewayMenuSource is trusted menu-consumer wiring, separate from a transport
@@ -17,6 +19,7 @@ type GatewayMenuSource struct {
 	Resource         identity.ResourceRef
 	ProviderIdentity string
 	ApplicationID    string
+	connection       resources.Connection
 }
 
 func NewGatewayLayoutMenuReader(gateway *resources.Gateway, sources []GatewayMenuSource) LayoutMenuReader {
@@ -25,6 +28,9 @@ func NewGatewayLayoutMenuReader(gateway *resources.Gateway, sources []GatewayMen
 }
 
 func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context.Context) ([]GatewayMenuSource, error), providerOwned bool) LayoutMenuReader {
+	if providerOwned {
+		return optionalGatewayLayoutMenuReader(gateway, sources)
+	}
 	return func(ctx context.Context) (*LayoutMenuRead, error) {
 		if gateway == nil {
 			return nil, identity.ErrResourceDenied
@@ -60,7 +66,12 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 			if err != nil || uri.Kind != "navigation" || source.ProviderIdentity == "" {
 				return nil, identity.ErrResourceDenied
 			}
-			connection, err := gateway.ConnectionForResource(ctx, uri, source.ProviderIdentity)
+			connection := source.connection
+			if connection.Name == "" {
+				connection, err = gateway.ConnectionForResource(ctx, uri, source.ProviderIdentity)
+			} else if connection.ProviderIdentity != source.ProviderIdentity {
+				return nil, identity.ErrResourceDenied
+			}
 			if err != nil {
 				return nil, fmt.Errorf("navigation connection %s: %w", source.Resource.URI, err)
 			}
@@ -192,4 +203,73 @@ func validateNavigationDefinition(raw json.RawMessage) (json.RawMessage, error) 
 		}
 	}
 	return append(json.RawMessage(nil), raw...), nil
+}
+
+// Each optional publication owns an ordinary read sequence. A denied read must
+// poison its own transaction, never the accepted reads of another provider.
+func optionalGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context.Context) ([]GatewayMenuSource, error)) LayoutMenuReader {
+	return func(ctx context.Context) (*LayoutMenuRead, error) {
+		if ctx == nil || ctx.Err() != nil {
+			return nil, identity.ErrResourceDenied
+		}
+		// Optional navigation is discovery, not a user request to link an app.
+		// Reuse the transport's existing noninteractive metadata-read marker.
+		ctx = authconfig.WithNoRetry(ctx)
+		configured, err := sources(ctx)
+		if err != nil {
+			return nil, err
+		}
+		held := []*LayoutMenuRead{}
+		closeReads := func() error {
+			var failures []error
+			for _, read := range held {
+				failures = append(failures, read.Close())
+			}
+			return errors.Join(failures...)
+		}
+		success := false
+		defer func() {
+			if !success {
+				_ = closeReads()
+			}
+		}()
+		applications := []json.RawMessage{}
+		revisions := []string{}
+		for _, source := range configured {
+			read, err := newGatewayLayoutMenuReader(gateway, func(context.Context) ([]GatewayMenuSource, error) { return []GatewayMenuSource{source}, nil }, false)(ctx)
+			if err != nil {
+				if optionalApplicationDenied(err) {
+					continue
+				}
+				return nil, err
+			}
+			held = append(held, read)
+			var apps []json.RawMessage
+			if err := json.Unmarshal(read.Applications, &apps); err != nil {
+				return nil, err
+			}
+			applications = append(applications, apps...)
+			revisions = append(revisions, read.Revision)
+		}
+		raw, err := json.Marshal(applications)
+		if err != nil {
+			return nil, err
+		}
+		version, err := json.Marshal(revisions)
+		if err != nil {
+			return nil, err
+		}
+		success = true
+		return &LayoutMenuRead{Applications: raw, Revision: identity.ContentFingerprint(version), ProviderOwnedApplications: true, Close: closeReads, Revalidate: func(ctx context.Context) error {
+			if ctx == nil || ctx.Err() != nil {
+				return identity.ErrResourceDenied
+			}
+			for _, read := range held {
+				if err := read.Revalidate(ctx); err != nil {
+					return err
+				}
+			}
+			return closeReads()
+		}}, nil
+	}
 }

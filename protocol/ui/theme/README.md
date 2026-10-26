@@ -35,7 +35,7 @@ to sans-serif, serif, or another classification. Workspaces own the registered
 WOFF2 faces and license; the style service validates and serves those assets
 through authenticated, content-addressed, same-origin URLs. Generated
 application and Forge variables share the same workspace-defined family stack.
-Bounds: font size 8–72; minimum control
+Bounds: font size 8–96; minimum control
 height 16–128; radius and inline padding 0–64. Native adapters retain platform
 touch-target minimums and text scaling and fall back to their system family when
 a workspace family asset is unavailable. Changing these rules or default palettes

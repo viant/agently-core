@@ -26,20 +26,25 @@ func TestConfiguredHostRegistersPrivateAuthoredSourcesOnOneGateway(t *testing.T)
 	}
 	root, config, _, principal := toolfeedHostFixture(t)
 	ctx := svcauth.InjectTokens(context.Background(), &scyauth.Token{IDToken: "trusted-fixture"})
-	for _, dir := range []string{"templates/bundles", "intents"} {
+	for _, dir := range []string{"templates/bundles", "intents", "playbooks"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(root, dir), 0700))
 	}
 	templateBytes := []byte("id: original-template\nname: Original Template\ninstructions: Original template body\n")
 	profileBytes := []byte("id: original-profile\nmodel: OriginalModel\ntemplate: original-template\nmessages: [{role: system, text: Original profile body}]\n")
+	playbookBytes := []byte("---\nkind: playbook\nid: original-playbook\nmodel: OriginalModel\n---\n---\nrole: system\n---\n# Instructions\nOriginal playbook body")
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates/output.yaml"), templateBytes, 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates/bundles/output.yaml"), []byte("id: original-output-bundle\ntemplates: [original-template]\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "intents/run.yaml"), profileBytes, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "playbooks/review.md"), playbookBytes, 0600))
 	config.TemplateSources = []HostAuthoredSource{{Namespace: "team", Directory: "templates"}}
 	config.IntentSources = []HostAuthoredSource{{Namespace: "team", Directory: "intents"}}
-	for _, kind := range []string{"template", "intent"} {
+	config.PlaybookSources = []HostAuthoredSource{{Namespace: "team", Directory: "playbooks"}}
+	for _, kind := range []string{"template", "intent", "playbook"} {
 		name := "output"
 		if kind == "intent" {
 			name = "run"
+		} else if kind == "playbook" {
+			name = "review"
 		}
 		uri := kind + "://team/" + name
 		family := authz.ResourceFamily{Kind: kind, ID: uri, Tenant: "tenant"}
@@ -92,6 +97,11 @@ func TestConfiguredHostRegistersPrivateAuthoredSourcesOnOneGateway(t *testing.T)
 	require.Equal(t, "OriginalModel", prof.Model)
 	require.Equal(t, "Original profile body", prof.Messages[0].Text)
 	require.Equal(t, "intent://team/run", prof.ResourceURI)
+	playbook, err := resources.NewPlaybookReader(rt.PrimitiveProviders).Load(ctx, "playbook://team/review")
+	require.NoError(t, err)
+	require.Equal(t, "original-playbook", playbook.ID)
+	require.Equal(t, "# Instructions\nOriginal playbook body", playbook.Messages[0].Text)
+	require.Equal(t, "playbook://team/review", playbook.ResourceURI)
 	parent, _ := json.Marshal(prof)
 	require.NotContains(t, string(parent), "ResourceProviderIdentity")
 	principal.principal.Facts.Roles = nil
@@ -103,11 +113,17 @@ func TestConfiguredHostRegistersPrivateAuthoredSourcesOnOneGateway(t *testing.T)
 	prof, err = resources.NewIntentReader(rt.PrimitiveProviders).Load(ctx, "original-profile")
 	require.Error(t, err)
 	require.Nil(t, prof)
+	playbook, err = resources.NewPlaybookReader(rt.PrimitiveProviders).Load(ctx, "playbook://team/review")
+	require.Error(t, err)
+	require.Nil(t, playbook)
 	actual, err := os.ReadFile(filepath.Join(root, "templates/output.yaml"))
 	require.NoError(t, err)
 	require.Equal(t, templateBytes, actual)
 	actual, err = os.ReadFile(filepath.Join(root, "intents/run.yaml"))
 	require.NoError(t, err)
 	require.Equal(t, profileBytes, actual)
+	actual, err = os.ReadFile(filepath.Join(root, "playbooks/review.md"))
+	require.NoError(t, err)
+	require.Equal(t, playbookBytes, actual)
 	_ = executor.Runtime{}
 }

@@ -32,7 +32,7 @@ func TestAdmittedIntentScopesUnqualifiedTemplateToOwningProvider(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(root, "templates/bundles", "shared.yaml"), []byte("id: same-output-bundle\ndescription: "+provider+" bundle\ntemplates: [same-template]\n"), 0600))
 		tc := NewAuthoredCompilation("templates")
 		ic := NewIntentCompilation("intents", "tools/bundles")
-		defs, err := SnapshotExtensionDefinitions(ctx, root, []ExtensionDirectory{tc.TemplateDirectory("team"), ic.IntentDirectory("team")})
+		defs, err := SnapshotExtensionDefinitions(ctx, root, []ExtensionDirectory{tc.TemplateDirectory(provider), ic.IntentDirectory(provider)})
 		require.NoError(t, err)
 		snapshot, err := NewNativeAssetSnapshot(ctx, root, defs, NativeSnapshotOptions{BeforeCompile: func(ctx context.Context, r *ExtensionReader) error {
 			if err := tc.Prepare(ctx, r); err != nil {
@@ -75,7 +75,7 @@ func TestAdmittedIntentScopesUnqualifiedTemplateToOwningProvider(t *testing.T) {
 	selected, err := tr.LoadFrom(ctx, profile.Template, profile.ResourceURI, profile.ResourceProviderIdentity)
 	require.NoError(t, err)
 	require.Equal(t, "owner body", selected.Instructions)
-	explicit, err := tr.LoadFrom(ctx, "template://team/foreign", profile.ResourceURI, profile.ResourceProviderIdentity)
+	explicit, err := tr.LoadFrom(ctx, "template://foreign/foreign", profile.ResourceURI, profile.ResourceProviderIdentity)
 	require.NoError(t, err)
 	require.Equal(t, "foreign body", explicit.Instructions)
 	raw, err := json.Marshal(profile)
@@ -89,7 +89,7 @@ func TestAdmittedIntentScopesUnqualifiedTemplateToOwningProvider(t *testing.T) {
 		return nil, errors.New("unrelated connector offline")
 	}))
 	reader := NewIntentReader(g)
-	reader.Scope = DefinitionScope{Namespace: "team", ProviderIdentity: "owner"}
+	reader.Scope = DefinitionScope{Namespace: "owner", ProviderIdentity: "owner"}
 	selectedProfile, err := reader.Load(ctx, "owner-intent")
 	require.NoError(t, err)
 	require.Equal(t, "owner", selectedProfile.ResourceProviderIdentity)

@@ -153,7 +153,7 @@ func (s *Service) filterResourceSnapshot(ctx context.Context, ns, clientID strin
 	if err != nil {
 		return nil, err
 	}
-	result := windowEnvelope{Windows: []json.RawMessage{}, ConversationID: envelope.ConversationID, ClientID: envelope.ClientID}
+	result := windowEnvelope{ObservedAt: envelope.ObservedAt, Windows: []json.RawMessage{}, ConversationID: envelope.ConversationID, ClientID: envelope.ClientID}
 	for _, window := range envelope.Windows {
 		item, err := decodeWindowIdentity(window)
 		if err != nil {
