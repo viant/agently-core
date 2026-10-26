@@ -87,11 +87,11 @@ func TestReportingCompileToolUsesPinnedStoredDefinition(t *testing.T) {
 }
 
 func TestPinnedAuthoredReportCompilesThroughOfficialLowerer(t *testing.T) {
-	content, err := os.ReadFile("testdata/authored_report.json")
+	content, err := os.ReadFile("testdata/synthetic_authored_report.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	uri, _ := identity.ParseResourceURI("report://steward/forecast_supply_command_center")
+	uri, _ := identity.ParseResourceURI("report://example/summary")
 	source := &identity.LocalResource{URI: uri, Load: func(context.Context) (json.RawMessage, error) { return append(json.RawMessage(nil), content...), nil }}
 	allowed := true
 	resolver := &identity.ResourceResolver{Source: source, Policy: reportPolicyFunc(func(_ context.Context, _ identity.ResourceRef, c []identity.ResourceCandidate) (identity.ResourceDecision, error) {

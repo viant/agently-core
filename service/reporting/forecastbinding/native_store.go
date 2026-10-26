@@ -27,10 +27,11 @@ type NativeSourceStore struct {
 	conversations ConversationReader
 	runs          NativeRunAccess
 	documents     evidence.Documents
+	tools         ToolBindings
 }
 
-func NewNativeSourceStore(c ConversationReader, r NativeRunAccess, documents ...evidence.Documents) *NativeSourceStore {
-	result := &NativeSourceStore{conversations: c, runs: r}
+func NewNativeSourceStore(c ConversationReader, r NativeRunAccess, tools ToolBindings, documents ...evidence.Documents) *NativeSourceStore {
+	result := &NativeSourceStore{conversations: c, runs: r, tools: tools}
 	if len(documents) == 1 {
 		result.documents = documents[0]
 	}
@@ -187,7 +188,7 @@ func (s *NativeSourceStore) LoadPlan(ctx context.Context, scope Scope, id string
 }
 func (s *NativeSourceStore) SavePlan(ctx context.Context, p *Plan, lease string) error {
 	if p == nil {
-		return fmt.Errorf("forecast evidence: nil plan")
+		return fmt.Errorf("report evidence: nil plan")
 	}
 	if err := p.ValidateIdentity(); err != nil {
 		return err
@@ -229,7 +230,7 @@ func (s *NativeSourceStore) PublishCompletedProjection(ctx context.Context, scop
 		return e
 	}
 	var expected json.RawMessage
-	runtime := &Runtime{store: s}
+	runtime := &Runtime{store: s, tools: s.tools}
 	switch {
 	case value[ReceiptKey] != nil:
 		receiptRaw, _ := json.Marshal(value[ReceiptKey])
@@ -246,7 +247,7 @@ func (s *NativeSourceStore) PublishCompletedProjection(ctx context.Context, scop
 		}
 		expected, e = runtime.planProjection(ctx, call, receipt.PlanID)
 	case value[SourceReceiptKey] != nil || value[ProfileReceiptKey] != nil:
-		expected, e = sourceProjection(call)
+		expected, e = sourceProjection(call, s.tools)
 	default:
 		return reject("projection receipt missing")
 	}

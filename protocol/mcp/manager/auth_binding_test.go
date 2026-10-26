@@ -41,7 +41,7 @@ func TestAuthBindingStore_SaveLoadInvalidate(t *testing.T) {
 	store := NewAuthBindingStore(state)
 	ctx := context.Background()
 	binding := &MCPAuthBinding{
-		ServerName:  "dev6",
+		ServerName:  "sample",
 		Origin:      "https://mcp.test",
 		MetadataURL: "https://mcp.test/.well-known/oauth-protected-resource",
 		ProviderRef: "approved-provider",
@@ -55,12 +55,12 @@ func TestAuthBindingStore_SaveLoadInvalidate(t *testing.T) {
 	}
 	// A fresh store over the same state directory reloads the persisted file.
 	reloaded := NewAuthBindingStore(state)
-	loaded, err := reloaded.Load(ctx, "dev6")
+	loaded, err := reloaded.Load(ctx, "sample")
 	if err != nil || loaded == nil || loaded.ProviderRef != "approved-provider" {
 		t.Fatalf("Load() = %+v, %v", loaded, err)
 	}
-	store.Invalidate(ctx, "dev6")
-	if loaded, _ := NewAuthBindingStore(state).Load(ctx, "dev6"); loaded != nil {
+	store.Invalidate(ctx, "sample")
+	if loaded, _ := NewAuthBindingStore(state).Load(ctx, "sample"); loaded != nil {
 		t.Fatalf("binding survived Invalidate(): %+v", loaded)
 	}
 }
@@ -70,14 +70,14 @@ func TestAuthBindingStore_ExpiredBindingIgnored(t *testing.T) {
 	store := NewAuthBindingStore(state)
 	ctx := context.Background()
 	if err := store.Save(ctx, &MCPAuthBinding{
-		ServerName:  "dev6",
+		ServerName:  "sample",
 		ProviderRef: "approved-provider",
 		Issuer:      "https://idp.test",
 		ExpiresAt:   time.Now().Add(-time.Minute),
 	}); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
-	if loaded, _ := store.Load(ctx, "dev6"); loaded != nil {
+	if loaded, _ := store.Load(ctx, "sample"); loaded != nil {
 		t.Fatalf("expired binding served: %+v", loaded)
 	}
 }

@@ -16,7 +16,7 @@ import (
 )
 
 func TestReferencedReportOriginalChildPinsGuardExecutionAndExport(t *testing.T) {
-	raw, e := os.ReadFile("testdata/authored_report.json")
+	raw, e := os.ReadFile("testdata/synthetic_authored_report.json")
 	require.NoError(t, e)
 	var envelope registry.ReportEnvelope
 	require.NoError(t, json.Unmarshal(raw, &envelope))
@@ -29,13 +29,13 @@ func TestReferencedReportOriginalChildPinsGuardExecutionAndExport(t *testing.T) 
 	childExpiry := time.Now().Add(40 * time.Second)
 	for id, descriptor := range envelope.DataSources {
 		child, _ := json.Marshal(map[string]any{"schemaVersion": 1, "dataSource": json.RawMessage(descriptor)})
-		uri := "datasource://shared/" + id
+		uri := "datasource://example/" + id
 		fp := identity.ContentFingerprint(child)
 		envelope.DataSourceResources[id] = primitive.DataSourceReference{Resource: identity.ResourceRef{URI: uri, Revision: "working"}, ContentFingerprint: fp, ProviderIdentity: "library"}
 		childPins[id] = identity.ResolvedResource{ProviderIdentity: "library", URI: uri, ResourceCandidate: identity.ResourceCandidate{Kind: identity.WorkingCandidate, ContentFingerprint: fp}, AuthorityBinding: "original-child-account", ValidUntil: childExpiry}
 	}
 	content, _ := json.Marshal(envelope)
-	parentURI, _ := identity.ParseResourceURI("report://steward/forecast_supply_command_center")
+	parentURI, _ := identity.ParseResourceURI("report://example/summary")
 	resolver := &identity.ResourceResolver{ProviderIdentity: "reports", Source: &identity.LocalResource{URI: parentURI, Load: func(context.Context) (json.RawMessage, error) { return content, nil }}, Policy: reportPolicyFunc(func(_ context.Context, _ identity.ResourceRef, c []identity.ResourceCandidate) (identity.ResourceDecision, error) {
 		return identity.ResourceDecision{Candidate: c[0], AuthorityBinding: "parent", ValidUntil: expiry}, nil
 	})}
@@ -65,7 +65,7 @@ func TestReferencedReportOriginalChildPinsGuardExecutionAndExport(t *testing.T) 
 	s.SetResourceDatasetExecutor(NewResourceDatasetExecutor(reportFixtureTransport(func(context.Context, string, map[string]interface{}) (string, error) {
 		calls++
 		during()
-		return `{"data":[{"channelV2":"CTV","eventDate":"2026-10-07","avails":10,"hhUniqs":5}]}`, nil
+		return `{"data":[{"category":"Example","amount":7,"count":3,"date":"2000-01-01"}]}`, nil
 	}), s.AuthorizeResourceDataset))
 	ctx := authsvc.InjectUser(context.Background(), "fixture-user")
 	request := &ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: parentURI.String()}}

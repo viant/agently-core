@@ -36,8 +36,8 @@ func TestDurableDecoratorRunsAfterFinalizationAndNeverOnPersistenceFailure(t *te
 				}
 				return "receipt:" + step.ID, true, nil
 			})
-			reg := &scriptedRegistry{script: []scriptedResult{{result: `{"status":"ok","data":[{"avails":1}]}`}}}
-			out, _, err := ExecuteToolStep(ctx, reg, StepInfo{ID: "op", Name: "steward/ForecastingCube"}, conv)
+			reg := &scriptedRegistry{script: []scriptedResult{{result: `{"status":"ok","data":[{"value":1}]}`}}}
+			out, _, err := ExecuteToolStep(ctx, reg, StepInfo{ID: "op", Name: "sample/MetricSource"}, conv)
 			if fail {
 				require.Error(t, err)
 				require.Zero(t, calls)
@@ -71,7 +71,7 @@ func TestIndependentCallsDecorateTheirOwnDurableOperation(t *testing.T) {
 		wg.Add(1)
 		go func(id string) {
 			defer wg.Done()
-			out, _, e := ExecuteToolStep(ctx, reg, StepInfo{ID: id, Name: "steward/ForecastingCube", Args: map[string]interface{}{"date": "same"}}, conv)
+			out, _, e := ExecuteToolStep(ctx, reg, StepInfo{ID: id, Name: "sample/MetricSource", Args: map[string]interface{}{"date": "same"}}, conv)
 			results <- out.Result
 			errors <- e
 		}(id)

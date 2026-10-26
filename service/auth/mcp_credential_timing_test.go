@@ -9,8 +9,8 @@ import (
 
 func TestDelegatedCredentialTimingKeepsActiveUserAndExactStoreChecks(t *testing.T) {
 	store := newFakeDelegatedStore()
-	store.seed(seededDev6Token(time.Now().Add(2 * time.Hour)))
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	store.seed(seededSampleToken(time.Now().Add(2 * time.Hour)))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	resolver.users = &fakeUserLookup{users: map[string]*User{"uuid-1": {ID: "uuid-1"}}}
 	var phases []observe.Phase
 	ctx := observe.WithObserver(delegatedCtx("uuid-1"), observe.ObserverFunc(func(event observe.Event) {
@@ -19,8 +19,8 @@ func TestDelegatedCredentialTimingKeepsActiveUserAndExactStoreChecks(t *testing.
 		}
 		phases = append(phases, event.Phase)
 	}))
-	credential, err := resolver.Resolve(ctx, dev6Requirement())
-	if err != nil || credential == nil || credential.Token != "dev6-access" {
+	credential, err := resolver.Resolve(ctx, sampleRequirement())
+	if err != nil || credential == nil || credential.Token != "sample-access" {
 		t.Fatalf("delegated resolution changed: credential=%+v err=%v", credential, err)
 	}
 	for _, phase := range []observe.Phase{"mcp.auth.user.lookup", "mcp.auth.user", "mcp.auth.provider", "mcp.auth.schema", "mcp.auth.store", "mcp.auth.validate"} {
@@ -36,7 +36,7 @@ func TestDelegatedCredentialTimingKeepsActiveUserAndExactStoreChecks(t *testing.
 		}
 	}
 	resolver.users = &fakeUserLookup{users: map[string]*User{"uuid-1": {ID: "uuid-1", Disabled: true}}}
-	if _, err := resolver.Resolve(ctx, dev6Requirement()); err == nil {
+	if _, err := resolver.Resolve(ctx, sampleRequirement()); err == nil {
 		t.Fatal("disabled user was allowed")
 	}
 	if len(phases) == 0 || phases[len(phases)-1] != "mcp.auth.user" {

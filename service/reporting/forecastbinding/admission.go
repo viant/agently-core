@@ -35,23 +35,23 @@ func AdmitUserContext(ctx context.Context, conversationID, turnID, starterID str
 	decoder := json.NewDecoder(bytes.NewReader(client))
 	decoder.DisallowUnknownFields()
 	if e := decoder.Decode(&in); e != nil {
-		return Admission{}, reject("invalid user forecast context")
+		return Admission{}, reject("invalid user report context")
 	}
 	var extra any
 	if e := decoder.Decode(&extra); e != io.EOF {
-		return Admission{}, reject("trailing user forecast context")
+		return Admission{}, reject("trailing user report context")
 	}
 	if in.Version != 1 || len(in.Selected) > 1 {
-		return Admission{}, reject("unsupported user forecast context")
+		return Admission{}, reject("unsupported user report context")
 	}
 	if len(in.Selected) == 1 {
 		selected := in.Selected[0]
 		id, e := strconv.ParseInt(selected.ID, 10, 64)
-		if e != nil || id <= 0 || strconv.FormatInt(id, 10) != selected.ID || selected.Kind != "audience" {
+		if e != nil || id <= 0 || strconv.FormatInt(id, 10) != selected.ID || selected.Kind != "entity" {
 			return Admission{}, reject("invalid selected entity")
 		}
 		a.SelectionOrigin = SelectionUser
-		a.AudienceIDs = []int64{id}
+		a.EntityIDs = []int64{id}
 	}
 	if in.Window != nil {
 		if in.Window.TimeZone != "" {

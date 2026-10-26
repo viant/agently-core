@@ -34,8 +34,8 @@ func (s *rolloutStore) OwnedRunCreatedAt(context.Context, Scope) (time.Time, err
 	return s.createdAt, s.readError
 }
 func TestRolloutResumeRequiresOwnedServerTimestampStrictlyBeforePinnedCutoff(t *testing.T) {
-	cutoff := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	a := actualAdmission(t)
+	cutoff := time.Date(2000, 1, 5, 12, 0, 0, 0, time.UTC)
+	a := syntheticAdmission(t)
 	for _, tc := range []struct {
 		name    string
 		at      time.Time
@@ -49,7 +49,7 @@ func TestRolloutResumeRequiresOwnedServerTimestampStrictlyBeforePinnedCutoff(t *
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &rolloutStore{lifecycleStore: &lifecycleStore{controllerStore: &controllerStore{receiptStore: &receiptStore{}, projected: map[string]json.RawMessage{}}}, createdAt: tc.at, readError: tc.err}
-			factory, err := NewFactory(ProjectionPolicyProducer{}, store, "UTC", WithRolloutCutoff(cutoff))
+			factory, err := NewFactory(ProjectionPolicyProducer{}, store, "UTC", syntheticToolBindings(), WithRolloutCutoff(cutoff))
 			require.NoError(t, err)
 			turn := evidence.Turn{ConversationID: a.ConversationID, TurnID: a.TurnID, LeaseOwner: func() string { return "current-lease" }}
 			ctx := controllerContext(a.Scope)
@@ -62,7 +62,7 @@ func TestRolloutResumeRequiresOwnedServerTimestampStrictlyBeforePinnedCutoff(t *
 			}
 			require.Zero(t, store.saves, "resume never recaptures admission")
 			// Restart keeps the configured cutoff; a new zone does not change eligibility.
-			restarted, err := NewFactory(ProjectionPolicyProducer{}, store, "Asia/Tokyo", WithRolloutCutoff(cutoff))
+			restarted, err := NewFactory(ProjectionPolicyProducer{}, store, "Asia/Tokyo", syntheticToolBindings(), WithRolloutCutoff(cutoff))
 			require.NoError(t, err)
 			_, err = restarted.Restore(ctx, turn)
 			require.Equal(t, tc.allowed, err == nil)
@@ -70,9 +70,9 @@ func TestRolloutResumeRequiresOwnedServerTimestampStrictlyBeforePinnedCutoff(t *
 	}
 }
 func TestRolloutExistingOrCorruptAdmissionNeverFallsBack(t *testing.T) {
-	a := actualAdmission(t)
+	a := syntheticAdmission(t)
 	store := &rolloutStore{lifecycleStore: &lifecycleStore{controllerStore: &controllerStore{receiptStore: &receiptStore{admission: a}, projected: map[string]json.RawMessage{}}}, admissionPresent: true, createdAt: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)}
-	factory, err := NewFactory(ProjectionPolicyProducer{}, store, "UTC", WithRolloutCutoff(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
+	factory, err := NewFactory(ProjectionPolicyProducer{}, store, "UTC", syntheticToolBindings(), WithRolloutCutoff(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
 	require.NoError(t, err)
 	turn := evidence.Turn{ConversationID: a.ConversationID, TurnID: a.TurnID, LeaseOwner: func() string { return "lease" }}
 	ctx := controllerContext(a.Scope)

@@ -47,7 +47,7 @@ func commandRequestID(scope Scope, op string) string {
 		OpID string
 	}{scope, op})
 	hash, _ := RequestHash(body)
-	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("agently.forecast.command.v1:"+hash)).String()
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("agently.report.command.v1:"+hash)).String()
 }
 func commandRef(receipt *CommandReceipt) string {
 	raw, _ := json.Marshal(commandReference{ConversationID: receipt.ConversationID, Version: 1, TurnID: receipt.TurnID, RequestID: receipt.RequestID})
@@ -192,7 +192,7 @@ func (c *Controller) IssueReportCommand(ctx context.Context, target evidence.Rep
 	}
 	plans := c.admittedPlanIDs()
 	if len(plans) == 0 {
-		return nil, reject("command has no admitted forecast plan")
+		return nil, reject("command has no admitted report plan")
 	}
 	receipt := &CommandReceipt{Version: 1, Scope: c.scope, RequestID: commandRequestID(c.scope, call.OpID), OpID: call.OpID, MessageID: call.MessageID, RequestHash: hash, WindowID: target.WindowID, BuilderRef: builder, Workspace: *workspace, PlanIDs: plans}
 	if err = store.saveCommand(ctx, receipt, c.lease()); err != nil {
@@ -222,7 +222,7 @@ func (c *Controller) admittedPlanIDs() []string {
 }
 func (c *Controller) rememberPlan(body json.RawMessage) error {
 	var response struct {
-		Plan *PlanReceipt `json:"_agentlyForecastPlan"`
+		Plan *PlanReceipt `json:"_agentlyReportPlan"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil || response.Plan == nil || response.Plan.PlanID == "" {
 		return reject("durable plan receipt missing")

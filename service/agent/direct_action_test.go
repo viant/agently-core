@@ -63,7 +63,7 @@ func TestAllowModelDirectAction_UsesDeclarativePolicy(t *testing.T) {
 	for name, mutate := range map[string]func(*intakesvc.Context){
 		"low confidence": func(tc *intakesvc.Context) { tc.Classification.Confidence = 0.89 },
 		"wrong profile":  func(tc *intakesvc.Context) { tc.Prompting.SuggestedProfileID = "performance_analysis" },
-		"other tool":     func(tc *intakesvc.Context) { tc.DirectAction.ToolName = "steward/MetaAdvertiser" },
+		"other tool":     func(tc *intakesvc.Context) { tc.DirectAction.ToolName = "sample/EntityMetadata" },
 		"planner mode":   func(tc *intakesvc.Context) { tc.Routing.Mode = intakesvc.ModePlanner },
 		"missing input":  func(tc *intakesvc.Context) { tc.DirectAction.Input = nil },
 	} {
@@ -105,7 +105,7 @@ func TestValidateDirectAction(t *testing.T) {
 	}
 	missingViewID := &intakesvc.DirectActionContext{
 		ToolName:      "ui/view:open",
-		Input:         map[string]any{"AdLineId": "7288336"},
+		Input:         map[string]any{"AdLineId": "8336"},
 		AssistantText: "Opening forecast view.",
 	}
 	require.ErrorContains(t, validateDirectAction(missingViewID), "input.id or input.items is required")
@@ -117,7 +117,7 @@ func TestValidateDirectAction(t *testing.T) {
 				map[string]interface{}{
 					"id": "campaign",
 					"parameters": map[string]interface{}{
-						"CampaignId": []interface{}{553524},
+						"CampaignId": []interface{}{5524},
 					},
 				},
 			},
@@ -190,10 +190,10 @@ func TestNormalizeInterfaceMap(t *testing.T) {
 		} `json:"parameters"`
 	}
 	value := payload{}
-	value.Parameters.RecordID = []int{2656980}
+	value.Parameters.RecordID = []int{6980}
 	got := normalizeInterfaceMap(value.Parameters)
 	require.Equal(t, map[string]interface{}{
-		"RecordId": []interface{}{float64(2656980)},
+		"RecordId": []interface{}{float64(6980)},
 	}, got)
 }
 
@@ -207,7 +207,7 @@ func TestDirectActionAssistantText_FallsBackToRawToolResult(t *testing.T) {
 
 func TestDirectActionAssistantText_DoesNotSpecialCaseStewardDiagnostic(t *testing.T) {
 	action := &intakesvc.DirectActionContext{
-		ToolName:      "steward/Diagnostic",
+		ToolName:      "sample/Diagnostic",
 		AssistantText: directActionToolResultAssistantText,
 	}
 	result := ` {"explanation":{"primaryBlockerClass":"DEEPER_PROOF_REQUIRED"}} `
@@ -231,14 +231,14 @@ func TestAnnotateDirectActionExecution(t *testing.T) {
 	}
 	action := directActionFromContext(input.Context)
 	require.NotNil(t, action)
-	result := `{"ok":true,"windowId":"order_2656980"}`
+	result := `{"ok":true,"windowId":"order_6980"}`
 	svc.annotateDirectActionExecution(input, action, &result)
 	tc := intakesvc.FromContext(input.Context)
 	require.NotNil(t, tc)
 	require.True(t, tc.DirectActionExecution.Executed)
 	require.Equal(t, "ui/view:open", tc.DirectActionExecution.ToolName)
-	require.Equal(t, map[string]interface{}{"ok": true, "windowId": "order_2656980"}, tc.DirectActionExecution.Result)
-	require.Equal(t, `{"ok":true,"windowId":"order_2656980"}`, tc.DirectActionExecution.ResultText)
+	require.Equal(t, map[string]interface{}{"ok": true, "windowId": "order_6980"}, tc.DirectActionExecution.Result)
+	require.Equal(t, `{"ok":true,"windowId":"order_6980"}`, tc.DirectActionExecution.ResultText)
 	require.Equal(t, true, input.Context["intake.directActionExecuted"])
 	require.Equal(t, "ui/view:open", input.Context["intake.directActionTool"])
 }
@@ -272,7 +272,7 @@ func TestMaybeRunDirectAction_InvalidActionFallsThrough(t *testing.T) {
 				},
 				DirectAction: intakesvc.DirectActionContext{
 					ToolName:      "ui/view:open",
-					Input:         map[string]any{"AdLineId": "7288336"},
+					Input:         map[string]any{"AdLineId": "8336"},
 					AssistantText: "Opening Review window.",
 				},
 			},

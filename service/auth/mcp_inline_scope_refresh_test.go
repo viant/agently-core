@@ -14,7 +14,7 @@ func TestBackgroundRefreshUsesValidatedStoredInlineOwnerWithoutFabricatedIdentit
 	store := newFakeDelegatedStore()
 	resolver := newTestResolver(t, store)
 	resolver.users = &fakeUserLookup{users: map[string]*User{"uuid-1": {ID: "uuid-1"}, "uuid-2": {ID: "uuid-2"}}}
-	inline := inlineDev6Provider()
+	inline := inlineSampleProvider()
 	require.NoError(t, resolver.registry.RegisterInline(delegatedCtx("uuid-1"), inline))
 	now := time.Now()
 	row := &OAuthToken{Username: "uuid-1", Provider: DelegatedProviderStorageKey("test-ns", inline.ID), ProviderRef: inline.ID, ClientRef: inline.DefaultClient, Issuer: inline.Issuer, Resource: "https://mcp-inline.example.com/mcp", Scopes: []string{"plan:read"}, TokenType: "accessToken", AccessToken: "synthetic-old", RefreshToken: "synthetic-refresh", IssuedAt: now.Add(-55 * time.Minute), ExpiresAt: now.Add(5 * time.Minute)}

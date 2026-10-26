@@ -10,9 +10,9 @@ import (
 
 func upstreamError() *authcfg.OAuthLinkRequiredError {
 	return &authcfg.OAuthLinkRequiredError{
-		ServerName:  "viant-mcp-dev6",
-		ProviderRef: "adelphic-dev6",
-		Issuer:      "https://idp-dev6.example.com",
+		ServerName:  "sample-mcp",
+		ProviderRef: "sample-provider",
+		Issuer:      "https://idp-sample.example.com",
 		Resource:    "https://mcp6.example.com/mcp",
 		Scopes:      []string{"plan:create", "plan:edit", "plan:read"},
 		MetadataURL: "https://mcp6.example.com/.well-known/oauth-protected-resource",
@@ -26,7 +26,7 @@ func TestFromErrorMapsUpstreamPreservingBindingFields(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected mapping for wrapped upstream error")
 	}
-	if typed.ServerName != "viant-mcp-dev6" || typed.ProviderRef != "adelphic-dev6" {
+	if typed.ServerName != "sample-mcp" || typed.ProviderRef != "sample-provider" {
 		t.Fatalf("identity fields lost: %+v", typed)
 	}
 	if typed.Issuer == "" || typed.Resource == "" || typed.MetadataURL == "" {
@@ -55,10 +55,10 @@ func TestAPIErrorShape(t *testing.T) {
 	if api["code"] != APICode {
 		t.Fatalf("code = %v", api["code"])
 	}
-	if api["server"] != "viant-mcp-dev6" || api["provider"] != "adelphic-dev6" {
+	if api["server"] != "sample-mcp" || api["provider"] != "sample-provider" {
 		t.Fatalf("api identity = %v", api)
 	}
-	if api["connectURL"] != "/v1/api/auth/mcp/viant-mcp-dev6/initiate" {
+	if api["connectURL"] != "/v1/api/auth/mcp/sample-mcp/initiate" {
 		t.Fatalf("connectURL = %v", api["connectURL"])
 	}
 	for _, forbidden := range []string{"token", "secret", "authorizationURL", "code_verifier"} {

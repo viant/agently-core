@@ -26,6 +26,7 @@ class PublicBoundaryTests(unittest.TestCase):
         checkout = "/" + "Users/demo/projects/private-app/data.json"
         for path in ["examples/README.md", "unit_test.go", "testdata/records.json"]:
             self.assertIn("private-checkout-path", boundaries.content_issues(path, checkout))
+        self.assertIn("private-checkout-path", boundaries.content_issues("example.md", "/" + "Users/demo"))
 
     def test_private_urls_and_url_credentials_are_rejected(self):
         for url in ["https://api.demo" + ".internal/data", "wss://api.demo" + ".corp/socket", "https://demo:" + "synthetic-password@example.invalid"]:
@@ -62,6 +63,16 @@ class PublicBoundaryTests(unittest.TestCase):
         self.assertEqual(["private-deployment-url"], issues)
         self.assertNotIn("synthetic-password", " ".join(issues))
 
+    def test_security_negative_example_requires_exact_reviewed_source(self):
+        path = "service/demo/security_test.go"
+        raw = ("https://demo:" + "synthetic-password@example.invalid").encode()
+        entries = {path: {"origin": "independently-constructed-synthetic", "purpose": "security-negative-example", "sha256": hashlib.sha256(raw).hexdigest()}}
+        self.assertTrue(boundaries.allows_synthetic_userinfo(path, raw, entries))
+        self.assertFalse(boundaries.content_issues(path, raw.decode(), True))
+        self.assertFalse(boundaries.allows_synthetic_userinfo(path, raw + b"changed", entries))
+        self.assertFalse(boundaries.allows_synthetic_userinfo("examples/demo.md", raw, entries))
+        self.assertTrue(boundaries.content_issues(path, "/" + "Users/demo/workspace/example", True))
+
     def test_outgoing_tree_audit_catches_an_intermediate_capture(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
@@ -83,6 +94,58 @@ class PublicBoundaryTests(unittest.TestCase):
             git("commit", "-qm", "ENG-12345: remove sample")
             self.assertIn(("output/run.json", "private-artifact-path"), boundaries.audit_tree(repo, base, captured))
             self.assertFalse(boundaries.audit_tree(repo, base, "HEAD"))
+
+    def test_unchanged_baseline_source_and_response_records_are_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(repo), *args], stderr=subprocess.DEVNULL).decode().strip()
+            git("init", "-q")
+            git("config", "user.email", "fixture@example.invalid")
+            git("config", "user.name", "Synthetic Test")
+            (repo / "README.md").write_text("/" + "Users/demo/workspace/example\n")
+            (repo / "service/demo/testdata").mkdir(parents=True)
+            (repo / "service/demo/testdata/evidence.json").write_text('{"records":[{"request":{"recordId":7},"response":{"data":[1]}}]}')
+            git("add", ".")
+            git("commit", "-qm", "ENG-12345: add synthetic baseline for negative regression")
+            base = git("rev-parse", "HEAD")
+            issues = boundaries.audit_tree(repo, base, "HEAD")
+            self.assertIn(("README.md", "private-checkout-path"), issues)
+            self.assertIn(("service/demo/testdata/evidence.json", "missing-synthetic-provenance"), issues)
+            self.assertEqual(issues, boundaries.audit_tree(repo, base, worktree=True))
+
+    def test_synthetic_reporting_fixtures_reproduce_from_generator(self):
+        directory = Path(__file__).resolve().parent.parent / "service/reporting/forecastbinding/testdata"
+        spec = importlib.util.spec_from_file_location("synthetic_evidence", directory / "generate_synthetic_evidence.py")
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+        generated = generator.fixtures()
+        self.assertEqual(2, len(generated))
+        for filename, value in generated.items():
+            self.assertEqual(json.dumps(value, indent=2) + "\n", (directory / filename).read_text())
+        matrix = generated["synthetic_metric_calls.json"]
+        self.assertEqual(20, len(matrix["records"]))
+        self.assertEqual(15, sum(len(column["calls"]) for column in matrix["bindings"]["columns"]))
+        self.assertTrue(all(call["ownerId"] == "synthetic-owner" for call in matrix["records"]))
+
+    def test_synthetic_cli_preview_reproduces_from_generator(self):
+        directory = Path(__file__).resolve().parent.parent / "e2e/cli/agui_probe/testdata"
+        spec = importlib.util.spec_from_file_location("synthetic_preview", directory / "generate_synthetic_preview.py")
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+        value = generator.fixture()
+        self.assertEqual(json.dumps(value, indent=2) + "\n", (directory / "synthetic-native-preview.json").read_text())
+        native = json.loads(value["messages"][0]["content"])
+        self.assertEqual("synthetic-message", native["messageId"])
+        self.assertEqual(native["returned"], len(native["body"].encode()))
+
+    def test_synthetic_authored_report_contract_and_reproducibility(self):
+        root = Path(__file__).resolve().parent.parent
+        subprocess.run(["node", str(root / "scripts/generate-synthetic-report-fixture.mjs"), "--check"], cwd=root, check=True, capture_output=True)
+        fixture = json.loads((root / "service/reporting/testdata/synthetic_authored_report.json").read_text())
+        self.assertEqual(6, len(fixture["dataSources"]))
+        self.assertEqual(8, len(fixture["dependencies"]))
+        self.assertTrue(all(value["backend"]["kind"] == "mcp_tool" for value in fixture["dataSources"].values()))
 
 
 if __name__ == "__main__":

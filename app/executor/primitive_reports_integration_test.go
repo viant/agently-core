@@ -36,7 +36,7 @@ import (
 const reportFixtureToken = "verified-report-fixture-token"
 const reportProviderID = "independent-report-provider"
 const reportToolService = "independent-report-tool"
-const reportURI = "report://steward/forecast_supply_command_center"
+const reportURI = "report://example/summary"
 
 type reportActorContextKey struct{}
 type reportIntegrationProvider struct{ options map[string]*mcpcfg.MCPClient }
@@ -137,7 +137,7 @@ func (h *reportToolHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		rows := []any{}
-		all := []map[string]any{{"channelV2": "CTV", "eventDate": "2026-10-07", "country": "United States", "avails": 10, "hhUniqs": 5, "deviceUniqs": 2, "minClearingPrice": 1.5}, {"channelV2": "OLV", "eventDate": "2026-10-08", "country": "Canada", "avails": 20, "hhUniqs": 8, "deviceUniqs": 3, "minClearingPrice": 2.5}, {"channelV2": "CTV", "eventDate": "2026-10-09", "country": "United States", "avails": 30, "hhUniqs": 9, "deviceUniqs": 4, "minClearingPrice": 3.5}}
+		all := []map[string]any{{"category": "First", "date": "2000-01-01", "amount": 7, "count": 3}, {"category": "Second", "date": "2000-01-02", "amount": 8, "count": 4}, {"category": "Third", "date": "2000-01-03", "amount": 9, "count": 5}}
 		for i := offset; i < len(all) && i < offset+2; i++ {
 			rows = append(rows, all[i])
 		}
@@ -179,7 +179,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	ordinaryServer := httptest.NewServer(ordinary)
 	t.Cleanup(ordinaryServer.Close)
 
-	raw, err := os.ReadFile(filepath.Join("..", "..", "service", "reporting", "testdata", "authored_report.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "service", "reporting", "testdata", "synthetic_authored_report.json"))
 	require.NoError(t, err)
 	var envelope registry.ReportEnvelope
 	require.NoError(t, json.Unmarshal(raw, &envelope))
@@ -201,7 +201,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 		envelope.DataSources[id] = descriptorRaw
 		wrapped, err := json.Marshal(map[string]any{"schemaVersion": 1, "dataSource": json.RawMessage(descriptorRaw)})
 		require.NoError(t, err)
-		uri := "datasource://steward/" + id
+		uri := "datasource://example/" + id
 		fingerprint := identity.ContentFingerprint(wrapped)
 		envelope.DataSourceResources[id] = primitive.DataSourceReference{Resource: identity.ResourceRef{URI: uri, Revision: identity.WorkingCandidate}, ContentFingerprint: fingerprint, ProviderIdentity: reportProviderID}
 		descriptorFingerprint := identity.ContentFingerprint(descriptorRaw)
@@ -238,7 +238,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	require.NoError(t, parseErr)
 	var reportBodyMu sync.Mutex
 	reportBody := append(json.RawMessage(nil), content...)
-	providerBindings = append(providerBindings, provider.LocalResourceBinding{URI: reportURI, Title: "Forecast Supply", FormatVersion: 1, Resolver: func(_ context.Context, _ identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
+	providerBindings = append(providerBindings, provider.LocalResourceBinding{URI: reportURI, Title: "Synthetic Summary", FormatVersion: 1, Resolver: func(_ context.Context, _ identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
 		return &identity.ResourceResolver{ProviderIdentity: reportProviderID, Source: &identity.LocalResource{URI: reportIdentity, Load: func(context.Context) (json.RawMessage, error) {
 			reportBodyMu.Lock()
 			defer reportBodyMu.Unlock()
@@ -258,7 +258,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 		}
 		return nil
 	}, Authorize: func(_ context.Context, a identity.VerifiedActor, u identity.ResourceURI, _ string) error {
-		if a.Subject != actor.Subject || u.Namespace != "steward" {
+		if a.Subject != actor.Subject || u.Namespace != "example" {
 			return identity.ErrResourceDenied
 		}
 		return nil
@@ -352,7 +352,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 		require.NotEmpty(t, run.DependencyToken)
 		for id, pin := range run.DependencyPins {
 			require.Equal(t, reportProviderID, pin.ProviderIdentity)
-			require.Equal(t, "datasource://steward/"+id, pin.URI, "retain the exact original external datasource URI")
+			require.Equal(t, "datasource://example/"+id, pin.URI, "retain the exact original external datasource URI")
 		}
 		for id, result := range run.Datasets {
 			require.Len(t, result.Rows, 3, "paged datasource %s must aggregate all three actual HTTP MCP rows", id)
@@ -398,7 +398,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	for id, result := range run.Datasets {
 		require.Len(t, result.Rows, 3, "paged datasource %s must aggregate all three actual HTTP MCP rows", id)
 	}
-	listed, err := built.Reporting.ListReports(ctx, &reportingsvc.ListReportsInput{Namespace: "steward"})
+	listed, err := built.Reporting.ListReports(ctx, &reportingsvc.ListReportsInput{Namespace: "example"})
 	require.NoError(t, err)
 	require.Len(t, listed.Reports, 1)
 	require.Equal(t, reportURI, listed.Reports[0].ResourceURI)
@@ -492,7 +492,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 		case "xlsx":
 			require.True(t, strings.HasPrefix(string(artifact.Data), "PK\x03\x04"))
 		case "csv":
-			require.Contains(t, string(artifact.Data), "CTV")
+			require.Contains(t, string(artifact.Data), "First,7,3,10")
 		}
 	}
 }

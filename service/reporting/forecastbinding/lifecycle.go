@@ -16,7 +16,7 @@ type AdmissionStore interface {
 }
 
 // Factory is an explicit host dependency, not enabled by package registration.
-// It captures only client.forecastIntent; routing hints cannot become intent.
+// It captures only client.reportIntent; routing hints cannot become intent.
 type Factory struct {
 	runtime       *Runtime
 	store         AdmissionStore
@@ -49,11 +49,11 @@ type OwnedRunCreatedAtReader interface {
 	OwnedRunCreatedAt(context.Context, Scope) (time.Time, error)
 }
 
-func NewFactory(producer PolicyProducer, store AdmissionStore, zone string, options ...FactoryOption) (*Factory, error) {
+func NewFactory(producer PolicyProducer, store AdmissionStore, zone string, tools ToolBindings, options ...FactoryOption) (*Factory, error) {
 	if _, err := time.LoadLocation(zone); err != nil {
 		return nil, err
 	}
-	runtime, err := NewRuntime(producer, store)
+	runtime, err := NewRuntime(producer, store, tools)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (f *Factory) Capture(ctx context.Context, input evidence.Input) (evidence.P
 			if err := json.Unmarshal(client, &fields); err != nil {
 				return nil, reject("invalid client context")
 			}
-			raw = append(json.RawMessage(nil), fields["forecastIntent"]...)
+			raw = append(json.RawMessage(nil), fields["reportIntent"]...)
 		}
 	}
 	// Validate syntax and explicit intent before intake. These temporary scope

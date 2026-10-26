@@ -120,7 +120,7 @@ func TestLoadFailsClosedOnDecodeError(t *testing.T) {
 
 func TestRegisterInlineOverlay(t *testing.T) {
 	registry := NewWithLoader(&testLoader{docs: map[string]*oauthprovider.Document{}})
-	inline := inlineProvider("inline-dev6", "https://idp-inline.example.com", "20m")
+	inline := inlineProvider("inline-sample", "https://idp-inline.example.com", "20m")
 	if err := registry.RegisterInline(context.Background(), inline); err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -135,12 +135,12 @@ func TestRegisterInlineOverlay(t *testing.T) {
 		t.Fatalf("conflicting inline definitions must fail")
 	}
 
-	resolved, err := registry.ResolveProvider(context.Background(), "inline-dev6")
+	resolved, err := registry.ResolveProvider(context.Background(), "inline-sample")
 	if err != nil || resolved.Issuer != "https://idp-inline.example.com" {
 		t.Fatalf("overlay provider must resolve: %v %+v", err, resolved)
 	}
 	matched, err := registry.MatchIssuer(context.Background(), "https://idp-inline.example.com/")
-	if err != nil || matched.ID != "inline-dev6" {
+	if err != nil || matched.ID != "inline-sample" {
 		t.Fatalf("overlay provider must match by normalized issuer: %v", err)
 	}
 	if lead := registry.MaxRefreshLead(context.Background()); lead != 20*time.Minute {

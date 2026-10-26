@@ -752,10 +752,10 @@ func TestService_Run_Internal_RepoAnalysisContextDoesNotRewriteObjectiveOrAllowL
 	streaming := false
 	in := &RunInput{
 		AgentID:   "coder",
-		Objective: "analyze /Users/awitas/go/src/github.com/viant/xdatly",
+		Objective: "analyze /workspace/go/src/github.com/viant/xdatly",
 		Streaming: &streaming,
 		Context: map[string]interface{}{
-			"workdir":      "/Users/awitas/go/src/github.com/viant/xdatly",
+			"workdir":      "/workspace/go/src/github.com/viant/xdatly",
 			"repoAnalysis": true,
 		},
 	}
@@ -772,7 +772,7 @@ func TestService_Run_Internal_RepoAnalysisContextDoesNotRewriteObjectiveOrAllowL
 
 	require.NoError(t, err)
 	require.NotNil(t, fake.lastInput)
-	assert.Equal(t, "analyze /Users/awitas/go/src/github.com/viant/xdatly", fake.lastInput.Query)
+	assert.Equal(t, "analyze /workspace/go/src/github.com/viant/xdatly", fake.lastInput.Query)
 	assert.EqualValues(t, []string{}, fake.lastInput.ToolsAllowed)
 }
 
@@ -839,9 +839,9 @@ func TestService_Run_Internal_ChildFailureReturnsToolResult(t *testing.T) {
 	var out RunOutput
 	err := svc.run(runCtx, &RunInput{
 		AgentID:   "coder",
-		Objective: "analyze /Users/awitas/go/src/github.com/viant/xdatly",
+		Objective: "analyze /workspace/go/src/github.com/viant/xdatly",
 		Context: map[string]interface{}{
-			"workdir":      "/Users/awitas/go/src/github.com/viant/xdatly",
+			"workdir":      "/workspace/go/src/github.com/viant/xdatly",
 			"repoAnalysis": true,
 		},
 	}, &out)
@@ -909,8 +909,8 @@ func TestService_Run_Internal_CanceledParentButSucceededChildReturnsSuccess(t *t
 	var out RunOutput
 	err := svc.run(runCtx, &RunInput{
 		AgentID:   "coder",
-		Objective: "analyze /Users/awitas/go/src/github.com/viant/xdatly",
-		Context:   map[string]interface{}{"workdir": "/Users/awitas/go/src/github.com/viant/xdatly"},
+		Objective: "analyze /workspace/go/src/github.com/viant/xdatly",
+		Context:   map[string]interface{}{"workdir": "/workspace/go/src/github.com/viant/xdatly"},
 	}, &out)
 
 	require.NoError(t, err)
@@ -977,8 +977,8 @@ func TestService_Run_Internal_CanceledChildReturnsFailedToolResult(t *testing.T)
 	var out RunOutput
 	err := svc.run(runCtx, &RunInput{
 		AgentID:   "coder",
-		Objective: "analyze /Users/awitas/go/src/github.com/viant/xdatly",
-		Context:   map[string]interface{}{"workdir": "/Users/awitas/go/src/github.com/viant/xdatly"},
+		Objective: "analyze /workspace/go/src/github.com/viant/xdatly",
+		Context:   map[string]interface{}{"workdir": "/workspace/go/src/github.com/viant/xdatly"},
 	}, &out)
 
 	require.NoError(t, err)
@@ -2181,7 +2181,7 @@ func TestService_Run_External_DoesNotPersistObjectiveEchoPreview(t *testing.T) {
 		TurnID:         "turn-1",
 	})
 
-	objective := "Analyze project /Users/awitas/go/src/github.com/viant/xdatly and summarize the structure."
+	objective := "Analyze project /workspace/go/src/github.com/viant/xdatly and summarize the structure."
 	svc := New(nil,
 		WithConversationClient(conv),
 		WithExternalRunner(func(_ context.Context, agentID, objective string, payload map[string]interface{}) (string, string, string, string, bool, []string, error) {

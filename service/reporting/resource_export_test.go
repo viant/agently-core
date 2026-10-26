@@ -145,7 +145,7 @@ func TestUnifiedExportRequiresExecutedPinAndPersistsIt(t *testing.T) {
 }
 
 func TestUnifiedExportExecutesTheExactResourceInsteadOfAcceptingSnapshots(t *testing.T) {
-	raw, err := os.ReadFile("testdata/authored_report.json")
+	raw, err := os.ReadFile("testdata/synthetic_authored_report.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestUnifiedExportExecutesTheExactResourceInsteadOfAcceptingSnapshots(t *tes
 		}
 	}
 	raw, _ = json.Marshal(envelope)
-	uri, _ := identity.ParseResourceURI("report://steward/forecast_supply_command_center")
+	uri, _ := identity.ParseResourceURI("report://example/summary")
 	resolver := &identity.ResourceResolver{Source: &identity.LocalResource{URI: uri, Load: func(context.Context) (json.RawMessage, error) { return append(json.RawMessage(nil), raw...), nil }}, Policy: reportPolicyFunc(func(_ context.Context, _ identity.ResourceRef, candidates []identity.ResourceCandidate) (identity.ResourceDecision, error) {
 		if len(candidates) != 1 {
 			return identity.ResourceDecision{}, identity.ErrResourceDenied
@@ -186,7 +186,7 @@ func TestUnifiedExportExecutesTheExactResourceInsteadOfAcceptingSnapshots(t *tes
 			t.Fatalf("unexpected datasource operation: %s", name)
 		}
 		seenDatasources[name] = true
-		return `{"data":[{"eventDate":"2026-10-07","spend":12.5}]}`, nil
+		return `{"data":[{"category":"Example","amount":7,"count":3,"date":"2000-01-01"}]}`, nil
 	}), service.AuthorizeResourceDataset))
 	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "export-owner"), "export-owner"), "fixture-oauth")
 	job, err := service.SubmitExport(ctx, &SubmitExportRequest{Resource: &identity.ResourceRef{URI: uri.String()}, Format: ExportFormatPDF})

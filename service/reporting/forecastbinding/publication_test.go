@@ -8,8 +8,8 @@ import (
 
 func TestBoundEnvelopeMaterializesActualFifteenCellsAndRejectsSwappedRows(t *testing.T) {
 	fixture := loadFixture(t)
-	admission := actualAdmission(t)
-	plan, err := NewPlan(context.Background(), ProjectionPolicyProducer{}, admission, actualSources(t))
+	admission := syntheticAdmission(t)
+	plan, err := NewPlan(context.Background(), ProjectionPolicyProducer{}, admission, syntheticSources(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17,9 +17,9 @@ func TestBoundEnvelopeMaterializesActualFifteenCellsAndRejectsSwappedRows(t *tes
 	for _, call := range fixture.Records {
 		store.calls[call.OpID] = call
 	}
-	runtime, _ := NewRuntime(ProjectionPolicyProducer{}, store)
+	runtime, _ := NewRuntime(ProjectionPolicyProducer{}, store, syntheticToolBindings())
 	binding := DataBindings{PlanID: plan.ID, Profile: fixture.Bindings.Profile, Columns: fixture.Bindings.Columns}
-	envelope := map[string]any{"version": 1, "scope": "forecast", "id": "timeline", "reportRef": "forecast-report", "sequence": 2, "mode": "snapshot", "format": "json", "sourceBindings": binding}
+	envelope := map[string]any{"version": 1, "scope": "report", "id": "timeline", "reportRef": "report-report", "sequence": 2, "mode": "snapshot", "format": "json", "sourceBindings": binding}
 	raw, _ := json.Marshal(envelope)
 	body, err := runtime.BindDataEnvelope(context.Background(), admission.Scope, raw)
 	if err != nil {

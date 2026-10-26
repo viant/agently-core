@@ -22,7 +22,7 @@ func (f reportFixtureTransport) Execute(ctx context.Context, name string, args m
 	return f(ctx, name, args)
 }
 func TestAuthoredResourceExecutesRealDatasourcePipeline(t *testing.T) {
-	original, err := os.ReadFile("testdata/authored_report.json")
+	original, err := os.ReadFile("testdata/synthetic_authored_report.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestAuthoredResourceExecutesRealDatasourcePipeline(t *testing.T) {
 	}
 	original, _ = json.Marshal(envelope)
 	content := append([]byte(nil), original...)
-	uri, _ := identity.ParseResourceURI("report://steward/forecast_supply_command_center")
+	uri, _ := identity.ParseResourceURI("report://example/summary")
 	binding := "verified-account"
 	allowed := true
 	expiry := time.Now().Add(time.Minute)
@@ -72,7 +72,7 @@ func TestAuthoredResourceExecutesRealDatasourcePipeline(t *testing.T) {
 			t.Fatal("missing exact pin")
 		}
 		during()
-		return `{"data":[{"channelV2":"CTV","eventDate":"2026-10-07","avails":10,"hhUniqs":5}]}`, nil
+		return `{"data":[{"category":"Example","amount":7,"count":3,"date":"2000-01-01"}]}`, nil
 	}), service.AuthorizeResourceDataset))
 	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "fixture-user"), "fixture-user"), "fixture-oauth")
 	request := &ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: uri.String()}}

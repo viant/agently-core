@@ -1685,7 +1685,7 @@ func TestExecuteToolStep_ActivatedStatusPollerCreatesNarrationOnFirstMeaningfulU
 	}
 	reg := &asyncRegistry{
 		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
-			{result: `{"status":"running","message":"Translating the baseline targeting stack into forecast parameters and checking the last three complete days one day at a time.","messageKind":"preamble"}`},
+			{result: `{"status":"running","message":"Preparing a report for the selected records across complete days.","messageKind":"preamble"}`},
 			{result: `{"status":"completed","message":"{\"name\":\"forecast\"}","messageKind":"response"}`},
 		}},
 		cfg: cfg,
@@ -1721,13 +1721,13 @@ func TestExecuteToolStep_ActivatedStatusPollerCreatesNarrationOnFirstMeaningfulU
 	}, conv)
 	require.NoError(t, err)
 	require.Contains(t, out.Result, `"messageKind":"preamble"`)
-	require.Contains(t, out.Result, "Translating the baseline targeting stack")
+	require.Contains(t, out.Result, "Preparing a report for the selected records")
 	require.Eventually(t, func() bool {
 		for _, msg := range conv.patchedMessagesSnapshot() {
 			if msg == nil || msg.Narration == nil {
 				continue
 			}
-			if strings.Contains(strings.TrimSpace(*msg.Narration), "Translating the baseline targeting stack") {
+			if strings.Contains(strings.TrimSpace(*msg.Narration), "Preparing a report for the selected records") {
 				return true
 			}
 		}
@@ -1993,14 +1993,14 @@ func TestMaybeHandleAsyncTool_StatusRunningPreservesDisplayToolName(t *testing.T
 	reg := &asyncRegistry{cfg: cfg}
 
 	manager.Register(ctx, asynccfg.RegisterInput{
-		ID:             "targeting-tree",
+		ID:             "selection-tree",
 		ParentConvID:   "conv-1",
 		ParentTurnID:   "turn-1",
 		ToolCallID:     "call-skill",
 		ToolMessageID:  "tool-msg-skill",
 		ToolName:       "llm_skills-activate",
 		StatusToolName: "llm/skills:activate",
-		StatusArgs:     map[string]interface{}{"name": "targeting-tree"},
+		StatusArgs:     map[string]interface{}{"name": "selection-tree"},
 		ExecutionMode:  string(asynccfg.ExecutionModeWait),
 		Status:         "running",
 		PollIntervalMs: 5,
@@ -2010,7 +2010,7 @@ func TestMaybeHandleAsyncTool_StatusRunningPreservesDisplayToolName(t *testing.T
 	rec := maybeHandleAsyncTool(ctx, reg, StepInfo{
 		ID:   "call-status",
 		Name: "llm/skills:activate",
-		Args: map[string]interface{}{"name": "targeting-tree"},
+		Args: map[string]interface{}{"name": "selection-tree"},
 	}, `{"status":"running","message":"still running"}`, nil)
 	require.NotNil(t, rec)
 	calls := conv.patchedToolCallsSnapshot()

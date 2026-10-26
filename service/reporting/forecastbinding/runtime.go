@@ -17,13 +17,21 @@ type PlanStore interface {
 type Runtime struct {
 	producer PolicyProducer
 	store    PlanStore
+	tools    ToolBindings
 }
 
-func NewRuntime(producer PolicyProducer, store PlanStore) (*Runtime, error) {
+// IsDataTool reports whether the supplied MCP name belongs to this runtime's
+// host-configured data source contract.
+func (r *Runtime) IsDataTool(tool string) bool { return r != nil && r.tools.isData(tool) }
+
+func NewRuntime(producer PolicyProducer, store PlanStore, tools ToolBindings) (*Runtime, error) {
 	if producer == nil || store == nil {
 		return nil, reject("evidence dependencies unavailable")
 	}
-	return &Runtime{producer: producer, store: store}, nil
+	if err := tools.Validate(); err != nil {
+		return nil, err
+	}
+	return &Runtime{producer: producer, store: store, tools: tools}, nil
 }
 func (r *Runtime) AdmitPlan(ctx context.Context, scope Scope, profileOp, conversionOp, lease string) (*Plan, error) {
 	a, e := r.store.LoadAdmission(ctx, scope)
@@ -44,7 +52,7 @@ func (r *Runtime) AdmitPlan(ctx context.Context, scope Scope, profileOp, convers
 	if p == nil || c == nil {
 		return nil, reject("plan source missing")
 	}
-	plan, e := NewPlan(ctx, r.producer, *a, PlanSources{Profile: *p, Conversion: *c})
+	plan, e := NewPlan(ctx, r.producer, *a, PlanSources{Profile: *p, Conversion: *c, Tools: r.tools})
 	if e != nil {
 		return nil, e
 	}
@@ -92,7 +100,7 @@ func (r *Runtime) DecorateCompleted(ctx context.Context, scope Scope, planID, op
 	if e != nil {
 		return nil, e
 	}
-	for _, key := range []string{ReceiptKey, PlanReceiptKey, "_agentlyForecastProfile"} {
+	for _, key := range []string{ReceiptKey, PlanReceiptKey, "_agentlyReportProfile"} {
 		if _, collision := response[key]; collision {
 			return nil, reject("reserved evidence key collision")
 		}
@@ -114,7 +122,7 @@ func (r *Runtime) DecorateCompleted(ctx context.Context, scope Scope, planID, op
 	if e != nil {
 		return nil, e
 	}
-	ref := Reference{OpID: c.OpID, RequestHash: hash, ResponsePointer: AvailsPointer}
+	ref := Reference{OpID: c.OpID, RequestHash: hash, ResponsePointer: ValuePointer}
 	allowedDay := false
 	for _, date := range p.Produced.Policy.Dates {
 		if date == day {
@@ -126,7 +134,7 @@ func (r *Runtime) DecorateCompleted(ctx context.Context, scope Scope, planID, op
 	}
 	var columns []string
 	for column, template := range p.Produced.Policy.Templates {
-		_, e := Materialize(scope, Policy{Dates: []string{day}, Templates: map[string]json.RawMessage{column: template}}, Bindings{Profile: Profile, Columns: []Column{{Key: column, Calls: []Reference{ref}}}}, []Call{*c})
+		_, e := Materialize(scope, Policy{SourceTool: r.tools.Data, Dates: []string{day}, Templates: map[string]json.RawMessage{column: template}}, Bindings{Profile: Profile, Columns: []Column{{Key: column, Calls: []Reference{ref}}}}, []Call{*c})
 		if e == nil {
 			columns = append(columns, column)
 		}
@@ -139,7 +147,7 @@ func (r *Runtime) DecorateCompleted(ctx context.Context, scope Scope, planID, op
 	if e != nil {
 		return nil, e
 	}
-	response[ReceiptKey] = Receipt{Profile: Profile, PlanID: planID, Date: day, Columns: columns, OpID: opID, RequestHash: hash, ResponseHash: responseHash, ResponsePointer: AvailsPointer, SelectionOrigin: p.Admission.SelectionOrigin, DateOrigin: p.Admission.DateOrigin}
+	response[ReceiptKey] = Receipt{Profile: Profile, PlanID: planID, Date: day, Columns: columns, OpID: opID, RequestHash: hash, ResponseHash: responseHash, ResponsePointer: ValuePointer, SelectionOrigin: p.Admission.SelectionOrigin, DateOrigin: p.Admission.DateOrigin}
 	return json.Marshal(response)
 }
 

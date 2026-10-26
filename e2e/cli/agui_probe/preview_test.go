@@ -43,8 +43,8 @@ func TestNativePreviewMetadataKeepsOriginalPagingContract(t *testing.T) {
 	}
 }
 
-func TestCapturedNativePreviewMetadata(t *testing.T) {
-	raw, err := os.ReadFile("testdata/native-preview.json")
+func TestSyntheticNativePreviewMetadata(t *testing.T) {
+	raw, err := os.ReadFile("testdata/synthetic-native-preview.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,14 +52,14 @@ func TestCapturedNativePreviewMetadata(t *testing.T) {
 	if err = json.Unmarshal(raw, &actual); err != nil {
 		t.Fatal(err)
 	}
-	metadata, err := previewMetadata(actual, "811d953e-c389-4c22-8a29-0532216e28d8")
+	metadata, err := previewMetadata(actual, "synthetic-message")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metadata["returned"] != float64(7372) || metadata["remaining"] != float64(123746) || metadata["bodyBytes"] != 7372 {
+	if metadata["returned"] != float64(4) || metadata["remaining"] != float64(12) || metadata["bodyBytes"] != 4 {
 		t.Fatal("native captured lengths changed")
 	}
-	if metadata["messageId"] != "811d953e-c389-4c22-8a29-0532216e28d8" {
+	if metadata["messageId"] != "synthetic-message" {
 		t.Fatal("original message identity changed")
 	}
 }

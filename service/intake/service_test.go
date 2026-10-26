@@ -33,7 +33,7 @@ func TestParseOutput_ValidJSON(t *testing.T) {
 }
 
 func TestParseOutput_DirectAction(t *testing.T) {
-	raw := `{"classification":{"title":"Show order","intent":"show_order","confidence":0.92},"scope":{"values":{"adOrderId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"AdOrderId\":[2637048]}}","assistantText":"Opened the order summary window."}}`
+	raw := `{"classification":{"title":"Show order","intent":"show_order","confidence":0.92},"scope":{"values":{"entityId":"3048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"EntityId\":[3048]}}","assistantText":"Opened the order summary window."}}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
 	assert.Equal(t, "ui/view:open", tc.DirectAction.ToolName)
@@ -53,7 +53,7 @@ func TestParseOutput_DropsMalformedDirectAction(t *testing.T) {
 }
 
 func TestParseOutput_DropsUIViewOpenWithoutID(t *testing.T) {
-	raw := `{"classification":{"title":"Open Forecasting Builder","intent":"ui_open","confidence":0.66},"prompting":{"suggestedProfileId":"workspace_ui","templateId":"analytics_dashboard"},"directAction":{"toolName":"ui/view:open","inputJson":"{\"presentation\":\"hosted\",\"windowKey\":\"forecastingCubeBuilder\",\"parameters\":{\"AdOrderId\":7288336}}","assistantText":"Opening Forecasting view."}}`
+	raw := `{"classification":{"title":"Open Report Builder","intent":"ui_open","confidence":0.66},"prompting":{"suggestedProfileId":"workspace_ui","templateId":"analytics_dashboard"},"directAction":{"toolName":"ui/view:open","inputJson":"{\"presentation\":\"hosted\",\"windowKey\":\"reportBuilder\",\"parameters\":{\"EntityId\":83}}","assistantText":"Opening Report view."}}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
 	assert.Empty(t, tc.DirectAction.ToolName)
@@ -62,7 +62,7 @@ func TestParseOutput_DropsUIViewOpenWithoutID(t *testing.T) {
 }
 
 func TestParseOutput_DropsCampaignUIViewOpenWithoutID(t *testing.T) {
-	raw := `{"classification":{"title":"Open campaign view","intent":"ui_open","confidence":0.68},"scope":{"values":{"CampaignId":"553524"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"CampaignId\":\"553524\"}","assistantText":"Opening Campaign Summary for CampaignId=553524"}}`
+	raw := `{"classification":{"title":"Open group view","intent":"ui_open","confidence":0.68},"scope":{"values":{"GroupId":"55"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"GroupId\":\"55\"}","assistantText":"Opening Group Summary for GroupId=55"}}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
 	assert.Empty(t, tc.DirectAction.ToolName)
@@ -70,7 +70,7 @@ func TestParseOutput_DropsCampaignUIViewOpenWithoutID(t *testing.T) {
 }
 
 func TestParseOutput_DropsLineUIViewOpenWithoutID(t *testing.T) {
-	raw := `{"classification":{"title":"Open line view","intent":"ui_open","confidence":0.68},"scope":{"values":{"AudienceId":"7321890"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"AudienceId\":\"7321890\"}","assistantText":"Opening Line Summary for AudienceId=7321890"}}`
+	raw := `{"classification":{"title":"Open record view","intent":"ui_open","confidence":0.68},"scope":{"values":{"EntityId":"82"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"EntityId\":\"82\"}","assistantText":"Opening Record Summary for EntityId=82"}}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
 	assert.Empty(t, tc.DirectAction.ToolName)
@@ -78,7 +78,7 @@ func TestParseOutput_DropsLineUIViewOpenWithoutID(t *testing.T) {
 }
 
 func TestParseOutput_PreservesClassifierUIViewOpenWhenIDIsExplicit(t *testing.T) {
-	raw := `{"classification":{"title":"Open line view","intent":"ui_open","confidence":0.68},"scope":{"values":{"AudienceId":"7321890"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"AdOrderId\":[2674449]}}","assistantText":"Opening Line Summary for AudienceId=7321890"}}`
+	raw := `{"classification":{"title":"Open record view","intent":"ui_open","confidence":0.68},"scope":{"values":{"EntityId":"82"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"EntityId\":[44]}}","assistantText":"Opening Record Summary for EntityId=82"}}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
 	assert.Equal(t, "ui/view:open", tc.DirectAction.ToolName)
@@ -87,7 +87,7 @@ func TestParseOutput_PreservesClassifierUIViewOpenWhenIDIsExplicit(t *testing.T)
 }
 
 func TestCanonicalIntakeContent_DropsInvalidDirectAction(t *testing.T) {
-	raw := `{"classification":{"title":"Open Forecasting Builder","intent":"ui_open","confidence":0.66},"prompting":{"suggestedProfileId":"workspace_ui","templateId":"analytics_dashboard"},"directAction":{"toolName":"ui/view:open","inputJson":"{\"windowKey\":\"forecastingCubeBuilder\",\"parameters\":{\"AdOrderId\":7288336}}","assistantText":"Opening Forecasting view."}}`
+	raw := `{"classification":{"title":"Open Report Builder","intent":"ui_open","confidence":0.66},"prompting":{"suggestedProfileId":"workspace_ui","templateId":"analytics_dashboard"},"directAction":{"toolName":"ui/view:open","inputJson":"{\"windowKey\":\"reportBuilder\",\"parameters\":{\"EntityId\":83}}","assistantText":"Opening Report view."}}`
 	tc, err := parseOutput(raw)
 	require.NoError(t, err)
 
@@ -105,7 +105,7 @@ func TestPatchCanonicalIntakeMessage_UsesParsedContent(t *testing.T) {
 	rec := &recordingIntakeConversationClient{}
 	svc := &Service{conversation: rec}
 	tc := &Context{
-		Classification: ClassificationContext{Title: "Open Forecasting Builder", Intent: "ui_open", Confidence: 0.66},
+		Classification: ClassificationContext{Title: "Open Report Builder", Intent: "ui_open", Confidence: 0.66},
 		Prompting:      PromptingContext{SuggestedProfileID: "workspace_ui"},
 	}
 	ctx := runtimerequestctx.WithRequestMode(context.Background(), "router")
@@ -239,7 +239,7 @@ func TestBuildOutputSchema_ConstrainsDirectActionToExplicitToolRequests(t *testi
 	schema := buildOutputSchema(cfg)
 	assert.Contains(t, schema, "explicit tool/UI/control request")
 	assert.Contains(t, schema, "leave directAction null")
-	assert.Contains(t, schema, "analysis, data, forecast, summary, or recommendation")
+	assert.Contains(t, schema, "analysis, data, prediction, summary, or recommendation")
 }
 
 func TestBuildOutputJSONSchema_DirectActionNullableAndRequired(t *testing.T) {
@@ -354,16 +354,16 @@ func TestBuildGenerateInputWithTranscriptIncludesCurrentMessageContext(t *testin
 
 	in := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_mini", "system", "show me the top audiences", "", cfg,
 		WithTranscript([]TranscriptMessage{
-			{Role: "user", Content: "Troubleshoot order 2664518"},
-			{Role: "assistant", Content: "Order 2664518 is underdelivering; audience 7288336 is active."},
+			{Role: "user", Content: "Troubleshoot order 4518"},
+			{Role: "assistant", Content: "Order 4518 is underdelivering; audience 83 is active."},
 		}))
 	require.NotNil(t, in)
 	require.Len(t, in.Message, 2)
 
 	userText := llm.MessageText(in.Message[1])
 	assert.Contains(t, userText, "Recent transcript context")
-	assert.Contains(t, userText, "Troubleshoot order 2664518")
-	assert.Contains(t, userText, "Order 2664518 is underdelivering")
+	assert.Contains(t, userText, "Troubleshoot order 4518")
+	assert.Contains(t, userText, "Order 4518 is underdelivering")
 	assert.Contains(t, userText, "Current user message:")
 	assert.Contains(t, userText, "show me the top audiences")
 }
@@ -371,15 +371,15 @@ func TestBuildGenerateInputWithTranscriptIncludesCurrentMessageContext(t *testin
 func TestBuildGenerateInputWithLiveContextKeepsSystemPromptStable(t *testing.T) {
 	svc := &Service{}
 	cfg := &agentmdl.Intake{MaxTokens: 400, Scope: []string{"intent", "context", "profile"}}
-	first := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "switch to starred advertisers", "", cfg,
-		WithLiveContext(`{"kind":"web","liveUI":true} advertiserListMode[all|starred]`))
-	second := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "show advertisers", "", cfg,
+	first := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "switch to starred records", "", cfg,
+		WithLiveContext(`{"kind":"web","liveUI":true} recordsListMode[all|starred]`))
+	second := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "show records", "", cfg,
 		WithLiveContext(`{"kind":"web","liveUI":true} another window`))
 
 	assert.Equal(t, llm.MessageText(first.Message[0]), llm.MessageText(second.Message[0]))
 	assert.Equal(t, "shared routing rules", llm.MessageText(first.Message[0]))
-	assert.Contains(t, llm.MessageText(first.Message[1]), "advertiserListMode[all|starred]")
-	assert.NotContains(t, llm.MessageText(first.Message[0]), "advertiserListMode")
+	assert.Contains(t, llm.MessageText(first.Message[1]), "recordsListMode[all|starred]")
+	assert.NotContains(t, llm.MessageText(first.Message[0]), "recordsListMode")
 }
 
 func TestBuildGenerateInputWithContext_ConstrainsTemplateAndProfileEnums(t *testing.T) {
@@ -542,12 +542,12 @@ func TestParseOutput_LegacyEntitiesAlias(t *testing.T) {
 func TestParseOutput_WorkspaceIntakeFields(t *testing.T) {
 	t.Run("workspace intake output", func(t *testing.T) {
 		raw := `{
-			"classification":{"title":"Capacity review 2652067","intent":"capacity_review","confidence":0.94},
+			"classification":{"title":"Capacity review 2067","intent":"capacity_review","confidence":0.94},
 			"routing":{"selectedAgentId":"analyst","mode":"route","source":"workspace"}
 		}`
 		tc, err := parseOutput(raw)
 		require.NoError(t, err)
-		assert.Equal(t, "Capacity review 2652067", tc.Classification.Title)
+		assert.Equal(t, "Capacity review 2067", tc.Classification.Title)
 		assert.Equal(t, "capacity_review", tc.Classification.Intent)
 		assert.Equal(t, "analyst", tc.Routing.SelectedAgentID)
 		assert.Equal(t, "route", tc.Routing.Mode)

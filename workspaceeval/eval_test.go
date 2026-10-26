@@ -123,7 +123,7 @@ func TestAssertBehavioralTranscript(t *testing.T) {
 								ToolSteps: []*sdkapi.ToolStepState{
 									{
 										ToolName:       "workspace-EntityHierarchy",
-										RequestPayload: inline(map[string]interface{}{"RecordId": []int{2652067}}),
+										RequestPayload: inline(map[string]interface{}{"RecordId": []int{2067}}),
 									},
 									{
 										ToolName:       "llm/agents:start",
@@ -145,7 +145,7 @@ func TestAssertBehavioralTranscript(t *testing.T) {
 	doc := EvalDoc{
 		ID:         "behavioral-smoke",
 		Title:      "behavioral smoke",
-		UserPrompt: "Troubleshoot order 2657966, use exploratory strategy",
+		UserPrompt: "Troubleshoot order 7966, use exploratory strategy",
 	}
 	doc.ExpectedRouting.Agent = "data-analyst"
 	doc.ExpectedRouting.Profile = "diagnostic_baseline"
