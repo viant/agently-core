@@ -92,24 +92,81 @@ func (s *Service) List(ctx context.Context, URL string) ([]string, error) {
 	return out, nil
 }
 
+// ListDefinitions is a scoped variant used by authored resources that also
+// accept Markdown. It does not make general YAML metadata discovery treat
+// unrelated Markdown knowledge files as definitions.
+func (s *Service) ListDefinitions(ctx context.Context, URL string, extensions ...string) ([]string, error) {
+	allowed := map[string]bool{}
+	for _, extension := range extensions {
+		allowed[strings.ToLower(extension)] = true
+	}
+	URL = s.resolve(URL)
+	if allowed[strings.ToLower(path.Ext(URL))] {
+		return []string{URL}, nil
+	}
+	objects, err := s.fs.List(ctx, URL, s.options...)
+	if err != nil {
+		return nil, err
+	}
+	var result []string
+	for _, object := range objects {
+		if !object.IsDir() && allowed[strings.ToLower(filepath.Ext(object.Name()))] {
+			result = append(result, s.resolve(filepath.Join(URL, filepath.Base(object.Name()))))
+		}
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+// LoadMarkdown reads a Markdown definition through the same filesystem and
+// import boundary as YAML metadata, returning its literal role sections.
+func (s *Service) LoadMarkdown(ctx context.Context, URL string, node *yaml.Node) (wscodec.MarkdownDocument, error) {
+	URL = s.resolve(URL)
+	raw, err := s.fs.DownloadWithURL(ctx, URL, s.options...)
+	if err != nil {
+		return wscodec.MarkdownDocument{}, err
+	}
+	doc, err := wscodec.ParseMarkdown(raw)
+	if err != nil {
+		return doc, err
+	}
+	if len(doc.Metadata) == 0 {
+		return doc, nil
+	}
+	if err := yaml.Unmarshal(doc.Metadata, node); err != nil {
+		return doc, err
+	}
+	return doc, ResolveImports(ctx, s.fs, node, importBaseDir(URL), s.options...)
+}
+
 // ListRecursive returns all YAML candidates below a directory. Unlike List,
 // it preserves subdirectory paths so callers can organize resources by domain.
 func (s *Service) ListRecursive(ctx context.Context, URL string) ([]string, error) {
+	return s.ListDefinitionsRecursive(ctx, URL, ".yaml", ".yml")
+}
+
+// ListDefinitionsRecursive keeps the caller's explicit definition formats and
+// does not turn all Markdown knowledge files into YAML resource definitions.
+func (s *Service) ListDefinitionsRecursive(ctx context.Context, URL string, extensions ...string) ([]string, error) {
 	URL = s.resolve(URL)
-	if ext := strings.ToLower(path.Ext(URL)); ext == ".yaml" || ext == ".yml" {
+	allowed := map[string]bool{}
+	for _, extension := range extensions {
+		allowed[strings.ToLower(extension)] = true
+	}
+	if allowed[strings.ToLower(path.Ext(URL))] {
 		return []string{URL}, nil
 	}
 	var out []string
 	seenFiles := map[string]bool{}
 	visitedDirs := map[string]bool{}
-	if err := s.listRecursive(ctx, URL, &out, seenFiles, visitedDirs); err != nil {
+	if err := s.listRecursive(ctx, URL, &out, seenFiles, visitedDirs, allowed); err != nil {
 		return nil, err
 	}
 	sort.Strings(out)
 	return out, nil
 }
 
-func (s *Service) listRecursive(ctx context.Context, URL string, out *[]string, seenFiles, visitedDirs map[string]bool) error {
+func (s *Service) listRecursive(ctx context.Context, URL string, out *[]string, seenFiles, visitedDirs map[string]bool, allowed map[string]bool) error {
 	normalizedURL := normalizeResourcePath(URL)
 	if visitedDirs[normalizedURL] {
 		return nil
@@ -128,14 +185,14 @@ func (s *Service) listRecursive(ctx context.Context, URL string, out *[]string, 
 			continue
 		}
 		if object.IsDir() {
-			if err := s.listRecursive(ctx, candidate, out, seenFiles, visitedDirs); err != nil {
+			if err := s.listRecursive(ctx, candidate, out, seenFiles, visitedDirs, allowed); err != nil {
 				return err
 			}
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(object.Name()))
 		normalizedCandidate := normalizeResourcePath(candidate)
-		if (ext == ".yaml" || ext == ".yml") && !seenFiles[normalizedCandidate] {
+		if allowed[ext] && !seenFiles[normalizedCandidate] {
 			*out = append(*out, candidate)
 			seenFiles[normalizedCandidate] = true
 		}

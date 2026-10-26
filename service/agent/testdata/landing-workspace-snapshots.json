@@ -1,0 +1,374 @@
+{
+  "baseline": {
+    "ts": 1500,
+    "conversationId": "baseline-chat",
+    "selected": {
+      "windowId": "chat/new",
+      "tabId": "chat/new"
+    },
+    "focusedControl": null,
+    "windows": [
+      {
+        "windowId": "chat/new",
+        "windowKey": "chat/new",
+        "conversationId": null,
+        "presentation": null,
+        "region": null,
+        "workspaceSharePct": null,
+        "workspaceMinHeight": null,
+        "workspaceObject": null,
+        "navigation": null,
+        "navigationTrail": null,
+        "mcpUI": null,
+        "workspaceCollapsed": false,
+        "parameters": {
+          "conversations": {
+            "form": {
+              "id": "baseline-chat"
+            }
+          },
+          "messages": {
+            "input": {
+              "parameters": {
+                "convID": "baseline-chat"
+              }
+            }
+          }
+        },
+        "windowForm": {},
+        "viewState": {},
+        "inTab": true,
+        "isModal": false,
+        "isMinimized": false,
+        "zIndex": null,
+        "position": {
+          "x": null,
+          "y": null
+        },
+        "inlineMetadataExplicit": false,
+        "metadata": {
+          "loaded": false
+        },
+        "dialogs": [],
+        "dataSources": {},
+        "semanticContext": {
+          "version": 1,
+          "tabs": [],
+          "sources": [],
+          "dialogs": [],
+          "revision": 2101127885
+        },
+        "operationRevision": 3628546953
+      },
+      {
+        "windowId": "landing-record",
+        "windowKey": "record",
+        "windowTitle": "Record",
+        "conversationId": "baseline-chat",
+        "presentation": "hosted",
+        "region": "chat.top",
+        "workspaceSharePct": null,
+        "workspaceMinHeight": null,
+        "workspaceObject": null,
+        "navigation": null,
+        "navigationTrail": null,
+        "mcpUI": null,
+        "workspaceCollapsed": false,
+        "parentKey": "chat/new",
+        "parameters": {
+          "RecordId": [
+            7
+          ]
+        },
+        "windowForm": {},
+        "viewState": {
+          "tabs": {
+            "primary": "details",
+            "details": "properties"
+          }
+        },
+        "inTab": true,
+        "isModal": false,
+        "isMinimized": false,
+        "zIndex": null,
+        "position": {
+          "x": null,
+          "y": null
+        },
+        "inlineMetadataExplicit": false,
+        "metadata": {
+          "loaded": true,
+          "namespace": null,
+          "ns": [],
+          "dataSourceRefs": [
+            "records"
+          ],
+          "dialogs": [],
+          "view": {
+            "dataSourceRef": "records",
+            "contentType": null,
+            "contentId": null,
+            "tabs": [],
+            "controls": []
+          }
+        },
+        "dialogs": [],
+        "dataSources": {
+          "records": {
+            "dataSourceRef": "records",
+            "dataSourceId": "landing-recordDSrecords",
+            "identityFields": [
+              "id"
+            ],
+            "input": {
+              "filter": {
+                "status": "active"
+              },
+              "fetch": false,
+              "refresh": false
+            },
+            "filter": {
+              "status": "active"
+            },
+            "control": {
+              "loading": false,
+              "error": null
+            },
+            "form": {},
+            "selection": {
+              "selected": {
+                "id": 7
+              }
+            },
+            "collection": [],
+            "collectionInfo": {},
+            "metrics": {},
+            "formStatus": {
+              "dirty": false,
+              "version": 0
+            }
+          }
+        },
+        "semanticContext": {
+          "version": 1,
+          "tabs": [
+            {
+              "containerId": "details",
+              "tabId": "properties"
+            },
+            {
+              "containerId": "primary",
+              "tabId": "details"
+            }
+          ],
+          "sources": [
+            {
+              "dataSourceRef": "records",
+              "selectedIds": [
+                7
+              ],
+              "selectedIdentities": [
+                {
+                  "id": 7
+                }
+              ],
+              "filters": {
+                "status": "active"
+              },
+              "dirty": false
+            }
+          ],
+          "dialogs": [],
+          "revision": 1954569941
+        },
+        "operationRevision": 1363371219
+      }
+    ]
+  },
+  "preserved": {
+    "ts": 1500,
+    "conversationId": "new-chat",
+    "selected": {
+      "windowId": "landing-record",
+      "tabId": "landing-record"
+    },
+    "focusedControl": null,
+    "windows": [
+      {
+        "windowId": "chat/new",
+        "windowKey": "chat/new",
+        "conversationId": null,
+        "presentation": null,
+        "region": null,
+        "workspaceSharePct": null,
+        "workspaceMinHeight": null,
+        "workspaceObject": null,
+        "navigation": null,
+        "navigationTrail": null,
+        "mcpUI": null,
+        "workspaceCollapsed": false,
+        "parameters": {
+          "conversations": {
+            "form": {
+              "id": "new-chat"
+            }
+          },
+          "messages": {
+            "input": {
+              "parameters": {
+                "convID": "new-chat"
+              }
+            }
+          }
+        },
+        "windowForm": {},
+        "viewState": {},
+        "inTab": true,
+        "isModal": false,
+        "isMinimized": false,
+        "zIndex": null,
+        "position": {
+          "x": null,
+          "y": null
+        },
+        "inlineMetadataExplicit": false,
+        "metadata": {
+          "loaded": false
+        },
+        "dialogs": [],
+        "dataSources": {},
+        "semanticContext": {
+          "version": 1,
+          "tabs": [],
+          "sources": [],
+          "dialogs": [],
+          "revision": 2101127885
+        },
+        "operationRevision": 1031399339
+      },
+      {
+        "windowId": "landing-record",
+        "windowKey": "record",
+        "windowTitle": "Record",
+        "conversationId": "new-chat",
+        "presentation": "hosted",
+        "region": "chat.top",
+        "workspaceSharePct": null,
+        "workspaceMinHeight": null,
+        "workspaceObject": null,
+        "navigation": null,
+        "navigationTrail": null,
+        "mcpUI": null,
+        "workspaceCollapsed": false,
+        "parentKey": "chat/new",
+        "parameters": {
+          "RecordId": [
+            7
+          ]
+        },
+        "windowForm": {},
+        "viewState": {
+          "tabs": {
+            "primary": "details",
+            "details": "properties"
+          }
+        },
+        "inTab": true,
+        "isModal": false,
+        "isMinimized": false,
+        "zIndex": null,
+        "position": {
+          "x": null,
+          "y": null
+        },
+        "inlineMetadataExplicit": false,
+        "metadata": {
+          "loaded": true,
+          "namespace": null,
+          "ns": [],
+          "dataSourceRefs": [
+            "records"
+          ],
+          "dialogs": [],
+          "view": {
+            "dataSourceRef": "records",
+            "contentType": null,
+            "contentId": null,
+            "tabs": [],
+            "controls": []
+          }
+        },
+        "dialogs": [],
+        "dataSources": {
+          "records": {
+            "dataSourceRef": "records",
+            "dataSourceId": "landing-recordDSrecords",
+            "identityFields": [
+              "id"
+            ],
+            "input": {
+              "filter": {
+                "status": "active"
+              },
+              "fetch": false,
+              "refresh": false
+            },
+            "filter": {
+              "status": "active"
+            },
+            "control": {
+              "loading": false,
+              "error": null
+            },
+            "form": {},
+            "selection": {
+              "selected": {
+                "id": 7
+              }
+            },
+            "collection": [],
+            "collectionInfo": {},
+            "metrics": {},
+            "formStatus": {
+              "dirty": false,
+              "version": 0
+            }
+          }
+        },
+        "semanticContext": {
+          "version": 1,
+          "tabs": [
+            {
+              "containerId": "details",
+              "tabId": "properties"
+            },
+            {
+              "containerId": "primary",
+              "tabId": "details"
+            }
+          ],
+          "sources": [
+            {
+              "dataSourceRef": "records",
+              "selectedIds": [
+                7
+              ],
+              "selectedIdentities": [
+                {
+                  "id": 7
+                }
+              ],
+              "filters": {
+                "status": "active"
+              },
+              "dirty": false
+            }
+          ],
+          "dialogs": [],
+          "revision": 1954569941
+        },
+        "operationRevision": 646525370
+      }
+    ]
+  }
+}

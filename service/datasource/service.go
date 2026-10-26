@@ -16,7 +16,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -31,6 +30,7 @@ import (
 	windowprotocol "github.com/viant/agently-core/protocol/window"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/ui/permittedview"
+	shared "github.com/viant/forge/backend/datasource"
 	"github.com/viant/forge/backend/types"
 )
 
@@ -436,14 +436,9 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 	raw, err := s.runBackend(ctx, ds, mergedArgs)
 	backend.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
-		if errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) {
-			return nil, err
-		}
-		var upstream *dsproto.UpstreamAuthorizationError
-		if errors.As(err, &upstream) && upstream.Status == 403 {
-			return nil, dsproto.ErrDatasourceDenied
-		}
-		return nil, err
+		// Shared read-only compatibility policy. Return before cache writes while
+		// retaining this host's existing deferred delivery and release guards.
+		return shared.FetchErrorResult(ctx, ds, err)
 	}
 	rows, dataInfo, metrics := project(raw, &ds.DataSource)
 	if err := validatePagingDataInfo(&ds.DataSource, dataInfo, mergedArgs); err != nil {
@@ -543,11 +538,8 @@ func (s *Service) runBackend(ctx context.Context, ds *dsproto.DataSource, args m
 	}
 	result, callErr := s.runBackendRaw(ctx, ds, args)
 	finishErr := finish()
-	if callErr != nil {
-		return nil, callErr
-	}
-	if finishErr != nil {
-		return nil, finishErr
+	if err := shared.FetchDispatchError(ds, callErr, finishErr); err != nil {
+		return nil, err
 	}
 	return result, nil
 }

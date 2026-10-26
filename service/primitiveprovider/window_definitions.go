@@ -12,6 +12,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/authz"
@@ -623,21 +624,48 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
 	// Clone host-owned values before attaching this request's authority pin.
+	cloneTiming := observe.Start(ctx, "window.native.clone", observe.Labels{})
 	encoded, err := json.Marshal(definition)
 	if err != nil {
+		cloneTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
 	definition = &types.Window{}
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.UseNumber()
 	if err := decoder.Decode(definition); err != nil {
+		cloneTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
+	cloneTiming.End(observe.OK, observe.CacheUnknown)
 	definition.SelectionBinding = nil
 	definition.Resource = fresh
-	if _, _, err := resolver.ReadResolved(ctx, *fresh); err != nil {
+	// Snapshot sources can verify a candidate's current content without
+	// transferring its bytes. Arbitrary sources still require the full second
+	// read, including its error and post-I/O authorization checks.
+	revalidateTiming := observe.Start(ctx, "window.native.revalidate", observe.Labels{})
+	var current *identity.ResolvedResource
+	if checker, ok := resolver.Source.(interface {
+		CheckCandidate(context.Context, identity.ResourceURI, identity.ResourceCandidate) error
+	}); ok {
+		err = checker.CheckCandidate(ctx, uri, fresh.ResourceCandidate)
+		if err == nil {
+			current, err = resolver.Resolve(ctx, identity.ResourceRef{URI: fresh.URI, Revision: fresh.Selector()})
+			if err == nil && (current == nil || current.URI != fresh.URI || current.ProviderIdentity != fresh.ProviderIdentity || current.ResourceCandidate != fresh.ResourceCandidate || current.AuthorityBinding != fresh.AuthorityBinding || !identity.MetadataExpiryValid(current.ValidUntil, time.Now()) || !identity.MetadataExpiryValid(fresh.ValidUntil, time.Now())) {
+				err = identity.ErrResourceDenied
+			}
+		}
+	} else {
+		_, current, err = resolver.ReadResolved(ctx, *fresh)
+	}
+	revalidateTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
+	if err != nil {
 		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
+	if current == nil || !identity.MetadataExpiryValid(current.ValidUntil, time.Now()) {
+		return nil, identity.ErrResourceDenied
+	}
+	fresh.ValidUntil = identity.MinimumMetadataExpiry(fresh.ValidUntil, current.ValidUntil)
 	normalized := types.WindowTarget{}
 	if target != nil {
 		normalized = *target

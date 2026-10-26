@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 )
 
 func postUIRPC(t *testing.T, bridge *forgeuisvc.Service, method string, params map[string]interface{}) map[string]interface{} {
@@ -180,14 +181,15 @@ func TestResolveTabContainerRequiresExactLiveIdentity(t *testing.T) {
 	}
 }
 
-func TestServiceMethod_SetFormDataRegistered(t *testing.T) {
-	svc := &Service{}
-	method, err := svc.Method("setFormData")
-	if err != nil {
-		t.Fatalf("expected setFormData method to resolve, got %v", err)
+func TestServiceMethod_SetFormDataIsInternalOnly(t *testing.T) {
+	service := &Service{}
+	if _, err := service.Method("setFormData"); err == nil {
+		t.Fatal("raw windowForm initializer must not be publicly callable")
 	}
-	if method == nil {
-		t.Fatalf("expected setFormData method implementation")
+	for _, method := range service.Methods() {
+		if method.Name == "setFormData" {
+			t.Fatal("internal initializer must not be advertised")
+		}
 	}
 }
 
@@ -1050,5 +1052,24 @@ func TestBuildWindowSurface_OmitsNilBindingFields(t *testing.T) {
 	}
 	if got.Controls[0].Value != "7d" {
 		t.Fatalf("expected resolved control value, got %#v", got.Controls[0].Value)
+	}
+}
+
+func TestGetRedactsLiveWindowCredentialValues(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "privacy-client"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{"clientId": "privacy-client", "data": map[string]interface{}{"conversationId": "conv-privacy", "windows": []interface{}{map[string]interface{}{"windowId": "privacy-window", "windowKey": "test", "conversationId": "conv-privacy", "metadata": map[string]interface{}{"view": map[string]interface{}{"controls": []interface{}{map[string]interface{}{"id": "opaque", "type": "password", "scope": "windowForm", "options": []interface{}{map[string]interface{}{"value": "opaque-secret", "label": "Secret"}}}}}}, "windowForm": map[string]interface{}{"id": 7, "name": "Safe", "password": "do-not-return", "opaque": "sensitive-surface-value"}, "dataSources": map[string]interface{}{"rows": map[string]interface{}{"form": map[string]interface{}{"id": 7, "token": "credential-value"}}}}}}})
+	service := New(bridge)
+	output := &GetOutput{}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-privacy")
+	if err := service.get(ctx, &GetInput{WindowID: "privacy-window"}, output); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(output)
+	if strings.Contains(string(raw), "do-not-return") || strings.Contains(string(raw), "credential-value") || strings.Contains(string(raw), "opaque-secret") || strings.Contains(string(raw), "sensitive-surface-value") || !output.ReadRedacted {
+		t.Fatalf("window read leaked credentials: %s", raw)
+	}
+	if output.Window.WindowForm["name"] != "Safe" {
+		t.Fatal("safe live field lost")
 	}
 }

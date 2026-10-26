@@ -147,6 +147,7 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 		if aWindow != nil {
 			copy := *aWindow
 			copy.SelectionBinding = nil
+			copy.LocalStateOwner = nil
 			aWindow = &copy
 		}
 		if r.URL.Query().Get("expectedResource") != "" {
@@ -276,6 +277,16 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 					writeWindowError(w, err)
 					return
 				}
+			}
+		}
+		if owner, ok := settings.windows.(interface {
+			AttachLocalStateOwner(context.Context, *forgeTypes.Window) (*forgeTypes.Window, error)
+		}); ok {
+			var err error
+			aWindow, err = owner.AttachLocalStateOwner(r.Context(), aWindow)
+			if err != nil {
+				writeWindowError(w, err)
+				return
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")

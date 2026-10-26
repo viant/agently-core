@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	auth "github.com/viant/agently-core/service/auth"
 	resources "github.com/viant/agently-core/service/resource"
@@ -12,17 +13,26 @@ import (
 	workspacewindow "github.com/viant/agently-core/service/ui/window"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
+	fsstore "github.com/viant/agently-core/workspace/store/fs"
 	"github.com/viant/forge/backend/reporting/registry"
 	forgetypes "github.com/viant/forge/backend/types"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Default public composition applies only to hosts without an
 // explicit authority/provider. Local authored definitions grant no data access.
-func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
+func (b *Builder) configurePublicPrimitiveProviders(startupCtx context.Context, out *Runtime) error {
+	measure := func(name string, run func() error) error {
+		span := observe.Start(startupCtx, observe.Phase(name), observe.Labels{})
+		err := run()
+		span.End(observe.OutcomeFor(err), observe.CacheBypass)
+		return err
+	}
 	if out == nil || out.MCPManager == nil || out.PrimitiveProviders != nil || out.LocalPrimitiveProvider != nil || out.ComponentAuthority != nil || b.primitiveActor != nil || b.primitiveVerifier != nil || b.pinnedDatasourceRevalidator != nil || b.pinnedDatasourceResolver != nil || b.pinnedDatasourceAuthorizer != nil {
 		return nil
 	}
@@ -50,15 +60,25 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	if out.Store != nil {
 		root = out.Store.Root()
 	}
+	// A local identity may have one authored source only. Files in canonical and
+	// legacy roots are not allowed to silently override one another.
+	preflightStore := out.Store
+	if preflightStore == nil {
+		preflightStore = fsstore.New(root)
+	}
+	if _, err := intakerepo.NewWithStore(preflightStore).LoadAll(startupCtx); err != nil {
+		return err
+	}
 	authored := resources.NewAuthoredCompilation(workspace.KindTemplate)
+	playbooks := resources.NewIntentCompilation(workspace.KindPlaybook, workspace.KindToolBundle)
 	intents := resources.NewIntentCompilation(workspace.KindIntent, workspace.KindToolBundle)
 	legacyCompiler := resources.NewIntentCompilation(workspace.KindPrompt, workspace.KindToolBundle)
+	defer playbooks.Release()
 	defer intents.Release()
 	defer legacyCompiler.Release()
 	legacy := legacyCompiler.IntentDirectory("workspace")
-	legacy.FallbackDirectory = workspace.KindIntent
 	defer authored.Release()
-	declared := []resources.ExtensionDirectory{resources.ToolfeedDirectory("workspace", "feeds"), resources.LookupDirectory("workspace", workspace.KindForgeLookup), resources.DatasourceDirectory("workspace", workspace.KindForgeDataSource), authored.TemplateDirectory("workspace"), intents.IntentDirectory("workspace"), legacy}
+	declared := []resources.ExtensionDirectory{resources.ToolfeedDirectory("workspace", "feeds"), resources.LookupDirectory("workspace", workspace.KindForgeLookup), resources.DatasourceDirectory("workspace", workspace.KindForgeDataSource), authored.TemplateDirectory("workspace"), playbooks.PlaybookDirectory("workspace"), intents.IntentDirectory("workspace"), legacy}
 	var directories []resources.ExtensionDirectory
 	for _, directory := range declared {
 		_, err := os.Stat(filepath.Join(root, directory.Directory))
@@ -74,14 +94,20 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	var windowBindings []workspacewindow.ResourceBinding
 	var err error
 	if captureWorkspaceWindows {
-		windowBindings, err = resources.NativeWorkspaceWindowBindings(context.Background(), root, "workspace")
+		err = measure("startup.runtime.public.window_bindings", func() error {
+			windowBindings, err = resources.NativeWorkspaceWindowBindings(context.Background(), root, "workspace")
+			return err
+		})
 		if err != nil {
 			return err
 		}
 	}
 	var windowDefs []resources.NativeSnapshotDefinition
 	if len(windowBindings) > 0 {
-		windowDefs, err = resources.SnapshotWindowDefinitions(context.Background(), root, windowBindings, nil)
+		err = measure("startup.runtime.public.window_definitions", func() error {
+			windowDefs, err = resources.SnapshotWindowDefinitions(context.Background(), root, windowBindings, nil)
+			return err
+		})
 	}
 	if err != nil {
 		return err
@@ -94,7 +120,10 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 
 	var defs []resources.NativeSnapshotDefinition
 	if len(directories) > 0 {
-		defs, err = resources.SnapshotExtensionDefinitions(context.Background(), root, directories)
+		err = measure("startup.runtime.public.extension_definitions", func() error {
+			defs, err = resources.SnapshotExtensionDefinitions(context.Background(), root, directories)
+			return err
+		})
 		if err != nil {
 			return err
 		}
@@ -107,7 +136,12 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	if config != nil {
 		reportRoot = config.ForgeReportingRoot()
 	}
-	reportDefs, reportOptions, err := resources.NativeWorkspaceReportDefinitions(context.Background(), root, "workspace", reportRoot, windowDefs)
+	var reportDefs []resources.NativeSnapshotDefinition
+	var reportOptions registry.Options
+	err = measure("startup.runtime.public.report_definitions", func() error {
+		reportDefs, reportOptions, err = resources.NativeWorkspaceReportDefinitions(context.Background(), root, "workspace", reportRoot, windowDefs)
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -123,7 +157,10 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		return reportRegistry.EnrichWindow(w)
 	})
 	if len(windowBindings) > 0 {
-		windowDefs, err = resources.SnapshotWindowDefinitions(context.Background(), root, windowBindings, enrich)
+		err = measure("startup.runtime.public.enriched_windows", func() error {
+			windowDefs, err = resources.SnapshotWindowDefinitions(context.Background(), root, windowBindings, enrich)
+			return err
+		})
 	}
 	if err != nil {
 		return err
@@ -131,7 +168,11 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	for i := range windowDefs {
 		windowDefs[i].Title = titles[windowDefs[i].URI]
 	}
-	pickerDefs, err := resources.NativeLookupPickerDefinitions(context.Background(), root, defs, windowDefs, enrich)
+	var pickerDefs []resources.NativeSnapshotDefinition
+	err = measure("startup.runtime.public.lookup_pickers", func() error {
+		pickerDefs, err = resources.NativeLookupPickerDefinitions(context.Background(), root, defs, windowDefs, enrich)
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -251,26 +292,63 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		return nil
 	}
 	if len(defs) != 0 {
-		snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, defs, resources.NativeSnapshotOptions{IsolateMissingWindowImports: true, BeforeCompile: func(ctx context.Context, r *resources.ExtensionReader) error {
-			confined, check, err := resources.ConfinedReportingOptions(ctx, r, reportOptions)
-			if err != nil {
-				return err
+		// Snapshot compilation is synchronous on startup. Measure each static
+		// definition's first load by kind without retaining the startup observer
+		// for later explicit Reload calls or logging authored URI contents.
+		for i := range defs {
+			uri, parseErr := identity.ParseResourceURI(defs[i].URI)
+			if parseErr != nil {
+				return parseErr
 			}
-			reportRegistry, err = registry.Discover(ctx, confined)
-			if err != nil {
-				return err
+			kind, load, first := uri.Kind, defs[i].Load, &sync.Once{}
+			defs[i].Load = func(ctx context.Context, reader *resources.ExtensionReader, file string) (json.RawMessage, error) {
+				measureFirst := false
+				first.Do(func() { measureFirst = true })
+				if !measureFirst {
+					return load(ctx, reader, file)
+				}
+				span := observe.Start(startupCtx, observe.Phase("startup.runtime.public.snapshot_load."+kind), observe.Labels{Kind: kind})
+				raw, err := load(ctx, reader, file)
+				span.End(observe.OutcomeFor(err), observe.CacheBypass)
+				return raw, err
 			}
-			if err = check(); err != nil {
-				return err
-			}
-			if err := authored.Prepare(ctx, r); err != nil {
-				return err
-			}
-			if err := intents.Prepare(ctx, r); err != nil {
-				return err
-			}
-			return legacyCompiler.Prepare(ctx, r)
-		}})
+		}
+		var snapshot *resources.NativeAssetSnapshot
+		err := measure("startup.runtime.public.snapshot_compile", func() error {
+			var compileErr error
+			snapshot, compileErr = resources.NewNativeAssetSnapshot(context.Background(), root, defs, resources.NativeSnapshotOptions{IsolateMissingWindowImports: true, BeforeCompile: func(ctx context.Context, r *resources.ExtensionReader) error {
+				var confined registry.Options
+				var check func() error
+				if err := measure("startup.runtime.public.reporting_options", func() error {
+					var optionErr error
+					confined, check, optionErr = resources.ConfinedReportingOptions(ctx, r, reportOptions)
+					return optionErr
+				}); err != nil {
+					return err
+				}
+				if err := measure("startup.runtime.public.report_registry", func() error {
+					var discoverErr error
+					reportRegistry, discoverErr = registry.Discover(ctx, confined)
+					return discoverErr
+				}); err != nil {
+					return err
+				}
+				if err := check(); err != nil {
+					return err
+				}
+				if err := measure("startup.runtime.public.template_prepare", func() error { return authored.Prepare(ctx, r) }); err != nil {
+					return err
+				}
+				if err := measure("startup.runtime.public.playbook_prepare", func() error { return playbooks.Prepare(ctx, r) }); err != nil {
+					return err
+				}
+				if err := measure("startup.runtime.public.intent_prepare", func() error { return intents.Prepare(ctx, r) }); err != nil {
+					return err
+				}
+				return measure("startup.runtime.public.legacy_prompt_prepare", func() error { return legacyCompiler.Prepare(ctx, r) })
+			}})
+			return compileErr
+		})
 		if err != nil {
 			return err
 		}
@@ -285,18 +363,27 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 				return err
 			}
 		}
-		bindings, err := snapshot.Bindings(resources.InternalProviderIdentity, func(ctx context.Context, a identity.VerifiedActor, uri identity.ResourceURI, action string) (identity.ResourceRevisionPolicy, error) {
-			if err := authorize(ctx, a, uri, action); err != nil {
-				return nil, err
-			}
-			return publicDefinitionRevision{actor: a, uri: uri.String(), read: authorize}, nil
+		var bindings []resources.LocalResourceBinding
+		err = measure("startup.runtime.public.snapshot_bindings", func() error {
+			var bindingErr error
+			bindings, bindingErr = snapshot.Bindings(resources.InternalProviderIdentity, func(ctx context.Context, a identity.VerifiedActor, uri identity.ResourceURI, action string) (identity.ResourceRevisionPolicy, error) {
+				if err := authorize(ctx, a, uri, action); err != nil {
+					return nil, err
+				}
+				return publicDefinitionRevision{actor: a, uri: uri.String(), read: authorize}, nil
+			})
+			return bindingErr
 		})
 		if err != nil {
 			return err
 		}
-		out.LocalPrimitiveProvider, err = resources.NewLocalProvider(resources.LocalConfig{ProviderIdentity: resources.InternalProviderIdentity, Actor: actor, Verify: verify, Authorize: authorize, Bindings: bindings, WindowIndex: snapshot.WindowIndex, MenuVisibilityProjection: func(ctx context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (json.RawMessage, error) {
-			return projection(ctx, raw)
-		}, Validators: map[string]resources.LocalResourceValidator{primitive.ToolfeedKind: resources.ValidateToolfeedDefinition, "datasource": resources.ValidateDatasourceDefinition, "template": resources.ValidateTemplateDefinition, "intent": resources.ValidateIntentDefinition, "navigation": resources.ValidateMenu, "window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope, "mcp": resources.ValidateMCPDefinition, "lookup": resources.ValidateLookupDefinition}})
+		err = measure("startup.runtime.public.local_provider", func() error {
+			var providerErr error
+			out.LocalPrimitiveProvider, providerErr = resources.NewLocalProvider(resources.LocalConfig{ProviderIdentity: resources.InternalProviderIdentity, Actor: actor, Verify: verify, Authorize: authorize, Bindings: bindings, WindowIndex: snapshot.WindowIndex, MenuVisibilityProjection: func(ctx context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (json.RawMessage, error) {
+				return projection(ctx, raw)
+			}, Validators: map[string]resources.LocalResourceValidator{primitive.ToolfeedKind: resources.ValidateToolfeedDefinition, "datasource": resources.ValidateDatasourceDefinition, "template": resources.ValidateTemplateDefinition, "playbook": resources.ValidateIntentDefinition, "intent": resources.ValidateIntentDefinition, "navigation": resources.ValidateMenu, "window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope, "mcp": resources.ValidateMCPDefinition, "lookup": resources.ValidateLookupDefinition}})
+			return providerErr
+		})
 		if err != nil {
 			return err
 		}
@@ -317,7 +404,7 @@ func publicDefinitionRead(ctx context.Context, a identity.VerifiedActor, uri ide
 			return nil
 		}
 	case "resource.list", "resource.get":
-		if uri.Kind == primitive.ToolfeedKind || uri.Kind == "datasource" || uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "navigation" || uri.Kind == "window" || uri.Kind == "report" || uri.Kind == "mcp" || uri.Kind == "lookup" {
+		if uri.Kind == primitive.ToolfeedKind || uri.Kind == "datasource" || uri.Kind == "template" || uri.Kind == "playbook" || uri.Kind == "intent" || uri.Kind == "navigation" || uri.Kind == "window" || uri.Kind == "report" || uri.Kind == "mcp" || uri.Kind == "lookup" {
 			return nil
 		}
 	}

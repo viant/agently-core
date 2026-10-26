@@ -42,6 +42,33 @@ func TestFilterAuthorizedProfiles(t *testing.T) {
 	assert.Equal(t, "allowed", got[0].ID)
 }
 
+func TestPlaybookAndLegacyPromptToolsShareAdmittedHandlers(t *testing.T) {
+	repo := intakerepo.NewWithStore(fsstore.New(t.TempDir()))
+	canonical := NewPlaybook(repo)
+	legacy := New(repo)
+	require.Equal(t, PlaybookName, canonical.Name())
+	require.Equal(t, Name, legacy.Name())
+	require.Equal(t, legacy.Methods(), canonical.Methods())
+	for _, service := range []*Service{canonical, legacy} {
+		for _, method := range []string{"list", "get"} {
+			_, err := service.Method(method)
+			require.NoError(t, err)
+		}
+		var result ListOutput
+		require.NoError(t, service.list(context.Background(), &ListInput{}, &result))
+		require.Empty(t, result.Profiles)
+	}
+}
+
+func TestPolicyFilterKeepsDistinctVisibleExactPlaybookAndIntentResources(t *testing.T) {
+	svc := &Service{policy: policy.NewRuntime(promptPolicyResolver{}, policy.OperationIntentView)}
+	profiles := []*intent.Profile{{ID: "allowed", ResourceURI: "playbook://team/one"}, {ID: "allowed", ResourceURI: "intent://team/one"}}
+	got, err := svc.filterAuthorizedProfiles(context.Background(), profiles)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, profiles, got)
+}
+
 func TestPromptDiscoveryPropagatesIdentityRejection(t *testing.T) {
 	svc := &Service{policy: policy.NewRuntime(rejectedPromptPolicyResolver{}, policy.OperationIntentView)}
 	if _, err := svc.filterAuthorizedProfiles(context.Background(), []*intent.Profile{{ID: "profile"}}); !errors.Is(err, policy.ErrIdentityRejected) {
@@ -112,7 +139,7 @@ func (c *promptTestConversationClient) DeleteMessage(context.Context, string, st
 }
 
 func TestService_list_AllowsProfilesByDirectID(t *testing.T) {
-	repo := intakerepo.NewWithStore(fsstore.New("/Users/awitas/go/src/github.com/viant/agently-core/workspace/repository/intake/testdata"))
+	repo := intakerepo.NewWithStore(fsstore.New("../../../../workspace/repository/intake/testdata"))
 	agentID := "analyst"
 	client := &promptTestConversationClient{
 		conversation: &apiconv.Conversation{AgentId: &agentID},
@@ -140,7 +167,7 @@ func TestService_list_AllowsProfilesByDirectID(t *testing.T) {
 }
 
 func TestService_get_InjectsRolePreservingMessages(t *testing.T) {
-	repo := intakerepo.NewWithStore(fsstore.New("/Users/awitas/go/src/github.com/viant/agently-core/workspace/repository/intake/testdata"))
+	repo := intakerepo.NewWithStore(fsstore.New("../../../../workspace/repository/intake/testdata"))
 	agentID := "analyst"
 	client := &promptTestConversationClient{
 		conversation: &apiconv.Conversation{AgentId: &agentID},

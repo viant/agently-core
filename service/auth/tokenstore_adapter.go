@@ -191,3 +191,19 @@ func (a *tokenStoreAdapter) CASPut(ctx context.Context, t *token.OAuthToken, exp
 	}
 	return a.inner.CASPut(ctx, serviceOAuthTokenFromInternal(t), expectedVersion, owner)
 }
+
+func (s *canonicalTokenStore) GetExact(ctx context.Context, username, provider string) (*OAuthToken, error) {
+	return exactRefreshToken(ctx, s.inner, s.resolveOwner(ctx, username, provider), provider)
+}
+func (s *canonicalTokenStore) CASClear(ctx context.Context, username, provider string, version int64, owner string) (bool, error) {
+	if inner, ok := s.inner.(ConditionalTokenClear); ok {
+		return inner.CASClear(ctx, s.resolveOwner(ctx, username, provider), provider, version, owner)
+	}
+	return false, nil
+}
+func (a *tokenStoreAdapter) CASClear(ctx context.Context, username, provider string, version int64, owner string) (bool, error) {
+	if inner, ok := a.inner.(ConditionalTokenClear); ok {
+		return inner.CASClear(ctx, username, provider, version, owner)
+	}
+	return false, nil
+}

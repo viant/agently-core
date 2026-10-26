@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -318,5 +319,40 @@ func TestSetSelectionRejectsDatasourceOutsideLiveWindowSnapshot(t *testing.T) {
 	}, out)
 	if err == nil || err.Error() != `datasource "unknown_rows" not found on window` {
 		t.Fatalf("expected unknown live datasource rejection, got %v", err)
+	}
+}
+
+func TestOperationsRejectStaleSnapshotBeforeEnqueue(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	seedActiveWindow(t, bridge)
+	service := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	stale := uint32(1)
+	err := service.setSelection(ctx, &SetSelectionInput{WindowID: "genericBuilder__conv-1", DataSourceRef: "forecast_rows", ExpectedRevision: &stale, Identities: []interface{}{map[string]interface{}{"country": "US"}}}, &SetSelectionOutput{})
+	if err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("expected selection stale rejection: %v", err)
+	}
+	err = service.refresh(ctx, &RefreshInput{WindowID: "genericBuilder__conv-1", DataSourceRef: "forecast_rows", ExpectedRevision: &stale}, &CommandOutput{})
+	if err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("expected refresh stale rejection: %v", err)
+	}
+}
+
+func TestPeekRedactsLiveCredentialsWithoutLosingSafeIdentity(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "privacy-client"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{"clientId": "privacy-client", "data": map[string]interface{}{"conversationId": "conv-privacy", "windows": []interface{}{map[string]interface{}{"windowId": "privacy-window", "windowKey": "test", "conversationId": "conv-privacy", "metadata": map[string]interface{}{"view": map[string]interface{}{"controls": []interface{}{map[string]interface{}{"dataSourceRef": "rows", "dataField": "opaque", "sensitive": true}}}}, "dataSources": map[string]interface{}{"rows": map[string]interface{}{"dataSourceRef": "rows", "form": map[string]interface{}{"id": 7, "name": "Safe", "apiToken": "do-not-return", "opaque": "private-field"}}}}}}})
+	service := New(bridge)
+	output := &PeekOutput{}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-privacy")
+	if err := service.peek(ctx, &PeekInput{WindowID: "privacy-window", DataSourceRef: "rows"}, output); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(output)
+	if strings.Contains(string(raw), "do-not-return") || strings.Contains(string(raw), "private-field") || !output.ReadRedacted {
+		t.Fatalf("read boundary leaked credential/sensitive field: %s", raw)
+	}
+	if output.Snapshot.Form["name"] != "Safe" || output.Snapshot.Form["id"] != float64(7) {
+		t.Fatal("safe identity and ordinary field lost")
 	}
 }

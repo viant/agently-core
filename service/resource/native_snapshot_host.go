@@ -15,7 +15,7 @@ func NewNativeAssetSnapshot(ctx context.Context, root string, definitions []Nati
 	if len(options) == 1 {
 		option = options[0]
 	}
-	validators := map[string]LocalResourceValidator{"template": ValidateTemplateDefinition, "intent": ValidateIntentDefinition, "skill": ValidateNativeSkillDefinition}
+	validators := map[string]LocalResourceValidator{"template": ValidateTemplateDefinition, "playbook": ValidateIntentDefinition, "intent": ValidateIntentDefinition, "skill": ValidateNativeSkillDefinition}
 	for kind, validator := range option.Validators {
 		validators[kind] = validator
 	}

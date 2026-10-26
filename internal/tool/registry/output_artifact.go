@@ -7,12 +7,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/google/uuid"
+	"github.com/viant/jsonrpc"
 	"mime"
+	"os"
 	"strings"
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
+	identity "github.com/viant/agently-core/protocol/resource"
 	scratchpad "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	schema "github.com/viant/mcp-protocol/schema"
 )
@@ -31,6 +35,25 @@ func (r *Registry) outputArtifactPolicy(ctx context.Context, server, method stri
 	}
 	options, err := r.mgr.Options(ctx, server)
 	if err != nil {
+		if os.Getenv("BACKEND_PRIMITIVE_TRACE") == "1" {
+			category := "other"
+			switch {
+			case errors.Is(err, identity.ErrResourceDenied):
+				category = "denied"
+			case errors.Is(err, identity.ErrResourceStale):
+				category = "stale"
+			case errors.Is(err, context.Canceled):
+				category = "canceled"
+			case errors.Is(err, context.DeadlineExceeded):
+				category = "deadline"
+			}
+			code := 0
+			var rpc *jsonrpc.Error
+			if errors.As(err, &rpc) {
+				code = rpc.Code
+			}
+			fmt.Fprintf(os.Stderr, "primitive mcp options failure category=%s type=%T rpc_code=%d\n", category, err, code)
+		}
 		return nil, errors.New("output artifact policy unavailable")
 	}
 	if options == nil {
