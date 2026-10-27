@@ -1183,6 +1183,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	ctx, discovery := withDiscoveryDiagnostics(ctx)
 	query := primitive.CatalogQuery(*li)
 	// Preserve existing callers that request the complete unfiltered list.
 	// Filtered or explicitly paged requests use the shared catalog index.
@@ -1199,7 +1200,10 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	lo.Diagnostics = s.Diagnostics()
+	lo.Diagnostics = append(s.Diagnostics(), discovery.messages...)
+	if len(discovery.messages) > 0 {
+		lo.Complete = false
+	}
 	return nil
 }
 
@@ -1352,11 +1356,9 @@ func (s *Service) ListForSelection(ctx context.Context, conversationID, agentID 
 	if agent == nil {
 		return nil, nil, fmt.Errorf("agent not found")
 	}
+	ctx, discovery := withDiscoveryDiagnostics(ctx)
 	meta, err := s.ListVisible(ctx, agent)
-	if err != nil {
-		return nil, s.Diagnostics(), err
-	}
-	return meta, s.Diagnostics(), nil
+	return meta, append(s.Diagnostics(), discovery.messages...), err
 }
 
 func (s *Service) ListForConversation(ctx context.Context, conversationID string) ([]skillproto.Metadata, []string, error) {
@@ -1368,11 +1370,9 @@ func (s *Service) ListForConversation(ctx context.Context, conversationID string
 	if err != nil {
 		return nil, nil, err
 	}
+	ctx, discovery := withDiscoveryDiagnostics(ctx)
 	meta, err := s.ListVisible(ctx, agent)
-	if err != nil {
-		return nil, s.Diagnostics(), err
-	}
-	return meta, s.Diagnostics(), nil
+	return meta, append(s.Diagnostics(), discovery.messages...), err
 }
 
 func (s *Service) ActivateForConversation(ctx context.Context, conversationID, name, args string) (string, error) {
