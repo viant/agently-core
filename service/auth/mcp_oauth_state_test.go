@@ -25,8 +25,8 @@ func TestMCPStateKeyring_RoundTrip(t *testing.T) {
 	payload := &MCPAuthState{
 		CanonicalUserID: "user-1",
 		SessionIDHash:   keyring.mcpSessionHash("sess-1"),
-		ServerName:      "dev6",
-		ProviderRef:     "adelphic-dev6",
+		ServerName:      "sample",
+		ProviderRef:     "sample-provider",
 		Resource:        "https://mcp.test/mcp",
 		Scopes:          []string{"plan:read"},
 		CodeVerifier:    "verifier-value",

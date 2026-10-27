@@ -30,6 +30,7 @@ import (
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	mcpclienthandler "github.com/viant/agently-core/protocol/mcp/clienthandler"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	"github.com/viant/agently-core/protocol/tool"
 	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
 	llmtools "github.com/viant/agently-core/protocol/tool/service/llm/tools"
@@ -144,6 +145,10 @@ type Runtime struct {
 	// UIBridge is the single Forge UI service shared by browser RPC, agents,
 	// and all UI-facing internal tools for this runtime.
 	UIBridge *forgeuisvc.Service
+	// VerifiedPrincipalResolver is the operator-configured ID-token principal
+	// source used by UI presentation. Cohort admission may reuse its verified
+	// facts; browser-provided roles and metadata never populate this field.
+	VerifiedPrincipalResolver gating.PrincipalResolver
 
 	// AuthConfig holds the auth configuration when auth is enabled.
 	AuthConfig *svcauth.Config
@@ -519,9 +524,12 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		return nil, errors.New("executor builder requires agent finder")
 	}
 	if preloader, ok := b.agentFinder.(interface{ Preload(context.Context) error }); ok {
+		preloadTiming := observe.Start(ctx, "startup.runtime.agent_preload", observe.Labels{})
 		if err := preloader.Preload(ctx); err != nil {
+			preloadTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 			return nil, err
 		}
+		preloadTiming.End(observe.OK, observe.CacheBypass)
 	}
 
 	// Ensure store defaults.
@@ -549,6 +557,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		KnowledgeStore:                 b.knowledgeStore,
 		StateStore:                     b.stateStore,
 		UIBridge:                       b.uiBridge,
+		VerifiedPrincipalResolver:      b.presentationPrincipalResolver,
 	}
 	if out.UIBridge == nil {
 		out.UIBridge = forgeuisvc.NewService(&forgeuisvc.Config{})
@@ -569,6 +578,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}()
 	needsSQLReporting := b.reportingService == nil && out.Defaults.Reporting.Enabled && strings.EqualFold(strings.TrimSpace(resolveReportingStoreDefaults(out.Defaults).Backend), "sql")
 	if out.Native == nil && (b.conversation == nil || b.data == nil || needsSQLReporting) {
+		nativeTiming := observe.Start(ctx, "startup.runtime.native_datly", observe.Labels{})
 		var err error
 		if strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN")) == "" && strings.TrimSpace(os.Getenv("AGENTLY_DB_PATH")) == "" {
 			ownedNative, err = data.NewRuntimeFromWorkspace(ctx, workspace.RuntimeRoot())
@@ -576,10 +586,12 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			ownedNative, err = data.NewRuntime(ctx)
 		}
 		if err != nil {
+			nativeTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 			return nil, fmt.Errorf("open linked Datly runtime: %w", err)
 		}
 		out.Native = ownedNative
 		out.ownedNative = ownedNative
+		nativeTiming.End(observe.OK, observe.CacheBypass)
 	}
 
 	if out.AuthConfig == nil {
@@ -717,9 +729,12 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		default:
 			return nil, fmt.Errorf("unsupported ui.authorization mode %q", uiSettings.Mode)
 		}
-		if err := b.configurePrimitiveProviders(out); err != nil {
+		authorizationPrimitiveTiming := observe.Start(ctx, "startup.runtime.authorized_primitive_providers", observe.Labels{})
+		if err := b.configurePrimitiveProvidersObserved(ctx, out); err != nil {
+			authorizationPrimitiveTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 			return nil, err
 		}
+		authorizationPrimitiveTiming.End(observe.OK, observe.CacheBypass)
 		var operations []string
 		for section, operation := range map[string]string{
 			"starterPrompt": policy.OperationStarterPromptView,
@@ -772,9 +787,12 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	out.Skills = skillsvc.New(out.Defaults, out.Conversation, b.agentFinder)
 	out.Skills.SetToolRegistry(out.Registry)
 	out.Skills.SetMCPSource(out.MCPManager)
+	skillTiming := observe.Start(ctx, "startup.runtime.skills_load", observe.Labels{})
 	if err := out.Skills.Load(ctx); err != nil {
+		skillTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 		return nil, err
 	}
+	skillTiming.End(observe.OK, observe.CacheBypass)
 	out.SkillWatcher = skillsvc.NewWatcher(out.Skills)
 	if err := out.SkillWatcher.Start(ctx); err != nil {
 		return nil, err
@@ -1055,14 +1073,16 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		return nil, err
 	}
 	{
-		promptSvc := promptsvc.New(promptRepo,
+		profileOptions := []func(*promptsvc.Service){
 			promptsvc.WithConversationClient(out.Conversation),
 			promptsvc.WithAgentFinder(b.agentFinder),
 			promptsvc.WithMCPManager(out.MCPManager),
 			promptsvc.WithAuthorizationPolicy(out.AuthorizationPolicy),
-		)
-		if err := tool.AddInternalService(out.Registry, promptSvc); err != nil {
-			return nil, err
+		}
+		for _, profileService := range []*promptsvc.Service{promptsvc.NewPlaybook(promptRepo, profileOptions...), promptsvc.New(promptRepo, profileOptions...)} {
+			if err := tool.AddInternalService(out.Registry, profileService); err != nil {
+				return nil, err
+			}
 		}
 	}
 	// Wire the streaming bus into the agent's internal elicitation service so
@@ -1086,19 +1106,28 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		out.CallbackDispatch = callbacksvc.New(callbackRepo, out.Registry, cbOpts...)
 	}
 
-	if err := b.configurePrimitiveProviders(out); err != nil {
+	primitiveTiming := observe.Start(ctx, "startup.runtime.primitive_providers", observe.Labels{})
+	if err := b.configurePrimitiveProvidersObserved(ctx, out); err != nil {
+		primitiveTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 		return nil, err
 	}
+	primitiveTiming.End(observe.OK, observe.CacheBypass)
 	b.configureDefaultUIOwner(out)
 	if out.Agent != nil && out.NativeHostDocuments != nil {
 		out.Agent.SetHostDocuments(out.NativeHostDocuments)
 	}
+	primitiveSkillTiming := observe.Start(ctx, "startup.runtime.primitive_skills", observe.Labels{})
 	if err := b.configurePrimitiveSkills(ctx, out); err != nil {
+		primitiveSkillTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 		return nil, err
 	}
+	primitiveSkillTiming.End(observe.OK, observe.CacheBypass)
+	definitionTiming := observe.Start(ctx, "startup.runtime.mcp_definitions", observe.Labels{})
 	if err := b.bindMCPDefinitions(out); err != nil {
+		definitionTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 		return nil, fmt.Errorf("MCP definition loading: %w", err)
 	}
+	definitionTiming.End(observe.OK, observe.CacheBypass)
 	if !b.skipRegistryInitialize && !shouldSkipRegistryInitialize() {
 		out.Registry.Initialize(ctx)
 	}

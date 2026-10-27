@@ -172,6 +172,7 @@ export interface LinkedConversationRenderView extends HostTrust {
 }
 
 export interface IterationRenderRow extends HostTrust {
+    assistantFinal?: ClientTurnState['assistantFinal'];
     feedback?: ClientTurnState['feedback'];
     feedbackEditable?: boolean;
     waitKind?: ClientTurnState['waitKind'];
@@ -491,6 +492,7 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
         feedbackEditable: turn.lifecycle === 'completed' && turn.feedbackEditable === true,
         operationalNarration: turn.operationalNarration,
         attachments: turn.assistantFinal?.attachments,
+        assistantFinal: turn.assistantFinal,
         renderKey: turn.renderKey,
         connectionProfile: turn.connectionProfile,
         hostEffectsAllowed: turn.hostEffectsAllowed,

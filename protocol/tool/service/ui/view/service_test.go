@@ -19,10 +19,10 @@ import (
 	windowtool "github.com/viant/agently-core/protocol/tool/service/ui/window"
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	"github.com/viant/agently-core/workspace"
 	repo "github.com/viant/agently-core/workspace/repository/forgewindow"
-	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/service/meta"
 	forgetypes "github.com/viant/forge/backend/types"
 )
@@ -641,7 +641,7 @@ func TestWorkspaceViewsUseHostAdmissionForListAndDirectGet(t *testing.T) {
 
 func TestWorkspaceViewsWithSharedWindowKeyUseSeparateViewAdmission(t *testing.T) {
 	withWorkspaceRoot(t, func(root string) {
-		for _, id := range []string{"metricsBuilder", "forecastBuilder"} {
+		for _, id := range []string{"metricsBuilder", "reportBuilder"} {
 			mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", id+".yaml"), "id: "+id+"\nwindowKey: reportBuilder\ntitle: "+id+"\n")
 		}
 		viewCalls, windowCalls := map[string]int{}, map[string]int{}
@@ -653,10 +653,10 @@ func TestWorkspaceViewsWithSharedWindowKeyUseSeparateViewAdmission(t *testing.T)
 			return key == "reportBuilder", nil
 		}}
 		items, err := svc.loadAll(context.Background())
-		if err != nil || len(items) != 1 || items[0].ID != "metricsBuilder" || viewCalls["forecastBuilder"] != 1 || windowCalls["reportBuilder"] != 1 {
+		if err != nil || len(items) != 1 || items[0].ID != "metricsBuilder" || viewCalls["reportBuilder"] != 1 || windowCalls["reportBuilder"] != 1 {
 			t.Fatalf("shared-key views=%+v view calls=%v window calls=%v err=%v", items, viewCalls, windowCalls, err)
 		}
-		if _, err := svc.loadOne(context.Background(), "forecastBuilder"); err == nil {
+		if _, err := svc.loadOne(context.Background(), "reportBuilder"); err == nil {
 			t.Fatal("denied view with shared window key was exposed")
 		}
 	})
@@ -735,11 +735,11 @@ func TestComputeWindowIDConversationIdentityIgnoresReportSourceParameters(t *tes
 	}
 	primary := computeWindowID("reportBuilder", map[string]interface{}{
 		"reportBuilderRef": "primary",
-		"orderIds":         []interface{}{2680567},
+		"orderIds":         []interface{}{8567},
 	}, "conv-1", item)
 	secondary := computeWindowID("reportBuilder", map[string]interface{}{
 		"reportBuilderRef": "secondary",
-		"audienceIds":      []interface{}{7113447},
+		"audienceIds":      []interface{}{11447},
 	}, "conv-1", item)
 	if primary != "reportBuilder__conv-1" || secondary != primary {
 		t.Fatalf("expected one conversation-scoped report window, got primary=%q secondary=%q", primary, secondary)
@@ -748,15 +748,15 @@ func TestComputeWindowIDConversationIdentityIgnoresReportSourceParameters(t *tes
 
 func TestComputeWindowIDUsesViewIDForAliasedHostedViewIdentity(t *testing.T) {
 	item := &ListItem{
-		ID:            "forecastingCubeBuilder",
+		ID:            "reportBuilder",
 		WindowKey:     "reportBuilder",
 		Presentation:  "hosted",
 		IdentityScope: "conversation",
 	}
 	got := computeWindowID(item.WindowKey, map[string]interface{}{
-		"reportBuilderRef": "forecastingCubeBuilder",
-	}, "conv-forecast", item)
-	if got != "forecastingCubeBuilder__conv-forecast" {
+		"reportBuilderRef": "reportBuilder",
+	}, "conv-report", item)
+	if got != "reportBuilder__conv-report" {
 		t.Fatalf("unexpected aliased hosted window id: %s", got)
 	}
 }
@@ -768,13 +768,13 @@ func TestComputeWindowIDUsesDeclaredIdentityParameters(t *testing.T) {
 		IdentityParameters: []string{"AdOrderId"},
 	}
 	fromCampaign := computeWindowID("order", map[string]interface{}{
-		"AdOrderId": []interface{}{2694007}, "CampaignId": []interface{}{532743},
+		"AdOrderId": []interface{}{9407}, "CampaignId": []interface{}{2743},
 	}, "conv-1", item)
 	direct := computeWindowID("order", map[string]interface{}{
-		"AdOrderId": []interface{}{2694007},
+		"AdOrderId": []interface{}{9407},
 	}, "conv-1", item)
 	other := computeWindowID("order", map[string]interface{}{
-		"AdOrderId": []interface{}{2694008}, "CampaignId": []interface{}{532743},
+		"AdOrderId": []interface{}{9408}, "CampaignId": []interface{}{2743},
 	}, "conv-1", item)
 	if fromCampaign != direct || other == direct {
 		t.Fatalf("expected exact Order identity, got campaign=%q direct=%q other=%q", fromCampaign, direct, other)
@@ -1175,21 +1175,21 @@ reportPresets:
 
 func TestOpenReturnsWindowIdVisibleToWindowList(t *testing.T) {
 	withWorkspaceRoot(t, func(root string) {
-		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "forecastingCubeBuilder.yaml"), `
-id: forecastingCubeBuilder
-title: Forecasting
-windowKey: forecastingCubeBuilder
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "reportBuilder.yaml"), `
+id: reportBuilder
+title: Report
+windowKey: reportBuilder
 presentation: hosted
 region: chat.top
 `)
-		const conversationID = "conv-forecast"
+		const conversationID = "conv-report"
 		const clientID = "web-client-1"
 
 		metadataScope := &metadataScopeFixture{}
 		windowCatalog, err := forgeuisvc.NewMetadataWindowCatalog(meta.New(afs.New(), root), root, []forgeuisvc.SavedWindow{{
-			WindowDefinitionSummary: forgeuisvc.WindowDefinitionSummary{WindowID: "forecastingCubeBuilder", Title: "Forecasting"}, Key: "forecastingCubeBuilder",
+			WindowDefinitionSummary: forgeuisvc.WindowDefinitionSummary{WindowID: "reportBuilder", Title: "Report"}, Key: "reportBuilder",
 		}}, forgeuisvc.WithWindowMetadataScope(metadataScope), forgeuisvc.WithWindowDefinitionLoader(func(context.Context, string) (*forgetypes.Window, error) {
-			return &forgetypes.Window{WindowKey: "forecastingCubeBuilder", View: forgetypes.View{Content: &forgetypes.Container{ID: "root"}}}, nil
+			return &forgetypes.Window{WindowKey: "reportBuilder", View: forgetypes.View{Content: &forgetypes.Container{ID: "root"}}}, nil
 		}))
 		if err != nil {
 			t.Fatal(err)
@@ -1284,7 +1284,7 @@ region: chat.top
 		)
 		viewSvc := New(repo.New(afs.New()), bridge, WithMetadataScope(metadataScope))
 		openOut := &OpenOutput{}
-		if err := viewSvc.open(ctx, &OpenInput{ID: "forecastingCubeBuilder", TimeoutMs: 2_000}, openOut); err != nil {
+		if err := viewSvc.open(ctx, &OpenInput{ID: "reportBuilder", TimeoutMs: 2_000}, openOut); err != nil {
 			t.Fatalf("open failed: %v", err)
 		}
 		if err := <-commandDone; err != nil {
@@ -1322,7 +1322,7 @@ func TestComputeWindowID_HostedViewsAreConversationScoped(t *testing.T) {
 		Region:       "chat.top",
 	}
 	parameters := map[string]interface{}{
-		"RecordId": []interface{}{2656980.0},
+		"RecordId": []interface{}{6980.0},
 	}
 	got := computeWindowID("order", parameters, "conv-1", item)
 	expected := "order_" + fmt.Sprint(generateIntHash(parameters)) + "__conv-1"

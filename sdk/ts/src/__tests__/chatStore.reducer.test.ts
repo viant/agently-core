@@ -179,7 +179,7 @@ describe('chatStore/reducer — applyLocalSubmit', () => {
     it('completed transcript coalesces a single pending bootstrap turn even without echoed ids', () => {
         const state = applyLocalSubmit(fresh(), submit({
             clientRequestId: 'crid_only',
-            content: 'show order 2656980',
+            content: 'show order 6980',
         }));
         const originalTurnKey = state.turns[0].renderKey;
         const originalUserKey = state.turns[0].users[0].renderKey;
@@ -192,7 +192,7 @@ describe('chatStore/reducer — applyLocalSubmit', () => {
                 createdAt: '2025-01-01T00:00:03.000Z',
                 user: {
                     messageId: 'msg_bootstrap',
-                    content: 'show order 2656980',
+                    content: 'show order 6980',
                 },
                 messages: [{
                     messageId: 'msg_assistant',
@@ -216,7 +216,7 @@ describe('chatStore/reducer — applyLocalSubmit', () => {
     it('completed transcript drops a matching pending bootstrap turn when a real turn already exists', () => {
         const state = applyLocalSubmit(fresh(), submit({
             clientRequestId: 'crid_only',
-            content: 'show order 2656980',
+            content: 'show order 6980',
         }));
 
         applyTranscript(state, {
@@ -227,7 +227,7 @@ describe('chatStore/reducer — applyLocalSubmit', () => {
                 createdAt: '2025-01-01T00:00:03.000Z',
                 user: {
                     messageId: 'msg_bootstrap',
-                    content: 'show order 2656980',
+                    content: 'show order 6980',
                 },
                 messages: [{
                     messageId: 'msg_assistant',
@@ -249,7 +249,7 @@ describe('chatStore/reducer — applyLocalSubmit', () => {
                 createdAt: '2025-01-01T00:00:03.000Z',
                 user: {
                     messageId: 'msg_bootstrap',
-                    content: 'show order 2656980',
+                    content: 'show order 6980',
                 },
                 messages: [{
                     messageId: 'msg_assistant',

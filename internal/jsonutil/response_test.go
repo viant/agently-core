@@ -19,7 +19,7 @@ func TestEnsureJSONResponse(t *testing.T) {
 	}{
 		{
 			name:      "vertex-claude fenced json plan",
-			text:      "I'll help you find out how many tables are in the database. Let me search for SQL files or database files in the knowledge directory. {\"steps\":[{\"type\":\"tool\",\"reason\":\"Search for SQL and database files to find table information\",\"name\":\"system_exec-execute\",\"args\":{\"commands\":[\"rg --files /Users/awitas/go/src/github.com/viant/agently/ag/agents/chat/knowledge | grep -E '.*(sql|db)$'\"]}}]}",
+			text:      "I'll help you find out how many tables are in the database. Let me search for SQL files or database files in the knowledge directory. {\"steps\":[{\"type\":\"tool\",\"reason\":\"Search for SQL and database files to find table information\",\"name\":\"system_exec-execute\",\"args\":{\"commands\":[\"rg --files /workspace/go/src/github.com/viant/agently/ag/agents/chat/knowledge | grep -E '.*(sql|db)$'\"]}}]}",
 			wantSteps: 1,
 			wantErr:   false,
 		},

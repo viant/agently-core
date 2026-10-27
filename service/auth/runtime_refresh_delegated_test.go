@@ -69,9 +69,9 @@ func delegatedWatcherRuntime(store *fakeScanStore) *Runtime {
 }
 
 func TestRefreshTokenStoreRoutesDelegatedRows(t *testing.T) {
-	delegatedKey := DelegatedProviderStorageKey("ns", "adelphic-dev6")
+	delegatedKey := DelegatedProviderStorageKey("ns", "sample-provider")
 	store := &fakeScanStore{rows: []*OAuthToken{
-		{Username: "uuid-1", Provider: delegatedKey, ProviderRef: "adelphic-dev6", RefreshToken: "rt", ExpiresAt: time.Now().Add(time.Minute)},
+		{Username: "uuid-1", Provider: delegatedKey, ProviderRef: "sample-provider", RefreshToken: "rt", ExpiresAt: time.Now().Add(time.Minute)},
 		{Username: "uuid-1", Provider: "github", RefreshToken: "rt", ExpiresAt: time.Now().Add(time.Minute)},
 	}}
 	runtime := delegatedWatcherRuntime(store)
@@ -93,9 +93,9 @@ func TestRefreshTokenStoreRoutesDelegatedRows(t *testing.T) {
 }
 
 func TestRefreshTokenStoreSkipsDelegatedRowsWithoutRefresher(t *testing.T) {
-	delegatedKey := DelegatedProviderStorageKey("ns", "adelphic-dev6")
+	delegatedKey := DelegatedProviderStorageKey("ns", "sample-provider")
 	store := &fakeScanStore{rows: []*OAuthToken{
-		{Username: "uuid-1", Provider: delegatedKey, ProviderRef: "adelphic-dev6", RefreshToken: "rt", ExpiresAt: time.Now().Add(time.Minute)},
+		{Username: "uuid-1", Provider: delegatedKey, ProviderRef: "sample-provider", RefreshToken: "rt", ExpiresAt: time.Now().Add(time.Minute)},
 	}}
 	runtime := delegatedWatcherRuntime(store)
 	// No delegated refresher installed: rows are skipped without mutation and
@@ -129,14 +129,14 @@ func TestStoreScanHorizonUsesLargestLead(t *testing.T) {
 // only the exact same provider row may donate metadata, and delegated rows are
 // refused outright.
 func TestMergeableRefreshPrior(t *testing.T) {
-	delegatedKey := DelegatedProviderStorageKey("ns", "adelphic-dev6")
+	delegatedKey := DelegatedProviderStorageKey("ns", "sample-provider")
 	if mergeableRefreshPrior(nil, "corp-idp") {
 		t.Fatalf("nil prior must not merge")
 	}
 	if mergeableRefreshPrior(&OAuthToken{Provider: "github"}, "corp-idp") {
 		t.Fatalf("a fallback row from another provider must not merge")
 	}
-	if mergeableRefreshPrior(&OAuthToken{Provider: delegatedKey, ProviderRef: "adelphic-dev6"}, "corp-idp") {
+	if mergeableRefreshPrior(&OAuthToken{Provider: delegatedKey, ProviderRef: "sample-provider"}, "corp-idp") {
 		t.Fatalf("delegated metadata must never merge into a workspace token")
 	}
 	// Even an exact delegated match is refused on the workspace merge path.

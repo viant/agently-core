@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -22,7 +23,8 @@ type TemplateDefinition struct {
 }
 type TemplateReader struct{ Gateway *Gateway }
 type IntentReader struct {
-	Gateway *Gateway
+	Gateway          *Gateway
+	includePlaybooks bool
 	// Scope resolves relative profile IDs within the host's authored workspace.
 	// Absolute resource URIs remain federated references.
 	Scope DefinitionScope
@@ -31,6 +33,9 @@ type TemplateBundleReader struct{ Gateway *Gateway }
 
 func NewTemplateReader(g *Gateway) *TemplateReader { return &TemplateReader{Gateway: g} }
 func NewIntentReader(g *Gateway) *IntentReader     { return &IntentReader{Gateway: g} }
+func NewPlaybookReader(g *Gateway) *IntentReader {
+	return &IntentReader{Gateway: g, includePlaybooks: true}
+}
 func NewTemplateBundleReader(g *Gateway) *TemplateBundleReader {
 	return &TemplateBundleReader{Gateway: g}
 }
@@ -79,6 +84,9 @@ func DecodeIntentDefinition(raw json.RawMessage) (intent.Profile, error) {
 		seen[key] = true
 	}
 	return v, nil
+}
+func DecodePlaybookDefinition(raw json.RawMessage) (intent.Profile, error) {
+	return DecodeIntentDefinition(raw)
 }
 func authoredPages[T any](ctx context.Context, g *Gateway, kind string) ([]Located[T], error) {
 	var out []Located[T]
@@ -144,17 +152,26 @@ func (r *IntentReader) LoadAll(ctx context.Context) ([]*intent.Profile, error) {
 		EvidenceContract                                             *intent.EvidenceContract
 		Knowledge                                                    []intent.KnowledgeMatch
 	}
-	rows, err := authoredPages[summary](ctx, r.Gateway, "intent")
-	if err != nil {
-		return nil, err
+	var out []*intent.Profile
+	kinds := []string{"intent"}
+	if r.includePlaybooks {
+		kinds = []string{"playbook", "intent"}
 	}
-	out := make([]*intent.Profile, 0, len(rows))
-	for _, row := range rows {
-		v := row.Definition
-		if v.ID == "" {
+	for _, kind := range kinds {
+		rows, err := authoredPages[summary](ctx, r.Gateway, kind)
+		if errors.Is(err, ErrUnavailable) || errors.Is(err, identity.ErrResourceDenied) {
 			continue
 		}
-		out = append(out, &intent.Profile{ResourceURI: row.Resource.URI, ID: v.ID, Name: v.Name, Description: v.Description, Model: v.Model, Template: v.Template, AppliesTo: v.AppliesTo, Templates: v.Templates, ToolBundles: v.ToolBundles, PreferredTools: v.PreferredTools, Resources: v.Resources, EvidenceContract: v.EvidenceContract, Knowledge: v.Knowledge})
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			v := row.Definition
+			if v.ID == "" {
+				continue
+			}
+			out = append(out, &intent.Profile{ResourceURI: row.Resource.URI, ID: v.ID, Name: v.Name, Description: v.Description, Model: v.Model, Template: v.Template, AppliesTo: v.AppliesTo, Templates: v.Templates, ToolBundles: v.ToolBundles, PreferredTools: v.PreferredTools, Resources: v.Resources, EvidenceContract: v.EvidenceContract, Knowledge: v.Knowledge})
+		}
 	}
 	return out, nil
 }
@@ -162,14 +179,37 @@ func (r *IntentReader) Load(ctx context.Context, key string) (*intent.Profile, e
 	if r.Scope != (DefinitionScope{}) {
 		ctx = WithDefinitionScope(ctx, r.Scope)
 	}
-	got, err := ResolveDefinition[intent.Profile](ctx, r.Gateway, "intent", key, func(v intent.Profile) string {
-		if strings.EqualFold(v.ID, key) {
-			return key
+	kinds := []string{"intent"}
+	if r.includePlaybooks {
+		kinds = []string{"playbook", "intent"}
+	}
+	if uri, err := identity.ParseResourceURI(key); err == nil {
+		if uri.Kind != "playbook" && uri.Kind != "intent" {
+			return nil, identity.ErrResource
 		}
-		return ""
-	}, DecodeIntentDefinition)
-	if err != nil {
-		return nil, err
+		kinds = []string{uri.Kind}
+	}
+	var got *Result[intent.Profile]
+	for _, kind := range kinds {
+		selected, err := ResolveDefinition[intent.Profile](ctx, r.Gateway, kind, key, func(v intent.Profile) string {
+			if strings.EqualFold(v.ID, key) {
+				return key
+			}
+			return ""
+		}, DecodeIntentDefinition)
+		if errors.Is(err, ErrUnavailable) || errors.Is(err, identity.ErrResourceDenied) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if got != nil {
+			return nil, ErrCollision
+		}
+		got = selected
+	}
+	if got == nil {
+		return nil, identity.ErrResourceDenied
 	}
 	for _, m := range got.Definition.Messages {
 		if m.URI != "" {
@@ -218,7 +258,7 @@ func (r *TemplateBundleReader) LoadAll(ctx context.Context) ([]*bundle.Bundle, e
 // are confined to the admitted parent's namespace and provider.
 func (r *TemplateReader) LoadFrom(ctx context.Context, key, parentURI, provider string) (*tpl.Template, error) {
 	parent, err := identity.ParseResourceURI(parentURI)
-	if err != nil || parent.Kind != "intent" {
+	if err != nil || parent.Kind != "intent" && parent.Kind != "playbook" {
 		return nil, identity.ErrResource
 	}
 	got, err := ResolveDefinitionIn[TemplateDefinition](ctx, r.Gateway, "template", key, DefinitionScope{Namespace: parent.Namespace, ProviderIdentity: provider}, func(v TemplateDefinition) string {

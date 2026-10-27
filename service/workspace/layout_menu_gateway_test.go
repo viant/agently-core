@@ -4,6 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/viant/jsonrpc"
+	"github.com/viant/mcp-protocol/schema"
 	"os"
 	"path/filepath"
 	"testing"
@@ -153,4 +159,86 @@ func (s *menuProjectionChanges) SubscribeResources(sink transport.Notifier) func
 	stopSource := s.snapshot.SubscribeResources(sink)
 	stopProjection := s.projections.SubscribeResources(sink)
 	return func() { stopSource(); stopProjection() }
+}
+
+type navigationReadFailure struct {
+	mcpclient.Interface
+	failure error
+	invalid bool
+}
+
+func (c *navigationReadFailure) CallTool(ctx context.Context, p *schema.CallToolRequestParams, options ...mcpclient.RequestOption) (*schema.CallToolResult, error) {
+	if p.Name == "navigations/get" {
+		if c.invalid {
+			failed := false
+			return &schema.CallToolResult{IsError: &failed, StructuredContent: map[string]any{"unexpected": "invalid publication"}}, nil
+		}
+		return nil, c.failure
+	}
+	return c.Interface.CallTool(ctx, p, options...)
+}
+func (c *navigationReadFailure) ReadResource(ctx context.Context, p *schema.ReadResourceRequestParams, options ...mcpclient.RequestOption) (*schema.ReadResourceResult, error) {
+	if strings.HasPrefix(p.Uri, "navigation://") {
+		return nil, c.failure
+	}
+	return c.Interface.ReadResource(ctx, p, options...)
+}
+
+func TestOptionalApplicationReadDenialDoesNotHideOtherProviders(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		failure error
+		invalid bool
+		omitted bool
+	}{
+		{"unauthorized", jsonrpc.NewUnauthorizedError(401, nil), false, true},
+		{"forbidden", applicationStatusError(403), false, true},
+		{"server", applicationStatusError(500), false, false},
+		{"invalid-publication", nil, true, false},
+		{"integrity", identity.ErrResourceStale, false, false},
+	} {
+		for _, deniedFirst := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/deniedFirst=%v", tc.name, deniedFirst), func(t *testing.T) {
+				ctx := context.Background()
+				actor, verify := resources.PublicReadActors()
+				mgr, err := manager.New(nil)
+				require.NoError(t, err)
+				defer mgr.CloseConversation("")
+				registerApplicationFixture(t, mgr, "internal")
+				registerApplicationFixture(t, mgr, "optional", func(client mcpclient.Interface) mcpclient.Interface {
+					return &navigationReadFailure{client, tc.failure, tc.invalid}
+				})
+				gateway := resources.NewGateway(mgr, actor, verify, "host")
+				defer gateway.Close()
+				optional := ` - {connection: optional, resource: "navigation://optional/main", applicationId: primary}`
+				internal := ` - {connection: internal, resource: "navigation://internal/main", applicationId: primary}`
+				config := "applicationSources:\n" + optional + "\n" + internal + "\n"
+				if !deniedFirst {
+					config = "applicationSources:\n" + internal + "\n" + optional + "\n"
+				}
+				reader, err := ApplicationMenuReader(gateway, []byte(config))
+				require.NoError(t, err)
+
+				got, err := reader(ctx)
+				if !tc.omitted {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				defer got.Close()
+				var apps []LayoutApplication
+				require.NoError(t, json.Unmarshal(got.Applications, &apps))
+				require.Len(t, apps, 1)
+				require.Equal(t, "internal", apps[0].ProviderIdentity)
+				require.NoError(t, got.Revalidate(ctx))
+				require.NoError(t, got.Close())
+				require.NoError(t, got.Close())
+				// Explicit/direct readers remain strict: isolation is optional-source only.
+				strict := NewGatewayLayoutMenuReader(gateway, []GatewayMenuSource{{Resource: identity.ResourceRef{URI: "navigation://optional/main"}, ProviderIdentity: "optional"}})
+				_, err = strict(ctx)
+				require.Error(t, err)
+				require.False(t, errors.Is(err, identity.ErrResourceStale))
+			})
+		}
+	}
 }

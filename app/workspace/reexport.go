@@ -4,6 +4,7 @@ import old "github.com/viant/agently-core/workspace"
 
 const (
 	KindAgent            = old.KindAgent
+	KindPlaybook         = old.KindPlaybook
 	KindModel            = old.KindModel
 	KindEmbedder         = old.KindEmbedder
 	KindMCP              = old.KindMCP

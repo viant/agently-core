@@ -64,7 +64,7 @@ func TestRoutingBrokerWorkspaceAlias(t *testing.T) {
 
 func TestRoutingBrokerDelegatedProvider(t *testing.T) {
 	workspace := &recordingBroker{name: "workspace"}
-	delegated := &recordingBroker{name: "dev6"}
+	delegated := &recordingBroker{name: "sample"}
 	router := &RoutingBroker{
 		Workspace:        workspace,
 		Registry:         mapBrokerRegistry{"mcp:v1:deadbeef": delegated},
@@ -74,7 +74,7 @@ func TestRoutingBrokerDelegatedProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if tok.AccessToken != "from-dev6" {
+	if tok.AccessToken != "from-sample" {
 		t.Fatalf("routed to wrong broker: %q", tok.AccessToken)
 	}
 	if workspace.refreshN != 0 {

@@ -19,7 +19,7 @@ func TestRegistry_InternalPromptServiceMatchesPromptWildcard(t *testing.T) {
 	reg, err := registry.NewWithManager(mgr)
 	require.NoError(t, err)
 
-	repo := intakerepo.NewWithStore(fsstore.New("/Users/awitas/go/src/github.com/viant/agently-core/workspace/repository/intake/testdata"))
+	repo := intakerepo.NewWithStore(fsstore.New("../../../workspace/repository/intake/testdata"))
 	require.NoError(t, reg.AddInternalService(promptsvc.New(repo)))
 
 	reg.Initialize(context.Background())

@@ -126,15 +126,15 @@ func (f *fakeProviderLoader) Load(ctx context.Context, name string) (*oauthprovi
 	return &clone, nil
 }
 
-func dev6ProviderDoc(disabled bool) *oauthprovider.Document {
+func sampleProviderDoc(disabled bool) *oauthprovider.Document {
 	return &oauthprovider.Document{
 		OAuthProvider: authcfg.OAuthProvider{
-			ID:            "adelphic-dev6",
-			Issuer:        "https://idp-dev6.example.com/",
-			DefaultClient: "steward-web",
+			ID:            "sample-provider",
+			Issuer:        "https://idp.example.invalid/",
+			DefaultClient: "sample-web",
 			Clients: map[string]*authcfg.OAuthClient{
-				"steward-web": {
-					ConfigURL:   "scy://dev6-client",
+				"sample-web": {
+					ConfigURL:   "scy://sample-client",
 					RedirectURI: "https://steward.example.com/v1/api/auth/mcp/callback",
 					UsePKCE:     true,
 					RefreshLead: "15m",
@@ -145,13 +145,13 @@ func dev6ProviderDoc(disabled bool) *oauthprovider.Document {
 	}
 }
 
-func dev6Requirement() authcfg.Requirement {
+func sampleRequirement() authcfg.Requirement {
 	return authcfg.Requirement{
-		ServerName:  "viant-mcp-dev6",
-		ProviderRef: "adelphic-dev6",
-		ClientRef:   "steward-web",
-		Issuer:      "https://idp-dev6.example.com",
-		Resource:    "https://mcp6.example.com/mcp",
+		ServerName:  "sample-mcp",
+		ProviderRef: "sample-provider",
+		ClientRef:   "sample-web",
+		Issuer:      "https://idp.example.invalid",
+		Resource:    "https://mcp.example.invalid/mcp",
 		Scopes:      []string{"plan:create", "plan:edit", "plan:read"},
 		TokenType:   authcfg.TokenTypeAccessToken,
 		Resolution:  authcfg.ResolutionEager,
@@ -170,8 +170,8 @@ func newTestResolver(t *testing.T, store *fakeDelegatedStore, docs ...*oauthprov
 	resolver := NewDelegatedCredentialResolver(cfg, store, registry, "test-ns")
 	resolver.loadClientConfig = func(ctx context.Context, configURL string) (*oauth2.Config, error) {
 		return &oauth2.Config{
-			ClientID: "steward-web",
-			Endpoint: oauth2.Endpoint{TokenURL: "https://idp-dev6.example.com/token"},
+			ClientID: "sample-web",
+			Endpoint: oauth2.Endpoint{TokenURL: "https://idp.example.invalid/token"},
 		}, nil
 	}
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
@@ -190,22 +190,22 @@ func delegatedCtx(canonicalID string) context.Context {
 	return ctx
 }
 
-func dev6StorageKey() string { return DelegatedProviderStorageKey("test-ns", "adelphic-dev6") }
+func sampleStorageKey() string { return DelegatedProviderStorageKey("test-ns", "sample-provider") }
 
-func seededDev6Token(expiresAt time.Time) *OAuthToken {
+func seededSampleToken(expiresAt time.Time) *OAuthToken {
 	return &OAuthToken{
 		Username:     "uuid-1",
-		Provider:     dev6StorageKey(),
-		AccessToken:  "dev6-access",
-		RefreshToken: "dev6-refresh",
+		Provider:     sampleStorageKey(),
+		AccessToken:  "sample-access",
+		RefreshToken: "sample-refresh",
 		ExpiresAt:    expiresAt,
-		Issuer:       "https://idp-dev6.example.com",
-		Resource:     "https://mcp6.example.com/mcp",
+		Issuer:       "https://idp.example.invalid",
+		Resource:     "https://mcp.example.invalid/mcp",
 		Scopes:       []string{"plan:create", "plan:edit", "plan:read"},
 		TokenType:    "accessToken",
-		Subject:      "dev6-subject",
-		ProviderRef:  "adelphic-dev6",
-		ClientRef:    "steward-web",
+		Subject:      "synthetic-subject",
+		ProviderRef:  "sample-provider",
+		ClientRef:    "sample-web",
 	}
 }
 
@@ -225,8 +225,8 @@ func unsafeJWT(t *testing.T, claims map[string]interface{}) string {
 
 func TestResolveFailsClosedWithoutCanonicalUser(t *testing.T) {
 	store := newFakeDelegatedStore()
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
-	requirement := dev6Requirement()
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
+	requirement := sampleRequirement()
 
 	// No identity at all.
 	if _, err := resolver.Resolve(context.Background(), requirement); err == nil {
@@ -241,8 +241,8 @@ func TestResolveFailsClosedWithoutCanonicalUser(t *testing.T) {
 
 func TestResolveMissingTokenReturnsLinkRequired(t *testing.T) {
 	store := newFakeDelegatedStore()
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
-	_, err := resolver.Resolve(delegatedCtx("uuid-1"), dev6Requirement())
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
+	_, err := resolver.Resolve(delegatedCtx("uuid-1"), sampleRequirement())
 	if !authcfg.IsLinkRequired(err) {
 		t.Fatalf("expected link-required, got %v", err)
 	}
@@ -250,7 +250,7 @@ func TestResolveMissingTokenReturnsLinkRequired(t *testing.T) {
 	if ok := authcfg.IsLinkRequired(err); ok {
 		linkErr, _ = err.(*authcfg.OAuthLinkRequiredError)
 	}
-	if linkErr == nil || linkErr.ProviderRef != "adelphic-dev6" || linkErr.ServerName != "viant-mcp-dev6" {
+	if linkErr == nil || linkErr.ProviderRef != "sample-provider" || linkErr.ServerName != "sample-mcp" {
 		t.Fatalf("link-required must carry requirement identity: %+v", linkErr)
 	}
 }
@@ -259,11 +259,11 @@ func TestResolveMissingTokenNeverFallsBackToWorkspaceToken(t *testing.T) {
 	store := newFakeDelegatedStore()
 	// Seed a workspace-provider row for the same user under the workspace name.
 	store.seed(&OAuthToken{Username: "uuid-1", Provider: "corp-idp", AccessToken: "workspace-token"})
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	ctx := delegatedCtx("uuid-1")
 	// Also inject workspace tokens into the context.
 	ctx = iauth.WithTokens(ctx, &scyauth.Token{Token: oauth2.Token{AccessToken: "workspace-bearer"}})
-	_, err := resolver.Resolve(ctx, dev6Requirement()) // ReusePolicyNever
+	_, err := resolver.Resolve(ctx, sampleRequirement()) // ReusePolicyNever
 	if !authcfg.IsLinkRequired(err) {
 		t.Fatalf("a missing delegated token must produce link-required, got %v", err)
 	}
@@ -271,22 +271,22 @@ func TestResolveMissingTokenNeverFallsBackToWorkspaceToken(t *testing.T) {
 
 func TestResolveReturnsStoredCredentialWithoutContextMutation(t *testing.T) {
 	store := newFakeDelegatedStore()
-	store.seed(seededDev6Token(time.Now().Add(2 * time.Hour)))
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	store.seed(seededSampleToken(time.Now().Add(2 * time.Hour)))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	ctx := delegatedCtx("uuid-1")
 	ctx = iauth.WithBearer(ctx, "workspace-bearer")
 
-	credential, err := resolver.Resolve(ctx, dev6Requirement())
+	credential, err := resolver.Resolve(ctx, sampleRequirement())
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if credential.Token != "dev6-access" {
+	if credential.Token != "sample-access" {
 		t.Fatalf("credential token = %q", credential.Token)
 	}
 	if credential.TokenType != authcfg.TokenTypeAccessToken {
 		t.Fatalf("credential type = %q", credential.TokenType)
 	}
-	if credential.ProviderRef != "adelphic-dev6" || credential.Resource != "https://mcp6.example.com/mcp" {
+	if credential.ProviderRef != "sample-provider" || credential.Resource != "https://mcp.example.invalid/mcp" {
 		t.Fatalf("credential metadata = %+v", credential)
 	}
 	// The parent auth context is unchanged: effective user, workspace
@@ -308,11 +308,11 @@ func TestResolveReturnsStoredCredentialWithoutContextMutation(t *testing.T) {
 
 func TestResolveIDTokenRequirementNeverFallsBackToAccessToken(t *testing.T) {
 	store := newFakeDelegatedStore()
-	tok := seededDev6Token(time.Now().Add(2 * time.Hour))
+	tok := seededSampleToken(time.Now().Add(2 * time.Hour))
 	tok.IDToken = "" // only access token stored
 	store.seed(tok)
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
-	requirement := dev6Requirement()
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
+	requirement := sampleRequirement()
 	requirement.TokenType = authcfg.TokenTypeIDToken
 	_, err := resolver.Resolve(delegatedCtx("uuid-1"), requirement)
 	if !authcfg.IsLinkRequired(err) {
@@ -323,25 +323,25 @@ func TestResolveIDTokenRequirementNeverFallsBackToAccessToken(t *testing.T) {
 func TestResolveRefreshesExpiringTokenPreservingMetadata(t *testing.T) {
 	store := newFakeDelegatedStore()
 	// Expires within the 15m lead → due for refresh.
-	store.seed(seededDev6Token(time.Now().Add(5 * time.Minute)))
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	store.seed(seededSampleToken(time.Now().Add(5 * time.Minute)))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	var refreshCalls int
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		refreshCalls++
-		if base.RefreshToken != "dev6-refresh" {
+		if base.RefreshToken != "sample-refresh" {
 			t.Fatalf("refresh must use the stored refresh token, got %q", base.RefreshToken)
 		}
-		if resource != "https://mcp6.example.com/mcp" {
+		if resource != "https://mcp.example.invalid/mcp" {
 			t.Fatalf("refresh must target the stored resource, got %q", resource)
 		}
-		if config.Endpoint.TokenURL != "https://idp-dev6.example.com/token" {
+		if config.Endpoint.TokenURL != "https://idp.example.invalid/token" {
 			t.Fatalf("refresh must use the provider's exact token endpoint, got %q", config.Endpoint.TokenURL)
 		}
 		// Provider omits a rotated refresh token.
 		return &oauth2.Token{AccessToken: "fresh-access", Expiry: time.Now().Add(time.Hour)}, nil
 	}
 
-	credential, err := resolver.Resolve(delegatedCtx("uuid-1"), dev6Requirement())
+	credential, err := resolver.Resolve(delegatedCtx("uuid-1"), sampleRequirement())
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -351,15 +351,15 @@ func TestResolveRefreshesExpiringTokenPreservingMetadata(t *testing.T) {
 	if credential.Token != "fresh-access" {
 		t.Fatalf("credential token = %q", credential.Token)
 	}
-	persisted, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey())
+	persisted, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey())
 	if persisted == nil || persisted.AccessToken != "fresh-access" {
 		t.Fatalf("refresh must CAS-persist the new token: %+v", persisted)
 	}
-	if persisted.RefreshToken != "dev6-refresh" {
+	if persisted.RefreshToken != "sample-refresh" {
 		t.Fatalf("omitted rotation must preserve the previous refresh token, got %q", persisted.RefreshToken)
 	}
 	if persisted.Issuer == "" || persisted.Resource == "" || len(persisted.Scopes) != 3 ||
-		persisted.Subject != "dev6-subject" || persisted.ProviderRef != "adelphic-dev6" || persisted.ClientRef != "steward-web" {
+		persisted.Subject != "synthetic-subject" || persisted.ProviderRef != "sample-provider" || persisted.ClientRef != "sample-web" {
 		t.Fatalf("refresh dropped stored metadata: %+v", persisted)
 	}
 	if store.casPuts != 1 {
@@ -369,18 +369,18 @@ func TestResolveRefreshesExpiringTokenPreservingMetadata(t *testing.T) {
 
 func TestResolveInvalidGrantDeletesOnlyThisProvider(t *testing.T) {
 	store := newFakeDelegatedStore()
-	store.seed(seededDev6Token(time.Now().Add(time.Minute)))
+	store.seed(seededSampleToken(time.Now().Add(time.Minute)))
 	store.seed(&OAuthToken{Username: "uuid-1", Provider: "corp-idp", AccessToken: "workspace"})
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		return nil, &oauth2.RetrieveError{ErrorCode: "invalid_grant"}
 	}
 
-	_, err := resolver.Resolve(delegatedCtx("uuid-1"), dev6Requirement())
+	_, err := resolver.Resolve(delegatedCtx("uuid-1"), sampleRequirement())
 	if !authcfg.IsLinkRequired(err) {
 		t.Fatalf("invalid_grant must produce link-required, got %v", err)
 	}
-	if row, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey()); row != nil {
+	if row, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey()); row != nil {
 		t.Fatalf("invalid_grant must delete the delegated row")
 	}
 	if row, _ := store.GetExact(context.Background(), "uuid-1", "corp-idp"); row == nil {
@@ -390,54 +390,54 @@ func TestResolveInvalidGrantDeletesOnlyThisProvider(t *testing.T) {
 
 func TestResolveTransientRefreshFailureKeepsUsableToken(t *testing.T) {
 	store := newFakeDelegatedStore()
-	store.seed(seededDev6Token(time.Now().Add(5 * time.Minute)))
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	store.seed(seededSampleToken(time.Now().Add(5 * time.Minute)))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		return nil, fmt.Errorf("token endpoint timeout")
 	}
 
-	credential, err := resolver.Resolve(delegatedCtx("uuid-1"), dev6Requirement())
+	credential, err := resolver.Resolve(delegatedCtx("uuid-1"), sampleRequirement())
 	if err != nil {
 		t.Fatalf("transient failure with valid token must not fail: %v", err)
 	}
-	if credential.Token != "dev6-access" {
+	if credential.Token != "sample-access" {
 		t.Fatalf("expected current access token, got %q", credential.Token)
 	}
-	if row, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey()); row == nil {
+	if row, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey()); row == nil {
 		t.Fatalf("transient failure must preserve credentials")
 	}
 	// Cooldown prevents an immediate repeated endpoint call.
-	if !resolver.inCooldown("uuid-1", dev6StorageKey()) {
+	if !resolver.inCooldown("uuid-1", sampleStorageKey()) {
 		t.Fatalf("transient failure must set the per-token cooldown")
 	}
 }
 
 func TestResolveExpiredTokenTransientRefreshFailureRequiresRelink(t *testing.T) {
 	store := newFakeDelegatedStore()
-	store.seed(seededDev6Token(time.Now().Add(-time.Minute)))
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	store.seed(seededSampleToken(time.Now().Add(-time.Minute)))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		return nil, fmt.Errorf("invalid character 'Ã' looking for beginning of value")
 	}
 
-	_, err := resolver.Resolve(delegatedCtx("uuid-1"), dev6Requirement())
+	_, err := resolver.Resolve(delegatedCtx("uuid-1"), sampleRequirement())
 	if !authcfg.IsLinkRequired(err) {
 		t.Fatalf("an unusable token whose refresh fails must require relinking, got %v", err)
 	}
-	if row, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey()); row == nil {
+	if row, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey()); row == nil {
 		t.Fatal("a transient refresh failure must preserve the stored credential for diagnostics/retry")
 	}
 }
 
 func TestForceRefreshFailureRequiresRelink(t *testing.T) {
 	store := newFakeDelegatedStore()
-	store.seed(seededDev6Token(time.Now().Add(time.Hour)))
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	store.seed(seededSampleToken(time.Now().Add(time.Hour)))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		return nil, fmt.Errorf("token endpoint unavailable")
 	}
 
-	_, err := resolver.Refresh(delegatedCtx("uuid-1"), dev6Requirement())
+	_, err := resolver.Refresh(delegatedCtx("uuid-1"), sampleRequirement())
 	if !authcfg.IsLinkRequired(err) {
 		t.Fatalf("a provider-rejected credential whose forced refresh fails must require relinking, got %v", err)
 	}
@@ -445,18 +445,18 @@ func TestForceRefreshFailureRequiresRelink(t *testing.T) {
 
 func TestResolveScopeNarrowingPersistsAndRequiresRelink(t *testing.T) {
 	store := newFakeDelegatedStore()
-	store.seed(seededDev6Token(time.Now().Add(5 * time.Minute)))
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	store.seed(seededSampleToken(time.Now().Add(5 * time.Minute)))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		refreshed := &oauth2.Token{AccessToken: "narrowed-access", Expiry: time.Now().Add(time.Hour)}
 		return refreshed.WithExtra(map[string]interface{}{"scope": "plan:read"}), nil
 	}
 
-	_, err := resolver.Resolve(delegatedCtx("uuid-1"), dev6Requirement())
+	_, err := resolver.Resolve(delegatedCtx("uuid-1"), sampleRequirement())
 	if !authcfg.IsLinkRequired(err) {
 		t.Fatalf("insufficient narrowed scopes must require relinking, got %v", err)
 	}
-	persisted, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey())
+	persisted, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey())
 	if persisted == nil {
 		t.Fatalf("narrowed token must be retained for compatible consumers")
 	}
@@ -467,8 +467,8 @@ func TestResolveScopeNarrowingPersistsAndRequiresRelink(t *testing.T) {
 
 func TestResolveUnknownProviderNeverTouchesStore(t *testing.T) {
 	store := newFakeDelegatedStore()
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
-	requirement := dev6Requirement()
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
+	requirement := sampleRequirement()
 	requirement.ProviderRef = "unknown-provider"
 	_, err := resolver.Resolve(delegatedCtx("uuid-1"), requirement)
 	if err == nil || authcfg.IsLinkRequired(err) {
@@ -484,13 +484,13 @@ func TestResolveUnknownProviderNeverTouchesStore(t *testing.T) {
 
 func TestResolveDisabledProviderKillSwitch(t *testing.T) {
 	store := newFakeDelegatedStore()
-	store.seed(seededDev6Token(time.Now().Add(2 * time.Hour)))
-	resolver := newTestResolver(t, store, dev6ProviderDoc(true))
-	_, err := resolver.Resolve(delegatedCtx("uuid-1"), dev6Requirement())
+	store.seed(seededSampleToken(time.Now().Add(2 * time.Hour)))
+	resolver := newTestResolver(t, store, sampleProviderDoc(true))
+	_, err := resolver.Resolve(delegatedCtx("uuid-1"), sampleRequirement())
 	if !providerregistry.IsDisabled(err) {
 		t.Fatalf("disabled provider must return provider_disabled, got %v", err)
 	}
-	if row, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey()); row == nil {
+	if row, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey()); row == nil {
 		t.Fatalf("kill switch must not delete credentials")
 	}
 }
@@ -498,9 +498,9 @@ func TestResolveDisabledProviderKillSwitch(t *testing.T) {
 func TestResolveGlobalKillSwitch(t *testing.T) {
 	t.Setenv(providerregistry.GlobalKillSwitchEnv, "1")
 	store := newFakeDelegatedStore()
-	store.seed(seededDev6Token(time.Now().Add(2 * time.Hour)))
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
-	_, err := resolver.Resolve(delegatedCtx("uuid-1"), dev6Requirement())
+	store.seed(seededSampleToken(time.Now().Add(2 * time.Hour)))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
+	_, err := resolver.Resolve(delegatedCtx("uuid-1"), sampleRequirement())
 	if !providerregistry.IsDisabled(err) {
 		t.Fatalf("global kill switch must return provider_disabled, got %v", err)
 	}
@@ -508,14 +508,14 @@ func TestResolveGlobalKillSwitch(t *testing.T) {
 
 func TestWorkspaceTokenReuseIfCompatible(t *testing.T) {
 	store := newFakeDelegatedStore()
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
-	requirement := dev6Requirement()
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
+	requirement := sampleRequirement()
 	requirement.ReusePolicy = authcfg.ReusePolicyIfCompatible
 
 	expiry := time.Now().Add(time.Hour)
 	compatible := unsafeJWT(t, map[string]interface{}{
-		"iss":   "https://idp-dev6.example.com/",
-		"aud":   []string{"https://mcp6.example.com/mcp"},
+		"iss":   "https://idp.example.invalid/",
+		"aud":   []string{"https://mcp.example.invalid/mcp"},
 		"scope": "plan:create plan:edit plan:read openid",
 		"exp":   float64(expiry.Unix()),
 	})
@@ -533,33 +533,33 @@ func TestWorkspaceTokenReuseIfCompatible(t *testing.T) {
 
 func TestWorkspaceTokenReuseRejectsIncompatible(t *testing.T) {
 	store := newFakeDelegatedStore()
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
-	requirement := dev6Requirement()
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
+	requirement := sampleRequirement()
 	requirement.ReusePolicy = authcfg.ReusePolicyIfCompatible
 	expiry := time.Now().Add(time.Hour)
 
 	cases := map[string]map[string]interface{}{
 		"wrong issuer": {
 			"iss":   "https://workspace-idp.example.com",
-			"aud":   []string{"https://mcp6.example.com/mcp"},
+			"aud":   []string{"https://mcp.example.invalid/mcp"},
 			"scope": "plan:create plan:edit plan:read",
 			"exp":   float64(expiry.Unix()),
 		},
 		"wrong audience suffix": {
-			"iss":   "https://idp-dev6.example.com",
-			"aud":   []string{"https://mcp6.example.com/mcp2"},
+			"iss":   "https://idp.example.invalid",
+			"aud":   []string{"https://mcp.example.invalid/mcp2"},
 			"scope": "plan:create plan:edit plan:read",
 			"exp":   float64(expiry.Unix()),
 		},
 		"missing scopes": {
-			"iss":   "https://idp-dev6.example.com",
-			"aud":   []string{"https://mcp6.example.com/mcp"},
+			"iss":   "https://idp.example.invalid",
+			"aud":   []string{"https://mcp.example.invalid/mcp"},
 			"scope": "plan:read",
 			"exp":   float64(expiry.Unix()),
 		},
 		"expired": {
-			"iss":   "https://idp-dev6.example.com",
-			"aud":   []string{"https://mcp6.example.com/mcp"},
+			"iss":   "https://idp.example.invalid",
+			"aud":   []string{"https://mcp.example.invalid/mcp"},
 			"scope": "plan:create plan:edit plan:read",
 			"exp":   float64(time.Now().Add(-time.Minute).Unix()),
 		},
@@ -583,14 +583,14 @@ func TestWorkspaceTokenReuseRejectsIncompatible(t *testing.T) {
 
 func TestInvalidateDeletesOnlyExactRow(t *testing.T) {
 	store := newFakeDelegatedStore()
-	store.seed(seededDev6Token(time.Now().Add(time.Hour)))
+	store.seed(seededSampleToken(time.Now().Add(time.Hour)))
 	store.seed(&OAuthToken{Username: "uuid-1", Provider: "corp-idp", AccessToken: "workspace"})
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 
-	if err := resolver.Invalidate(delegatedCtx("uuid-1"), dev6Requirement()); err != nil {
+	if err := resolver.Invalidate(delegatedCtx("uuid-1"), sampleRequirement()); err != nil {
 		t.Fatalf("invalidate: %v", err)
 	}
-	if row, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey()); row != nil {
+	if row, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey()); row != nil {
 		t.Fatalf("expected delegated row deleted")
 	}
 	if row, _ := store.GetExact(context.Background(), "uuid-1", "corp-idp"); row == nil {
@@ -600,18 +600,18 @@ func TestInvalidateDeletesOnlyExactRow(t *testing.T) {
 
 func TestInvalidateSkipsUnknownProviderAndMissingCanonical(t *testing.T) {
 	store := newFakeDelegatedStore()
-	store.seed(seededDev6Token(time.Now().Add(time.Hour)))
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	store.seed(seededSampleToken(time.Now().Add(time.Hour)))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 
-	requirement := dev6Requirement()
+	requirement := sampleRequirement()
 	requirement.ProviderRef = "unknown-provider"
 	if err := resolver.Invalidate(delegatedCtx("uuid-1"), requirement); err != nil {
 		t.Fatalf("invalidate unknown provider must be a safe no-op: %v", err)
 	}
-	if err := resolver.Invalidate(delegatedCtx(""), dev6Requirement()); err != nil {
+	if err := resolver.Invalidate(delegatedCtx(""), sampleRequirement()); err != nil {
 		t.Fatalf("invalidate without canonical user must be a safe no-op: %v", err)
 	}
-	if row, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey()); row == nil {
+	if row, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey()); row == nil {
 		t.Fatalf("unsafe invalidation deleted a credential")
 	}
 }
@@ -619,21 +619,21 @@ func TestInvalidateSkipsUnknownProviderAndMissingCanonical(t *testing.T) {
 func TestRefreshMintsFreshCredential(t *testing.T) {
 	store := newFakeDelegatedStore()
 	// Far from expiry: Resolve would not refresh, but Refresh must.
-	store.seed(seededDev6Token(time.Now().Add(2 * time.Hour)))
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	store.seed(seededSampleToken(time.Now().Add(2 * time.Hour)))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	var refreshCalls int
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		refreshCalls++
 		return &oauth2.Token{AccessToken: "minted", RefreshToken: "rotated", Expiry: time.Now().Add(time.Hour)}, nil
 	}
-	credential, err := resolver.Refresh(delegatedCtx("uuid-1"), dev6Requirement())
+	credential, err := resolver.Refresh(delegatedCtx("uuid-1"), sampleRequirement())
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
 	if refreshCalls != 1 || credential.Token != "minted" {
 		t.Fatalf("refresh must mint through the provider (calls=%d token=%q)", refreshCalls, credential.Token)
 	}
-	persisted, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey())
+	persisted, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey())
 	if persisted.RefreshToken != "rotated" {
 		t.Fatalf("rotated refresh token must persist, got %q", persisted.RefreshToken)
 	}
@@ -641,21 +641,21 @@ func TestRefreshMintsFreshCredential(t *testing.T) {
 
 func TestRefreshStoredDelegatedTokenSafety(t *testing.T) {
 	store := newFakeDelegatedStore()
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 
 	// Malformed metadata: storage key does not match providerRef derivation.
-	bad := seededDev6Token(time.Now().Add(time.Minute))
+	bad := seededSampleToken(time.Now().Add(time.Minute))
 	bad.ProviderRef = "other-ref"
 	store.seed(bad)
 	if err := resolver.RefreshStoredDelegatedToken(context.Background(), bad); err == nil {
 		t.Fatalf("mismatched storage key must be reported")
 	}
-	if row, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey()); row == nil {
+	if row, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey()); row == nil {
 		t.Fatalf("malformed metadata must never mutate the row")
 	}
 
 	// Unknown provider: reported, not mutated.
-	unknown := seededDev6Token(time.Now().Add(time.Minute))
+	unknown := seededSampleToken(time.Now().Add(time.Minute))
 	unknown.ProviderRef = "ghost"
 	unknown.Provider = DelegatedProviderStorageKey("test-ns", "ghost")
 	store.seed(unknown)
@@ -667,7 +667,7 @@ func TestRefreshStoredDelegatedTokenSafety(t *testing.T) {
 	}
 
 	// No refresh token: never sent to the token endpoint.
-	noRefresh := seededDev6Token(time.Now().Add(time.Minute))
+	noRefresh := seededSampleToken(time.Now().Add(time.Minute))
 	noRefresh.RefreshToken = ""
 	store.seed(noRefresh)
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
@@ -679,7 +679,7 @@ func TestRefreshStoredDelegatedTokenSafety(t *testing.T) {
 	}
 
 	// Not yet due: no endpoint call.
-	fresh := seededDev6Token(time.Now().Add(2 * time.Hour))
+	fresh := seededSampleToken(time.Now().Add(2 * time.Hour))
 	store.seed(fresh)
 	if err := resolver.RefreshStoredDelegatedToken(context.Background(), fresh); err != nil {
 		t.Fatalf("fresh row must be skipped: %v", err)
@@ -688,13 +688,13 @@ func TestRefreshStoredDelegatedTokenSafety(t *testing.T) {
 
 func TestRefreshStoredDelegatedTokenRefreshesDueRow(t *testing.T) {
 	store := newFakeDelegatedStore()
-	due := seededDev6Token(time.Now().Add(5 * time.Minute))
+	due := seededSampleToken(time.Now().Add(5 * time.Minute))
 	store.seed(due)
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	var calls int
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		calls++
-		if config.Endpoint.TokenURL != "https://idp-dev6.example.com/token" {
+		if config.Endpoint.TokenURL != "https://idp.example.invalid/token" {
 			t.Fatalf("background refresh must use the provider's exact endpoint")
 		}
 		return &oauth2.Token{AccessToken: "bg-fresh", Expiry: time.Now().Add(time.Hour)}, nil
@@ -705,8 +705,8 @@ func TestRefreshStoredDelegatedTokenRefreshesDueRow(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("expected one endpoint call, got %d", calls)
 	}
-	persisted, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey())
-	if persisted.AccessToken != "bg-fresh" || persisted.ProviderRef != "adelphic-dev6" {
+	persisted, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey())
+	if persisted.AccessToken != "bg-fresh" || persisted.ProviderRef != "sample-provider" {
 		t.Fatalf("background refresh must persist token with metadata: %+v", persisted)
 	}
 }
@@ -714,10 +714,10 @@ func TestRefreshStoredDelegatedTokenRefreshesDueRow(t *testing.T) {
 func TestRefreshStoredDelegatedTokenAdoptsRotatedTokenAfterWaiting(t *testing.T) {
 	store := newFakeDelegatedStore()
 	base := time.Now().Truncate(time.Second)
-	stale := seededDev6Token(base.Add(5 * time.Minute))
+	stale := seededSampleToken(base.Add(5 * time.Minute))
 	stale.IssuedAt = base.Add(-55 * time.Minute)
 	store.seed(stale)
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	resolver.now = func() time.Time { return base }
 
 	var submitted []string
@@ -740,7 +740,7 @@ func TestRefreshStoredDelegatedTokenAdoptsRotatedTokenAfterWaiting(t *testing.T)
 	if err := resolver.RefreshStoredDelegatedToken(context.Background(), stale); err != nil {
 		t.Fatalf("stale background refresh: %v", err)
 	}
-	if len(submitted) != 1 || submitted[0] != "dev6-refresh" {
+	if len(submitted) != 1 || submitted[0] != "sample-refresh" {
 		t.Fatalf("stale waiter replayed a refresh token: submitted=%v", submitted)
 	}
 
@@ -753,7 +753,7 @@ func TestRefreshStoredDelegatedTokenAdoptsRotatedTokenAfterWaiting(t *testing.T)
 	if len(submitted) != 2 || submitted[1] != "refresh-1" {
 		t.Fatalf("second rotation did not use the persisted token: submitted=%v", submitted)
 	}
-	persisted, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey())
+	persisted, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey())
 	if persisted == nil || persisted.RefreshToken != "refresh-2" || persisted.AccessToken != "access-2" {
 		t.Fatalf("second rotation was not persisted: %+v", persisted)
 	}
@@ -764,8 +764,8 @@ func TestRefreshStoredDelegatedTokenAdoptsRotatedTokenAfterWaiting(t *testing.T)
 func idTokenValue(t *testing.T, issued, expires time.Time) string {
 	t.Helper()
 	return unsafeJWT(t, map[string]interface{}{
-		"iss": "https://idp-dev6.example.com",
-		"sub": "dev6-subject",
+		"iss": "https://idp.example.invalid",
+		"sub": "synthetic-subject",
 		"iat": float64(issued.Unix()),
 		"exp": float64(expires.Unix()),
 	})
@@ -778,13 +778,13 @@ func TestResolveIDTokenExpiryDrivesRefreshAndCredential(t *testing.T) {
 	store := newFakeDelegatedStore()
 	now := time.Now()
 	// Access token is far from expiry; the ID token is inside the 15m lead.
-	tok := seededDev6Token(now.Add(4 * time.Hour))
+	tok := seededSampleToken(now.Add(4 * time.Hour))
 	tok.TokenType = "idToken"
 	tok.IDToken = idTokenValue(t, now.Add(-55*time.Minute), now.Add(5*time.Minute))
 	tok.IDTokenExpiresAt = now.Add(5 * time.Minute)
 	store.seed(tok)
 
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	newIDExpiry := now.Add(time.Hour).Truncate(time.Second)
 	newIDToken := idTokenValue(t, now, newIDExpiry)
 	var refreshCalls int
@@ -794,7 +794,7 @@ func TestResolveIDTokenExpiryDrivesRefreshAndCredential(t *testing.T) {
 		return refreshed.WithExtra(map[string]interface{}{"id_token": newIDToken}), nil
 	}
 
-	requirement := dev6Requirement()
+	requirement := sampleRequirement()
 	requirement.TokenType = authcfg.TokenTypeIDToken
 	credential, err := resolver.Resolve(delegatedCtx("uuid-1"), requirement)
 	if err != nil {
@@ -813,7 +813,7 @@ func TestResolveIDTokenExpiryDrivesRefreshAndCredential(t *testing.T) {
 	if credential.ExpiresAt.Unix() != newIDExpiry.Unix() {
 		t.Fatalf("credential expiry = %v, want id-token exp %v", credential.ExpiresAt, newIDExpiry)
 	}
-	persisted, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey())
+	persisted, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey())
 	if persisted.IDToken != newIDToken || persisted.IDTokenExpiresAt.Unix() != newIDExpiry.Unix() {
 		t.Fatalf("refresh must store the new id token with its validated exp: %+v", persisted)
 	}
@@ -828,17 +828,17 @@ func TestResolveIDTokenRefreshOmissionRetainsValidToken(t *testing.T) {
 	store := newFakeDelegatedStore()
 	now := time.Now()
 	oldIDExpiry := now.Add(30 * time.Minute)
-	tok := seededDev6Token(now.Add(time.Hour))
+	tok := seededSampleToken(now.Add(time.Hour))
 	tok.TokenType = "idToken"
 	tok.IDToken = idTokenValue(t, now.Add(-time.Hour), oldIDExpiry)
 	tok.IDTokenExpiresAt = oldIDExpiry
 	store.seed(tok)
 
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		return &oauth2.Token{AccessToken: "fresh-access", Expiry: now.Add(time.Hour)}, nil
 	}
-	requirement := dev6Requirement()
+	requirement := sampleRequirement()
 	requirement.TokenType = authcfg.TokenTypeIDToken
 
 	credential, err := resolver.Refresh(delegatedCtx("uuid-1"), requirement)
@@ -851,7 +851,7 @@ func TestResolveIDTokenRefreshOmissionRetainsValidToken(t *testing.T) {
 	if credential.ExpiresAt.Unix() != oldIDExpiry.Unix() {
 		t.Fatalf("credential expiry must stay the retained id token's exp, got %v", credential.ExpiresAt)
 	}
-	persisted, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey())
+	persisted, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey())
 	if persisted.IDToken != tok.IDToken || persisted.IDTokenExpiresAt.Unix() != oldIDExpiry.Unix() {
 		t.Fatalf("retained id token must keep its recorded exp: %+v", persisted)
 	}
@@ -863,17 +863,17 @@ func TestResolveIDTokenRefreshOmissionRetainsValidToken(t *testing.T) {
 func TestResolveIDTokenExpiredWithoutReplacementIsLinkRequired(t *testing.T) {
 	store := newFakeDelegatedStore()
 	now := time.Now()
-	tok := seededDev6Token(now.Add(time.Hour)) // access token still valid
+	tok := seededSampleToken(now.Add(time.Hour)) // access token still valid
 	tok.TokenType = "idToken"
 	tok.IDToken = idTokenValue(t, now.Add(-2*time.Hour), now.Add(-time.Minute))
 	tok.IDTokenExpiresAt = now.Add(-time.Minute)
 	store.seed(tok)
 
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		return &oauth2.Token{AccessToken: "fresh-access", Expiry: now.Add(time.Hour)}, nil
 	}
-	requirement := dev6Requirement()
+	requirement := sampleRequirement()
 	requirement.TokenType = authcfg.TokenTypeIDToken
 
 	credential, err := resolver.Resolve(delegatedCtx("uuid-1"), requirement)
@@ -882,7 +882,7 @@ func TestResolveIDTokenExpiredWithoutReplacementIsLinkRequired(t *testing.T) {
 	}
 	// The refreshed access token is persisted for compatible consumers, but the
 	// expired ID token is dropped rather than served.
-	persisted, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey())
+	persisted, _ := store.GetExact(context.Background(), "uuid-1", sampleStorageKey())
 	if persisted == nil || persisted.AccessToken != "fresh-access" {
 		t.Fatalf("access-token side of the grant must persist: %+v", persisted)
 	}
@@ -899,31 +899,31 @@ func TestResolveIDTokenExpiredWithoutReplacementIsLinkRequired(t *testing.T) {
 func TestResolveLifetimeClampSkipsEarlyRefresh(t *testing.T) {
 	store := newFakeDelegatedStore()
 	now := time.Now()
-	tok := seededDev6Token(now.Add(5 * time.Minute))
+	tok := seededSampleToken(now.Add(5 * time.Minute))
 	tok.IssuedAt = now.Add(-5 * time.Minute) // original lifetime: 10 minutes
 	store.seed(tok)
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	// newTestResolver's refreshToken fails the test if the endpoint is called.
 
-	credential, err := resolver.Resolve(delegatedCtx("uuid-1"), dev6Requirement())
+	credential, err := resolver.Resolve(delegatedCtx("uuid-1"), sampleRequirement())
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if credential.Token != "dev6-access" {
+	if credential.Token != "sample-access" {
 		t.Fatalf("clamped token must be served without refresh, got %q", credential.Token)
 	}
 
 	// Without issued-at metadata the configured 15m lead applies and the same
 	// token IS due (guarding against the historical always-zero lifetime).
 	storeDue := newFakeDelegatedStore()
-	storeDue.seed(seededDev6Token(now.Add(5 * time.Minute)))
-	resolverDue := newTestResolver(t, storeDue, dev6ProviderDoc(false))
+	storeDue.seed(seededSampleToken(now.Add(5 * time.Minute)))
+	resolverDue := newTestResolver(t, storeDue, sampleProviderDoc(false))
 	var refreshCalls int
 	resolverDue.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		refreshCalls++
 		return &oauth2.Token{AccessToken: "fresh", Expiry: now.Add(time.Hour)}, nil
 	}
-	if _, err := resolverDue.Resolve(delegatedCtx("uuid-1"), dev6Requirement()); err != nil {
+	if _, err := resolverDue.Resolve(delegatedCtx("uuid-1"), sampleRequirement()); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	if refreshCalls != 1 {
@@ -936,10 +936,10 @@ func TestResolveLifetimeClampSkipsEarlyRefresh(t *testing.T) {
 func TestBackgroundRefreshAppliesLifetimeClamp(t *testing.T) {
 	store := newFakeDelegatedStore()
 	now := time.Now()
-	tok := seededDev6Token(now.Add(5 * time.Minute))
+	tok := seededSampleToken(now.Add(5 * time.Minute))
 	tok.IssuedAt = now.Add(-5 * time.Minute)
 	store.seed(tok)
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	if err := resolver.RefreshStoredDelegatedToken(context.Background(), tok); err != nil {
 		t.Fatalf("clamped row must be skipped silently: %v", err)
 	}
@@ -951,12 +951,12 @@ func TestBackgroundRefreshAppliesLifetimeClamp(t *testing.T) {
 func TestBackgroundRefreshUsesIDTokenExpiry(t *testing.T) {
 	store := newFakeDelegatedStore()
 	now := time.Now()
-	tok := seededDev6Token(now.Add(4 * time.Hour))
+	tok := seededSampleToken(now.Add(4 * time.Hour))
 	tok.TokenType = "idToken"
 	tok.IDToken = idTokenValue(t, now.Add(-55*time.Minute), now.Add(5*time.Minute))
 	tok.IDTokenExpiresAt = now.Add(5 * time.Minute)
 	store.seed(tok)
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	var calls int
 	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
 		calls++
@@ -973,9 +973,9 @@ func TestBackgroundRefreshUsesIDTokenExpiry(t *testing.T) {
 
 // --- inline providers ---
 
-func inlineDev6Provider() *authcfg.OAuthProvider {
+func inlineSampleProvider() *authcfg.OAuthProvider {
 	return &authcfg.OAuthProvider{
-		ID:            "inline-dev6",
+		ID:            "inline-sample",
 		Issuer:        "https://idp-inline.example.com",
 		DefaultClient: "inline-web",
 		Clients: map[string]*authcfg.OAuthClient{
@@ -995,8 +995,8 @@ func inlineDev6Provider() *authcfg.OAuthProvider {
 func TestInlineProviderEndToEnd(t *testing.T) {
 	store := newFakeDelegatedStore()
 	resolver := newTestResolver(t, store) // no registry-file providers
-	inline := inlineDev6Provider()
-	storageKey := DelegatedProviderStorageKey("test-ns", "inline-dev6")
+	inline := inlineSampleProvider()
+	storageKey := DelegatedProviderStorageKey("test-ns", "inline-sample")
 	now := time.Now()
 	store.seed(&OAuthToken{
 		Username:     "uuid-1",
@@ -1008,7 +1008,7 @@ func TestInlineProviderEndToEnd(t *testing.T) {
 		Resource:     "https://mcp-inline.example.com/mcp",
 		Scopes:       []string{"plan:read"},
 		TokenType:    "accessToken",
-		ProviderRef:  "inline-dev6",
+		ProviderRef:  "inline-sample",
 		ClientRef:    "inline-web",
 	})
 	var refreshCalls int
@@ -1065,9 +1065,9 @@ func TestInlineProviderEndToEnd(t *testing.T) {
 // for the same id; an issuer disagreement fails closed.
 func TestInlineProviderConflictsWithRegistryProvider(t *testing.T) {
 	store := newFakeDelegatedStore()
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
-	conflicting := inlineDev6Provider()
-	conflicting.ID = "adelphic-dev6" // same id as the registry file provider
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
+	conflicting := inlineSampleProvider()
+	conflicting.ID = "sample-provider" // same id as the registry file provider
 	requirement := authcfg.Requirement{
 		ServerName: "inline-mcp",
 		Provider:   conflicting,
@@ -1079,16 +1079,16 @@ func TestInlineProviderConflictsWithRegistryProvider(t *testing.T) {
 	}
 
 	// Same id and same issuer: the registry-file definition wins silently.
-	aligned := inlineDev6Provider()
-	aligned.ID = "adelphic-dev6"
-	aligned.Issuer = "https://idp-dev6.example.com/"
-	store.seed(seededDev6Token(time.Now().Add(2 * time.Hour)))
+	aligned := inlineSampleProvider()
+	aligned.ID = "sample-provider"
+	aligned.Issuer = "https://idp.example.invalid/"
+	store.seed(seededSampleToken(time.Now().Add(2 * time.Hour)))
 	requirement.Provider = aligned
 	credential, err := resolver.Resolve(delegatedCtx("uuid-1"), requirement)
 	if err != nil {
 		t.Fatalf("aligned inline definition must resolve via the file provider: %v", err)
 	}
-	if credential.Token != "dev6-access" {
+	if credential.Token != "sample-access" {
 		t.Fatalf("credential token = %q", credential.Token)
 	}
 }
@@ -1098,48 +1098,48 @@ func TestInlineProviderConflictsWithRegistryProvider(t *testing.T) {
 // workspace OAuth configURL exists.
 func TestResolverFailsLoudlyWithoutEncryptionKey(t *testing.T) {
 	store := newFakeDelegatedStore()
-	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver := newTestResolver(t, store, sampleProviderDoc(false))
 	resolver.initErr = fmt.Errorf("delegated mcp oauth requires an encryption key for token storage")
-	if _, err := resolver.Resolve(delegatedCtx("uuid-1"), dev6Requirement()); err == nil ||
+	if _, err := resolver.Resolve(delegatedCtx("uuid-1"), sampleRequirement()); err == nil ||
 		!strings.Contains(err.Error(), "encryption key") {
 		t.Fatalf("missing encryption key must fail loudly, got %v", err)
 	}
-	if err := resolver.RefreshStoredDelegatedToken(context.Background(), seededDev6Token(time.Now())); err == nil ||
+	if err := resolver.RefreshStoredDelegatedToken(context.Background(), seededSampleToken(time.Now())); err == nil ||
 		!strings.Contains(err.Error(), "encryption key") {
 		t.Fatalf("background refresh must also fail loudly, got %v", err)
 	}
 }
 
 func TestProviderRegistryMatchIssuerAmbiguity(t *testing.T) {
-	first := dev6ProviderDoc(false)
-	second := dev6ProviderDoc(false)
-	second.ID = "adelphic-dev6-copy"
+	first := sampleProviderDoc(false)
+	second := sampleProviderDoc(false)
+	second.ID = "sample-provider-copy"
 	loader := &fakeProviderLoader{docs: map[string]*oauthprovider.Document{
 		first.ID:  first,
 		second.ID: second,
 	}}
 	registry := providerregistry.NewWithLoader(loader)
-	if _, err := registry.MatchIssuer(context.Background(), "https://idp-dev6.example.com"); err == nil {
+	if _, err := registry.MatchIssuer(context.Background(), "https://idp.example.invalid"); err == nil {
 		t.Fatalf("duplicate normalized issuers must hard-fail MatchIssuer")
 	}
-	if _, err := registry.ResolveProvider(context.Background(), "adelphic-dev6"); err != nil {
+	if _, err := registry.ResolveProvider(context.Background(), "sample-provider"); err != nil {
 		t.Fatalf("explicit providerRef must still resolve: %v", err)
 	}
 }
 
 func TestProviderRegistryIssuerNormalization(t *testing.T) {
 	loader := &fakeProviderLoader{docs: map[string]*oauthprovider.Document{
-		"adelphic-dev6": dev6ProviderDoc(false),
+		"sample-provider": sampleProviderDoc(false),
 	}}
 	registry := providerregistry.NewWithLoader(loader)
-	provider, err := registry.MatchIssuer(context.Background(), "https://idp-dev6.example.com///")
+	provider, err := registry.MatchIssuer(context.Background(), "https://idp.example.invalid///")
 	if err != nil {
 		t.Fatalf("trailing slashes must normalize: %v", err)
 	}
-	if provider.ID != "adelphic-dev6" {
+	if provider.ID != "sample-provider" {
 		t.Fatalf("matched wrong provider: %q", provider.ID)
 	}
-	if strings.Contains(authcfg.NormalizeIssuer(provider.Issuer), "//idp-dev6.example.com/") {
+	if strings.Contains(authcfg.NormalizeIssuer(provider.Issuer), "//idp.example.invalid/") {
 		t.Fatalf("issuer must be normalized for comparison")
 	}
 }

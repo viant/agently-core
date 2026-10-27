@@ -25,17 +25,17 @@ func TestCanonicalOpenSuppliesResourceSelectorInputsToPresentation(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if bound.ResourceID != 2688911 {
+		if bound.ResourceID != 8911 {
 			t.Fatalf("wrong authored selector input: %d", bound.ResourceID)
 		}
 		return nil, service.ErrWindowSelectionUnavailable
 	}})
-	parameters := map[string]any{"AdOrderId": []int{2688911}}
+	parameters := map[string]any{"AdOrderId": []int{8911}}
 	_, err := bridge.UICommand(context.Background(), &service.UICommandInput{Method: "ui.window.open", Params: map[string]any{"windowKey": "order", "parameters": parameters}})
 	if !errors.Is(err, service.ErrWindowSelectionUnavailable) || calls != 1 {
 		t.Fatalf("projection was not reached: calls=%d err=%v", calls, err)
 	}
-	if parameters["AdOrderId"].([]int)[0] != 2688911 {
+	if parameters["AdOrderId"].([]int)[0] != 8911 {
 		t.Fatal("original caller inputs changed")
 	}
 }

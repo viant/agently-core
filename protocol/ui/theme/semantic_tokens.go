@@ -19,10 +19,8 @@ func init() {
 		colors["data.categorical."+index] = "data-categorical-" + index
 	}
 	for name, variable := range colors {
-		tokenSpecs[name] = tokenSpec{variable: "--forge-" + variable, applicationVariable: "--agently-theme-" + variable, kind: "color"}
-	}
-	for _, role := range []string{"caption", "small", "body", "section", "heading", "title", "metric", "display", "code"} {
-		tokenSpecs["typography."+role+".size"] = tokenSpec{variable: "--forge-type-" + role + "-size", applicationVariable: "--agently-theme-type-" + role + "-size", min: 8, max: 96}
-		tokenSpecs["typography."+role+".lineHeight"] = tokenSpec{variable: "--forge-type-" + role + "-line-height", applicationVariable: "--agently-theme-type-" + role + "-line-height", min: 8, max: 144}
+		if _, exists := tokenSpecs[name]; !exists {
+			tokenSpecs[name] = tokenSpec{variable: "--forge-" + variable, applicationVariable: "--agently-theme-" + variable, kind: "color"}
+		}
 	}
 }

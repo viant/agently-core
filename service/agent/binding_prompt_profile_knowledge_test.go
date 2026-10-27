@@ -30,7 +30,7 @@ func TestApplyProfileExecutionRestrictions_DisableToolsClearsSurface(t *testing.
 	b := &binding.Binding{}
 	b.Tools.Signatures = []*llm.ToolDefinition{
 		{Name: "resources-match"},
-		{Name: "steward-SpoParentOrgCube"},
+		{Name: "sample-organization-metrics"},
 	}
 	applyProfileExecutionRestrictions(b, &intent.Profile{
 		Execution: &intent.Execution{DisableTools: true},

@@ -229,7 +229,7 @@ func compile(ctx context.Context, root string) (*snapshot, error) {
 		return nil, err
 	}
 	for i, t := range manifest.Themes {
-		css, e := theme.CSS(&theme.Catalog{Version: theme.Version, Themes: []theme.ResolvedTheme{catalog.Themes[i]}})
+		css, e := theme.CSS(&theme.Catalog{Version: theme.Version, Themes: []theme.ResolvedTheme{catalog.Themes[i]}}, catalog.Themes...)
 		if e != nil {
 			return nil, e
 		}

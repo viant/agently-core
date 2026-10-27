@@ -12,12 +12,14 @@ import (
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/storage"
+	"github.com/viant/agently-core/protocol/binding"
 	intent "github.com/viant/agently-core/protocol/intent"
 	identity "github.com/viant/agently-core/protocol/resource"
 	tpl "github.com/viant/agently-core/protocol/template"
 	bundle "github.com/viant/agently-core/protocol/templatebundle"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	meta "github.com/viant/agently-core/workspace/service/meta"
+	"github.com/viant/forge/backend/authoring/markdown"
 	"gopkg.in/yaml.v3"
 )
 
@@ -95,7 +97,79 @@ func (c *AuthoredCompilation) TemplateDirectory(namespace string) ExtensionDirec
 	}}
 }
 func IntentDirectory(namespace, directory string) ExtensionDirectory {
+	// Legacy intents may contain supporting *.user.md prompt fragments. Only
+	// their historical YAML/YML entry points are native intent roots.
 	return ExtensionDirectory{Kind: "intent", Namespace: namespace, Directory: directory, FormatVersion: 1, Suffixes: []string{".yaml", ".yml"}, Load: NativeIntentLoader}
+}
+func PlaybookDirectory(namespace, directory string) ExtensionDirectory {
+	return ExtensionDirectory{Kind: "playbook", Namespace: namespace, Directory: directory, FormatVersion: 1, Suffixes: []string{".md", ".yaml", ".yml"}, IncludeFile: includeNativePlaybookFile, Load: nativePlaybookLoader}
+}
+
+func nativePlaybookLoader(ctx context.Context, reader *ExtensionReader, file string) (json.RawMessage, error) {
+	raw, err := reader.ReadFile(ctx, file)
+	if err != nil {
+		return nil, err
+	}
+	if strings.EqualFold(path.Ext(file), ".md") {
+		doc, err := markdown.Parse(raw)
+		if err != nil {
+			return nil, err
+		}
+		raw = doc.Metadata
+	}
+	if err := validateNativeDeclaredKind(raw, "playbook"); err != nil {
+		return nil, err
+	}
+	return NativeIntentLoader(ctx, reader, file)
+}
+
+func includeNativePlaybookFile(ctx context.Context, reader *ExtensionReader, file string) (bool, error) {
+	if !strings.EqualFold(path.Ext(file), ".md") {
+		return true, nil // existing YAML/YML discovery is unchanged
+	}
+	raw, err := reader.ReadFile(ctx, file)
+	if err != nil {
+		return false, err
+	}
+	if !bytes.HasPrefix(raw, []byte("---\n")) && !bytes.HasPrefix(raw, []byte("\xef\xbb\xbf---\n")) {
+		return false, nil // README and prompt fragments are not definitions
+	}
+	doc, err := markdown.Parse(raw)
+	if err != nil {
+		return false, err
+	}
+	if len(doc.Metadata) == 0 {
+		return false, nil
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal(doc.Metadata, &node); err != nil {
+		return false, err
+	}
+	if len(node.Content) == 0 || node.Content[0].Kind != yaml.MappingNode {
+		return false, nil
+	}
+	var id, kind string
+	idDeclared := false
+	for i := 0; i+1 < len(node.Content[0].Content); i += 2 {
+		key, value := node.Content[0].Content[i], node.Content[0].Content[i+1]
+		switch strings.ToLower(strings.TrimSpace(key.Value)) {
+		case "id":
+			idDeclared = true
+			id = strings.TrimSpace(value.Value)
+		case "kind":
+			kind = strings.TrimSpace(value.Value)
+		}
+	}
+	if idDeclared && id == "" {
+		return false, identity.ErrResource
+	}
+	if id == "" && kind == "" {
+		return false, nil
+	}
+	if kind != "" && !strings.EqualFold(kind, "playbook") {
+		return false, identity.ErrResource
+	}
+	return true, nil
 }
 func NativeIntentLoader(ctx context.Context, r *ExtensionReader, file string) (json.RawMessage, error) {
 	raw, err := r.ReadFile(ctx, file)
@@ -103,8 +177,49 @@ func NativeIntentLoader(ctx context.Context, r *ExtensionReader, file string) (j
 		return nil, err
 	}
 	var p intent.Profile
-	if err = decodeNativeAuthored(ctx, r, file, raw, &p); err != nil {
-		return nil, err
+	var authored markdown.Document
+	if strings.EqualFold(path.Ext(file), ".md") {
+		authored, err = markdown.Parse(raw)
+		if err != nil {
+			return nil, err
+		}
+		raw = authored.Metadata
+	}
+	if len(raw) > 0 {
+		if err := validateNativePlaybookKind(raw); err != nil {
+			return nil, err
+		}
+		raw, err = stripNativePlaybookKind(raw)
+		if err != nil {
+			return nil, err
+		}
+		if err = decodeNativeAuthored(ctx, r, file, raw, &p); err != nil {
+			return nil, err
+		}
+	}
+	if len(authored.Messages) > 0 {
+		if len(p.Messages) > 0 {
+			return nil, identity.ErrResource
+		}
+		for _, message := range authored.Messages {
+			if message.Field != "" || message.Engine != "" {
+				return nil, identity.ErrResource
+			}
+			text := message.Text
+			if strings.Contains(text, "$import(") {
+				text, err = binding.ResolveTextImportsWithReader(ctx, func(ctx context.Context, target string) ([]byte, error) {
+					target = path.Clean(strings.TrimPrefix(target, "file://"))
+					if !ValidExtensionPath(target) {
+						return nil, identity.ErrResourceDenied
+					}
+					return r.ReadFile(ctx, target)
+				}, text, file)
+				if err != nil {
+					return nil, err
+				}
+			}
+			p.Messages = append(p.Messages, intent.Message{Role: message.Role, Text: text, URI: message.URI})
+		}
 	}
 	if p.ID == "" {
 		p.ID = strings.TrimSuffix(path.Base(file), path.Ext(file))
@@ -128,6 +243,51 @@ func NativeIntentLoader(ctx context.Context, r *ExtensionReader, file string) (j
 		}
 	}
 	return json.Marshal(p)
+}
+
+func stripNativePlaybookKind(raw []byte) ([]byte, error) {
+	var node yaml.Node
+	if err := yaml.Unmarshal(raw, &node); err != nil {
+		return nil, err
+	}
+	if len(node.Content) == 0 || node.Content[0].Kind != yaml.MappingNode {
+		return raw, nil
+	}
+	root := node.Content[0]
+	for index := 0; index+1 < len(root.Content); index += 2 {
+		if strings.EqualFold(root.Content[index].Value, "kind") {
+			root.Content = append(root.Content[:index], root.Content[index+2:]...)
+			return yaml.Marshal(&node)
+		}
+	}
+	return raw, nil
+}
+
+func validateNativePlaybookKind(raw []byte) error {
+	return validateNativeDeclaredKind(raw, "playbook", "intent")
+}
+
+func validateNativeDeclaredKind(raw []byte, allowed ...string) error {
+	var node yaml.Node
+	if err := yaml.Unmarshal(raw, &node); err != nil {
+		return err
+	}
+	if len(node.Content) == 0 || node.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	root := node.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if strings.EqualFold(root.Content[i].Value, "kind") {
+			value := strings.ToLower(strings.TrimSpace(root.Content[i+1].Value))
+			for _, kind := range allowed {
+				if value == kind {
+					return nil
+				}
+			}
+			return identity.ErrResource
+		}
+	}
+	return nil
 }
 func strictAuthoredYAML(raw []byte, target any) error {
 	d := yaml.NewDecoder(bytes.NewReader(raw))
@@ -217,9 +377,15 @@ func (c *IntentCompilation) Prepare(ctx context.Context, r *ExtensionReader) err
 	})
 }
 func (c *IntentCompilation) IntentDirectory(namespace string) ExtensionDirectory {
-	d := IntentDirectory(namespace, c.directory)
+	return c.withBundles(IntentDirectory(namespace, c.directory))
+}
+func (c *IntentCompilation) PlaybookDirectory(namespace string) ExtensionDirectory {
+	return c.withBundles(PlaybookDirectory(namespace, c.directory))
+}
+func (c *IntentCompilation) withBundles(d ExtensionDirectory) ExtensionDirectory {
+	load := d.Load
 	d.Load = func(ctx context.Context, r *ExtensionReader, file string) (json.RawMessage, error) {
-		raw, err := NativeIntentLoader(ctx, r, file)
+		raw, err := load(ctx, r, file)
 		if err != nil {
 			return nil, err
 		}

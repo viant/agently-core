@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -11,6 +12,21 @@ import (
 	"github.com/viant/embedius/metadata"
 	mcpproto "github.com/viant/mcp-protocol/schema"
 )
+
+// MarshalJSON emits the preferred playbooks allow-list for new agents while
+// retaining the legacy prompts field for agents authored before migration.
+func (a Agent) MarshalJSON() ([]byte, error) {
+	type alias Agent
+	copy := alias(a)
+	legacy := &copy.Prompts
+	if len(copy.Playbooks.Bundles) > 0 || copy.Playbooks.InjectSelectedProfile != nil {
+		legacy = nil
+	}
+	return json.Marshal(struct {
+		*alias
+		Prompts *PromptAccess `json:"prompts,omitempty"`
+	}{alias: &copy, Prompts: legacy})
+}
 
 type (
 
@@ -93,6 +109,9 @@ type (
 		// prompt:list.  Prompts.Bundles is a direct allow-list of profile IDs.
 		// When empty all profiles are accessible.
 		Prompts PromptAccess `yaml:"prompts,omitempty" json:"prompts,omitempty"`
+		// Playbooks is the preferred authored allow-list; Prompts remains the
+		// runtime compatibility mirror for existing authorization consumers.
+		Playbooks PromptAccess `yaml:"playbooks,omitempty" json:"playbooks,omitempty"`
 		// Intake configures the pre-turn intake sidecar.  When Enabled is false
 		// (the default) the sidecar does not run.
 		Intake Intake `yaml:"intake,omitempty" json:"intake,omitempty"`
@@ -174,6 +193,7 @@ type (
 		Title           string   `yaml:"title,omitempty" json:"title,omitempty"`
 		Prompt          string   `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 		Description     string   `yaml:"description,omitempty" json:"description,omitempty"`
+		ResultLabel     string   `yaml:"resultLabel,omitempty" json:"resultLabel,omitempty"`
 		Icon            string   `yaml:"icon,omitempty" json:"icon,omitempty"`
 		CoverageEvalIDs []string `yaml:"coverageEvalIds,omitempty" json:"coverageEvalIds,omitempty"`
 	}

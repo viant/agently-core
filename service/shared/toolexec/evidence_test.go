@@ -34,7 +34,7 @@ func TestEvidenceEffectiveRequestIsCapturedAndDispatchedBeforeReceipt(t *testing
 		prepare: func(_ context.Context, name, id string, raw json.RawMessage) (json.RawMessage, bool, error) {
 			require.Equal(t, "op", id)
 			require.JSONEq(t, `{"Request":{"from":"2026-10-02"}}`, string(raw))
-			return json.RawMessage(`{"Request":{"from":"2026-10-02","evidenceAudienceId":9007199254740993}}`), true, nil
+			return json.RawMessage(`{"Request":{"from":"2026-10-02","evidenceEntityId":9007199254740993}}`), true, nil
 		},
 		completed: func(_ context.Context, name, id string) (json.RawMessage, bool, error) {
 			require.Equal(t, "op", id)
@@ -55,7 +55,7 @@ func TestEvidenceEffectiveRequestIsCapturedAndDispatchedBeforeReceipt(t *testing
 	require.Equal(t, `{"receipt":"op"}`, out.Result)
 	dispatched, err := json.Marshal(reg.lastArgs)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"Request":{"from":"2026-10-02","evidenceAudienceId":9007199254740993}}`, string(dispatched))
+	require.JSONEq(t, `{"Request":{"from":"2026-10-02","evidenceEntityId":9007199254740993}}`, string(dispatched))
 	found := false
 	for _, payload := range conv.patchedPayloads {
 		if payload.Kind == "tool_request" && payload.InlineBody != nil {
@@ -73,7 +73,7 @@ func TestEvidenceRejectedRequestNeverDispatchesOrPersists(t *testing.T) {
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "evidence", TurnID: "rejected"})
 	ctx = evidence.WithTools(ctx, evidenceTestHook{
 		prepare: func(context.Context, string, string, json.RawMessage) (json.RawMessage, bool, error) {
-			return nil, true, fmt.Errorf("wrong selected audience")
+			return nil, true, fmt.Errorf("wrong selected entity")
 		},
 		completed: func(context.Context, string, string) (json.RawMessage, bool, error) {
 			t.Fatal("rejected request completed")
@@ -81,7 +81,7 @@ func TestEvidenceRejectedRequestNeverDispatchesOrPersists(t *testing.T) {
 		},
 	})
 	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{ID: "rejected", Name: "example/Convert"}, conv)
-	require.ErrorContains(t, err, "wrong selected audience")
+	require.ErrorContains(t, err, "wrong selected entity")
 	require.Zero(t, reg.calls)
 	require.Empty(t, conv.patchedPayloads)
 }

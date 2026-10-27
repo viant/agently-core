@@ -58,7 +58,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                     toolName: 'ui/window/list',
                                     status: 'completed',
                                     responsePayload: {
-                                        focusedWindowId: 'report_2609393',
+                                        focusedWindowId: 'report_9393',
                                         items: [
                                             {
                                                 windowId: 'chat/new',
@@ -67,7 +67,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                                 inTab: true,
                                             },
                                             {
-                                                windowId: 'report_2656980',
+                                                windowId: 'report_6980',
                                                 conversationId: 'conv-1',
                                                 windowKey: 'report',
                                                 windowTitle: 'Report Summary',
@@ -75,10 +75,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                                 region: 'chat.top',
                                                 parentKey: 'chat/new',
                                                 inTab: true,
-                                                parameters: { entityId: [2656980] },
+                                                parameters: { entityId: [6980] },
                                             },
                                             {
-                                                windowId: 'report_2609393',
+                                                windowId: 'report_9393',
                                                 conversationId: 'conv-1',
                                                 windowKey: 'report',
                                                 windowTitle: 'Report Summary',
@@ -86,7 +86,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                                 region: 'chat.top',
                                                 parentKey: 'chat/new',
                                                 inTab: true,
-                                                parameters: { entityId: [2609393] },
+                                                parameters: { entityId: [9393] },
                                             },
                                         ],
                                     },
@@ -95,7 +95,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                     toolName: 'ui/window/show',
                                     status: 'completed',
                                     requestPayload: {
-                                        windowId: 'report_2656980',
+                                        windowId: 'report_6980',
                                     },
                                     responsePayload: { ok: true },
                                 },
@@ -118,7 +118,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     parameters: {},
                 },
                 {
-                    windowId: 'report_2656980',
+                    windowId: 'report_6980',
                     conversationId: 'conv-1',
                     windowKey: 'report',
                     windowTitle: 'Report Summary',
@@ -126,10 +126,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
-                    parameters: { entityId: [2656980] },
+                    parameters: { entityId: [6980] },
                 },
                 {
-                    windowId: 'report_2609393',
+                    windowId: 'report_9393',
                     conversationId: 'conv-1',
                     windowKey: 'report',
                     windowTitle: 'Report Summary',
@@ -137,10 +137,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
-                    parameters: { entityId: [2609393] },
+                    parameters: { entityId: [9393] },
                 },
             ],
-            selectedWindowId: 'report_2656980',
+            selectedWindowId: 'report_6980',
         });
     });
 
@@ -493,10 +493,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                         compression: 'gzip',
                                     },
                                     content: JSON.stringify({
-                                        focusedWindowId: 'report_2609393__conv-1',
+                                        focusedWindowId: 'report_9393__conv-1',
                                         items: [
                                             {
-                                                windowId: 'report_2656980__conv-1',
+                                                windowId: 'report_6980__conv-1',
                                                 conversationId: 'conv-1',
                                                 windowKey: 'report',
                                                 windowTitle: 'Report Summary',
@@ -504,10 +504,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                                 region: 'chat.top',
                                                 parentKey: 'chat/new',
                                                 inTab: true,
-                                                parameters: { entityId: [2656980] },
+                                                parameters: { entityId: [6980] },
                                             },
                                             {
-                                                windowId: 'report_2609393__conv-1',
+                                                windowId: 'report_9393__conv-1',
                                                 conversationId: 'conv-1',
                                                 windowKey: 'report',
                                                 windowTitle: 'Report Summary',
@@ -515,7 +515,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                                 region: 'chat.top',
                                                 parentKey: 'chat/new',
                                                 inTab: true,
-                                                parameters: { entityId: [2609393] },
+                                                parameters: { entityId: [9393] },
                                             },
                                         ],
                                     }),
@@ -528,7 +528,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
         ])).toEqual({
             windows: [
                 {
-                    windowId: 'report_2656980__conv-1',
+                    windowId: 'report_6980__conv-1',
                     conversationId: 'conv-1',
                     windowKey: 'report',
                     windowTitle: 'Report Summary',
@@ -536,10 +536,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
-                    parameters: { entityId: [2656980] },
+                    parameters: { entityId: [6980] },
                 },
                 {
-                    windowId: 'report_2609393__conv-1',
+                    windowId: 'report_9393__conv-1',
                     conversationId: 'conv-1',
                     windowKey: 'report',
                     windowTitle: 'Report Summary',
@@ -547,10 +547,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
-                    parameters: { entityId: [2609393] },
+                    parameters: { entityId: [9393] },
                 },
             ],
-            selectedWindowId: 'report_2609393__conv-1',
+            selectedWindowId: 'report_9393__conv-1',
         });
     });
 
@@ -567,10 +567,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                     status: 'completed',
                                     responsePayload: {
                                         InlineBody: JSON.stringify({
-                                            focusedWindowId: 'report_2609393__conv-1',
+                                            focusedWindowId: 'report_9393__conv-1',
                                             items: [
                                                 {
-                                                    windowId: 'report_2656980__conv-1',
+                                                    windowId: 'report_6980__conv-1',
                                                     conversationId: 'conv-1',
                                                     windowKey: 'report',
                                                     windowTitle: 'Report Summary',
@@ -578,10 +578,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                                     region: 'chat.top',
                                                     parentKey: 'chat/new',
                                                     inTab: true,
-                                                    parameters: { entityId: [2656980] },
+                                                    parameters: { entityId: [6980] },
                                                 },
                                                 {
-                                                    windowId: 'report_2609393__conv-1',
+                                                    windowId: 'report_9393__conv-1',
                                                     conversationId: 'conv-1',
                                                     windowKey: 'report',
                                                     windowTitle: 'Report Summary',
@@ -589,7 +589,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                                     region: 'chat.top',
                                                     parentKey: 'chat/new',
                                                     inTab: true,
-                                                    parameters: { entityId: [2609393] },
+                                                    parameters: { entityId: [9393] },
                                                 },
                                             ],
                                         }),
@@ -601,7 +601,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                                     status: 'completed',
                                     requestPayload: {
                                         InlineBody: JSON.stringify({
-                                            windowId: 'report_2656980__conv-1',
+                                            windowId: 'report_6980__conv-1',
                                         }),
                                         Compression: 'none',
                                     },
@@ -615,7 +615,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
         ])).toEqual({
             windows: [
                 {
-                    windowId: 'report_2656980__conv-1',
+                    windowId: 'report_6980__conv-1',
                     conversationId: 'conv-1',
                     windowKey: 'report',
                     windowTitle: 'Report Summary',
@@ -623,10 +623,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
-                    parameters: { entityId: [2656980] },
+                    parameters: { entityId: [6980] },
                 },
                 {
-                    windowId: 'report_2609393__conv-1',
+                    windowId: 'report_9393__conv-1',
                     conversationId: 'conv-1',
                     windowKey: 'report',
                     windowTitle: 'Report Summary',
@@ -634,10 +634,10 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     region: 'chat.top',
                     parentKey: 'chat/new',
                     inTab: true,
-                    parameters: { entityId: [2609393] },
+                    parameters: { entityId: [9393] },
                 },
             ],
-            selectedWindowId: 'report_2656980__conv-1',
+            selectedWindowId: 'report_6980__conv-1',
         });
     });
 

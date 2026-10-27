@@ -81,7 +81,7 @@ func TestPersistableRefreshTokenRequiresExactProviderMatch(t *testing.T) {
 		Issuer:      "https://mcp-idp.example.com",
 		Resource:    "https://mcp.example.com/mcp",
 		Subject:     "mcp-subject",
-		ProviderRef: "adelphic-dev6",
+		ProviderRef: "sample-provider",
 	}
 	store := &mockTokenStore{
 		getFunc: func(ctx context.Context, username, provider string) (*OAuthToken, error) {

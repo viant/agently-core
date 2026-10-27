@@ -18,7 +18,7 @@ func TestEmptyAnonymousCatalogAllowsAuthenticatedRecovery(t *testing.T) {
 	for _, reconnect := range []bool{false, true} {
 		t.Run(map[bool]string{false: "normal", true: "reconnect"}[reconnect], func(t *testing.T) {
 			anonymousCalls := 0
-			expected := schema.Tool{Name: "ForecastingCube", InputSchema: schema.ToolInputSchema{Type: "object", Required: []string{"From"}, Properties: schema.ToolInputSchemaProperties{"From": {"type": "string"}}}}
+			expected := schema.Tool{Name: "SampleMetrics", InputSchema: schema.ToolInputSchema{Type: "object", Required: []string{"From"}, Properties: schema.ToolInputSchemaProperties{"From": {"type": "string"}}}}
 			stub := &discoveryManagerStub{options: &config.MCPClient{}, reconnectFunc: func(string, string) (client.Interface, error) { return &discoveryListClient{}, nil }}
 			stub.getFunc = func(scope, server string) (client.Interface, error) {
 				if scope == "mcp-discovery:steward:background" {

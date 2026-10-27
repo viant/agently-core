@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 )
 
 func postUIRPC(t *testing.T, bridge *forgeuisvc.Service, method string, params map[string]interface{}) map[string]interface{} {
@@ -83,7 +84,7 @@ func TestCompactWindowSnapshot_StripsDatasourcePayloads(t *testing.T) {
 			"order_performance_profile": {
 				DataSourceRef: "order_performance_profile",
 				Metrics: map[string]interface{}{
-					"orderId": 2637048,
+					"orderId": 3048,
 				},
 			},
 		},
@@ -125,7 +126,7 @@ func TestListDataSourceRefs(t *testing.T) {
 
 func TestCompactWindowParameters(t *testing.T) {
 	input := map[string]interface{}{
-		"RecordId": []interface{}{2637048},
+		"RecordId": []interface{}{3048},
 		"foo":      "bar",
 	}
 	got := compactWindowParameters(input)
@@ -136,7 +137,7 @@ func TestCompactWindowParameters(t *testing.T) {
 		t.Fatalf("expected foo parameter to survive, got %#v", got)
 	}
 	ids, ok := got["RecordId"].([]interface{})
-	if !ok || len(ids) != 1 || ids[0] != 2637048 {
+	if !ok || len(ids) != 1 || ids[0] != 3048 {
 		t.Fatalf("expected RecordId to survive, got %#v", got["RecordId"])
 	}
 	if len(compactWindowParameters(nil)) != 0 {
@@ -180,14 +181,15 @@ func TestResolveTabContainerRequiresExactLiveIdentity(t *testing.T) {
 	}
 }
 
-func TestServiceMethod_SetFormDataRegistered(t *testing.T) {
-	svc := &Service{}
-	method, err := svc.Method("setFormData")
-	if err != nil {
-		t.Fatalf("expected setFormData method to resolve, got %v", err)
+func TestServiceMethod_SetFormDataIsInternalOnly(t *testing.T) {
+	service := &Service{}
+	if _, err := service.Method("setFormData"); err == nil {
+		t.Fatal("raw windowForm initializer must not be publicly callable")
 	}
-	if method == nil {
-		t.Fatalf("expected setFormData method implementation")
+	for _, method := range service.Methods() {
+		if method.Name == "setFormData" {
+			t.Fatal("internal initializer must not be advertised")
+		}
 	}
 }
 
@@ -492,11 +494,11 @@ func TestSetFormDataWaitsForFreshHostedWindowSnapshot(t *testing.T) {
 		out := &CommandOutput{}
 		err := svc.setFormData(ctx, &SetFormDataInput{
 			ClientID:  "client-1",
-			WindowID:  "forecastingCubeBuilder__conv-1",
-			WindowKey: "forecastingCubeBuilder",
+			WindowID:  "reportBuilder__conv-1",
+			WindowKey: "reportBuilder",
 			Values: map[string]interface{}{
 				"prefill": map[string]interface{}{
-					"audienceIds": []interface{}{7113447},
+					"audienceIds": []interface{}{11447},
 				},
 			},
 		}, out)
@@ -518,7 +520,7 @@ func TestSetFormDataWaitsForFreshHostedWindowSnapshot(t *testing.T) {
 			"clientId":       "client-1",
 			"conversationId": "conv-1",
 			"selected": map[string]interface{}{
-				"windowId": "forecastingCubeBuilder__conv-1",
+				"windowId": "reportBuilder__conv-1",
 			},
 			"windows": []interface{}{
 				map[string]interface{}{
@@ -528,9 +530,9 @@ func TestSetFormDataWaitsForFreshHostedWindowSnapshot(t *testing.T) {
 					"conversationId": "conv-1",
 				},
 				map[string]interface{}{
-					"windowId":       "forecastingCubeBuilder__conv-1",
-					"windowKey":      "forecastingCubeBuilder",
-					"windowTitle":    "Forecasting",
+					"windowId":       "reportBuilder__conv-1",
+					"windowKey":      "reportBuilder",
+					"windowTitle":    "Report",
 					"conversationId": "conv-1",
 					"presentation":   "hosted",
 					"region":         "chat.top",
@@ -552,8 +554,8 @@ func TestSetFormDataWaitsForFreshHostedWindowSnapshot(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected command params map, got %#v", command["params"])
 	}
-	if got := commandParams["windowId"]; got != "forecastingCubeBuilder__conv-1" {
-		t.Fatalf("expected forecasting builder window id, got %#v", got)
+	if got := commandParams["windowId"]; got != "reportBuilder__conv-1" {
+		t.Fatalf("expected reporting builder window id, got %#v", got)
 	}
 
 	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
@@ -759,8 +761,8 @@ func TestSetFormDataFallsBackToRecentViewOpenEventWhenSnapshotIsMissing(t *testi
 	svc.reg.RecordEvent("default", "active-client", uireg.UIEvent{
 		ConversationID: "conv-1",
 		ClientID:       "active-client",
-		WindowID:       "forecastingCubeBuilder__conv-1",
-		WindowKey:      "forecastingCubeBuilder",
+		WindowID:       "reportBuilder__conv-1",
+		WindowKey:      "reportBuilder",
 		Kind:           "view.open",
 		Actor:          "agent",
 		At:             time.Now(),
@@ -772,11 +774,11 @@ func TestSetFormDataFallsBackToRecentViewOpenEventWhenSnapshotIsMissing(t *testi
 		out := &CommandOutput{}
 		err := svc.setFormData(ctx, &SetFormDataInput{
 			ClientID:  "active-client",
-			WindowID:  "forecastingCubeBuilder__conv-1",
-			WindowKey: "forecastingCubeBuilder",
+			WindowID:  "reportBuilder__conv-1",
+			WindowKey: "reportBuilder",
 			Values: map[string]interface{}{
 				"prefill": map[string]interface{}{
-					"audienceIds": []interface{}{7113447},
+					"audienceIds": []interface{}{11447},
 				},
 			},
 		}, out)
@@ -806,8 +808,8 @@ func TestSetFormDataFallsBackToRecentViewOpenEventWhenSnapshotIsMissing(t *testi
 	if !ok {
 		t.Fatalf("expected command params map, got %#v", command["params"])
 	}
-	if got := commandParams["windowId"]; got != "forecastingCubeBuilder__conv-1" {
-		t.Fatalf("expected forecasting builder window id, got %#v", got)
+	if got := commandParams["windowId"]; got != "reportBuilder__conv-1" {
+		t.Fatalf("expected reporting builder window id, got %#v", got)
 	}
 
 	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
@@ -1050,5 +1052,24 @@ func TestBuildWindowSurface_OmitsNilBindingFields(t *testing.T) {
 	}
 	if got.Controls[0].Value != "7d" {
 		t.Fatalf("expected resolved control value, got %#v", got.Controls[0].Value)
+	}
+}
+
+func TestGetRedactsLiveWindowCredentialValues(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "privacy-client"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{"clientId": "privacy-client", "data": map[string]interface{}{"conversationId": "conv-privacy", "windows": []interface{}{map[string]interface{}{"windowId": "privacy-window", "windowKey": "test", "conversationId": "conv-privacy", "metadata": map[string]interface{}{"view": map[string]interface{}{"controls": []interface{}{map[string]interface{}{"id": "opaque", "type": "password", "scope": "windowForm", "options": []interface{}{map[string]interface{}{"value": "opaque-secret", "label": "Secret"}}}}}}, "windowForm": map[string]interface{}{"id": 7, "name": "Safe", "password": "do-not-return", "opaque": "sensitive-surface-value"}, "dataSources": map[string]interface{}{"rows": map[string]interface{}{"form": map[string]interface{}{"id": 7, "token": "credential-value"}}}}}}})
+	service := New(bridge)
+	output := &GetOutput{}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-privacy")
+	if err := service.get(ctx, &GetInput{WindowID: "privacy-window"}, output); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(output)
+	if strings.Contains(string(raw), "do-not-return") || strings.Contains(string(raw), "credential-value") || strings.Contains(string(raw), "opaque-secret") || strings.Contains(string(raw), "sensitive-surface-value") || !output.ReadRedacted {
+		t.Fatalf("window read leaked credentials: %s", raw)
+	}
+	if output.Window.WindowForm["name"] != "Safe" {
+		t.Fatal("safe live field lost")
 	}
 }

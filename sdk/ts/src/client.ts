@@ -625,8 +625,13 @@ export class AgentlyClient {
 
         es.onmessage = (ev: { data: string }) => {
             if (closed) return;
+            let parsed: SSEEvent;
             try {
-                const parsed: SSEEvent = JSON.parse(ev.data);
+                parsed = JSON.parse(ev.data);
+            } catch { return; } // Ignore malformed transport frames only.
+            let callbackFailure: HttpError | undefined;
+            let streamError: string | undefined;
+            try {
                 const event = normalizeStreamEventIdentity(parsed, conversationId);
                 if (!event) return;
                 this.agUiInteractions.noteFeedEvent(conversationId, event);
@@ -655,10 +660,21 @@ export class AgentlyClient {
                         handlers.onFeedEvent?.(event);
                         break;
                     case 'error':
-                        handlers.onError?.(event.error ?? 'Unknown error');
+                        streamError = event.error ?? 'Unknown error';
                         break;
                 }
-            } catch { /* ignore malformed events */ }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                callbackFailure = new HttpError(0, 'SSE Callback Error', message);
+            }
+            // Reporting is outside the dispatch catch: an error handler must
+            // not be mistaken for malformed input or recursively reported.
+            if (callbackFailure) {
+                this.onErrorHook?.(callbackFailure);
+                handlers.onError?.(`SSE callback failed: ${callbackFailure.body}`);
+            } else if (streamError !== undefined) {
+                handlers.onError?.(streamError);
+            }
         };
 
         es.onerror = () => {

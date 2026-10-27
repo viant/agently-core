@@ -35,7 +35,7 @@ to sans-serif, serif, or another classification. Workspaces own the registered
 WOFF2 faces and license; the style service validates and serves those assets
 through authenticated, content-addressed, same-origin URLs. Generated
 application and Forge variables share the same workspace-defined family stack.
-Bounds: font size 8–72; minimum control
+Bounds: font size 8–96; minimum control
 height 16–128; radius and inline padding 0–64. Native adapters retain platform
 touch-target minimums and text scaling and fall back to their system family when
 a workspace family asset is unavailable. Changing these rules or default palettes
@@ -67,3 +67,91 @@ any theme token. A bounded workspace surface may consume that variable directly;
 Both roles must be registered before theme tokens can select them, and duplicate
 roles remain invalid. Native clients use the same published role metadata and
 retain system fallback when a family is unavailable.
+## Complete optional typography roles (UX0)
+
+The v1 catalog accepts `typography.<role>.family`, `.size`, `.weight`,
+`.lineHeight`, and `.letterSpacing` for caption, small, body, section, heading,
+title, metric, display, code, label, and metadata. Existing names and size/leading
+keys are preserved. Label and metadata supply missing meanings; they are not new
+size steps. Size and line height are logical pixels. Weight is an integer from
+100 through 900, emitted without a unit. Letter spacing is em, bounded to
+-0.04 through 0.2. Family uses the existing finite font registry plus intrinsic
+`monospace`. Every workspace family used by a role must be registered. CSS, URLs,
+and arbitrary family strings are rejected.
+
+All properties remain optional. `Defaults` does not inject role values or change
+legacy palettes. The web renderer owns centralized neutral fallbacks. Workspaces
+supply their reviewed values. The canonical fixture now exercises all five
+properties for every role in both modes. CSS emits the same values under the
+application and renderer boundaries. HTML heading level remains independent.
+Native validators accept these values; this does not migrate native typography
+or install workspace fonts on native devices.
+
+The same contract adds optional `spacing.1` through `spacing.6` (0 to 64),
+`border.width` (0 to 4), `radius.surface` (0 to 32), `radius.pill` (0 to 999),
+`focus.width` (1 to 4), `focus.offset` (0 to 8), `icon.size` (12 to 32), and
+`motion.fast` (0 to 500 milliseconds). All other dimensions emit pixels. Existing
+control geometry, semantic color roles and scoped CSS assets remain authoritative.
+Elevation continues through the existing Forge overlay-shadow and application
+shadow hooks rather than accepting arbitrary CSS in a portable token.
+
+Generate a workspace contract without changing the canonical fixture:
+
+```sh
+go run ./protocol/ui/theme/cmd/generate -manifest /path/to/styles/manifest.yaml -output /tmp/workspace-theme
+```
+
+`service/ui/style` also offers `TestWorkspaceIntegration`. Set
+`AGENTLY_STYLE_WORKSPACE` to a workspace root to compile its actual manifest,
+scoped CSS and WOFF2 assets through the real service. Optional
+`AGENTLY_STYLE_PROOF_OUTPUT` exports those local test bytes for Agently's browser
+proof. This is a test input, not a runtime product dependency or public server.
+
+## AI contributor entry points
+
+The team uses Codex, Claude Code and Cursor. Root `AGENTS.md` links this guide;
+`CLAUDE.md` imports that entry point, and `.cursor/rules/design-system.mdc` is an
+always-applied thin pointer to this same guide. These files are versioned so a
+fresh checkout has the usage path. Instructions guide contributors; the contract
+and component checks reject defined violations. Neither replaces design review.
+
+Mechanisms verified against [Claude Code project memory](https://code.claude.com/docs/en/memory)
+and [Cursor project rules](https://cursor.com/docs/rules). The Cursor rule uses
+`.mdc` frontmatter and `alwaysApply: true`; no user/team settings are changed.
+
+The complete role ranges retain existing size 8–96 and line-height 8–144 bounds.
+Current upstream color variable spellings remain emitted alongside compatibility
+aliases, and workspace-secondary remains supported. The Core design-system CI
+runs both theme and style-service suites with neutral fixtures. A real workspace
+proof can set AGENTLY_STYLE_BASELINE_WORKSPACE to a separately checked-out upstream
+workspace and reject new diagnostics while documenting pre-existing warnings.
+GitHub requires an administrator to make the new check merge-required.
+
+## Scoped presentation activation
+
+A theme may select an existing profile for the finite `document` appearance:
+
+```yaml
+- id: baseline
+  presentations:
+    document: reading
+  # Existing label, modes and tokens stay authoritative outside that scope.
+```
+
+`reading` must identify another declared theme (or the same theme). Resolution
+copies the mapping and rejects unknown appearances or profiles. No CSS selector,
+URL or expression is accepted. The selected global theme and mode preferences
+remain unchanged. The profile's matching mode or declared fallback supplies the
+same validated token maps used for its standalone theme. Nested mappings are not
+followed. Native clients may ignore the optional mapping; this adds web boundary
+selection, not native rendering migration.
+
+Application consumers opt in with `data-agently-presentation="document"` inside
+the existing application boundary. An unrelated destination uses `legacy` to
+restore the selected theme. Forge's owned `ForgeThemeBoundary` takes
+`presentation="document"` and propagates it to content and owned portals. A
+boundary without the marker retains the selected global theme. Hosts map their
+application aliases at these local boundaries so CSS variables resolve there.
+The actual style service emits profiles with the full catalog, retaining its
+existing ordered file delivery. Theme/compiler, invalid-input and portal tests
+protect this contract through the existing design-system checks.

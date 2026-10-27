@@ -703,7 +703,7 @@ func TestExecuteToolStep_PreservesDisplayToolNameOnCompletion(t *testing.T) {
 	step := StepInfo{
 		ID:         "call-skill",
 		Name:       "llm_skills-activate",
-		Args:       map[string]interface{}{"name": "targeting-tree"},
+		Args:       map[string]interface{}{"name": "selection-tree"},
 		ResponseID: "resp-skill",
 	}
 	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
@@ -738,7 +738,7 @@ func TestExecuteToolStep_FinalizesToolCallBeforeFeedNotification(t *testing.T) {
 	step := StepInfo{
 		ID:         "call-feed",
 		Name:       "llm_skills-activate",
-		Args:       map[string]interface{}{"name": "targeting-tree"},
+		Args:       map[string]interface{}{"name": "selection-tree"},
 		ResponseID: "resp-feed",
 	}
 	_, _, err := ExecuteToolStep(ctx, reg, step, conv)
@@ -1025,8 +1025,8 @@ func TestExecuteToolStep_TimeoutMsOverridesDefaultWrapperTimeout(t *testing.T) {
 	conv := &stubConv{}
 	step := StepInfo{
 		ID:         "call-timeout-override",
-		Name:       "analyst/MetricsCube",
-		Args:       map[string]interface{}{"timeoutMs": 200, "filters": map[string]interface{}{"includeDealsPmp": []interface{}{147961}}, "measures": map[string]interface{}{"avails": true}},
+		Name:       "sample/MetricSource",
+		Args:       map[string]interface{}{"timeoutMs": 200, "filters": map[string]interface{}{"includeEntityIds": []interface{}{7}}, "measures": map[string]interface{}{"value": true}},
 		ResponseID: "resp-timeout-override",
 	}
 
