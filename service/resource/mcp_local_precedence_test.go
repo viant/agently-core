@@ -67,7 +67,7 @@ func TestOperatorLocalMCPOverridesPublishedNameAndCanonicalServiceURI(t *testing
 	internal.changes.Publish(ctx)
 	localNames, err := reader.CatalogNames(ctx)
 	require.NoError(t, err)
-	require.Contains(t, localNames, "ar", "the published internal snapshot includes the operator override")
+	require.Equal(t, []string{"studio"}, localNames, "an ordinary local override must not become another discovery root")
 	for _, name := range []string{"ar", "mcp://ar/ar", "mcp://workspace/ar"} {
 		selected, err := reader.Load(ctx, name)
 		require.NoError(t, err)
