@@ -585,6 +585,7 @@ func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefi
 	}
 	catalogs := r.listToolCatalogs(discoveryCtx, pending)
 	for i, s := range pending {
+		applyCacheable := r.cacheableOverride(ctx, s)
 		injectTimeoutMs := r.shouldInjectTimeoutMs(s)
 		tools, err := catalogs[i].tools, catalogs[i].err
 		if err != nil {
@@ -600,7 +601,7 @@ func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefi
 			if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
 				def.Name = disp
 				_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
-				r.applyCacheableOverride(def, s)
+				applyCacheable(def)
 				def.SourceMCPServer = s
 				defs = append(defs, *def)
 				seen[disp] = struct{}{}
@@ -704,6 +705,7 @@ func (r *Registry) rawMatchDefinitionWithContextResult(ctx context.Context, patt
 			}
 			return result, mcpauth.WrapError(err)
 		}
+		applyCacheable := r.cacheableOverride(ctx, svc)
 		for _, t := range tools {
 			full := qualifiedToolName(svc, strings.TrimSpace(t.Name))
 			if r.isInternalServer(svc) {
@@ -716,7 +718,7 @@ func (r *Registry) rawMatchDefinitionWithContextResult(ctx context.Context, patt
 				}
 				def.Name = full
 				_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
-				r.applyCacheableOverride(def, svc)
+				applyCacheable(def)
 				def.SourceMCPServer = svc
 				entry := newToolCacheEntry(def, t, injectTimeoutMs)
 				if entry == nil {
@@ -2201,6 +2203,7 @@ func (r *Registry) cacheDiscoveredServerTools(ctx context.Context, server string
 func (r *Registry) mergeServerTools(server string, tools []mcpschema.Tool) {
 	injectTimeoutMs := r.shouldInjectTimeoutMs(server)
 	entries := map[string]*toolCacheEntry{}
+	applyCacheable := r.cacheableOverride(context.Background(), server)
 	for _, item := range tools {
 		full := server + "/" + item.Name
 		def := llm.ToolDefinitionFromMcpTool(&item)
@@ -2209,7 +2212,7 @@ func (r *Registry) mergeServerTools(server string, tools []mcpschema.Tool) {
 		}
 		def.Name = full
 		_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
-		r.applyCacheableOverride(def, server)
+		applyCacheable(def)
 		def.SourceMCPServer = server
 		entry := newToolCacheEntry(def, item, injectTimeoutMs)
 		if entry == nil {
@@ -2232,13 +2235,14 @@ func (r *Registry) mergeServerTools(server string, tools []mcpschema.Tool) {
 func (r *Registry) replaceServerTools(server string, tools []mcpschema.Tool) {
 	// Build new map for server
 	newEntries := make(map[string]*toolCacheEntry, len(tools)*2)
+	applyCacheable := r.cacheableOverride(context.Background(), server)
 	injectTimeoutMs := r.shouldInjectTimeoutMs(server)
 	for _, t := range tools {
 		full := server + "/" + t.Name
 		if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
 			def.Name = full
 			_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
-			r.applyCacheableOverride(def, server)
+			applyCacheable(def)
 			def.SourceMCPServer = server
 			if entry := newToolCacheEntry(def, t, injectTimeoutMs); entry != nil {
 				newEntries[full] = entry
@@ -3445,45 +3449,47 @@ func (r *Registry) addInternalMcp() {
 
 }
 
-// applyCacheableOverride sets def.Cacheable based on internal service
-// annotations or MCP server config. This is the centralized application
-// point — callers should not scatter this logic elsewhere.
-func (r *Registry) applyCacheableOverride(def *llm.ToolDefinition, serverName string) {
-	if def == nil {
-		return
-	}
-	// Internal service annotations (CacheableProvider)
+// cacheableOverride prepares one server policy for a catalog operation. Options
+// may load an authorized resource, so resolve them at most once per server,
+// never once per advertised tool. Nothing survives the current operation.
+func (r *Registry) cacheableOverride(ctx context.Context, server string) func(*llm.ToolDefinition) {
 	r.mu.RLock()
-	methods := r.internalCacheable[serverName]
+	methods := r.internalCacheable[server]
 	r.mu.RUnlock()
-	r.applyCacheableOverrideWithMethods(def, serverName, methods)
+	return r.cacheableOverrideWithMethods(ctx, server, methods)
 }
 
-func (r *Registry) applyCacheableOverrideWithMethods(def *llm.ToolDefinition, serverName string, methods map[string]bool) {
-	if def == nil {
-		return
-	}
-	if len(methods) > 0 {
-		_, method := splitToolName(def.Name)
-		if v, ok := methods[method]; ok {
-			def.Cacheable = v
+func (r *Registry) cacheableOverrideWithMethods(ctx context.Context, server string, methods map[string]bool) func(*llm.ToolDefinition) {
+	var configured map[string]bool
+	loaded := false
+	return func(def *llm.ToolDefinition) {
+		if def == nil {
 			return
 		}
+		_, method := splitToolName(def.Name)
+		if value, ok := methods[method]; ok {
+			def.Cacheable = value
+			return
+		}
+		if !loaded {
+			loaded = true
+			if r.mgr != nil {
+				if options, err := r.mgr.Options(ctx, server); err == nil && options != nil {
+					configured = options.Cacheable
+				}
+			}
+		}
+		if value, ok := configured[def.Name]; ok {
+			def.Cacheable = value
+			return
+		}
+		if value, ok := configured[mcpname.Canonical(def.Name)]; ok {
+			def.Cacheable = value
+		}
 	}
-	// MCP server config
-	if r.mgr == nil {
-		return
-	}
-	opts, err := r.mgr.Options(context.Background(), serverName)
-	if err != nil || opts == nil || len(opts.Cacheable) == 0 {
-		return
-	}
-	if v, ok := opts.Cacheable[def.Name]; ok {
-		def.Cacheable = v
-		return
-	}
-	canonical := mcpname.Canonical(def.Name)
-	if v, ok := opts.Cacheable[canonical]; ok {
-		def.Cacheable = v
-	}
+}
+
+// Exact lookups prepare one policy for their single definition.
+func (r *Registry) applyCacheableOverrideWithMethods(def *llm.ToolDefinition, server string, methods map[string]bool) {
+	r.cacheableOverrideWithMethods(context.Background(), server, methods)(def)
 }
