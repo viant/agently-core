@@ -1,4 +1,4 @@
-import { browserMCPSetupMessage, finishBrowserTiming, recordBrowserMCPLifecycle, type BrowserMCPHost } from './browserMCP';
+import { finishBrowserTiming, recordBrowserMCPLifecycle, type BrowserMCPHost } from './browserMCP';
 import type { ClientTool } from './agui';
 import type { AgentSubscriber } from '@ag-ui/client';
 import type { Message, State } from '@ag-ui/core';
@@ -117,13 +117,11 @@ export class AgUiConversationTransport {
         try {
         const bootstrap = await this.refresh(conversationId);
         if (!this.current(entry)) throw new Error('Conversation session was invalidated');
-        const browserTools = await (this.browserMCP?.tools(conversationId, entry.protocolThreadId ?? conversationId) ?? Promise.resolve([])).catch(cause => {
-            // Catalog discovery happens before a model run exists. Surface its
-            // failure to the subscribed conversation instead of leaving a blank
-            // transcript, and do not submit without the configured tools.
-            const error = new Error(browserMCPSetupMessage(cause));
-            if (this.current(entry)) this.error(entry, error);
-            throw error;
+        const browserTools = await (this.browserMCP?.tools(conversationId, entry.protocolThreadId ?? conversationId) ?? Promise.resolve([])).catch(() => {
+            // Discovery is optional. An unavailable gateway contributes no tools;
+            // it must not prevent an ordinary model request. Already-dispatched
+            // browser calls and their continuations keep their strict failure path.
+            return [];
         });
         if (!this.current(entry)) throw new Error('Conversation identity changed while connecting browser tools');
         const runId = crypto.randomUUID();
