@@ -49,6 +49,9 @@ const Name = "reporting"
 
 // Options configures a reporting Service.
 type Options struct {
+	// ResourceDatasetConcurrency opts into bounded independent dataset fetching.
+	// Zero retains serial execution; the host executor must support concurrency.
+	ResourceDatasetConcurrency int
 	ReportResourceService      primitive.ResourceAuthoring
 	ReportCatalog              catalog.Provider
 	ResourceResolver           ResourceResolver
@@ -135,7 +138,8 @@ func New(opts Options) *Service {
 		forgeUIViewResolver:         normalizeForgeUIViewResolver(opts.ForgeUIViewResolver),
 	}
 	service.execution = sharedengine.New(sharedengine.Options{
-		Compiler: opts.Compiler, ReportCatalog: opts.ReportCatalog,
+		ResourceDatasetConcurrency: opts.ResourceDatasetConcurrency,
+		Compiler:                   opts.Compiler, ReportCatalog: opts.ReportCatalog,
 		ResourceResolver:           sharedengine.ResourceResolver(opts.ResourceResolver),
 		ResourceDependencyResolver: sharedengine.ResourceDependencyResolver(opts.ResourceDependencyResolver),
 		ResourceDependencyProof:    opts.ResourceDependencyProof, Now: nowFn,

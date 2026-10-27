@@ -9,6 +9,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestLoadedReportingConcurrencySurvivesDefaultsMerge(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("default:\n  reporting:\n    resourceDatasetConcurrency: 4\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaults, err := loaded.ResolveDefaultsWithFallback(&execconfig.Defaults{Reporting: execconfig.ReportingDefaults{ResourceDatasetConcurrency: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.Reporting.ResourceDatasetConcurrency != 4 {
+		t.Fatalf("lost configured concurrency: %d", defaults.Reporting.ResourceDatasetConcurrency)
+	}
+}
+
 func TestLoadExpandsMCPServerAddress(t *testing.T) {
 	tests := []struct {
 		name   string
