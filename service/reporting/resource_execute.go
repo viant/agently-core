@@ -60,3 +60,12 @@ func (s *Service) executeResourceTool(ctx context.Context, in, out interface{}) 
 	*output = *result
 	return nil
 }
+
+// FetchResourceDatasource reuses the report engine's admitted datasource dispatch
+// through the SDK's generic datasource endpoint.
+func (s *Service) FetchResourceDatasource(ctx context.Context, owner identity.ResourceRef, id string, inputs map[string]interface{}) (*dsproto.FetchResult, error) {
+	if s == nil || s.execution == nil {
+		return nil, identity.ErrResourceDenied
+	}
+	return s.execution.FetchResourceDatasource(ctx, owner, id, inputs)
+}

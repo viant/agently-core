@@ -10,6 +10,8 @@ import (
 
 // FetchDatasourceInput is the wire request for POST /v1/api/datasources/{id}/fetch.
 type FetchDatasourceInput struct {
+	// Owner selects an attached source from the server-selected report definition.
+	Owner            *DatasourceOwner      `json:"owner,omitempty"`
 	Reference        *identity.ResourceRef `json:"reference,omitempty"`
 	ProviderIdentity string                `json:"providerIdentity,omitempty"`
 	// SelectionBinding is original provenance for optional server NEW delivery preparation.
@@ -23,6 +25,11 @@ type FetchDatasourceInput struct {
 	ConversationID   string                     `json:"conversationId,omitempty"`
 	Inputs           map[string]interface{}     `json:"inputs,omitempty"`
 	Cache            *DatasourceCacheHints      `json:"cache,omitempty"`
+}
+
+// DatasourceOwner is a logical parent identity, not a browser-selected version.
+type DatasourceOwner struct {
+	URI string `json:"uri"`
 }
 
 // DatasourceCacheHints carries per-call overrides on cache behaviour.
@@ -118,6 +125,14 @@ func (in *FetchDatasourceInput) UnmarshalJSON(raw []byte) error {
 	decoder.UseNumber()
 	if err := decoder.Decode(&decoded); err != nil {
 		return err
+	}
+	if decoded.Owner != nil {
+		strict := json.NewDecoder(bytes.NewReader(raw))
+		strict.UseNumber()
+		strict.DisallowUnknownFields()
+		if err := strict.Decode(&decoded); err != nil {
+			return err
+		}
 	}
 	*in = FetchDatasourceInput(decoded)
 	return nil
