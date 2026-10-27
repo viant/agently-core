@@ -28,3 +28,12 @@ func TestPortableNavigationRejectsAmbiguousChildCollections(t *testing.T) {
 	var menu LayoutMenu
 	require.Error(t, json.Unmarshal([]byte(`{"id":"group","title":"Group","menus":[],"children":[]}`), &menu))
 }
+
+func TestPortableNavigationLabelsAndReportDestination(t *testing.T) {
+	var layout Layout
+	raw := `{"version":1,"id":"workspace","applications":[{"id":"reports","title":"Reports","menus":[{"id":"overview","label":"Overview","action":{"resourceUri":"report://example/overview"}}]}]}`
+	require.NoError(t, json.Unmarshal([]byte(raw), &layout))
+	require.NoError(t, validateLayout(&layout))
+	require.Equal(t, "Overview", layout.Applications[0].Menus[0].Title)
+	require.Equal(t, "report", layout.Applications[0].Menus[0].Action.Type)
+}
