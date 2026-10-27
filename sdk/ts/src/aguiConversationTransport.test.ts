@@ -326,16 +326,16 @@ describe('native web conversation orchestration', () => {
     });
 });
 
-it('reports browser setup failure to the conversation before sending any model request', async () => {
-    const browser = { tools: vi.fn(async () => { throw new Error('PRIVATE_TRANSPORT_DETAIL'); }), reset: vi.fn(), closeConversation: vi.fn(async () => {}) } as unknown as BrowserMCPHost;
-    const f = fixture([], undefined, [], undefined, () => [], undefined, browser);
+it.each(['metadataUnavailable','runtimeUnavailable','connectionClosedBeforeHandshake'] as const)('continues ordinary chat when optional browser detection fails: %s', async code => {
+    const browser = { tools: vi.fn(async () => { throw new BrowserMCPSetupError(code); }), reset: vi.fn(), closeConversation: vi.fn(async () => {}) } as unknown as BrowserMCPHost;
+    const f = fixture([], undefined, [], undefined, undefined, undefined, browser);
     const errors: string[] = [];
     f.transport.subscribe('thread', { onError: error => errors.push(error) });
-    await expect(f.transport.query({ conversationId: 'thread', query: 'Use the configured browser tool' })).rejects.toThrow('Your message was not sent');
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('Browser tools are not connected');
-    expect(errors[0]).not.toContain('PRIVATE_TRANSPORT_DETAIL');
-    expect(f.posted.filter(input => input.forwardedProps?.agently?.operation === 'chat')).toEqual([]);
+    await f.transport.query({ conversationId: 'thread', query: 'Summarize this conversation' });
+    expect(errors).toEqual([]);
+    const chats=f.posted.filter(input => input.forwardedProps?.agently?.operation === 'chat');
+    expect(chats).toHaveLength(1);
+    expect(chats[0].tools || []).toEqual([]);
     f.transport.reset(); f.host.resetAgUiInteractions();
 });
 
