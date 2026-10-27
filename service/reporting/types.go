@@ -409,6 +409,9 @@ type SaveReportRequest struct {
 }
 
 type GetReportInput struct {
+	// RefreshMetadata selects a new grant for a new action at the bookmarked
+	// provider. It never renews a grant held by an active execution.
+	RefreshMetadata  bool                       `json:"refreshMetadata,omitempty"`
 	Resource         *identity.ResourceRef      `json:"resource,omitempty"`
 	ResolvedResource *identity.ResolvedResource `json:"resolvedResource,omitempty"`
 	ArtifactID       string                     `json:"artifactId,omitempty"`
