@@ -116,8 +116,9 @@ type backendClient struct {
 	skills                        skillBackend
 	// Installed by SetDatasourceStack; nil until runtime bootstrap wires
 	// them. See sdk/embedded_datasources.go.
-	datasourceSvc *dssvc.Service
-	overlaySvc    *oversvc.Service
+	reportDatasources reportDatasourceFetcher
+	datasourceSvc     *dssvc.Service
+	overlaySvc        *oversvc.Service
 	// The embedded backend keeps mutable in-memory stores for forge
 	// datasources/lookups so the runtime can refresh them from the live
 	// workspace store without rebuilding the whole backend.
