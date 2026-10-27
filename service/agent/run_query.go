@@ -150,11 +150,27 @@ type terminalCarrierPatch struct {
 // snapshot used at the final pre-model boundary. Steering bypasses this path so
 // an in-flight user directive keeps its existing ability to reach the model.
 func (s *Service) prepareTerminalCarriersBeforeModel(ctx context.Context, binding *bindpkg.Binding, turn runtimerequestctx.TurnMeta, steering bool) (bool, error) {
-	if s == nil || s.asyncManager == nil || steering {
+	if s == nil || s.asyncManager == nil {
 		return false, nil
 	}
 	records := s.asyncManager.OperationsForTurn(ctx, turn.ConversationID, turn.TurnID)
-	return reconcileTerminalCarriersBeforeModel(binding, records, turn.ConversationID, turn.TurnID)
+	if !steering {
+		waiting, err := reconcileTerminalCarriersBeforeModel(binding, records, turn.ConversationID, turn.TurnID)
+		if err != nil || waiting {
+			return waiting, err
+		}
+	}
+	// Live terminal receipts apply to every declared wait carrier. The separate
+	// model-history opt-in and steering rules must not leave a tool unresolved.
+	for _, rec := range records {
+		if rec != nil && asynccfg.ExecutionModeWaits(rec.ExecutionMode) && rec.Terminal() &&
+			strings.TrimSpace(rec.ParentConvID) == strings.TrimSpace(turn.ConversationID) && strings.TrimSpace(rec.ParentTurnID) == strings.TrimSpace(turn.TurnID) {
+			if err := s.publishTerminalCarrierReceipt(ctx, turn, rec); err != nil {
+				return false, err
+			}
+		}
+	}
+	return false, nil
 }
 
 // reconcileTerminalCarriersBeforeModel refreshes opted-in terminal wait
