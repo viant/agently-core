@@ -144,7 +144,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let client = AgentlyClient(
-            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "https://steward-local.viant.ai")))],
+            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "https://studio.example.invalid")))],
             session: session
         )
         var requestIndex = 0
@@ -510,7 +510,7 @@ final class AgentlySDKTests: XCTestCase {
     }
 
     func testHostedWorkspaceRestoreDecodesPersistedPayloadEnvelopes() throws {
-        let openResponse = #"{"windowId":"forecastingCubeBuilder__conv-1","selectedWindowId":"forecastingCubeBuilder__conv-1","windowKey":"reportBuilder","windowTitle":"Forecasting","conversationId":"conv-1","presentation":"hosted","region":"chat.top","parentKey":"chat/new","workspaceSharePct":72,"workspaceMinHeight":500,"parameters":{"reportBuilderRef":"forecastingCubeBuilder"},"items":[{"windowId":"forecastingCubeBuilder__conv-1","windowKey":"reportBuilder","windowTitle":"Forecasting","conversationId":"conv-1","presentation":"hosted","region":"chat.top","parentKey":"chat/new","workspaceSharePct":72,"workspaceMinHeight":500,"parameters":{"reportBuilderRef":"forecastingCubeBuilder"}}],"ok":true}"#
+        let openResponse = #"{"windowId":"reportBuilder__conv-1","selectedWindowId":"reportBuilder__conv-1","windowKey":"reportBuilder","windowTitle":"Report","conversationId":"conv-1","presentation":"hosted","region":"chat.top","parentKey":"chat/new","workspaceSharePct":72,"workspaceMinHeight":500,"parameters":{"reportBuilderRef":"reportBuilder"},"items":[{"windowId":"reportBuilder__conv-1","windowKey":"reportBuilder","windowTitle":"Report","conversationId":"conv-1","presentation":"hosted","region":"chat.top","parentKey":"chat/new","workspaceSharePct":72,"workspaceMinHeight":500,"parameters":{"reportBuilderRef":"reportBuilder"}}],"ok":true}"#
         let content = try XCTUnwrap(String(data: try JSONEncoder().encode(openResponse), encoding: .utf8))
         let json = """
         {
@@ -543,8 +543,8 @@ final class AgentlySDKTests: XCTestCase {
 
         let restore = deriveHostedWorkspaceRestoreState(from: response)
 
-        XCTAssertEqual(restore?.selectedWindowId, "forecastingCubeBuilder__conv-1")
-        XCTAssertEqual(restore?.windows.first?.parameters?["reportBuilderRef"], .string("forecastingCubeBuilder"))
+        XCTAssertEqual(restore?.selectedWindowId, "reportBuilder__conv-1")
+        XCTAssertEqual(restore?.windows.first?.parameters?["reportBuilderRef"], .string("reportBuilder"))
     }
 
     func testHostedWorkspaceRestoreFoldsLaterWindowFormDataIntoOpenedWindow() throws {

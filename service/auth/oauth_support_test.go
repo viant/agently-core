@@ -15,15 +15,15 @@ import (
 func TestCallbackURL_UsesForwardedHTTPSOrigin(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://127.0.0.1:8787/v1/api/auth/mcp/mediaplanner/initiate", nil)
 	req.Header.Set("X-Forwarded-Proto", "https")
-	req.Header.Set("X-Forwarded-Host", "steward-local.viant.ai")
-	if got, want := callbackURL(req, "/v1/api/auth/mcp/callback"), "https://steward-local.viant.ai/v1/api/auth/mcp/callback"; got != want {
+	req.Header.Set("X-Forwarded-Host", "studio.example.invalid")
+	if got, want := callbackURL(req, "/v1/api/auth/mcp/callback"), "https://studio.example.invalid/v1/api/auth/mcp/callback"; got != want {
 		t.Fatalf("callbackURL() = %q, want %q", got, want)
 	}
 }
 
 func TestCallbackURL_UsesDirectTLSOriginWithoutProxyHeaders(t *testing.T) {
-	req := httptest.NewRequest("POST", "https://steward.viant.ai/v1/api/auth/mcp/mediaplanner/initiate", nil)
-	if got, want := callbackURL(req, "/v1/api/auth/mcp/callback"), "https://steward.viant.ai/v1/api/auth/mcp/callback"; got != want {
+	req := httptest.NewRequest("POST", "https://studio.example.invalid/v1/api/auth/mcp/mediaplanner/initiate", nil)
+	if got, want := callbackURL(req, "/v1/api/auth/mcp/callback"), "https://studio.example.invalid/v1/api/auth/mcp/callback"; got != want {
 		t.Fatalf("callbackURL() = %q, want %q", got, want)
 	}
 }

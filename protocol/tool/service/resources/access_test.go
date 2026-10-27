@@ -11,20 +11,20 @@ func TestIsAllowedWorkspace_NormalizesFileAndWorkspaceForms(t *testing.T) {
 	}{
 		{
 			name:    "workspace under allowed file root",
-			loc:     "workspace://localhost/Users/adrianwitas/projects/poly/poly",
-			allowed: []string{"file://localhost/Users/adrianwitas"},
+			loc:     "workspace://localhost/workspace/example",
+			allowed: []string{"file:///workspace/example"},
 			expect:  true,
 		},
 		{
 			name:    "file under allowed workspace root",
-			loc:     "file://localhost/Users/adrianwitas/projects/poly/poly",
-			allowed: []string{"workspace://localhost/Users/adrianwitas"},
+			loc:     "file:///workspace/example",
+			allowed: []string{"workspace://localhost/workspace/example"},
 			expect:  true,
 		},
 		{
 			name:    "outside allowed root remains blocked",
-			loc:     "workspace://localhost/tmp/other",
-			allowed: []string{"file://localhost/Users/adrianwitas"},
+			loc:     "workspace://localhost/workspace/other",
+			allowed: []string{"file:///workspace/example"},
 			expect:  false,
 		},
 	}

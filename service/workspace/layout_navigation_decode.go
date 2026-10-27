@@ -19,6 +19,13 @@ func (m *LayoutMenu) UnmarshalJSON(raw []byte) error {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return err
 	}
+	if value.Title == "" {
+		if label, ok := fields["label"]; ok {
+			if err := json.Unmarshal(label, &value.Title); err != nil {
+				return err
+			}
+		}
+	}
 	childKey := ""
 	for _, key := range []string{"children", "menus", "items"} {
 		if _, exists := fields[key]; exists {
@@ -38,8 +45,8 @@ func (m *LayoutMenu) UnmarshalJSON(raw []byte) error {
 		if err != nil {
 			return err
 		}
-		if uri.Kind == "window" {
-			value.Action.Type = "window"
+		if uri.Kind == "window" || uri.Kind == "report" {
+			value.Action.Type = uri.Kind
 		}
 	}
 	*m = LayoutMenu(value)

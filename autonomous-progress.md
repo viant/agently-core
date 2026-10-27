@@ -216,10 +216,10 @@ conversation-scoped `system/goal` tool surface.
 - `APPSERVER_URL=http://127.0.0.1:9191 npx vitest run src/components/chat/SteerQueue.test.jsx src/services/renderRows.test.js src/services/chatRuntime.test.js src/components/ToolFeedWorkspace.test.jsx` in `agently/ui`
 - `./gradlew :agently-core-sdk:compileDebugKotlin :agently-core-sdk:testDebugUnitTest` in `agently/android`
 - `./gradlew :app:compileDebugKotlin :app:compileReleaseKotlin` in `agently/android`
-- `xcodebuild -project /Users/awitas/go/src/github.com/viant/agently/ios/AgentlyApp.xcodeproj -scheme AgentlyApp -destination 'generic/platform=iOS Simulator' build`
+- `xcodebuild -project ../go/src/github.com/viant/agently/ios/AgentlyApp.xcodeproj -scheme AgentlyApp -destination 'generic/platform=iOS Simulator' build`
 - `./gradlew :app:compileDebugKotlin :app:compileReleaseKotlin` in `agently/android`
   after the mobile goal-card design/confirmation pass
-- `xcodebuild -project /Users/awitas/go/src/github.com/viant/agently/ios/AgentlyApp.xcodeproj -scheme AgentlyApp -destination 'generic/platform=iOS Simulator' build`
+- `xcodebuild -project ../go/src/github.com/viant/agently/ios/AgentlyApp.xcodeproj -scheme AgentlyApp -destination 'generic/platform=iOS Simulator' build`
   after the mobile goal-card design/confirmation pass
 - `go test ./internal/service/sqlite/... ./service/agent/... ./sdk/...`
 - `APPSERVER_URL=http://127.0.0.1:9191 npx vitest run src/services/chatRuntime.test.js src/services/renderRows.test.js` in `agently/ui`

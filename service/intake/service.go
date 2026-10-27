@@ -680,7 +680,7 @@ func buildOutputSchema(cfg *agentmdl.Intake) string {
 	if cfg.HasScope(agentmdl.IntakeScopeContext) {
 		b.WriteString("\n- scope (object): grouped orchestration scope with `values` containing lightweight extracted identifiers and hints")
 		b.WriteString("\n- directAction (object, optional): exact deterministic executable tool action to execute without another LLM turn when the request already fully specifies it")
-		b.WriteString("\n- directAction is only for an explicit tool/UI/control request whose required input fields are known from the current turn; for analysis, data, forecast, summary, or recommendation requests, leave directAction null even when a related UI view exists")
+		b.WriteString("\n- directAction is only for an explicit tool/UI/control request whose required input fields are known from the current turn; for analysis, data, prediction, summary, or recommendation requests, leave directAction null even when a related UI view exists")
 		b.WriteString("\n- directAction is only for allowed tool actions; never use a prompt-profile id or route label as directAction.toolName")
 	}
 	if cfg.HasScope(agentmdl.IntakeScopeProfile) {

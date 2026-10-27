@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -282,7 +283,8 @@ type ActivationClassification struct {
 }
 
 type ActivationPrompting struct {
-	SuggestedIntentProfileID string   `yaml:"suggestedIntentProfileId,omitempty" json:"suggestedIntentProfileId,omitempty"`
+	SuggestedPlaybookID      string   `yaml:"suggestedPlaybookId,omitempty" json:"suggestedPlaybookId,omitempty"`
+	SuggestedIntentProfileID string   `yaml:"-" json:"-"` // Deprecated compatibility storage.
 	SuggestedProfileID       string   `yaml:"-" json:"-"` // Deprecated compatibility storage.
 	AppendToolBundles        []string `yaml:"appendToolBundles,omitempty" json:"appendToolBundles,omitempty"`
 	TemplateID               string   `yaml:"templateId,omitempty" json:"templateId,omitempty"`
@@ -290,18 +292,24 @@ type ActivationPrompting struct {
 	SynthesisModelID         string   `yaml:"synthesisModelId,omitempty" json:"synthesisModelId,omitempty"`
 }
 
-func (p ActivationPrompting) EffectiveIntentProfileID() string {
+func (p ActivationPrompting) EffectivePlaybookID() string {
+	if value := strings.TrimSpace(p.SuggestedPlaybookID); value != "" {
+		return value
+	}
 	if value := strings.TrimSpace(p.SuggestedIntentProfileID); value != "" {
 		return value
 	}
 	return strings.TrimSpace(p.SuggestedProfileID)
 }
 
+func (p ActivationPrompting) EffectiveIntentProfileID() string { return p.EffectivePlaybookID() }
+
 func (p *ActivationPrompting) normalizeIntentProfileID() {
 	if p == nil {
 		return
 	}
-	value := p.EffectiveIntentProfileID()
+	value := p.EffectivePlaybookID()
+	p.SuggestedPlaybookID = value
 	p.SuggestedIntentProfileID = value
 	p.SuggestedProfileID = value
 }
@@ -310,13 +318,19 @@ func (p *ActivationPrompting) UnmarshalJSON(data []byte) error {
 	type alias ActivationPrompting
 	decoded := struct {
 		*alias
-		LegacyIntentProfileID string `json:"suggestedProfileId"`
+		IntentProfileID string `json:"suggestedIntentProfileId"`
+		LegacyProfileID string `json:"suggestedProfileId"`
 	}{alias: (*alias)(p)}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	if strings.TrimSpace(p.SuggestedIntentProfileID) == "" {
-		p.SuggestedIntentProfileID = strings.TrimSpace(decoded.LegacyIntentProfileID)
+	for _, legacy := range []string{decoded.IntentProfileID, decoded.LegacyProfileID} {
+		if value := strings.TrimSpace(legacy); value != "" {
+			if existing := p.EffectivePlaybookID(); existing != "" && existing != value {
+				return fmt.Errorf("conflicting suggested playbook aliases")
+			}
+			p.SuggestedPlaybookID = value
+		}
 	}
 	p.normalizeIntentProfileID()
 	return nil
@@ -328,13 +342,19 @@ func (p *ActivationPrompting) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	var compatibility struct {
-		LegacyIntentProfileID string `yaml:"suggestedProfileId"`
+		IntentProfileID string `yaml:"suggestedIntentProfileId"`
+		LegacyProfileID string `yaml:"suggestedProfileId"`
 	}
 	if err := node.Decode(&compatibility); err != nil {
 		return err
 	}
-	if strings.TrimSpace(p.SuggestedIntentProfileID) == "" {
-		p.SuggestedIntentProfileID = strings.TrimSpace(compatibility.LegacyIntentProfileID)
+	for _, legacy := range []string{compatibility.IntentProfileID, compatibility.LegacyProfileID} {
+		if value := strings.TrimSpace(legacy); value != "" {
+			if existing := p.EffectivePlaybookID(); existing != "" && existing != value {
+				return fmt.Errorf("conflicting suggested playbook aliases")
+			}
+			p.SuggestedPlaybookID = value
+		}
 	}
 	p.normalizeIntentProfileID()
 	return nil

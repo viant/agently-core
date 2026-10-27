@@ -2,18 +2,20 @@ package window
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 	"time"
 
+	identity "github.com/viant/agently-core/protocol/resource"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
-	identity "github.com/viant/agently-core/protocol/resource"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgetypes "github.com/viant/forge/backend/types"
+	"github.com/viant/forge/backend/uicontext"
 )
 
 const Name = "ui/window"
@@ -57,6 +59,8 @@ type GetInput struct {
 }
 
 type GetOutput struct {
+	ReadRedacted   bool                    `json:"readRedacted,omitempty"`
+	ReadTruncated  bool                    `json:"readTruncated,omitempty"`
 	ClientID       string                  `json:"clientId,omitempty"`
 	Window         *uireg.WindowSnapshot   `json:"window,omitempty"`
 	Selected       *uireg.SnapshotSelected `json:"selected,omitempty"`
@@ -99,17 +103,21 @@ type ActivateInput struct {
 }
 
 type SelectTabInput struct {
-	Resource    *identity.ResolvedResource `json:"resource,omitempty"`
-	ClientID    string                     `json:"clientId,omitempty"`
-	WindowID    string                     `json:"windowId,omitempty"`
-	TabID       string                     `json:"tabId,omitempty"`
-	ContainerID string                     `json:"containerId,omitempty"`
+	Target           *forgetypes.WindowTarget   `json:"target,omitempty"`
+	ExpectedRevision *uint32                    `json:"expectedRevision,omitempty"`
+	Resource         *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID         string                     `json:"clientId,omitempty"`
+	WindowID         string                     `json:"windowId,omitempty"`
+	TabID            string                     `json:"tabId,omitempty"`
+	ContainerID      string                     `json:"containerId,omitempty"`
 }
 
 type HideInput struct {
-	Resource *identity.ResolvedResource `json:"resource,omitempty"`
-	ClientID string                     `json:"clientId,omitempty"`
-	WindowID string                     `json:"windowId,omitempty"`
+	Target           *forgetypes.WindowTarget   `json:"target,omitempty"`
+	ExpectedRevision *uint32                    `json:"expectedRevision,omitempty"`
+	Resource         *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID         string                     `json:"clientId,omitempty"`
+	WindowID         string                     `json:"windowId,omitempty"`
 }
 
 type SetFormDataInput struct {
@@ -122,11 +130,14 @@ type SetFormDataInput struct {
 }
 
 type CommandOutput struct {
-	Resource        *identity.ResolvedResource `json:"resource,omitempty"`
-	WorkspaceObject *workspaceproto.Object     `json:"workspaceObject,omitempty"`
-	ClientID        string                     `json:"clientId,omitempty"`
-	OK              bool                       `json:"ok,omitempty"`
-	Error           string                     `json:"error,omitempty"`
+	Status              string                     `json:"status,omitempty"`
+	PendingConfirmation bool                       `json:"pendingConfirmation,omitempty"`
+	OperationRevision   uint32                     `json:"operationRevision,omitempty"`
+	Resource            *identity.ResolvedResource `json:"resource,omitempty"`
+	WorkspaceObject     *workspaceproto.Object     `json:"workspaceObject,omitempty"`
+	ClientID            string                     `json:"clientId,omitempty"`
+	OK                  bool                       `json:"ok,omitempty"`
+	Error               string                     `json:"error,omitempty"`
 }
 
 type resolvedWindowTarget struct {
@@ -152,10 +163,11 @@ func (s *Service) Name() string { return Name }
 
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
+		{Name: "refresh", Description: "Refresh a registered window, tab or form through current host admission; reloadMetadata requests definition refresh. Unsupported data scopes fail without fetching sources.", Input: reflect.TypeOf(&RefreshInput{}), Output: reflect.TypeOf(&RefreshOutput{})},
+		{Name: "refreshCapabilities", Description: "List exact currently registered window/tab/form refresh scopes, distinguishing metadata and data capabilities.", Input: reflect.TypeOf(&RefreshInput{}), Output: reflect.TypeOf(&RefreshOutput{})},
 		{Name: "list", Description: "List live UI windows for the current conversation.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "get", Description: "Get one live UI window by windowId or windowKey for the current conversation.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
 		{Name: "show", Description: "Activate an existing live UI window by windowId.", Input: reflect.TypeOf(&ActivateInput{}), Output: reflect.TypeOf(&CommandOutput{})},
-		{Name: "setFormData", Description: "Patch the windowForm state for an existing live UI window by windowId or windowKey.", Input: reflect.TypeOf(&SetFormDataInput{}), Output: reflect.TypeOf(&CommandOutput{})},
 		{Name: "selectTab", Description: "Select a tab inside an existing live UI window by windowId and tabId.", Input: reflect.TypeOf(&SelectTabInput{}), Output: reflect.TypeOf(&CommandOutput{})},
 		{Name: "hide", Description: "Hide or close an existing live UI window by windowId.", Input: reflect.TypeOf(&HideInput{}), Output: reflect.TypeOf(&CommandOutput{})},
 	}
@@ -163,14 +175,16 @@ func (s *Service) Methods() svc.Signatures {
 
 func (s *Service) Method(name string) (svc.Executable, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "refresh":
+		return s.refresh, nil
+	case "refreshcapabilities":
+		return s.refreshCapabilities, nil
 	case "list":
 		return s.list, nil
 	case "get":
 		return s.get, nil
 	case "show":
 		return s.show, nil
-	case "setformdata":
-		return s.setFormData, nil
 	case "selecttab":
 		return s.selectTab, nil
 	case "hide":
@@ -273,6 +287,21 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 		selected := snap.Selected
 		output.Selected = &selected
 	}
+	raw, err := json.Marshal(output)
+	if err != nil {
+		return fmt.Errorf("encode current window read: %w", err)
+	}
+	safe, err := uicontext.RedactReadJSON(raw, uicontext.ReadOptions{Metadata: win.Metadata, PreservePaths: []string{"window.resource", "window.resourceTarget", "window.metadata.resource", "window.metadata.resourceTarget", "window.metadata.resourceDependencies"}})
+	if err != nil {
+		return fmt.Errorf("redact current window read: %w", err)
+	}
+	var redacted GetOutput
+	if err = json.Unmarshal(safe.JSON, &redacted); err != nil {
+		return fmt.Errorf("decode current window read: %w", err)
+	}
+	redacted.ReadRedacted = safe.Redacted
+	redacted.ReadTruncated = safe.Truncated
+	*output = redacted
 	return nil
 }
 
@@ -532,23 +561,42 @@ func (s *Service) hide(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	ctx, err = s.reg.WindowRequestContext(ctx, target.Namespace, target.ClientID, target.Window, input.Resource)
+	ctx, err = s.reg.WindowRequestContext(ctx, target.Namespace, target.ClientID, target.Window, input.Resource, input.Target)
 	if err != nil {
 		return err
+	}
+	if input.ExpectedRevision != nil && *input.ExpectedRevision != target.Window.OperationRevision {
+		return fmt.Errorf("stale UI operation revision; read current UI state before retrying")
 	}
 	output.Resource = target.Window.Resource
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  target.ClientID,
 		Namespace: target.Namespace,
 		Method:    "ui.window.close",
-		Params:    map[string]interface{}{"windowId": strings.TrimSpace(input.WindowID)},
+		Params:    map[string]interface{}{"windowId": strings.TrimSpace(input.WindowID), "conversationId": strings.TrimSpace(target.Window.ConversationID), "resourceTarget": target.Window.ResourceTarget, "expectedRevision": input.ExpectedRevision},
 	})
 	if err != nil {
 		return err
 	}
+	var result struct {
+		Status              string `json:"status"`
+		PendingConfirmation bool   `json:"pendingConfirmation"`
+		OperationRevision   uint32 `json:"operationRevision"`
+	}
+	if len(resp.Result) > 0 {
+		if err = json.Unmarshal(resp.Result, &result); err != nil {
+			return err
+		}
+	}
+	output.Status = result.Status
+	output.PendingConfirmation = result.PendingConfirmation
+	output.OperationRevision = result.OperationRevision
 	output.ClientID = target.ClientID
 	output.OK = resp.OK
 	output.Error = resp.Error
+	if !resp.OK {
+		return fmt.Errorf("UI close rejected: %s", resp.Error)
+	}
 	s.reg.RecordEventContext(ctx, target.Namespace, target.ClientID, uireg.UIEvent{
 		ConversationID: strings.TrimSpace(target.Window.ConversationID),
 		ClientID:       target.ClientID,
@@ -585,9 +633,12 @@ func (s *Service) selectTab(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	ctx, err = s.reg.WindowRequestContext(ctx, target.Namespace, target.ClientID, target.Window, input.Resource)
+	ctx, err = s.reg.WindowRequestContext(ctx, target.Namespace, target.ClientID, target.Window, input.Resource, input.Target)
 	if err != nil {
 		return err
+	}
+	if input.ExpectedRevision != nil && *input.ExpectedRevision != target.Window.OperationRevision {
+		return fmt.Errorf("stale UI operation revision; read current UI state before retrying")
 	}
 	output.Resource = target.Window.Resource
 	containerID, err := resolveTabContainer(target.Window, tabID, strings.TrimSpace(input.ContainerID))
@@ -599,14 +650,24 @@ func (s *Service) selectTab(ctx context.Context, in, out interface{}) error {
 		Namespace: target.Namespace,
 		Method:    "ui.window.selectTab",
 		Params: map[string]interface{}{
-			"windowId":    windowID,
-			"tabId":       tabID,
-			"containerId": containerID,
+			"windowId":         windowID,
+			"conversationId":   conversationID,
+			"resourceTarget":   target.Window.ResourceTarget,
+			"expectedRevision": input.ExpectedRevision,
+			"tabId":            tabID,
+			"containerId":      containerID,
 		},
 	})
 	if err != nil {
 		return err
 	}
+	var liveResult struct {
+		OperationRevision uint32 `json:"operationRevision"`
+	}
+	if len(resp.Result) > 0 {
+		_ = json.Unmarshal(resp.Result, &liveResult)
+	}
+	output.OperationRevision = liveResult.OperationRevision
 	output.ClientID = target.ClientID
 	output.OK = resp.OK
 	output.Error = resp.Error

@@ -34,6 +34,7 @@ func New(bridge *forgeuisvc.Service) *Registry {
 }
 
 type Snapshot struct {
+	ObservedAt     int64            `json:"ts,omitempty"`
 	ConversationID string           `json:"conversationId,omitempty"`
 	ClientID       string           `json:"clientId,omitempty"`
 	Selected       SnapshotSelected `json:"selected,omitempty"`
@@ -46,6 +47,8 @@ type SnapshotSelected struct {
 }
 
 type WindowSnapshot struct {
+	OperationRevision  uint32                        `json:"operationRevision,omitempty"`
+	SemanticContext    map[string]interface{}        `json:"semanticContext,omitempty"`
 	ResourceTarget     *forgetypes.WindowTarget      `json:"resourceTarget,omitempty"`
 	Resource           *identity.ResolvedResource    `json:"resource,omitempty"`
 	WorkspaceObject    *workspaceproto.Object        `json:"workspaceObject,omitempty"`
@@ -107,6 +110,17 @@ func (r *Registry) snapshots(ctx context.Context) ([]ClientSnapshot, error) {
 		var snap Snapshot
 		if err := json.Unmarshal(raw, &snap); err != nil {
 			continue
+		}
+		// The UI's advisory contract is independently bounded/redacted at the
+		// host boundary before any context/tool consumer receives it.
+		for i := range snap.Windows {
+			safe := CurrentSemanticContext(&snap.Windows[i])
+			snap.Windows[i].SemanticContext = nil
+			if safe != nil {
+				if encoded, e := json.Marshal(safe); e == nil {
+					_ = json.Unmarshal(encoded, &snap.Windows[i].SemanticContext)
+				}
+			}
 		}
 		if r.state != nil {
 			r.state.ingestSnapshot(entry.Namespace, entry.ClientID, &snap, raw, entry.UpdatedAt)
@@ -427,6 +441,7 @@ func filterSnapshotForConversation(snapshot *Snapshot, conversationID string) *S
 		}
 	}
 	return &Snapshot{
+		ObservedAt:     snapshot.ObservedAt,
 		ConversationID: snapshot.ConversationID,
 		ClientID:       snapshot.ClientID,
 		Selected:       selected,

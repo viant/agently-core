@@ -114,7 +114,7 @@ model
 
 The existing public tool boundary is:
 
-- [protocol/tool/registry.go](/Users/awitas/go/src/github.com/viant/agently-core/protocol/tool/registry.go)
+- [protocol/tool/registry.go](./protocol/tool/registry.go)
 
 This should remain the narrow execution seam.
 
@@ -122,8 +122,8 @@ This should remain the narrow execution seam.
 
 Tool execution, transcript persistence, payload persistence, feed notification, and approval handling already converge in:
 
-- [service/shared/executil/tool_executor.go](/Users/awitas/go/src/github.com/viant/agently-core/service/shared/executil/tool_executor.go)
-- [service/shared/executil/tool_executor_context.go](/Users/awitas/go/src/github.com/viant/agently-core/service/shared/executil/tool_executor_context.go)
+- [service/shared/executil/tool_executor.go](./service/shared/executil/tool_executor.go)
+- [service/shared/executil/tool_executor_context.go](./service/shared/executil/tool_executor_context.go)
 
 This is the best place to integrate async orchestration.
 
@@ -131,9 +131,9 @@ This is the best place to integrate async orchestration.
 
 Child conversations and status plumbing already exist in:
 
-- [protocol/tool/service/llm/agents/service.go](/Users/awitas/go/src/github.com/viant/agently-core/protocol/tool/service/llm/agents/service.go)
-- [protocol/tool/service/llm/agents/run_support.go](/Users/awitas/go/src/github.com/viant/agently-core/protocol/tool/service/llm/agents/run_support.go)
-- [service/linking/service.go](/Users/awitas/go/src/github.com/viant/agently-core/service/linking/service.go)
+- [protocol/tool/service/llm/agents/service.go](./protocol/tool/service/llm/agents/service.go)
+- [protocol/tool/service/llm/agents/run_support.go](./protocol/tool/service/llm/agents/run_support.go)
+- [service/linking/service.go](./service/linking/service.go)
 
 These should become one native async operation adapter.
 
@@ -141,10 +141,10 @@ These should become one native async operation adapter.
 
 The event / render path already exists:
 
-- [runtime/streaming/event.go](/Users/awitas/go/src/github.com/viant/agently-core/runtime/streaming/event.go)
-- [sdk/canonical.go](/Users/awitas/go/src/github.com/viant/agently-core/sdk/canonical.go)
-- [sdk/canonical_reducer.go](/Users/awitas/go/src/github.com/viant/agently-core/sdk/canonical_reducer.go)
-- [sdk/canonical_transcript.go](/Users/awitas/go/src/github.com/viant/agently-core/sdk/canonical_transcript.go)
+- [runtime/streaming/event.go](./runtime/streaming/event.go)
+- [sdk/canonical.go](./sdk/canonical.go)
+- [sdk/canonical_reducer.go](./sdk/canonical_reducer.go)
+- [sdk/canonical_transcript.go](./sdk/canonical_transcript.go)
 
 This is where async progress should surface.
 
@@ -539,9 +539,9 @@ Tool feeds prove the architecture pattern already exists:
 
 See:
 
-- [protocol/tool/feed.go](/Users/awitas/go/src/github.com/viant/agently-core/protocol/tool/feed.go)
-- [protocol/tool/metadata.go](/Users/awitas/go/src/github.com/viant/agently-core/protocol/tool/metadata.go)
-- selector application in [internal/tool/registry/registry.go](/Users/awitas/go/src/github.com/viant/agently-core/internal/tool/registry/registry.go)
+- [protocol/tool/feed.go](./protocol/tool/feed.go)
+- [protocol/tool/metadata.go](./protocol/tool/metadata.go)
+- selector application in [internal/tool/registry/registry.go](./internal/tool/registry/registry.go)
 
 The new async system should reuse the same philosophy:
 
@@ -558,8 +558,8 @@ Approval queue already captures a non-terminal lifecycle:
 
 See:
 
-- [protocol/tool/approval_queue.go](/Users/awitas/go/src/github.com/viant/agently-core/protocol/tool/approval_queue.go)
-- [service/shared/executil/tool_executor.go](/Users/awitas/go/src/github.com/viant/agently-core/service/shared/executil/tool_executor.go)
+- [protocol/tool/approval_queue.go](./protocol/tool/approval_queue.go)
+- [service/shared/executil/tool_executor.go](./service/shared/executil/tool_executor.go)
 
 That is another signal that the codebase already supports runtime-managed non-immediate tool outcomes.
 
@@ -664,8 +664,8 @@ with stable item identities and typed payloads.
 
 Relevant references:
 
-- [Codex thread events](/Users/awitas/go/src/github.com/openai/codex/codex-rs/exec/src/exec_events.rs)
-- [Codex protocol events](/Users/awitas/go/src/github.com/openai/codex/codex-rs/protocol/src/protocol.rs)
+- [Codex thread events](../go/src/github.com/openai/codex/codex-rs/exec/src/exec_events.rs)
+- [Codex protocol events](../go/src/github.com/openai/codex/codex-rs/protocol/src/protocol.rs)
 
 #### Best patterns to borrow from Codex
 
@@ -699,9 +699,9 @@ more sophisticated in practical async behavior:
 
 Relevant references from the reversed and source-like trees:
 
-- [Reversed Agent tool implementation](/Users/awitas/go/src/github.com/antrophic/claude/reversed/cli.2.1.69.beautified.js:358772)
-- [Source-like Agent tool](/Users/awitas/Downloads/claude_src/tools/AgentTool/AgentTool.tsx)
-- [Source-like streaming parser](/Users/awitas/Downloads/claude_src/services/api/claude.ts)
+- [Reversed Agent tool implementation](../go/src/github.com/antrophic/claude/reversed/cli.2.1.69.beautified.js:358772)
+- [Source-like Agent tool](../Downloads/claude_src/tools/AgentTool/AgentTool.tsx)
+- [Source-like streaming parser](../Downloads/claude_src/services/api/claude.ts)
 
 Claude effectively supports:
 
@@ -872,7 +872,7 @@ approach.
 
 ### Claude Code
 
-**Source:** `/Users/awitas/Downloads/claude_src/` (reconstructed source tree)
+**Source:** `../Downloads/claude_src/` (reconstructed source tree)
 
 #### Async tool execution model
 
@@ -967,7 +967,7 @@ These are transparent to the user. The turn continues after recovery.
 
 ### OpenAI Codex
 
-**Source:** `/Users/awitas/go/src/github.com/openai/codex/`
+**Source:** `../go/src/github.com/openai/codex/`
 
 #### Async model
 

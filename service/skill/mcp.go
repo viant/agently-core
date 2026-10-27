@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,12 +16,30 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
+	identity "github.com/viant/agently-core/protocol/resource"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	runtimectx "github.com/viant/agently-core/runtime/requestctx"
 	skillformat "github.com/viant/mcp-protocol/extension/skills"
 	schema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
+
+var errSkillCapabilityUnavailable = errors.New("MCP skills extension not advertised")
+
+// Published native MCP definitions participate on demand without copying skill
+// names into consumer configuration. Explicit discovery settings retain their
+// opt-in/opt-out semantics. Capability negotiation still belongs to the client.
+func ordinarySkillDiscovery(config *mcpcfg.MCPClient) *mcpcfg.MCPClient {
+	if config == nil || config.SkillDiscovery != nil {
+		return config
+	}
+	if config.ResolvedIdentity == nil || !strings.HasPrefix(config.ResolvedIdentity.ResourceURI, "mcp://") {
+		return config
+	}
+	copy := *config
+	copy.SkillDiscovery = &mcpcfg.SkillDiscovery{Enabled: true, CatalogID: fmt.Sprintf("mcp-%x", sha256.Sum256([]byte(config.ResolvedIdentity.ResourceURI)))}
+	return &copy
+}
 
 // MCPSource uses the manager's authenticated, principal-isolated connections.
 // Implementations must resolve configuration locally in Names and Options.
@@ -45,6 +64,7 @@ func (s *Service) HasMCPSource() bool {
 	}
 	for _, name := range names {
 		cfg, err := s.mcpSource.Options(ctx, name)
+		cfg = ordinarySkillDiscovery(cfg)
 		if err == nil && cfg != nil && (cfg.SkillDiscovery != nil && cfg.SkillDiscovery.Enabled || s.delivery != nil && cfg.PrimitiveProviderIdentity != "") {
 			return true
 		}
@@ -119,6 +139,7 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 	}
 	names, err := s.mcpSource.Names(ctx)
 	if err != nil {
+		traceDiscoveryFailure(ctx, "names", "", false, only, err)
 		return nil, err
 	}
 	sort.Strings(names)
@@ -127,8 +148,11 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 	for _, server := range names {
 		cfg, err := s.mcpSource.Options(ctx, server)
 		if err != nil {
+			traceDiscoveryFailure(ctx, "options", server, false, only, err)
 			return nil, err
 		}
+		automatic := cfg != nil && cfg.SkillDiscovery == nil
+		cfg = ordinarySkillDiscovery(cfg)
 		if cfg == nil || cfg.SkillDiscovery == nil || !cfg.SkillDiscovery.Enabled {
 			continue
 		}
@@ -145,14 +169,63 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 		}
 		entries, err := s.listRemoteServer(ctx, agent, server, id, cfg)
 		if err != nil {
-			if only == "" && optionalSkillLinkRequired(err) {
+			traceDiscoveryFailure(ctx, "list", server, automatic, only, err)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if automatic && only == "" && errors.Is(err, errSkillCapabilityUnavailable) && optionalDiscoveryUnavailable(err) {
+				continue
+			}
+			if only == "" && (optionalSkillLinkRequired(err) || automatic && optionalDiscoveryUnavailable(err)) {
+				recordDiscoveryFailure(ctx, id)
 				continue
 			}
 			return nil, fmt.Errorf("MCP skill discovery unavailable for %s: %w", id, err)
 		}
 		out = append(out, entries...)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// Only failures while contacting a provider are optional. Locally validated
+// identities, manifests, limits and pagination invariants remain hard errors.
+type discoveryUnavailable struct{ error }
+
+func (e *discoveryUnavailable) Unwrap() error { return e.error }
+
+func optionalDiscoveryUnavailable(err error) bool {
+	return optionalDiscoveryContact(err, false)
+}
+
+func optionalDiscoveryContact(err error, contact bool) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) || errors.Is(err, identity.ErrResource) || errors.Is(err, identity.ErrInvalid) {
+		return false
+	}
+	if required, ok := err.(interface{ RequiredSkillDiscoveryFailure() bool }); ok && required.RequiredSkillDiscoveryFailure() {
+		return false
+	}
+	if _, ok := err.(*discoveryUnavailable); ok {
+		contact = true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !optionalDiscoveryContact(child, contact) {
+				return false
+			}
+		}
+		return true
+	}
+	if child := errors.Unwrap(err); child != nil {
+		return optionalDiscoveryContact(child, contact)
+	}
+	return contact
 }
 
 // Only a pure typed missing-link outcome is optional during aggregate
@@ -185,18 +258,26 @@ func (s *Service) remoteClient(ctx context.Context, server string, cfg *mcpcfg.M
 			opts = append(opts, mcpclient.WithAuthToken(token))
 		}
 	}
-	initialized, err := cli.Initialize(ctx, opts...)
+	var initialized *schema.InitializeResult
+	if negotiated, ok := cli.(interface {
+		NegotiatedServer() (*schema.InitializeResult, error)
+	}); ok {
+		initialized, _ = negotiated.NegotiatedServer()
+	}
+	if initialized == nil {
+		initialized, err = cli.Initialize(ctx, opts...)
+	}
 	if err != nil {
 		return ctx, nil, nil, err
 	}
 	if initialized == nil {
-		return ctx, nil, nil, fmt.Errorf("MCP skills extension not advertised")
+		return ctx, nil, nil, errSkillCapabilityUnavailable
 	}
 	if _, advertised := initialized.Capabilities.Extensions[schema.SkillsExtension]; !advertised {
-		return ctx, nil, nil, fmt.Errorf("MCP skills extension not advertised")
+		return ctx, nil, nil, errSkillCapabilityUnavailable
 	}
 	if _, ok := cli.(manager.SkillsClient); !ok {
-		return ctx, nil, nil, fmt.Errorf("MCP client lacks skills support")
+		return ctx, nil, nil, fmt.Errorf("%w: MCP client lacks skills support", errSkillCapabilityUnavailable)
 	}
 	return ctx, cli, opts, nil
 }
@@ -207,7 +288,7 @@ func (s *Service) listRemoteServer(ctx context.Context, agent *agentmdl.Agent, s
 	defer cancel()
 	ctx, cli, opts, err := s.remoteClient(ctx, server, cfg)
 	if err != nil {
-		return nil, err
+		return nil, &discoveryUnavailable{err}
 	}
 	var out []remoteEntry
 	var cursor *string
@@ -217,7 +298,7 @@ func (s *Service) listRemoteServer(ctx context.Context, agent *agentmdl.Agent, s
 	for page := 0; page < positive(limits.MaxPages, 20); page++ {
 		res, err := cli.(manager.SkillsClient).ListSkills(ctx, cursor, opts...)
 		if err != nil {
-			return nil, err
+			return nil, &discoveryUnavailable{err}
 		}
 		if res == nil || res.ResultType != "complete" {
 			return nil, fmt.Errorf("empty resource response")
@@ -278,14 +359,23 @@ func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]ski
 	if err != nil {
 		return nil, err
 	}
-	for _, entry := range entries {
-		local = append(local, entry.metadata)
-	}
 	started = time.Now()
 	generic, err := s.primitiveMetadata(ctx, agent)
 	debugtrace.Write("skill", "list_visible_stage", map[string]any{"stage": "primitive_metadata", "count": len(generic), "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond)})
 	if err != nil {
 		return nil, err
+	}
+	// A native producer can publish the same skill through both namespace
+	// resources and the skills extension. Prefer its native resource identity;
+	// identical names or URIs from different authenticated connections stay apart.
+	native := make(map[string]bool, len(generic))
+	for _, entry := range generic {
+		native[entry.ServerID+"\x00"+entry.URI] = true
+	}
+	for _, entry := range entries {
+		if !native[entry.server+"\x00"+entry.uri] {
+			local = append(local, entry.metadata)
+		}
 	}
 	started = time.Now()
 	local = append(local, generic...)

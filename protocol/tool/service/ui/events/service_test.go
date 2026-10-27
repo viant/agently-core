@@ -118,7 +118,7 @@ func TestRecordScopesBrowserEventToCurrentConversationWindow(t *testing.T) {
 		Kind:      "report.export_start",
 		Detail: map[string]interface{}{
 			"reportName": "Inventory Brief",
-			"filters":    map[string]interface{}{"orderId": 2680567},
+			"filters":    map[string]interface{}{"orderId": 8567},
 		},
 	}, out)
 	if err != nil {

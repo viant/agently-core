@@ -20,11 +20,11 @@ func delegatedConfig(disableSwitch bool) *mcpcfg.MCPClient {
 	return &mcpcfg.MCPClient{
 		DisableDelegatedAuth: disableSwitch,
 		ClientOptions: &mcp.ClientOptions{
-			Name: "viant-mcp-dev6",
+			Name: "sample-mcp",
 			Auth: &mcp.ClientAuth{
 				Mode:        authcfg.ModeOAuth,
-				ProviderRef: "adelphic-dev6",
-				ClientRef:   "steward-web",
+				ProviderRef: "sample-provider",
+				ClientRef:   "sample-web",
 				Resource:    "https://mcp6.example.com/mcp",
 				Scopes:      []string{"plan:create"},
 			},
@@ -53,7 +53,7 @@ func TestIsDelegatedAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if !mgr.IsDelegatedAuth(context.Background(), "viant-mcp-dev6") {
+	if !mgr.IsDelegatedAuth(context.Background(), "sample-mcp") {
 		t.Fatalf("auth.mode=oauth with providerRef must classify as delegated")
 	}
 
@@ -90,7 +90,7 @@ func TestWithAuthTokenContextSkipsDelegatedServers(t *testing.T) {
 		Expiry:      time.Now().Add(time.Hour),
 	}})
 
-	next := mgr.WithAuthTokenContext(ctx, "viant-mcp-dev6")
+	next := mgr.WithAuthTokenContext(ctx, "sample-mcp")
 	if tp.calls != 0 {
 		t.Fatalf("delegated server must not trigger workspace EnsureTokens (calls=%d)", tp.calls)
 	}
@@ -111,7 +111,7 @@ func TestNewClientDelegatedRequiresResolver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if _, err := mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6"); err == nil {
+	if _, err := mgr.Get(context.Background(), "conv-1", "sample-mcp"); err == nil {
 		t.Fatalf("delegated config without installed resolver must fail closed")
 	} else if !strings.Contains(err.Error(), "credential resolver") {
 		t.Fatalf("unexpected error: %v", err)
@@ -124,7 +124,7 @@ func TestNewClientDelegatedKillSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, err = mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6")
+	_, err = mgr.Get(context.Background(), "conv-1", "sample-mcp")
 	if err == nil || !strings.Contains(err.Error(), "provider_disabled") {
 		t.Fatalf("MCP-level kill switch must fail with provider_disabled, got %v", err)
 	}
@@ -139,7 +139,7 @@ func TestNewClientDelegatedRequiresRegistryForProviderRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, err = mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6")
+	_, err = mgr.Get(context.Background(), "conv-1", "sample-mcp")
 	if err == nil || !strings.Contains(err.Error(), "provider registry") {
 		t.Fatalf("providerRef without an installed registry must fail fast, got %v", err)
 	}
@@ -157,7 +157,7 @@ func TestNewClientDelegatedNormalizesLegacyUseIdToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, err = mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6")
+	_, err = mgr.Get(context.Background(), "conv-1", "sample-mcp")
 	if err == nil || !strings.Contains(err.Error(), "useIdToken") {
 		t.Fatalf("conflicting useIdToken/tokenType must fail validation, got %v", err)
 	}
@@ -197,19 +197,19 @@ func TestNewClientDelegatedInlineProviderRegistrationFailureFailsClosed(t *testi
 	cfg := delegatedConfig(false)
 	cfg.ClientOptions.Auth.ProviderRef = ""
 	cfg.ClientOptions.Auth.InlineProvider = &authcfg.OAuthProvider{
-		ID:            "inline-dev6",
+		ID:            "inline-sample",
 		Issuer:        "https://idp-inline.example.com",
 		DefaultClient: "web",
 		Clients:       map[string]*authcfg.OAuthClient{"web": {ConfigURL: "scy://inline"}},
 	}
-	registry := &recordingInlineRegistry{registerErr: fmt.Errorf("inline oauth provider %q conflicts", "inline-dev6")}
+	registry := &recordingInlineRegistry{registerErr: fmt.Errorf("inline oauth provider %q conflicts", "inline-sample")}
 	mgr, err := New(&authTokenProviderConfigStub{cfg: cfg},
 		WithCredentialResolver(staticCredentialResolver{}),
 		WithProviderRegistry(registry))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, err = mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6")
+	_, err = mgr.Get(context.Background(), "conv-1", "sample-mcp")
 	if err == nil || !strings.Contains(err.Error(), "conflicts") {
 		t.Fatalf("inline registration conflict must fail client creation, got %v", err)
 	}
@@ -226,7 +226,7 @@ func TestNewClientDelegatedRejectsConflictingLegacyAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if _, err := mgr.Get(context.Background(), "conv-1", "viant-mcp-dev6"); err == nil {
+	if _, err := mgr.Get(context.Background(), "conv-1", "sample-mcp"); err == nil {
 		t.Fatalf("delegated mode combined with legacy oauth2ConfigURL must fail validation")
 	}
 }

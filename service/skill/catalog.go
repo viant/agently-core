@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	authctx "github.com/viant/agently-core/internal/auth"
@@ -15,6 +17,10 @@ import (
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 )
+
+var partialCatalogSequence atomic.Uint64
+
+var errPartialSkillCatalog = errors.New("partial skill catalog")
 
 type catalogOwner interface {
 	CheckVisibleCatalog(context.Context, *primitive.Catalog[json.RawMessage]) error
@@ -29,18 +35,22 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	ctx, discovery := withDiscoveryDiagnostics(ctx)
 	names := []string{}
 	if s.mcpSource != nil && authctx.EffectiveUserID(ctx) != "" {
 		available, err := s.mcpSource.Names(ctx)
 		if err != nil {
+			traceDiscoveryFailure(ctx, "page_names", "", false, "", err)
 			return nil, err
 		}
 		for _, name := range available {
 			cfg, err := s.mcpSource.Options(ctx, name)
 			if err != nil {
+				traceDiscoveryFailure(ctx, "page_options", name, false, "", err)
 				return nil, err
 			}
-			if cfg != nil && cfg.SkillDiscovery != nil && cfg.SkillDiscovery.Enabled {
+			cfg = ordinarySkillDiscovery(cfg)
+			if cfg != nil && (cfg.SkillDiscovery != nil && cfg.SkillDiscovery.Enabled || s.delivery != nil && cfg.PrimitiveProviderIdentity != "") {
 				names = append(names, name)
 			}
 		}
@@ -56,6 +66,7 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 		var err error
 		scope, cacheable, err = owner.CatalogScope(ctx, conversation, names)
 		if err != nil {
+			traceDiscoveryFailure(ctx, "page_scope", "", false, "", err)
 			return nil, err
 		}
 	}
@@ -69,6 +80,7 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 	raw, _ := json.Marshal(patterns)
 	fingerprint := sha256.Sum256(raw)
 	key := fmt.Sprintf("skill:%p:%p:%x:%s", s, registry, fingerprint, scope)
+	var partialItems []primitive.CatalogItem[json.RawMessage]
 	load := func(ctx context.Context) ([]primitive.CatalogItem[json.RawMessage], error) {
 		metadata, err := s.ListVisible(ctx, agent)
 		if err != nil {
@@ -83,6 +95,10 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 			}
 			items = append(items, primitive.CatalogItem[json.RawMessage]{Name: entry.Name, Description: entry.Description, Namespace: namespace, URI: entry.URI, Provider: entry.ServerID, Value: raw})
 		}
+		if hasOwner && len(discovery.messages) > 0 {
+			partialItems = items
+			return nil, errPartialSkillCatalog
+		}
 		return items, nil
 	}
 	var index *primitive.Catalog[json.RawMessage]
@@ -93,6 +109,15 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 		}
 		var err error
 		index, err = owner.VisibleCatalog(ctx, key, until, load)
+		if err == errPartialSkillCatalog {
+			// Keep the owner's publication/authentication fences while avoiding
+			// reuse of a partial snapshot on a subsequent request. Complete
+			// catalogs retain the normal shared cache and its stable cursors.
+			partialKey := fmt.Sprintf("%s:partial:%d", key, partialCatalogSequence.Add(1))
+			index, err = owner.VisibleCatalog(ctx, partialKey, time.Now().Add(30*time.Second), func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error) {
+				return partialItems, nil
+			})
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -133,6 +158,12 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
+	if len(discovery.messages) > 0 {
+		// A new request must refresh provider availability; partial snapshot
+		// cursors cannot safely resume against a different provider set.
+		result.NextCursor = ""
+		result.Complete = false
+	}
 	return result, nil
 }
 func (s *Service) ListPageForSelection(ctx context.Context, conversationID, agentID string, query primitive.CatalogQuery) (*primitive.CatalogPage[skillproto.Metadata], []string, error) {
@@ -152,8 +183,9 @@ func (s *Service) ListPageForSelection(ctx context.Context, conversationID, agen
 	if conversationID != "" {
 		ctx = requestctx.WithConversationID(ctx, conversationID)
 	}
+	ctx, discovery := withDiscoveryDiagnostics(ctx)
 	page, err := s.ListVisiblePage(ctx, agent, query)
-	return page, s.Diagnostics(), err
+	return page, append(s.Diagnostics(), discovery.messages...), err
 }
 func (s *Service) ListPageForConversation(ctx context.Context, conversationID string, query primitive.CatalogQuery) (*primitive.CatalogPage[skillproto.Metadata], []string, error) {
 	if conversationID == "" {
@@ -164,8 +196,9 @@ func (s *Service) ListPageForConversation(ctx context.Context, conversationID st
 	if err != nil {
 		return nil, nil, err
 	}
+	ctx, discovery := withDiscoveryDiagnostics(ctx)
 	page, err := s.ListVisiblePage(ctx, agent, query)
-	return page, s.Diagnostics(), err
+	return page, append(s.Diagnostics(), discovery.messages...), err
 }
 
 // Namespace is the authored upstream skill namespace, not its MCP connection.

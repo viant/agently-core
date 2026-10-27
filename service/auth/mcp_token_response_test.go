@@ -28,10 +28,10 @@ func TestTokenResponseRefreshPreservesOwnerAndRejectsAccountChange(t *testing.T)
 		}
 		t.Run(name, func(t *testing.T) {
 			store := newFakeDelegatedStore()
-			original := seededDev6Token(time.Now().Add(-time.Minute))
+			original := seededSampleToken(time.Now().Add(-time.Minute))
 			store.seed(original)
-			doc := dev6ProviderDoc(false)
-			doc.TokenResponse = &oauthprovider.TokenResponse{TokenURL: "https://idp-dev6.example.com/token", Resource: "https://mcp6.example.com/mcp", SubjectPath: "data.gid"}
+			doc := sampleProviderDoc(false)
+			doc.TokenResponse = &oauthprovider.TokenResponse{TokenURL: "https://idp.example.invalid/token", Resource: "https://mcp.example.invalid/mcp", SubjectPath: "data.gid"}
 			resolver := newTestResolver(t, store, doc)
 			resolver.loadClientConfig = func(context.Context, string) (*oauth2.Config, error) {
 				return &oauth2.Config{ClientID: "fixture", ClientSecret: "secret", Endpoint: oauth2.Endpoint{TokenURL: doc.TokenResponse.TokenURL}}, nil
@@ -48,7 +48,7 @@ func TestTokenResponseRefreshPreservesOwnerAndRejectsAccountChange(t *testing.T)
 				token.RefreshToken = "" // Retain the previously encrypted refresh token.
 				return token, nil
 			}
-			_, err := resolver.Resolve(delegatedCtx(original.Username), dev6Requirement())
+			_, err := resolver.Resolve(delegatedCtx(original.Username), sampleRequirement())
 			if (err != nil) != changed {
 				t.Fatalf("refresh error = %v", err)
 			}
@@ -139,10 +139,10 @@ func TestValidateTokenResponse(t *testing.T) {
 func TestTokenResponsePolicyPins(t *testing.T) {
 	for _, name := range []string{"valid", "http", "wrong endpoint", "wrong resource", "wrong issuer", "id token", "no secret", "disabled"} {
 		t.Run(name, func(t *testing.T) {
-			doc := dev6ProviderDoc(false)
-			doc.TokenResponse = &oauthprovider.TokenResponse{TokenURL: "https://idp-dev6.example.com/token", Resource: "https://mcp6.example.com/mcp", SubjectPath: "data.gid"}
+			doc := sampleProviderDoc(false)
+			doc.TokenResponse = &oauthprovider.TokenResponse{TokenURL: "https://idp.example.invalid/token", Resource: "https://mcp.example.invalid/mcp", SubjectPath: "data.gid"}
 			cfg := &oauth2.Config{ClientID: "fixture", ClientSecret: "fixture-secret", Endpoint: oauth2.Endpoint{TokenURL: doc.TokenResponse.TokenURL}}
-			req := dev6Requirement()
+			req := sampleRequirement()
 			req.Issuer = doc.Issuer
 			resolver := newTestResolver(t, newFakeDelegatedStore(), doc)
 			resolved, err := resolver.resolveProvider(context.Background(), &req)
@@ -151,7 +151,7 @@ func TestTokenResponsePolicyPins(t *testing.T) {
 			}
 			switch name {
 			case "http":
-				doc.TokenResponse.TokenURL = "http://idp-dev6.example.com/token"
+				doc.TokenResponse.TokenURL = "http://idp.example.invalid/token"
 				cfg.Endpoint.TokenURL = doc.TokenResponse.TokenURL
 			case "wrong endpoint":
 				cfg.Endpoint.TokenURL = "https://other.example/token"

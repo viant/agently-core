@@ -100,7 +100,7 @@ func TestGetProjectsConversationEventsWithoutLiveWindowSnapshot(t *testing.T) {
 			"reportName": "Performance Brief",
 			"reportId":   "performance",
 			"sourceKind": "preset",
-			"filters":    map[string]interface{}{"orderId": 2680567},
+			"filters":    map[string]interface{}{"orderId": 8567},
 		},
 	})
 	svc.reg.RecordConversationEvent("conv-1", uireg.UIEvent{
@@ -111,7 +111,7 @@ func TestGetProjectsConversationEventsWithoutLiveWindowSnapshot(t *testing.T) {
 			"reportName": "Performance Brief",
 			"reportId":   "performance",
 			"sourceKind": "preset",
-			"filters":    map[string]interface{}{"orderId": 2680567},
+			"filters":    map[string]interface{}{"orderId": 8567},
 			"runId":      "run-1",
 			"status":     "succeeded",
 		},
@@ -133,13 +133,13 @@ func TestGetProjectsConversationEventsWithoutLiveWindowSnapshot(t *testing.T) {
 func TestBuildCurrentReportContextsCorrelatesLatestRunAndExport(t *testing.T) {
 	events := []uireg.UIEvent{
 		{Seq: 1, WindowID: "window-1", WindowKey: "performance", Kind: "report.context_updated", Detail: map[string]interface{}{
-			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 2680567},
+			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 8567},
 		}},
 		{Seq: 2, WindowID: "window-1", WindowKey: "performance", Kind: "report.run", Detail: map[string]interface{}{
-			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 2680567}, "runId": "run-1",
+			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 8567}, "runId": "run-1",
 		}},
 		{Seq: 3, WindowID: "window-1", WindowKey: "performance", Kind: "report.export_complete", Detail: map[string]interface{}{
-			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 2680567}, "artifactId": "artifact-1",
+			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 8567}, "artifactId": "artifact-1",
 		}},
 	}
 	contexts := buildCurrentReportContexts(events)
@@ -150,7 +150,7 @@ func TestBuildCurrentReportContextsCorrelatesLatestRunAndExport(t *testing.T) {
 	if current.ReportName != "Performance Brief" || current.LatestRun == nil || current.LatestRun.Seq != 2 || current.LatestExport == nil || current.LatestExport.Seq != 3 {
 		t.Fatalf("unexpected current report context: %#v", current)
 	}
-	if current.Filters["orderId"] != float64(2680567) && current.Filters["orderId"] != 2680567 {
+	if current.Filters["orderId"] != float64(8567) && current.Filters["orderId"] != 8567 {
 		t.Fatalf("expected order filter, got %#v", current.Filters)
 	}
 }
@@ -158,22 +158,22 @@ func TestBuildCurrentReportContextsCorrelatesLatestRunAndExport(t *testing.T) {
 func TestBuildCurrentReportContextsUsesCompletedEventsMatchingActiveScope(t *testing.T) {
 	events := []uireg.UIEvent{
 		{Seq: 8, WindowID: "reportBuilder__conv-1", WindowKey: "reportBuilder", Kind: "report.export_start", Detail: map[string]interface{}{
-			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 2680567},
+			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 8567},
 		}},
 		{Seq: 4, WindowID: "reportBuilder__conv-1", WindowKey: "reportBuilder", Kind: "report.run", Detail: map[string]interface{}{
-			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 2680567}, "runId": "run-1", "status": "succeeded",
+			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 8567}, "runId": "run-1", "status": "succeeded",
 		}},
 		{Seq: 7, WindowID: "reportBuilder__conv-1", WindowKey: "reportBuilder", Kind: "report.run_start", Detail: map[string]interface{}{
-			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 2680567}, "runId": "run-2",
+			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 8567}, "runId": "run-2",
 		}},
 		{Seq: 6, WindowID: "reportBuilder__conv-1", WindowKey: "reportBuilder", Kind: "report.export_complete", Detail: map[string]interface{}{
 			"reportName": "Performance Brief", "reportId": "performance", "filters": map[string]interface{}{"orderId": 999}, "artifactId": "wrong-scope",
 		}},
 		{Seq: 5, WindowID: "reportBuilder__conv-1", WindowKey: "reportBuilder", Kind: "report.export_complete", Detail: map[string]interface{}{
-			"reportName": "Performance Brief", "reportId": "performance", "artifactRef": "scratchpad://artifact/artifact-1", "filters": map[string]interface{}{"orderId": 2680567}, "artifactId": "artifact-1", "status": "succeeded",
+			"reportName": "Performance Brief", "reportId": "performance", "artifactRef": "scratchpad://artifact/artifact-1", "filters": map[string]interface{}{"orderId": 8567}, "artifactId": "artifact-1", "status": "succeeded",
 		}},
 		{Seq: 9, WindowID: "reportBuilder__conv-1", WindowKey: "reportBuilder", Kind: "report.context_updated", Detail: map[string]interface{}{
-			"reportName": "Performance Brief", "reportId": "performance", "artifactRef": "report://performance", "sourceKind": "preset", "filters": map[string]interface{}{"orderId": 2680567},
+			"reportName": "Performance Brief", "reportId": "performance", "artifactRef": "report://performance", "sourceKind": "preset", "filters": map[string]interface{}{"orderId": 8567},
 		}},
 	}
 
@@ -219,5 +219,35 @@ func TestNewestFirstUIEventsUsesSequenceThenTimestamp(t *testing.T) {
 	got := []string{ordered[0].Kind, ordered[1].Kind, ordered[2].Kind}
 	if !reflect.DeepEqual(got, []string{"third", "second", "first"}) {
 		t.Fatalf("expected newest-first events, got %#v", got)
+	}
+}
+
+func TestContextReadRedactsSensitiveStateWithoutChangingScopeOrRuntimeProofs(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postContextUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "private-read"})
+	postContextUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{"clientId": "private-read", "data": map[string]interface{}{"conversationId": "chat", "selected": map[string]interface{}{"windowId": "entity"}, "windows": []interface{}{map[string]interface{}{
+		"windowId": "entity", "windowKey": "entity", "conversationId": "chat", "presentation": "hosted", "operationRevision": 123,
+		"resourceTarget": map[string]interface{}{"platform": "web", "selectionToken": "existing-runtime-proof"},
+		"windowForm":     map[string]interface{}{"Name": "Visible", "pin": "opaque-private-value", "apiKey": "opaque-private-value", "note": "Basic dXNlcjpwYXNz"},
+		"metadata":       map[string]interface{}{"view": map[string]interface{}{"dataSourceRef": "rows", "controls": []interface{}{map[string]interface{}{"id": "pin", "type": "password", "scope": "windowForm", "dataField": "pin", "dataSourceRef": "rows"}}}},
+	}}}})
+	var output GetOutput
+	if err := New(bridge).get(runtimerequestctx.WithConversationID(context.Background(), "chat"), &GetInput{ClientID: "private-read"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"opaque-private-value", "dXNlcjpwYXNz"} {
+		if bytes.Contains(encoded, []byte(secret)) {
+			t.Fatalf("read leaked sensitive value %q", secret)
+		}
+	}
+	if !output.ReadRedacted || len(output.Windows) != 1 || output.Windows[0].Window.OperationRevision != 123 || output.Windows[0].Window.WindowForm["Name"] != "Visible" {
+		t.Fatalf("safe read state/scope was changed: %s", encoded)
+	}
+	if output.Windows[0].Window.ResourceTarget.SelectionToken != "existing-runtime-proof" {
+		t.Fatal("existing runtime target proof contract changed")
 	}
 }

@@ -715,3 +715,13 @@ it('retains persisted public highlights beside the final report after repeated h
     expect(rows.filter(row=>row.kind==='assistant'&&row.messageId===noteId)).toHaveLength(1);
     expect(rows.some(row=>row.kind==='iteration'&&row.rounds.some(round=>round.renderedContent?.reports?.some(assembly=>assembly.status==='committed')))).toBe(true);
 });
+
+it('retains canonical final report content without fabricating an execution round', () => {
+    const state = fresh();
+    const renderedContent = {schemaVersion:'1',parts:[],reports:[{scope:'message',id:'overview',status:'committed',sequence:1,source:{title:'Overview'}}]};
+    applyTranscript(state,{conversationId:CONV,turns:[{turnId:'report-turn',status:'completed',assistant:{final:{messageId:'report-answer',content:'Report ready.',renderedContent}}}]});
+    const row = projectConversation(state).find(row => row.kind === 'iteration') as IterationRenderRow;
+    expect(row.rounds).toEqual([]);
+    expect(row.assistantFinal).toMatchObject({messageId:'report-answer',content:'Report ready.',renderedContent});
+    expect(row.hostEffectsAllowed).not.toBe(false);
+});

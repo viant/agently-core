@@ -82,9 +82,9 @@ func TestJaccardWordSimilarity(t *testing.T) {
 		// if tokenization is tweaked later.
 		min, max float64
 	}{
-		{"identical", "analyze deal 146901 latency", "analyze deal 146901 latency", 0.99, 1.0},
-		{"disjoint", "analyze deal 146901 latency", "explain feeders for project 42", 0.0, 0.15},
-		{"mostly overlapping", "analyze deal 146901", "analyze deal 146901 impact", 0.6, 0.9},
+		{"identical", "analyze deal 901 latency", "analyze deal 901 latency", 0.99, 1.0},
+		{"disjoint", "analyze deal 901 latency", "explain feeders for project 42", 0.0, 0.15},
+		{"mostly overlapping", "analyze deal 901", "analyze deal 901 impact", 0.6, 0.9},
 		{"empty", "", "anything", 0.0, 0.0},
 	}
 	for _, tc := range cases {
@@ -95,7 +95,7 @@ func TestJaccardWordSimilarity(t *testing.T) {
 }
 
 func TestShouldReplaceConversationTitle(t *testing.T) {
-	query := "Build me a report for order 2676771 with delivery and pacing details"
+	query := "Build me a report for order 771 with delivery and pacing details"
 	require.True(t, shouldReplaceConversationTitle("", "conv-1"))
 	require.True(t, shouldReplaceConversationTitle("conv-1", "conv-1"))
 	require.True(t, shouldReplaceConversationTitle("New conversation", "conv-1"))
@@ -111,14 +111,14 @@ func TestMaybeSetConversationTitlePreservesEstablishedTitleOnFollowup(t *testing
 	}
 	svc := &Service{conversation: client}
 
-	svc.maybeSetConversationTitle(context.Background(), "conv-1", "Sites Served for Order 2676771")
+	svc.maybeSetConversationTitle(context.Background(), "conv-1", "Sites Served for Order 771")
 
 	require.Zero(t, client.patchCallCount)
 	require.Empty(t, client.patchedTitle)
 }
 
 func TestMaybeSetConversationTitlePreservesFirstTurnSeed(t *testing.T) {
-	query := "Build me a report for order 2676771 with delivery and pacing details"
+	query := "Build me a report for order 771 with delivery and pacing details"
 	client := &followupStubConversationClient{
 		conversation: &apiconv.Conversation{Id: "conv-1", Title: &query},
 	}
@@ -206,14 +206,14 @@ func TestShouldRunIntake_ExplicitPromptProfileSkipsSidecar(t *testing.T) {
 
 func TestShouldRunIntake_RerunsAfterPriorDirectActionEvenWithoutTopicShift(t *testing.T) {
 	now := time.Now()
-	intakeJSON := `{"classification":{"title":"Show record 2637048","intent":"troubleshoot_record","confidence":0.92},"scope":{"values":{"recordId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"RecordId\":[2637048]}}","assistantText":"opened"}}`
+	intakeJSON := `{"classification":{"title":"Show record 3048","intent":"troubleshoot_record","confidence":0.92},"scope":{"values":{"recordId":"3048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"RecordId\":[3048]}}","assistantText":"opened"}}`
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
 			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id: "turn-1",
 					Message: []*conversationmodel.MessageView{
-						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my record 2637048"), CreatedAt: now},
+						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my record 3048"), CreatedAt: now},
 						{Id: "msg-intake-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr(intakeJSON), CreatedAt: now, Phase: strPtr("intake")},
 					},
 				},
@@ -223,28 +223,28 @@ func TestShouldRunIntake_RerunsAfterPriorDirectActionEvenWithoutTopicShift(t *te
 	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: true, TopicShiftThreshold: 0.65}
 	got := s.shouldRunIntake(context.Background(), &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "show my record 2637048",
+		Query:          "show my record 3048",
 	}, cfg)
 	require.True(t, got, "repeated deterministic UI-open asks must rerun intake when the prior turn carried a direct action")
 }
 
 func TestShouldRunIntake_RerunsAfterOlderMatchingDirectActionEvenIfImmediatePriorTurnDidNot(t *testing.T) {
 	now := time.Now()
-	intakeJSON := `{"classification":{"title":"Show record 2637048","intent":"troubleshoot_record","confidence":0.92},"scope":{"values":{"recordId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"RecordId\":[2637048]}}","assistantText":"opened"}}`
+	intakeJSON := `{"classification":{"title":"Show record 3048","intent":"troubleshoot_record","confidence":0.92},"scope":{"values":{"recordId":"3048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"RecordId\":[3048]}}","assistantText":"opened"}}`
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
 			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id: "turn-1",
 					Message: []*conversationmodel.MessageView{
-						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my record 2637048"), CreatedAt: now},
+						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my record 3048"), CreatedAt: now},
 						{Id: "msg-intake-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr(intakeJSON), CreatedAt: now, Phase: strPtr("intake")},
 					},
 				},
 				{
 					Id: "turn-2",
 					Message: []*conversationmodel.MessageView{
-						{Id: "msg-user-2", TurnId: strPtr("turn-2"), Role: "user", Type: "text", Content: strPtr("show my record 2637048"), CreatedAt: now.Add(time.Second)},
+						{Id: "msg-user-2", TurnId: strPtr("turn-2"), Role: "user", Type: "text", Content: strPtr("show my record 3048"), CreatedAt: now.Add(time.Second)},
 						{Id: "msg-assistant-2", TurnId: strPtr("turn-2"), Role: "assistant", Type: "text", Content: strPtr("I couldn't reopen it..."), CreatedAt: now.Add(time.Second)},
 					},
 				},
@@ -254,7 +254,7 @@ func TestShouldRunIntake_RerunsAfterOlderMatchingDirectActionEvenIfImmediatePrio
 	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: true, TopicShiftThreshold: 0.65}
 	got := s.shouldRunIntake(context.Background(), &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "show my record 2637048",
+		Query:          "show my record 3048",
 	}, cfg)
 	require.True(t, got, "repeated deterministic UI-open asks must rerun intake when an older matching turn carried a direct action")
 }
@@ -267,7 +267,7 @@ func TestShouldRunIntake_RerunsForConcreteOrderOpenEvenWhenOrderIdChangesWithout
 				{
 					Id: "turn-1",
 					Message: []*conversationmodel.MessageView{
-						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show record 2656980"), CreatedAt: now},
+						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show record 6980"), CreatedAt: now},
 						{Id: "msg-assistant-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr("opened"), CreatedAt: now},
 					},
 				},
@@ -277,7 +277,7 @@ func TestShouldRunIntake_RerunsForConcreteOrderOpenEvenWhenOrderIdChangesWithout
 	cfg := &agentmdl.Intake{Enabled: true, TriggerOnTopicShift: true, TopicShiftThreshold: 0.65}
 	got := s.shouldRunIntake(context.Background(), &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "show record 2609393",
+		Query:          "show record 9393",
 	}, cfg)
 	require.True(t, got, "concrete order-open asks must rerun intake even when only the order id changed")
 }
@@ -292,8 +292,8 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderTabs(
 					workspaceFollowUpFocusTurn(
 						now,
 						"turn-focus",
-						"order_2656980",
-						"order_2609393",
+						"order_6980",
+						"order_9393",
 					),
 				},
 			},
@@ -323,7 +323,7 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderTabs(
 			tc := intakesvc.FromContext(input.Context)
 			require.NotNil(t, tc)
 			require.Equal(t, "ui/window:selectTab", tc.DirectAction.ToolName)
-			require.Equal(t, "order_2656980", tc.DirectAction.Input["windowId"])
+			require.Equal(t, "order_6980", tc.DirectAction.Input["windowId"])
 			require.Equal(t, "order", tc.DirectAction.Input["windowKey"])
 			require.Equal(t, testCase.tabID, tc.DirectAction.Input["tabId"])
 			require.Equal(t, "client-1", tc.DirectAction.Input["clientId"])
@@ -342,7 +342,7 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderContr
 					workspaceFollowUpControlTurn(
 						now,
 						"turn-control",
-						"order_2656980",
+						"order_6980",
 					),
 				},
 			},
@@ -376,7 +376,7 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderContr
 			tc := intakesvc.FromContext(input.Context)
 			require.NotNil(t, tc)
 			require.Equal(t, "ui/control:setValue", tc.DirectAction.ToolName)
-			require.Equal(t, "order_2656980", tc.DirectAction.Input["windowId"])
+			require.Equal(t, "order_6980", tc.DirectAction.Input["windowId"])
 			require.Equal(t, "order", tc.DirectAction.Input["windowKey"])
 			require.Equal(t, testCase.controlID, tc.DirectAction.Input["controlId"])
 			require.Equal(t, testCase.value, tc.DirectAction.Input["value"])
@@ -393,7 +393,7 @@ func TestResolveWorkspaceUIIntentOverride_FollowUpRequiresSurfaceMatch(t *testin
 			conversation: &apiconv.Conversation{
 				Id: "conv-1",
 				Transcript: []*conversationmodel.TranscriptView{
-					workspaceFollowUpFocusTurn(now, "turn-focus", "order_2656980", ""),
+					workspaceFollowUpFocusTurn(now, "turn-focus", "order_6980", ""),
 				},
 			},
 		},
@@ -414,10 +414,10 @@ func TestVisibleTranscriptMessagesForIntakeKeepsOnlyPriorVisibleChat(t *testing.
 	archived := 1
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{Id: "turn-prior", Message: []*conversationmodel.MessageView{
-			{Id: "user-prior", TurnId: strPtr("turn-prior"), Role: "user", Type: "text", Content: strPtr("Troubleshoot order 2664518"), CreatedAt: now},
+			{Id: "user-prior", TurnId: strPtr("turn-prior"), Role: "user", Type: "text", Content: strPtr("Troubleshoot order 4518"), CreatedAt: now},
 			{Id: "intake-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr(`{"scope":{"values":{"id":"internal"}}}`), Phase: strPtr("intake"), CreatedAt: now.Add(time.Second)},
 			{Id: "tool-prior", TurnId: strPtr("turn-prior"), Role: "tool", Type: "text", Content: strPtr("tool output"), CreatedAt: now.Add(2 * time.Second)},
-			{Id: "assistant-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr("Order 2664518 has an active audience."), CreatedAt: now.Add(3 * time.Second)},
+			{Id: "assistant-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr("Order 4518 has an active audience."), CreatedAt: now.Add(3 * time.Second)},
 			{Id: "archived-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr("archived"), Archived: &archived, CreatedAt: now.Add(4 * time.Second)},
 			{Id: "interim-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr("interim"), Interim: 1, CreatedAt: now.Add(5 * time.Second)},
 		}},
@@ -429,15 +429,15 @@ func TestVisibleTranscriptMessagesForIntakeKeepsOnlyPriorVisibleChat(t *testing.
 	got := visibleTranscriptMessagesForIntake(transcript, "turn-current")
 
 	require.Equal(t, []intakesvc.TranscriptMessage{
-		{Role: "user", Content: "Troubleshoot order 2664518"},
-		{Role: "assistant", Content: "Order 2664518 has an active audience."},
+		{Role: "user", Content: "Troubleshoot order 4518"},
+		{Role: "assistant", Content: "Order 4518 has an active audience."},
 	}, got)
 }
 
 func TestMaybeRunIntakeSidecar_ActivationRuleSiteRecommendationLeavesTemplateEmpty(t *testing.T) {
 	s := &Service{}
 	input := &QueryInput{
-		Query: "Recommend sites for audience 7301206, including candidate additions and exclusions",
+		Query: "Recommend sites for audience 1206, including candidate additions and exclusions",
 		Agent: &agentmdl.Agent{
 			Intake: agentmdl.Intake{
 				Enabled: true,
@@ -481,7 +481,7 @@ func TestMaybeRunIntakeSidecar_ActivationRuleSiteRecommendationLeavesTemplateEmp
 	require.Equal(t, "entity_list_review", tc.Prompting.SuggestedProfileID)
 	require.Contains(t, tc.Prompting.AppendToolBundles, "site-list-review-patch")
 	require.Empty(t, tc.Prompting.TemplateID, "site recommendation activation must not preselect a planner template")
-	require.Equal(t, "7301206", tc.Scope.Values["audienceId"])
+	require.Equal(t, "1206", tc.Scope.Values["audienceId"])
 	require.Equal(t, "recommend_sites_with_candidates_and_exclusions", tc.Scope.Values["requestType"])
 	require.Equal(t, "entity_list_review", input.PromptProfileId)
 	require.Empty(t, input.TemplateId, "applyTurnContext must keep template empty for site recommendation activation")
@@ -543,7 +543,7 @@ func workspaceFollowUpFocusTurn(now time.Time, turnID, selectedWindowID, previou
 				TurnId:    strPtr(turnID),
 				Role:      "user",
 				Type:      "text",
-				Content:   strPtr("focus on 2656980"),
+				Content:   strPtr("focus on 6980"),
 				CreatedAt: now,
 			},
 			{
@@ -551,7 +551,7 @@ func workspaceFollowUpFocusTurn(now time.Time, turnID, selectedWindowID, previou
 				TurnId:    strPtr(turnID),
 				Role:      "assistant",
 				Type:      "text",
-				Content:   strPtr("Focused on record 2656980."),
+				Content:   strPtr("Focused on record 6980."),
 				CreatedAt: now.Add(time.Second),
 				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
@@ -740,7 +740,7 @@ func TestResolveActivationRuleOverride_NumberBeforeOrderUsesRouteModel(t *testin
 	}}
 
 	tc := resolveActivationRuleOverride(
-		"Troubleshoot 2682902 order for delivery issues and identify the primary causal blocker.",
+		"Troubleshoot 2902 order for delivery issues and identify the primary causal blocker.",
 		rules,
 	)
 
@@ -748,7 +748,7 @@ func TestResolveActivationRuleOverride_NumberBeforeOrderUsesRouteModel(t *testin
 	require.Equal(t, "openai_gpt-5_6_luna", tc.Prompting.ModelID)
 	require.Equal(t, "openai_gpt-5_6_sol", tc.Prompting.SynthesisModelID)
 	require.Equal(t, "analytics_dashboard", tc.Prompting.TemplateID)
-	require.Equal(t, "2682902", tc.Scope.Values["adOrderIds"])
+	require.Equal(t, "2902", tc.Scope.Values["adOrderIds"])
 }
 
 // TestApplyTurnContext_ProfileSuggestionGated verifies that profile
@@ -819,7 +819,7 @@ func TestNormalizeIntakeTurnContext_SuppressesAgentSidecarDirectAction(t *testin
 		Scope:   []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate},
 	}
 	input := &QueryInput{
-		ConversationID: "conv-forecast",
+		ConversationID: "conv-report",
 		Agent: &agentmdl.Agent{
 			Identity: agentmdl.Identity{ID: "primary"},
 		},
@@ -828,17 +828,17 @@ func TestNormalizeIntakeTurnContext_SuppressesAgentSidecarDirectAction(t *testin
 		Routing: intakesvc.RoutingContext{Source: intakesvc.SourceAgent},
 		DirectAction: intakesvc.DirectActionContext{
 			ToolName:      "ui/view:open",
-			Input:         map[string]interface{}{"AdLineId": "7288336"},
-			AssistantText: "Opening forecast view.",
+			Input:         map[string]interface{}{"AdLineId": "8336"},
+			AssistantText: "Opening report view.",
 		},
-		Prompting: intakesvc.PromptingContext{TemplateID: "audience_forecast_dashboard"},
+		Prompting: intakesvc.PromptingContext{TemplateID: "audience_report_dashboard"},
 	}
 
 	svc.normalizeIntakeTurnContext(context.Background(), input, tc, cfg)
 
 	require.Empty(t, tc.DirectAction.ToolName)
 	require.Nil(t, tc.DirectAction.Input)
-	require.Equal(t, "audience_forecast_dashboard", tc.Prompting.TemplateID)
+	require.Equal(t, "audience_report_dashboard", tc.Prompting.TemplateID)
 }
 
 func TestIntakeClientSummaryUsesStructuredContext(t *testing.T) {
@@ -1095,7 +1095,7 @@ func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot(t *tes
 	input := &QueryInput{
 		ConversationID: "conv-troubleshoot-creative",
 		AgentID:        "primary",
-		Query:          "troubleshoot order 2657966, use exploratory strategy",
+		Query:          "troubleshoot order 7966, use exploratory strategy",
 		Agent: &agentmdl.Agent{
 			Identity: agentmdl.Identity{ID: "primary"},
 		},
@@ -1147,7 +1147,7 @@ func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot_LowCon
 	input := &QueryInput{
 		ConversationID: "conv-troubleshoot-creative-low",
 		AgentID:        "primary",
-		Query:          "troubleshoot order 2657966, use exploratory strategy",
+		Query:          "troubleshoot order 7966, use exploratory strategy",
 		Agent: &agentmdl.Agent{
 			Identity: agentmdl.Identity{ID: "primary"},
 		},
@@ -1251,20 +1251,20 @@ func TestApplyTurnContext_DoesNotEnablePlannerModeForLowConfidenceDirectAgentReq
 	input := &QueryInput{
 		ConversationID: "conv-low-confidence",
 		AgentID:        "primary",
-		Query:          "run forecast for audience 7268995 with a non-standard review",
+		Query:          "run report for audience 8995 with a non-standard review",
 		Agent: &agentmdl.Agent{
 			Identity: agentmdl.Identity{ID: "primary"},
 		},
 	}
 	tc := &intakesvc.Context{
 		Classification: intakesvc.ClassificationContext{
-			Title:      "Run forecast for audience",
+			Title:      "Run report for audience",
 			Confidence: 0.52,
 		},
 		DirectAction: intakesvc.DirectActionContext{
 			ToolName: "ui/view:open",
 			Input: map[string]interface{}{
-				"id": "audience-forecast",
+				"id": "audience-report",
 			},
 		},
 		Scope: intakesvc.ScopeContext{
@@ -1291,26 +1291,26 @@ func TestApplyTurnContext_SkipsPlannerModeForConcreteForecast_LowConfidence(t *t
 		ConfidenceThreshold:      0.8,
 	}
 	input := &QueryInput{
-		ConversationID: "conv-forecast-low-confidence",
+		ConversationID: "conv-report-low-confidence",
 		AgentID:        "primary",
-		Query:          "forecase line 7272328",
+		Query:          "forecase line 2328",
 		Agent: &agentmdl.Agent{
 			Identity: agentmdl.Identity{ID: "primary"},
 		},
 	}
 	tc := &intakesvc.Context{
 		Classification: intakesvc.ClassificationContext{
-			Title:      "Forecast request for line 7272328",
-			Intent:     "forecast",
+			Title:      "Forecast request for line 2328",
+			Intent:     "report",
 			Confidence: 0.6,
 		},
 		Prompting: intakesvc.PromptingContext{
-			TemplateID: "audience_forecast_dashboard",
+			TemplateID: "audience_report_dashboard",
 		},
 		DirectAction: intakesvc.DirectActionContext{
 			ToolName: "ui/view:open",
 			Input: map[string]interface{}{
-				"id": "audience_forecast_dashboard",
+				"id": "audience_report_dashboard",
 			},
 		},
 		Scope: intakesvc.ScopeContext{
@@ -1324,7 +1324,7 @@ func TestApplyTurnContext_SkipsPlannerModeForConcreteForecast_LowConfidence(t *t
 	require.NotNil(t, stored)
 	require.NotEqual(t, intakesvc.ModePlanner, stored.Routing.Mode)
 	require.Empty(t, stored.Planner.Trigger)
-	require.Equal(t, "audience_forecast_dashboard", input.TemplateId)
+	require.Equal(t, "audience_report_dashboard", input.TemplateId)
 }
 
 func TestApplyTurnContext_SkipsPlannerModeForClarification_LowConfidence(t *testing.T) {
@@ -1533,8 +1533,8 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 			},
 			Prompting: intakesvc.PromptingContext{
 				TemplateID:         "capacity_review_dashboard",
-				SuggestedProfileID: "analyst-forecast",
-				AppendToolBundles:  []string{"forecast"},
+				SuggestedProfileID: "analyst-report",
+				AppendToolBundles:  []string{"report"},
 			},
 		}
 
@@ -1545,7 +1545,7 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 					Scope:   []string{agentmdl.IntakeScopeTemplate, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTools},
 				},
 			},
-			Query:   "review task 2652067",
+			Query:   "review task 2067",
 			Context: map[string]interface{}{intakesvc.ContextKey: override},
 		}
 
@@ -1554,7 +1554,7 @@ func TestMaybeRunIntakeSidecar_CallerProvidedOverride(t *testing.T) {
 
 		require.Equal(t, "capacity_review_dashboard", input.TemplateId,
 			"caller-provided template must land on input.TemplateId")
-		require.Contains(t, input.ToolBundles, "forecast",
+		require.Contains(t, input.ToolBundles, "report",
 			"caller-provided AppendToolBundles must merge into input.ToolBundles")
 	})
 
@@ -1608,7 +1608,7 @@ func TestStoreCallerProvided_AnnotatesSourceAndStores(t *testing.T) {
 	t.Run("populates ContextKey with copy", func(t *testing.T) {
 		original := &intakesvc.Context{
 			Routing: intakesvc.RoutingContext{
-				SelectedAgentID: "forecaster",
+				SelectedAgentID: "reporter",
 				Mode:            intakesvc.ModeRoute,
 				Source:          "", // not yet annotated
 			},
@@ -1655,7 +1655,7 @@ func TestStoreCallerProvided_AnnotatesSourceAndStores(t *testing.T) {
 func TestResolveWorkspaceActivationProfileOverride_MultiOrderCompare(t *testing.T) {
 	svc := &Service{}
 	input := &QueryInput{
-		Query: "show me order 2656980 and 2609393",
+		Query: "show me order 6980 and 9393",
 		Agent: &agentmdl.Agent{
 			Intake: agentmdl.Intake{
 				ActivationRules: []agentmdl.ActivationRule{
@@ -1698,7 +1698,7 @@ func TestResolveWorkspaceActivationProfileOverride_MultiOrderCompare(t *testing.
 	require.Equal(t, "workspace_console", override.Prompting.SuggestedProfileID)
 	require.Equal(t, "order", override.Scope.Values["uiTarget"])
 	require.Equal(t, "open", override.Scope.Values["action"])
-	require.Equal(t, "2656980,2609393", override.Scope.Values["recordIds"])
+	require.Equal(t, "6980,9393", override.Scope.Values["recordIds"])
 	require.Equal(t, "ui/view:open", override.DirectAction.ToolName)
 	require.Len(t, override.DirectAction.Input["items"], 2)
 	renderedItems := override.DirectAction.Input["items"].([]interface{})
@@ -1719,20 +1719,20 @@ func TestBuildFollowUpOverrideFromState_UsesGenericRelatedRecordIDs(t *testing.T
 	state := activationFollowUpState{
 		WindowID:        "order-1",
 		WindowKey:       "order",
-		WindowRecordIDs: []string{"2656980"},
+		WindowRecordIDs: []string{"6980"},
 	}
 	relatedStates := []activationFollowUpState{
 		state,
 		{
 			WindowID:        "order-2",
 			WindowKey:       "order",
-			WindowRecordIDs: []string{"2609393"},
+			WindowRecordIDs: []string{"9393"},
 		},
 	}
 
 	override := buildFollowUpOverrideFromState(rule, map[string]interface{}{}, state, relatedStates, "compare them")
 	require.NotNil(t, override)
-	require.Equal(t, "2656980,2609393", override.Scope.Values["recordIds"])
+	require.Equal(t, "6980,9393", override.Scope.Values["recordIds"])
 	require.Empty(t, override.Scope.Values["compareOrderIds"])
 	require.Empty(t, override.Scope.Values["windowOrderIds"])
 }
@@ -1936,19 +1936,19 @@ func TestMaybeRunIntakeSidecar_ForecastSetLineRoutesToForecastTemplate(t *testin
 	svc := &Service{}
 	input := &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "set forecast for line 7272328",
+		Query:          "set report for line 2328",
 		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
 			Enabled:             true,
 			ConfidenceThreshold: 0.5,
 			Scope:               []string{"profile", "template", "context"},
 			ActivationRules: []agentmdl.ActivationRule{
 				{
-					ID: "run_forecast_for_line",
+					ID: "run_report_for_line",
 					Match: agentmdl.ActivationMatch{
-						Patterns: []string{`(?i)^set\s+forecast\s+for\s+line\s+(\d+)$`},
+						Patterns: []string{`(?i)^set\s+report\s+for\s+line\s+(\d+)$`},
 					},
-					Classification: agentmdl.ActivationClassification{Intent: "forecast"},
-					Prompting:      agentmdl.ActivationPrompting{TemplateID: "audience_forecast_dashboard"},
+					Classification: agentmdl.ActivationClassification{Intent: "report"},
+					Prompting:      agentmdl.ActivationPrompting{TemplateID: "audience_report_dashboard"},
 					Scope: agentmdl.ActivationScope{Values: map[string]string{
 						"AdLineId": "$1",
 					}},
@@ -1960,13 +1960,13 @@ func TestMaybeRunIntakeSidecar_ForecastSetLineRoutesToForecastTemplate(t *testin
 	svc.maybeRunIntakeSidecar(context.Background(), input)
 
 	require.Empty(t, input.PromptProfileId)
-	require.Equal(t, "audience_forecast_dashboard", input.TemplateId)
+	require.Equal(t, "audience_report_dashboard", input.TemplateId)
 	stored := intakesvc.FromContext(input.Context)
 	require.NotNil(t, stored)
-	require.Equal(t, "forecast", stored.Classification.Intent)
+	require.Equal(t, "report", stored.Classification.Intent)
 	require.Empty(t, stored.Prompting.SuggestedProfileID)
-	require.Equal(t, "audience_forecast_dashboard", stored.Prompting.TemplateID)
-	require.Equal(t, "7272328", stored.Scope.Values["AdLineId"])
+	require.Equal(t, "audience_report_dashboard", stored.Prompting.TemplateID)
+	require.Equal(t, "2328", stored.Scope.Values["AdLineId"])
 	require.NotContains(t, stored.Scope.Values, "audienceId")
 	require.NotContains(t, stored.Scope.Values, "audienceIds")
 	require.Empty(t, stored.DirectAction.ToolName)
@@ -1977,24 +1977,24 @@ func TestMaybeRunIntakeSidecar_ActivationRuleForecastLineWithoutForRoutesToForec
 	svc := &Service{}
 	input := &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "forecast line 7288305",
+		Query:          "report line 8305",
 		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
 			Enabled:             true,
 			ConfidenceThreshold: 0.5,
 			Scope:               []string{"profile", "template", "context"},
 			ActivationRules: []agentmdl.ActivationRule{
 				{
-					ID: "run_forecast_for_line",
+					ID: "run_report_for_line",
 					Match: agentmdl.ActivationMatch{
 						Patterns: []string{
-							`(?i)^forecast\s+line\s+(\d+)$`,
-							`(?i)^forecast\s+for\s+line\s+(\d+)$`,
-							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+line\s+(\d+)\.?\s*$`,
-							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+(\d+)\s+line\.?\s*$`,
+							`(?i)^report\s+line\s+(\d+)$`,
+							`(?i)^report\s+for\s+line\s+(\d+)$`,
+							`(?i)^report\s+reach\s+and\s+availability\s+for\s+line\s+(\d+)\.?\s*$`,
+							`(?i)^report\s+reach\s+and\s+availability\s+for\s+(\d+)\s+line\.?\s*$`,
 						},
 					},
-					Classification: agentmdl.ActivationClassification{Intent: "forecast"},
-					Prompting:      agentmdl.ActivationPrompting{TemplateID: "audience_forecast_dashboard"},
+					Classification: agentmdl.ActivationClassification{Intent: "report"},
+					Prompting:      agentmdl.ActivationPrompting{TemplateID: "audience_report_dashboard"},
 					Scope: agentmdl.ActivationScope{Values: map[string]string{
 						"AdLineId": "$1",
 					}},
@@ -2006,13 +2006,13 @@ func TestMaybeRunIntakeSidecar_ActivationRuleForecastLineWithoutForRoutesToForec
 	svc.maybeRunIntakeSidecar(context.Background(), input)
 
 	require.Empty(t, input.PromptProfileId)
-	require.Equal(t, "audience_forecast_dashboard", input.TemplateId)
+	require.Equal(t, "audience_report_dashboard", input.TemplateId)
 	stored := intakesvc.FromContext(input.Context)
 	require.NotNil(t, stored)
-	require.Equal(t, "forecast", stored.Classification.Intent)
+	require.Equal(t, "report", stored.Classification.Intent)
 	require.Empty(t, stored.Prompting.SuggestedProfileID)
-	require.Equal(t, "audience_forecast_dashboard", stored.Prompting.TemplateID)
-	require.Equal(t, "7288305", stored.Scope.Values["AdLineId"])
+	require.Equal(t, "audience_report_dashboard", stored.Prompting.TemplateID)
+	require.Equal(t, "8305", stored.Scope.Values["AdLineId"])
 	require.NotContains(t, stored.Scope.Values, "audienceId")
 	require.NotContains(t, stored.Scope.Values, "audienceIds")
 	require.Empty(t, stored.DirectAction.ToolName)
@@ -2023,24 +2023,24 @@ func TestMaybeRunIntakeSidecar_ActivationRuleForecastAudienceRoutesToForecastTem
 	svc := &Service{}
 	input := &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "forecast for audience 7288305",
+		Query:          "report for audience 8305",
 		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
 			Enabled:             true,
 			ConfidenceThreshold: 0.5,
 			Scope:               []string{"profile", "template", "context"},
 			ActivationRules: []agentmdl.ActivationRule{
 				{
-					ID: "run_forecast_for_audience",
+					ID: "run_report_for_audience",
 					Match: agentmdl.ActivationMatch{
 						Patterns: []string{
-							`(?i)^forecast\s+audience\s+(\d+)$`,
-							`(?i)^forecast\s+for\s+audience\s+(\d+)$`,
-							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+audience\s+(\d+)\.?\s*$`,
-							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+(\d+)\s+audience\.?\s*$`,
+							`(?i)^report\s+audience\s+(\d+)$`,
+							`(?i)^report\s+for\s+audience\s+(\d+)$`,
+							`(?i)^report\s+reach\s+and\s+availability\s+for\s+audience\s+(\d+)\.?\s*$`,
+							`(?i)^report\s+reach\s+and\s+availability\s+for\s+(\d+)\s+audience\.?\s*$`,
 						},
 					},
-					Classification: agentmdl.ActivationClassification{Intent: "forecast"},
-					Prompting:      agentmdl.ActivationPrompting{TemplateID: "audience_forecast_dashboard"},
+					Classification: agentmdl.ActivationClassification{Intent: "report"},
+					Prompting:      agentmdl.ActivationPrompting{TemplateID: "audience_report_dashboard"},
 					Scope: agentmdl.ActivationScope{Values: map[string]string{
 						"audienceId":  "$1",
 						"audienceIds": "$1",
@@ -2053,14 +2053,14 @@ func TestMaybeRunIntakeSidecar_ActivationRuleForecastAudienceRoutesToForecastTem
 	svc.maybeRunIntakeSidecar(context.Background(), input)
 
 	require.Empty(t, input.PromptProfileId)
-	require.Equal(t, "audience_forecast_dashboard", input.TemplateId)
+	require.Equal(t, "audience_report_dashboard", input.TemplateId)
 	stored := intakesvc.FromContext(input.Context)
 	require.NotNil(t, stored)
-	require.Equal(t, "forecast", stored.Classification.Intent)
+	require.Equal(t, "report", stored.Classification.Intent)
 	require.Empty(t, stored.Prompting.SuggestedProfileID)
-	require.Equal(t, "audience_forecast_dashboard", stored.Prompting.TemplateID)
-	require.Equal(t, "7288305", stored.Scope.Values["audienceId"])
-	require.Equal(t, "7288305", stored.Scope.Values["audienceIds"])
+	require.Equal(t, "audience_report_dashboard", stored.Prompting.TemplateID)
+	require.Equal(t, "8305", stored.Scope.Values["audienceId"])
+	require.Equal(t, "8305", stored.Scope.Values["audienceIds"])
 	require.NotContains(t, stored.Scope.Values, "AdLineId")
 	require.Empty(t, stored.DirectAction.ToolName)
 	require.Nil(t, stored.DirectAction.Input)
@@ -2069,25 +2069,25 @@ func TestMaybeRunIntakeSidecar_ActivationRuleForecastAudienceRoutesToForecastTem
 func TestMaybeRunIntakeSidecar_OpenForecastBuilderForLineRoutesToBuilderAssist(t *testing.T) {
 	svc := &Service{}
 	input := &QueryInput{
-		ConversationID: "conv-forecast-builder",
-		Query:          "open forecast builder for line 7288336",
+		ConversationID: "conv-report-builder",
+		Query:          "open report builder for line 8336",
 		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
 			Enabled:             true,
 			ConfidenceThreshold: 0.5,
 			Scope:               []string{"profile", "context"},
 			ActivationRules: []agentmdl.ActivationRule{
 				{
-					ID: "open_forecasting_builder_for_line",
+					ID: "open_reporting_builder_for_line",
 					Match: agentmdl.ActivationMatch{
-						Patterns: []string{`(?i)^open\s+forecast(?:ing)?\s+(?:cube\s+)?builder\s+for\s+line\s+(\d+)\.?\s*$`},
+						Patterns: []string{`(?i)^open\s+report(?:ing)?\s+(?:cube\s+)?builder\s+for\s+line\s+(\d+)\.?\s*$`},
 					},
-					Classification: agentmdl.ActivationClassification{Intent: "forecasting_builder_prefill"},
+					Classification: agentmdl.ActivationClassification{Intent: "reporting_builder_prefill"},
 					Prompting: agentmdl.ActivationPrompting{
 						SuggestedProfileID: "workspace_ui",
 						AppendToolBundles:  []string{"workspace-ui"},
 					},
 					Scope: agentmdl.ActivationScope{Values: map[string]string{
-						"uiTarget":    "forecastingCubeBuilder",
+						"uiTarget":    "reportBuilder",
 						"workspaceUI": "builder_assist",
 						"AdLineId":    "$1",
 					}},
@@ -2101,12 +2101,12 @@ func TestMaybeRunIntakeSidecar_OpenForecastBuilderForLineRoutesToBuilderAssist(t
 	require.Equal(t, "workspace_ui", input.PromptProfileId)
 	stored := intakesvc.FromContext(input.Context)
 	require.NotNil(t, stored)
-	require.Equal(t, "forecasting_builder_prefill", stored.Classification.Intent)
+	require.Equal(t, "reporting_builder_prefill", stored.Classification.Intent)
 	require.Equal(t, "workspace_ui", stored.Prompting.SuggestedProfileID)
 	require.Equal(t, []string{"workspace-ui"}, stored.Prompting.AppendToolBundles)
-	require.Equal(t, "forecastingCubeBuilder", stored.Scope.Values["uiTarget"])
+	require.Equal(t, "reportBuilder", stored.Scope.Values["uiTarget"])
 	require.Equal(t, "builder_assist", stored.Scope.Values["workspaceUI"])
-	require.Equal(t, "7288336", stored.Scope.Values["AdLineId"])
+	require.Equal(t, "8336", stored.Scope.Values["AdLineId"])
 	require.NotContains(t, stored.Scope.Values, "AudienceId")
 	require.NotContains(t, stored.Scope.Values, "audienceIds")
 	require.Empty(t, stored.DirectAction.ToolName)
@@ -2116,27 +2116,27 @@ func TestMaybeRunIntakeSidecar_OpenForecastBuilderForLineRoutesToBuilderAssist(t
 func TestMaybeRunIntakeSidecar_OpenForecastBuilderForLineNoRunPreservesNoRunScope(t *testing.T) {
 	svc := &Service{}
 	input := &QueryInput{
-		ConversationID: "conv-forecast-builder-no-run",
-		Query:          "open forecast builder for line 7288336, and not run forecast",
+		ConversationID: "conv-report-builder-no-run",
+		Query:          "open report builder for line 8336, and not run report",
 		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
 			Enabled:             true,
 			ConfidenceThreshold: 0.5,
 			Scope:               []string{"profile", "context"},
 			ActivationRules: []agentmdl.ActivationRule{
 				{
-					ID: "open_forecasting_builder_for_line_no_run",
+					ID: "open_reporting_builder_for_line_no_run",
 					Match: agentmdl.ActivationMatch{
-						Patterns: []string{`(?i)^open\s+forecast(?:ing)?\s+(?:cube\s+)?builder\s+for\s+line\s+(\d+)\s*,?\s*(?:and\s+)?not\s+run\s+forecast\.?\s*$`},
+						Patterns: []string{`(?i)^open\s+report(?:ing)?\s+(?:cube\s+)?builder\s+for\s+line\s+(\d+)\s*,?\s*(?:and\s+)?not\s+run\s+report\.?\s*$`},
 					},
-					Classification: agentmdl.ActivationClassification{Intent: "forecasting_builder_prefill"},
+					Classification: agentmdl.ActivationClassification{Intent: "reporting_builder_prefill"},
 					Prompting: agentmdl.ActivationPrompting{
 						SuggestedProfileID: "workspace_ui",
 						AppendToolBundles:  []string{"workspace-ui"},
 					},
 					Scope: agentmdl.ActivationScope{Values: map[string]string{
-						"uiTarget":    "forecastingCubeBuilder",
+						"uiTarget":    "reportBuilder",
 						"workspaceUI": "builder_assist",
-						"forecastRun": "false",
+						"reportRun":   "false",
 						"AdLineId":    "$1",
 					}},
 				},
@@ -2149,9 +2149,9 @@ func TestMaybeRunIntakeSidecar_OpenForecastBuilderForLineNoRunPreservesNoRunScop
 	require.Equal(t, "workspace_ui", input.PromptProfileId)
 	stored := intakesvc.FromContext(input.Context)
 	require.NotNil(t, stored)
-	require.Equal(t, "forecasting_builder_prefill", stored.Classification.Intent)
-	require.Equal(t, "false", stored.Scope.Values["forecastRun"])
-	require.Equal(t, "7288336", stored.Scope.Values["AdLineId"])
+	require.Equal(t, "reporting_builder_prefill", stored.Classification.Intent)
+	require.Equal(t, "false", stored.Scope.Values["reportRun"])
+	require.Equal(t, "8336", stored.Scope.Values["AdLineId"])
 	require.NotContains(t, stored.Scope.Values, "AudienceId")
 	require.NotContains(t, stored.Scope.Values, "audienceIds")
 	require.Empty(t, stored.DirectAction.ToolName)
@@ -2161,7 +2161,7 @@ func TestMaybeRunIntakeSidecar_OpenPerformanceBuilderForOrderRunsPrefilledWindow
 	svc := &Service{}
 	input := &QueryInput{
 		ConversationID: "conv-performance-builder",
-		Query:          "open performance builder for order 2678499",
+		Query:          "open performance builder for order 8499",
 		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
 			Enabled:             true,
 			ConfidenceThreshold: 0.5,
@@ -2211,21 +2211,21 @@ func TestMaybeRunIntakeSidecar_OpenPerformanceBuilderForOrderRunsPrefilledWindow
 	require.NotNil(t, stored)
 	require.Equal(t, "workspace_ui_open", stored.Classification.Intent)
 	require.Equal(t, "metricReportBuilder", stored.Scope.Values["uiTarget"])
-	require.Equal(t, "2678499", stored.Scope.Values["AdOrderId"])
-	require.Equal(t, "2678499", stored.Scope.Values["adOrderIds"])
+	require.Equal(t, "8499", stored.Scope.Values["AdOrderId"])
+	require.Equal(t, "8499", stored.Scope.Values["adOrderIds"])
 	require.Equal(t, "ui/view:open", stored.DirectAction.ToolName)
 	require.Equal(t, "metricReportBuilder", stored.DirectAction.Input["id"])
 	require.Equal(t, 600000, stored.DirectAction.Input["timeoutMs"])
 	parameters, ok := stored.DirectAction.Input["parameters"].(map[string]interface{})
 	require.True(t, ok)
-	require.Equal(t, []interface{}{2678499}, parameters["orderIds"])
+	require.Equal(t, []interface{}{8499}, parameters["orderIds"])
 }
 
 func TestMaybeRunIntakeSidecar_ExecutePerformanceInventoryPresetForOrderRunsStarterAwareWindowOpen(t *testing.T) {
 	svc := &Service{}
 	input := &QueryInput{
 		ConversationID: "conv-performance-preset",
-		Query:          "execute preset Performance Inventory Brief for order id 2680567",
+		Query:          "execute preset Performance Inventory Brief for order id 8567",
 		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
 			Enabled:             true,
 			ConfidenceThreshold: 0.5,
@@ -2281,13 +2281,13 @@ func TestMaybeRunIntakeSidecar_ExecutePerformanceInventoryPresetForOrderRunsStar
 	require.NotNil(t, stored)
 	require.Equal(t, "workspace_ui_open", stored.Classification.Intent)
 	require.Equal(t, "metricReportBuilder", stored.Scope.Values["uiTarget"])
-	require.Equal(t, "2680567", stored.Scope.Values["AdOrderId"])
-	require.Equal(t, "2680567", stored.Scope.Values["adOrderIds"])
+	require.Equal(t, "8567", stored.Scope.Values["AdOrderId"])
+	require.Equal(t, "8567", stored.Scope.Values["adOrderIds"])
 	require.Equal(t, "performance_inventory_brief", stored.Scope.Values["reportStarterId"])
 	require.Equal(t, "ui/view:open", stored.DirectAction.ToolName)
 	parameters, ok := stored.DirectAction.Input["parameters"].(map[string]interface{})
 	require.True(t, ok)
-	require.Equal(t, []interface{}{2680567}, parameters["orderIds"])
+	require.Equal(t, []interface{}{8567}, parameters["orderIds"])
 	require.Equal(t, "performance_inventory_brief", parameters["reportStarterId"])
 	require.Equal(t, true, parameters["executeOnOpen"])
 }
@@ -2380,7 +2380,7 @@ func TestMaybeRunIntakeSidecar_ExportSavedReportAsPDFRoutesToReportingCatalog(t 
 	svc := &Service{}
 	input := &QueryInput{
 		ConversationID: "conv-report-export",
-		Query:          "export report forecastingQ3 as pdf",
+		Query:          "export report reportingQ3 as pdf",
 		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
 			Enabled:             true,
 			ConfidenceThreshold: 0.5,
@@ -2414,35 +2414,35 @@ func TestMaybeRunIntakeSidecar_ExportSavedReportAsPDFRoutesToReportingCatalog(t 
 	require.Equal(t, "report_export", stored.Classification.Intent)
 	require.Equal(t, "report", stored.Scope.Values["reportExportSourceKind"])
 	require.Equal(t, "pdf", stored.Scope.Values["reportExportFormat"])
-	require.Equal(t, "forecastingQ3", stored.Scope.Values["reportId"])
+	require.Equal(t, "reportingQ3", stored.Scope.Values["reportId"])
 	require.Contains(t, stored.Prompting.AppendToolBundles, "reporting-tools")
 	require.Empty(t, stored.DirectAction.ToolName)
 }
 
-func TestMaybeRunIntakeSidecar_ForecastReachAvailabilityNaturalPhraseRoutesToForecastTemplate(t *testing.T) {
+func TestMaybeRunIntakeSidecar_ReportReachAvailabilityNaturalPhraseRoutesToEntityTemplate(t *testing.T) {
 	svc := &Service{}
 	input := &QueryInput{
 		ConversationID: "conv-1",
-		Query:          "Forecast reach and availability for 7279771 line.",
+		Query:          "Report reach and availability for entity 9771.",
 		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
 			Enabled:             true,
 			ConfidenceThreshold: 0.5,
 			Scope:               []string{"profile", "template", "context"},
 			ActivationRules: []agentmdl.ActivationRule{
 				{
-					ID: "run_forecast_for_line",
+					ID: "run_report_for_line",
 					Match: agentmdl.ActivationMatch{
 						Patterns: []string{
-							`(?i)^forecast\s+line\s+(\d+)$`,
-							`(?i)^forecast\s+for\s+line\s+(\d+)$`,
-							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+line\s+(\d+)\.?\s*$`,
-							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+(\d+)\s+line\.?\s*$`,
+							`(?i)^report\s+line\s+(\d+)$`,
+							`(?i)^report\s+for\s+line\s+(\d+)$`,
+							`(?i)^report\s+reach\s+and\s+availability\s+for\s+line\s+(\d+)\.?\s*$`,
+							`(?i)^report\s+reach\s+and\s+availability\s+for\s+entity\s+(\d+)\.?\s*$`,
 						},
 					},
-					Classification: agentmdl.ActivationClassification{Intent: "forecast"},
-					Prompting:      agentmdl.ActivationPrompting{TemplateID: "audience_forecast_dashboard"},
+					Classification: agentmdl.ActivationClassification{Intent: "report"},
+			Prompting:      agentmdl.ActivationPrompting{TemplateID: "entity_report_dashboard"},
 					Scope: agentmdl.ActivationScope{Values: map[string]string{
-						"AdLineId": "$1",
+				"EntityId": "$1",
 					}},
 				},
 			},
@@ -2452,13 +2452,13 @@ func TestMaybeRunIntakeSidecar_ForecastReachAvailabilityNaturalPhraseRoutesToFor
 	svc.maybeRunIntakeSidecar(context.Background(), input)
 
 	require.Empty(t, input.PromptProfileId)
-	require.Equal(t, "audience_forecast_dashboard", input.TemplateId)
+	require.Equal(t, "entity_report_dashboard", input.TemplateId)
 	stored := intakesvc.FromContext(input.Context)
 	require.NotNil(t, stored)
-	require.Equal(t, "forecast", stored.Classification.Intent)
+	require.Equal(t, "report", stored.Classification.Intent)
 	require.Empty(t, stored.Prompting.SuggestedProfileID)
-	require.Equal(t, "audience_forecast_dashboard", stored.Prompting.TemplateID)
-	require.Equal(t, "7279771", stored.Scope.Values["AdLineId"])
+	require.Equal(t, "entity_report_dashboard", stored.Prompting.TemplateID)
+	require.Equal(t, "9771", stored.Scope.Values["EntityId"])
 	require.NotContains(t, stored.Scope.Values, "audienceId")
 	require.NotContains(t, stored.Scope.Values, "audienceIds")
 	require.Empty(t, stored.DirectAction.ToolName)

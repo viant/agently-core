@@ -32,6 +32,7 @@ func (s *Service) workspaceUIBootstrap(ctx context.Context, conversationID strin
 	if len(lines) == 0 {
 		return ""
 	}
+	lines = append(lines, "", "UI capability contract: Metadata discovers declarative windows, tab hierarchy, forms, field constraints/options and supported actions without running them (ui/metadata:list|get when advertised). Read inspects current UI observations (ui/context:get; scoped datasource peek). Operate uses only advertised MCP UI actions on the exact current window. Discover metadata before operating; UI state is observation, never permission authority.")
 	return strings.Join(lines, "\n")
 }
 
@@ -104,9 +105,20 @@ func (s *Service) workspaceUILiveSummaries(ctx context.Context, conversationID s
 	}
 	var summaries []string
 	if selected := strings.TrimSpace(client.Snapshot.Selected.WindowID); selected != "" {
-		summaries = append(summaries, fmt.Sprintf("- selectedWindowId=%s clientId=%s", selected, strings.TrimSpace(client.ClientID)))
+		for _, win := range client.Snapshot.Windows {
+			if win.WindowID == selected && (win.ConversationID == conversationID || (win.WindowID == "chat/new" && client.Snapshot.ConversationID == conversationID)) {
+				summaries = append(summaries, fmt.Sprintf("- selectedWindowId=%s clientId=%s", selected, strings.TrimSpace(client.ClientID)))
+				break
+			}
+		}
+	}
+	if current := summarizeWorkspaceCurrentUI(client, conversationID); current != "" {
+		summaries = append(summaries, current)
 	}
 	for _, win := range client.Snapshot.Windows {
+		if win.ConversationID != "" && win.ConversationID != strings.TrimSpace(conversationID) {
+			continue
+		}
 		summary := fmt.Sprintf("- windowId=%s windowKey=%s title=%q", strings.TrimSpace(win.WindowID), strings.TrimSpace(win.WindowKey), strings.TrimSpace(win.WindowTitle))
 		if len(win.Parameters) > 0 {
 			if compact := compactWindowParametersForBootstrap(win.Parameters); compact != "" {
@@ -279,4 +291,32 @@ func compactWindowParametersForBootstrap(parameters map[string]interface{}) stri
 		parts = append(parts, fmt.Sprintf("%s=%v", key, parameters[key]))
 	}
 	return strings.Join(parts, ";")
+}
+
+// Consume only the UI-exposed current-state contract, scoped to this request's
+// chat and selected window. Browser observations never become authorization.
+func summarizeWorkspaceCurrentUI(client *uireg.ClientSnapshot, conversationID string) string {
+	if client == nil || client.Snapshot == nil || strings.TrimSpace(conversationID) == "" {
+		return ""
+	}
+	snapshot := client.Snapshot
+	for i := range snapshot.Windows {
+		win := &snapshot.Windows[i]
+		if win.WindowID != snapshot.Selected.WindowID {
+			continue
+		}
+		if win.ConversationID != conversationID && !(win.WindowID == "chat/new" && snapshot.ConversationID == conversationID) {
+			return ""
+		}
+		current := uireg.CurrentSemanticContext(win)
+		if current == nil {
+			return ""
+		}
+		encoded, err := json.Marshal(map[string]interface{}{"windowId": win.WindowID, "windowKey": win.WindowKey, "observedAt": snapshot.ObservedAt, "operationRevision": win.OperationRevision, "receivedAt": client.UpdatedAt.UnixMilli(), "state": current})
+		if err != nil {
+			return ""
+		}
+		return "- currentUIObservation=" + string(encoded)
+	}
+	return ""
 }

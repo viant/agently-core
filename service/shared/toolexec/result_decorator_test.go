@@ -36,8 +36,8 @@ func TestDurableDecoratorRunsAfterFinalizationAndNeverOnPersistenceFailure(t *te
 				}
 				return "receipt:" + step.ID, true, nil
 			})
-			reg := &scriptedRegistry{script: []scriptedResult{{result: `{"status":"ok","data":[{"avails":1}]}`}}}
-			out, _, err := ExecuteToolStep(ctx, reg, StepInfo{ID: "op", Name: "steward/ForecastingCube"}, conv)
+			reg := &scriptedRegistry{script: []scriptedResult{{result: `{"status":"ok","data":[{"value":1}]}`}}}
+			out, _, err := ExecuteToolStep(ctx, reg, StepInfo{ID: "op", Name: "sample/MetricSource"}, conv)
 			if fail {
 				require.Error(t, err)
 				require.Zero(t, calls)
@@ -71,7 +71,7 @@ func TestIndependentCallsDecorateTheirOwnDurableOperation(t *testing.T) {
 		wg.Add(1)
 		go func(id string) {
 			defer wg.Done()
-			out, _, e := ExecuteToolStep(ctx, reg, StepInfo{ID: id, Name: "steward/ForecastingCube", Args: map[string]interface{}{"date": "same"}}, conv)
+			out, _, e := ExecuteToolStep(ctx, reg, StepInfo{ID: id, Name: "sample/MetricSource", Args: map[string]interface{}{"date": "same"}}, conv)
 			results <- out.Result
 			errors <- e
 		}(id)
@@ -103,3 +103,12 @@ func TestIndependentCallsDecorateTheirOwnDurableOperation(t *testing.T) {
 // Compile-time check that existing conversation clients are unaffected by the
 // optional decoration hook; no new methods were added to the store interface.
 var _ apiconv.Client = (*stubConv)(nil)
+
+func TestUndecoratedToolResultPreservesOpaqueProducerPayload(t *testing.T) {
+	body := `{"profile":"producer-defined-v9","measure":{"customUnits":17},"unknown":[null,false,{"value":"keep"}]}`
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "opaque-conversation", TurnID: "opaque-turn"})
+	reg := &scriptedRegistry{script: []scriptedResult{{result: body}}}
+	out, _, err := ExecuteToolStep(ctx, reg, StepInfo{ID: "opaque-op", Name: "sample/arbitrary"}, &stubConv{})
+	require.NoError(t, err)
+	require.Equal(t, body, out.Result)
+}

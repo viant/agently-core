@@ -6,7 +6,7 @@ import (
 )
 
 func TestDelegatedProviderStorageKeyShape(t *testing.T) {
-	key := DelegatedProviderStorageKey("prod-workspace", "adelphic-dev6")
+	key := DelegatedProviderStorageKey("example-workspace", "sample-provider")
 	if !strings.HasPrefix(key, DelegatedProviderKeyPrefix) {
 		t.Fatalf("key %q missing prefix", key)
 	}
@@ -17,14 +17,14 @@ func TestDelegatedProviderStorageKeyShape(t *testing.T) {
 		t.Fatalf("DelegatedProviderKeyLength mismatch: %d vs %d", len(key), DelegatedProviderKeyLength)
 	}
 	// Deterministic: same inputs, same key.
-	if DelegatedProviderStorageKey("prod-workspace", "adelphic-dev6") != key {
+	if DelegatedProviderStorageKey("example-workspace", "sample-provider") != key {
 		t.Fatalf("storage key derivation must be deterministic")
 	}
 	// Namespace and providerRef both discriminate.
-	if DelegatedProviderStorageKey("other-workspace", "adelphic-dev6") == key {
+	if DelegatedProviderStorageKey("other-workspace", "sample-provider") == key {
 		t.Fatalf("namespace must discriminate storage keys")
 	}
-	if DelegatedProviderStorageKey("prod-workspace", "other-provider") == key {
+	if DelegatedProviderStorageKey("example-workspace", "other-provider") == key {
 		t.Fatalf("providerRef must discriminate storage keys")
 	}
 	// NUL separator prevents boundary ambiguity.

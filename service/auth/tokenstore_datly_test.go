@@ -12,7 +12,7 @@ import (
 // storage keys) are served, but fallback candidates always exclude delegated
 // (mcp:v1) rows.
 func TestChooseTokenRowNeverFallsBackToDelegatedRow(t *testing.T) {
-	delegatedKey := DelegatedProviderStorageKey("ns", "adelphic-dev6")
+	delegatedKey := DelegatedProviderStorageKey("ns", "sample-provider")
 	delegatedRow := tokenRow{userID: "uuid-1", provider: delegatedKey, enc: "delegated-enc"}
 	workspaceRow := tokenRow{userID: "uuid-1", provider: "corp-idp", enc: "workspace-enc"}
 
@@ -55,7 +55,7 @@ func TestChooseTokenRowNeverFallsBackToDelegatedRow(t *testing.T) {
 // under the explicit tokenEncryptionKey-derived salt while workspace rows keep
 // the legacy salt, and that the two are not interchangeable.
 func TestTokenStoreDelegatedSaltSelection(t *testing.T) {
-	delegatedKey := DelegatedProviderStorageKey("ns", "adelphic-dev6")
+	delegatedKey := DelegatedProviderStorageKey("ns", "sample-provider")
 	store := NewTokenStoreDAO(nil, "workspace-salt", WithDelegatedSalt("explicit-token-encryption-key"))
 
 	delegated := &OAuthToken{Provider: delegatedKey, AccessToken: "delegated-access", ExpiresAt: time.Now().Add(time.Hour).Truncate(time.Second)}

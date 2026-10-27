@@ -86,9 +86,9 @@ func TestTryReuseFromPriorTurn(t *testing.T) {
 	}
 
 	t.Run("does NOT reuse when topic shifted", func(t *testing.T) {
-		// Prior: "review task 2652067", current: "what about line 887?"
+		// Prior: "review task 2067", current: "what about line 887?"
 		// Token sets are disjoint → divergence 1.0 ≥ 0.65 → no reuse.
-		conv := makeReuseConv("c1", "analyst", "review task 2652067")
+		conv := makeReuseConv("c1", "analyst", "review task 2067")
 		s := &Service{conversation: &reuseConvStub{conv: conv}}
 		got := s.tryReuseFromPriorTurn(context.Background(), conv, "what about line 887?", authorized)
 		assert.Nil(t, got, "high divergence should NOT reuse")
@@ -96,10 +96,10 @@ func TestTryReuseFromPriorTurn(t *testing.T) {
 
 	t.Run("reuses when query is genuinely similar", func(t *testing.T) {
 		// Most tokens match → divergence small → reuse fires.
-		conv := makeReuseConv("c1", "analyst", "review task 2652067 resource coverage")
+		conv := makeReuseConv("c1", "analyst", "review task 2067 resource coverage")
 		s := &Service{conversation: &reuseConvStub{conv: conv}}
 		got := s.tryReuseFromPriorTurn(context.Background(), conv,
-			"review task 2652067 line 887 coverage", authorized)
+			"review task 2067 line 887 coverage", authorized)
 		if assert.NotNil(t, got, "low divergence should trigger reuse") {
 			assert.Equal(t, "analyst", got.AgentID)
 			assert.Equal(t, "reused", got.RoutingReason)
@@ -124,10 +124,10 @@ func TestTryReuseFromPriorTurn(t *testing.T) {
 	})
 
 	t.Run("does not reuse unauthorized agent", func(t *testing.T) {
-		conv := makeReuseConv("c1", "decommissioned-agent", "review task 2652067 resource coverage")
+		conv := makeReuseConv("c1", "decommissioned-agent", "review task 2067 resource coverage")
 		s := &Service{conversation: &reuseConvStub{conv: conv}}
 		got := s.tryReuseFromPriorTurn(context.Background(), conv,
-			"review task 2652067 line 887 coverage", authorized)
+			"review task 2067 line 887 coverage", authorized)
 		assert.Nil(t, got, "prior agent not in authorized list → no reuse")
 	})
 

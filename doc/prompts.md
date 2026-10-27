@@ -1,43 +1,5 @@
 # Intent Profiles and Tool Bundles — Simplifying Orchestrator Workspaces
 
-## Naming and workspace migration
-
-Intent profiles are loaded per name from `intents/<id>.yaml` first, then
-`prompts/<id>.yaml` only when no intent definition exists. Both catalogs are
-listed together, with intent definitions taking precedence. An invalid intent
-file is an error; it does not activate a legacy definition. Existing nested
-`<id>/<id>.yaml` layouts and relative imports remain supported. Repository
-writes target `intents`; legacy files do not need to be moved to keep working.
-
-The Go type is `intake.Profile` in `../protocol/intent`; its repository is
-`intake.Repository` in `workspace/repository/intake`. Update Go imports from
-`protocol/prompt` and `workspace/repository/prompt` to those new package paths.
-`intentProfileId` is the canonical runtime field. The legacy
-`promptProfileId` key remains decode-only for compatibility and is omitted
-from generated Go/tool contracts. Agent `prompts` access configuration, `prompt:list`,
-`prompt:get`, and MCP `prompts/list` / `prompts/get` retain their names for
-compatibility. Output templates and model prompt text are separate concepts.
-
-
-Workspace paths:
-- Runtime: `/Users/awitas/go/src/github.com/viant/agently-core`
-- Application: `/Users/awitas/go/src/github.com/viant/agently`
-
----
-
-> **Reading guide — existing vs implemented vs proposed**
->
-> | Marker | Meaning |
-> |---|---|
-> | **EXISTING** | Was already in `agently-core` before the implementation plan |
-> | **IMPLEMENTED** | Was PROPOSED and is now fully implemented (all 11 phases complete) |
-> | **PROPOSED** | Not yet implemented (no remaining phases) |
->
-> All 11 phases of the Implementation Plan are complete as of 2026-04-15.
-> Sections without a marker are context, analysis, or example workspace guidance.
-
----
-
 ## Objective
 
 Reduce example workspace complexity without losing controllability.

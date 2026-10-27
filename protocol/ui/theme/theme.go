@@ -43,12 +43,13 @@ type Variant struct {
 	Files  []string `json:"files,omitempty" yaml:"files,omitempty"`
 }
 type Theme struct {
-	ID           string             `json:"id" yaml:"id"`
-	Label        string             `json:"label" yaml:"label"`
-	FallbackMode string             `json:"fallbackMode" yaml:"fallbackMode"`
-	Tokens       Tokens             `json:"tokens,omitempty" yaml:"tokens,omitempty"`
-	Files        []string           `json:"files,omitempty" yaml:"files,omitempty"`
-	Modes        map[string]Variant `json:"modes" yaml:"modes"`
+	ID            string             `json:"id" yaml:"id"`
+	Label         string             `json:"label" yaml:"label"`
+	FallbackMode  string             `json:"fallbackMode" yaml:"fallbackMode"`
+	Tokens        Tokens             `json:"tokens,omitempty" yaml:"tokens,omitempty"`
+	Files         []string           `json:"files,omitempty" yaml:"files,omitempty"`
+	Modes         map[string]Variant `json:"modes" yaml:"modes"`
+	Presentations map[string]string  `json:"presentations,omitempty" yaml:"presentations,omitempty"`
 }
 type Manifest struct {
 	Overrides    []string     `json:"overrides,omitempty" yaml:"overrides,omitempty"`
@@ -60,10 +61,11 @@ type Manifest struct {
 	Themes       []Theme      `json:"themes,omitempty" yaml:"themes,omitempty"`
 }
 type ResolvedTheme struct {
-	ID           string            `json:"id"`
-	Label        string            `json:"label"`
-	FallbackMode string            `json:"fallbackMode"`
-	Modes        map[string]Tokens `json:"modes"`
+	ID            string            `json:"id"`
+	Label         string            `json:"label"`
+	FallbackMode  string            `json:"fallbackMode"`
+	Modes         map[string]Tokens `json:"modes"`
+	Presentations map[string]string `json:"presentations,omitempty"`
 }
 type Catalog struct {
 	Fonts          []PublishedFontFamily `json:"fonts,omitempty"`
@@ -161,6 +163,12 @@ func Resolve(m Manifest) (*Catalog, error) {
 			return nil, fmt.Errorf("theme %s: %w", t.ID, err)
 		}
 		resolved := ResolvedTheme{ID: t.ID, Label: t.Label, FallbackMode: t.FallbackMode, Modes: map[string]Tokens{}}
+		if len(t.Presentations) > 0 {
+			resolved.Presentations = make(map[string]string, len(t.Presentations))
+			for appearance, profile := range t.Presentations {
+				resolved.Presentations[appearance] = profile
+			}
+		}
 		for mode, variant := range t.Modes {
 			if mode != "light" && mode != "dark" {
 				return nil, fmt.Errorf("theme %s has invalid mode %q", t.ID, mode)
@@ -175,8 +183,14 @@ func Resolve(m Manifest) (*Catalog, error) {
 			for k, v := range variant.Tokens {
 				values[k] = v
 			}
-			if family, _ := values["typography.family"].(string); family != "system" && !registeredFonts[family] {
-				return nil, fmt.Errorf("theme %s/%s selects unregistered font role %q", t.ID, mode, family)
+			for key, value := range values {
+				if tokenSpecs[key].kind != "font" {
+					continue
+				}
+				family, _ := value.(string)
+				if strings.HasPrefix(family, "workspace-") && !registeredFonts[family] {
+					return nil, fmt.Errorf("theme %s/%s selects unregistered font role %q", t.ID, mode, family)
+				}
 			}
 			resolved.Modes[mode] = values
 		}
@@ -188,8 +202,27 @@ func Resolve(m Manifest) (*Catalog, error) {
 	if len(m.Themes) == 0 && m.DefaultTheme != "" {
 		return nil, fmt.Errorf("defaultTheme requires themes")
 	}
+	if err := validatePresentations(result); err != nil {
+		return nil, err
+	}
 	sort.Slice(result.Themes, func(i, j int) bool { return result.Themes[i].ID < result.Themes[j].ID })
 	return result, nil
+}
+
+// Presentations select an existing profile only at an explicitly authored boundary.
+func validatePresentations(c *Catalog) error {
+	ids := map[string]bool{}
+	for _, profile := range c.Themes {
+		ids[profile.ID] = true
+	}
+	for _, theme := range c.Themes {
+		for appearance, profile := range theme.Presentations {
+			if appearance != "document" || !ids[profile] {
+				return fmt.Errorf("theme %s has invalid presentation %q or profile %q", theme.ID, appearance, profile)
+			}
+		}
+	}
+	return nil
 }
 
 func validateFonts(fonts []FontFamily) (map[string]bool, error) {
@@ -199,7 +232,7 @@ func validateFonts(fonts []FontFamily) (map[string]bool, error) {
 	roles := make(map[string]bool, len(fonts))
 	faces := 0
 	for _, family := range fonts {
-		if family.Role == "system" || fontFamilies[family.Role] == "" || roles[family.Role] {
+		if family.Role == "system" || family.Role == "monospace" || fontFamilies[family.Role] == "" || roles[family.Role] {
 			return nil, fmt.Errorf("invalid or duplicate font role %q", family.Role)
 		}
 		if !fontName.MatchString(family.Name) {
@@ -276,7 +309,7 @@ func validateTokens(tokens Tokens) error {
 			}
 		default:
 			n, ok := number(value)
-			if !ok || math.IsNaN(n) || math.IsInf(n, 0) || n < spec.min || n > spec.max {
+			if !ok || math.IsNaN(n) || math.IsInf(n, 0) || n < spec.min || n > spec.max || (spec.kind == "weight" && math.Trunc(n) != n) {
 				return fmt.Errorf("token %s requires a number between %g and %g", key, spec.min, spec.max)
 			}
 		}

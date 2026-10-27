@@ -8,12 +8,13 @@ import (
 	"sort"
 	"strings"
 
+	identity "github.com/viant/agently-core/protocol/resource"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
-	identity "github.com/viant/agently-core/protocol/resource"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	"github.com/viant/forge/backend/types"
+	"github.com/viant/forge/backend/uicontext"
 )
 
 const Name = "ui/datasource"
@@ -28,6 +29,8 @@ type PeekInput struct {
 }
 
 type PeekOutput struct {
+	ReadRedacted  bool                       `json:"readRedacted,omitempty"`
+	ReadTruncated bool                       `json:"readTruncated,omitempty"`
 	Resource      *identity.ResolvedResource `json:"resource,omitempty"`
 	ClientID      string                     `json:"clientId,omitempty"`
 	WindowID      string                     `json:"windowId,omitempty"`
@@ -53,33 +56,38 @@ type ListOutput struct {
 }
 
 type RefreshInput struct {
-	Target        *types.WindowTarget        `json:"target,omitempty"`
-	Resource      *identity.ResolvedResource `json:"resource,omitempty"`
-	ClientID      string                     `json:"clientId,omitempty"`
-	WindowID      string                     `json:"windowId,omitempty"`
-	WindowKey     string                     `json:"windowKey,omitempty"`
-	DataSourceRef string                     `json:"dataSourceRef,omitempty"`
+	ExpectedRevision *uint32                    `json:"expectedRevision,omitempty"`
+	Target           *types.WindowTarget        `json:"target,omitempty"`
+	Resource         *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID         string                     `json:"clientId,omitempty"`
+	WindowID         string                     `json:"windowId,omitempty"`
+	WindowKey        string                     `json:"windowKey,omitempty"`
+	DataSourceRef    string                     `json:"dataSourceRef,omitempty"`
 }
 
 type SetSelectionInput struct {
-	Target         *types.WindowTarget        `json:"target,omitempty"`
-	Resource       *identity.ResolvedResource `json:"resource,omitempty"`
-	ClientID       string                     `json:"clientId,omitempty"`
-	WindowID       string                     `json:"windowId,omitempty"`
-	WindowKey      string                     `json:"windowKey,omitempty"`
-	DataSourceRef  string                     `json:"dataSourceRef"`
-	IdentityFields []string                   `json:"identityFields,omitempty"`
-	Identities     []interface{}              `json:"identities"`
+	ExpectedRevision *uint32                    `json:"expectedRevision,omitempty"`
+	ControlID        string                     `json:"controlId,omitempty"`
+	Target           *types.WindowTarget        `json:"target,omitempty"`
+	Resource         *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID         string                     `json:"clientId,omitempty"`
+	WindowID         string                     `json:"windowId,omitempty"`
+	WindowKey        string                     `json:"windowKey,omitempty"`
+	DataSourceRef    string                     `json:"dataSourceRef"`
+	IdentityFields   []string                   `json:"identityFields,omitempty"`
+	Identities       []interface{}              `json:"identities"`
 }
 
 type CommandOutput struct {
-	Resource *identity.ResolvedResource `json:"resource,omitempty"`
-	ClientID string                     `json:"clientId,omitempty"`
-	OK       bool                       `json:"ok,omitempty"`
-	Error    string                     `json:"error,omitempty"`
+	OperationRevision uint32                     `json:"operationRevision,omitempty"`
+	Resource          *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID          string                     `json:"clientId,omitempty"`
+	OK                bool                       `json:"ok,omitempty"`
+	Error             string                     `json:"error,omitempty"`
 }
 
 type SetSelectionOutput struct {
+	OperationRevision  uint32                     `json:"operationRevision,omitempty"`
 	Resource           *identity.ResolvedResource `json:"resource,omitempty"`
 	ClientID           string                     `json:"clientId,omitempty"`
 	WindowID           string                     `json:"windowId,omitempty"`
@@ -165,16 +173,23 @@ func (s *Service) setSelection(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	if input.ExpectedRevision != nil && *input.ExpectedRevision != win.OperationRevision {
+		return fmt.Errorf("stale UI operation revision; read current UI state before retrying")
+	}
 	windowID := strings.TrimSpace(win.WindowID)
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
 		Namespace: namespace,
 		Method:    "ui.datasource.setSelection",
 		Params: map[string]interface{}{
-			"windowId":       windowID,
-			"dataSourceRef":  dataSourceRef,
-			"identityFields": input.IdentityFields,
-			"identities":     input.Identities,
+			"windowId":         windowID,
+			"conversationId":   conversationID,
+			"resourceTarget":   win.ResourceTarget,
+			"expectedRevision": input.ExpectedRevision,
+			"controlId":        strings.TrimSpace(input.ControlID),
+			"dataSourceRef":    dataSourceRef,
+			"identityFields":   input.IdentityFields,
+			"identities":       input.Identities,
 		},
 	})
 	if err != nil {
@@ -191,6 +206,7 @@ func (s *Service) setSelection(ctx context.Context, in, out interface{}) error {
 		return nil
 	}
 	var result struct {
+		OperationRevision  uint32                   `json:"operationRevision"`
 		SelectionMode      string                   `json:"selectionMode"`
 		IdentityFields     []string                 `json:"identityFields"`
 		SelectedIdentities []map[string]interface{} `json:"selectedIdentities"`
@@ -201,6 +217,7 @@ func (s *Service) setSelection(ctx context.Context, in, out interface{}) error {
 			return fmt.Errorf("decode datasource selection result: %w", err)
 		}
 	}
+	output.OperationRevision = result.OperationRevision
 	output.SelectionMode = result.SelectionMode
 	output.IdentityFields = result.IdentityFields
 	output.SelectedIdentities = result.SelectedIdentities
@@ -278,7 +295,21 @@ func (s *Service) peek(ctx context.Context, in, out interface{}) error {
 	output.WindowID = win.WindowID
 	output.WindowKey = win.WindowKey
 	output.DataSourceRef = ref
-	output.Snapshot = &snap
+	raw, err := json.Marshal(snap)
+	if err != nil {
+		return fmt.Errorf("encode datasource read: %w", err)
+	}
+	safe, err := uicontext.RedactReadJSON(raw, uicontext.ReadOptions{Metadata: win.Metadata, DataSourceRef: ref})
+	if err != nil {
+		return fmt.Errorf("redact datasource read: %w", err)
+	}
+	var redacted uireg.DataSourceSnapshot
+	if err = json.Unmarshal(safe.JSON, &redacted); err != nil {
+		return fmt.Errorf("decode datasource read: %w", err)
+	}
+	output.Snapshot = &redacted
+	output.ReadRedacted = safe.Redacted
+	output.ReadTruncated = safe.Truncated
 	return nil
 }
 
@@ -315,13 +346,19 @@ func (s *Service) refresh(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	if input.ExpectedRevision != nil && *input.ExpectedRevision != win.OperationRevision {
+		return fmt.Errorf("stale UI operation revision; read current UI state before retrying")
+	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
 		Namespace: namespace,
 		Method:    "ui.data.fetch",
 		Params: map[string]interface{}{
-			"windowId":      strings.TrimSpace(win.WindowID),
-			"dataSourceRef": dataSourceRef,
+			"windowId":         strings.TrimSpace(win.WindowID),
+			"conversationId":   strings.TrimSpace(win.ConversationID),
+			"resourceTarget":   win.ResourceTarget,
+			"expectedRevision": input.ExpectedRevision,
+			"dataSourceRef":    dataSourceRef,
 		},
 	})
 	if err != nil {

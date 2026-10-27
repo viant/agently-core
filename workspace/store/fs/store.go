@@ -40,6 +40,9 @@ func (s *Store) Root() string { return s.root }
 // List returns the names of all resources of the given kind.
 func (s *Store) List(ctx context.Context, kind string) ([]string, error) {
 	dir := filepath.Join(s.root, kind)
+	if authoredFormatKind(kind) {
+		return s.authoredNames(ctx, kind)
+	}
 	if kind == workspace.KindForgeDataSource {
 		entries, err := s.recursiveYAMLEntries(ctx, kind, dir)
 		if err != nil {
@@ -84,6 +87,13 @@ func (s *Store) List(ctx context.Context, kind string) ([]string, error) {
 // first (<root>/<kind>/<name>.yaml), then the nested layout
 // (<root>/<kind>/<name>/<name>.yaml). Returns os.ErrNotExist if neither is found.
 func (s *Store) Load(ctx context.Context, kind, name string) ([]byte, error) {
+	if authoredFormatKind(kind) {
+		filename, err := s.authoredPath(ctx, kind, name)
+		if err != nil {
+			return nil, err
+		}
+		return s.fs.DownloadWithURL(ctx, filename)
+	}
 	flat := filepath.Join(s.root, kind, name+".yaml")
 	if ok, _ := s.fs.Exists(ctx, flat); ok {
 		return s.fs.DownloadWithURL(ctx, flat)
@@ -97,6 +107,39 @@ func (s *Store) Load(ctx context.Context, kind, name string) ([]byte, error) {
 
 // Save creates or overwrites a resource using the flat layout.
 func (s *Store) Save(ctx context.Context, kind, name string, data []byte) error {
+	if authoredFormatKind(kind) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		requested := strings.ToLower(filepath.Ext(name))
+		base := name
+		if requested == ".md" || requested == ".yaml" || requested == ".yml" {
+			base = strings.TrimSuffix(name, filepath.Ext(name))
+		} else {
+			requested = ""
+		}
+		target := filepath.Join(s.root, kind, base+".yaml")
+		if requested != "" {
+			target = filepath.Join(s.root, kind, name)
+		}
+		if existing, err := s.authoredPath(ctx, kind, base); err == nil {
+			if requested != "" && existing != target {
+				return fmt.Errorf("authored definition already exists at %s", existing)
+			}
+			if requested == "" {
+				if strings.EqualFold(filepath.Ext(existing), ".md") {
+					return fmt.Errorf("explicit Markdown source required to update %s", existing)
+				}
+				target = existing
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		return s.fs.Upload(ctx, target, afsfile.DefaultFileOsMode, strings.NewReader(string(data)))
+	}
 	dir := filepath.Join(s.root, kind)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -107,6 +150,16 @@ func (s *Store) Save(ctx context.Context, kind, name string, data []byte) error 
 
 // Delete removes whichever layout exists. No error if absent.
 func (s *Store) Delete(ctx context.Context, kind, name string) error {
+	if authoredFormatKind(kind) {
+		filename, err := s.authoredPath(ctx, kind, name)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return s.fs.Delete(ctx, filename)
+	}
 	flat := filepath.Join(s.root, kind, name+".yaml")
 	if ok, _ := s.fs.Exists(ctx, flat); ok {
 		return s.fs.Delete(ctx, flat)
@@ -120,6 +173,13 @@ func (s *Store) Delete(ctx context.Context, kind, name string) error {
 
 // Exists reports whether a resource exists in either layout.
 func (s *Store) Exists(ctx context.Context, kind, name string) (bool, error) {
+	if authoredFormatKind(kind) {
+		_, err := s.authoredPath(ctx, kind, name)
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return err == nil, err
+	}
 	flat := filepath.Join(s.root, kind, name+".yaml")
 	if ok, _ := s.fs.Exists(ctx, flat); ok {
 		return true, nil
@@ -134,6 +194,25 @@ func (s *Store) Exists(ctx context.Context, kind, name string) (bool, error) {
 // Entries returns metadata-enriched listings for polling watchers.
 func (s *Store) Entries(ctx context.Context, kind string) ([]workspace.Entry, error) {
 	dir := filepath.Join(s.root, kind)
+	if authoredFormatKind(kind) {
+		names, err := s.authoredNames(ctx, kind)
+		if err != nil {
+			return nil, err
+		}
+		entries := make([]workspace.Entry, 0, len(names))
+		for _, name := range names {
+			filename, err := s.authoredPath(ctx, kind, name)
+			if err != nil {
+				return nil, err
+			}
+			info, err := os.Stat(filename)
+			if err != nil {
+				return nil, err
+			}
+			entries = append(entries, workspace.Entry{Kind: kind, Name: name, UpdatedAt: info.ModTime()})
+		}
+		return entries, nil
+	}
 	if kind == workspace.KindForgeDataSource {
 		return s.recursiveYAMLEntries(ctx, kind, dir)
 	}

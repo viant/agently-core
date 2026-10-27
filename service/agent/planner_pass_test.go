@@ -480,7 +480,7 @@ func TestPlannerPass_KeepsTemplateListVisibleForBootstrapWhenTemplateSelected(t 
 		require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 	}
 	write("prompts/repo_analysis.yaml", "id: repo_analysis\nname: Repo Analysis\ndescription: Analyze repository state\n")
-	write("tools/bundles/analyst_tools.yaml", "id: analyst-tools\nmatch:\n  - name: system/exec\n")
+	write("tools/bundles/analyst_tools.yaml", "id: analyst-tools\nmatch:\n  - name: system/exec\n  - name: template:list\n")
 	write("tools/bundles/planner_visibility.yaml", "id: planner-visibility\nmatch:\n  - name: llm/agents:topology\n  - name: llm/agents:tool_details\n  - name: prompt:list\n  - name: template:list\n  - name: llm/skills:list\n  - name: resources:roots\n  - name: resources:list\n  - name: resources:read\n  - name: resources:match\n")
 	write("templates/dashboard.yaml", "id: dashboard\nname: dashboard\ndescription: Dashboard template\ninstructions: Use dashboard output.\n")
 	write("templates/bundles/analytics.yaml", "id: analytics-templates\ntemplates:\n  - dashboard\n")

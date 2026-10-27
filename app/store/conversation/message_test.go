@@ -37,7 +37,7 @@ func TestDecodeInlineBody_GzipNeverReturnsCompressedBytes(t *testing.T) {
 }
 
 func TestMessage_ToolCallArguments_DecodesCompressedRequestPayload(t *testing.T) {
-	payload := gzipString(t, `{"name":"capacity-review","args":"WorkspaceId=7268995"}`)
+	payload := gzipString(t, `{"name":"capacity-review","args":"WorkspaceId=8995"}`)
 	msg := &Message{
 		ToolMessage: []*conversationmodel.ToolMessageView{{
 			ToolCall: &conversationmodel.ToolCallView{
@@ -53,7 +53,7 @@ func TestMessage_ToolCallArguments_DecodesCompressedRequestPayload(t *testing.T)
 	if got["name"] != "capacity-review" {
 		t.Fatalf("name = %#v, want capacity-review", got["name"])
 	}
-	if got["args"] != "WorkspaceId=7268995" {
-		t.Fatalf("args = %#v, want WorkspaceId=7268995", got["args"])
+	if got["args"] != "WorkspaceId=8995" {
+		t.Fatalf("args = %#v, want WorkspaceId=8995", got["args"])
 	}
 }

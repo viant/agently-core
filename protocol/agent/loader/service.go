@@ -16,6 +16,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/workspace"
+	wscodec "github.com/viant/agently-core/workspace/codec"
 	meta "github.com/viant/agently-core/workspace/service/meta"
 	yml "github.com/viant/agently-core/workspace/service/meta/yml"
 
@@ -40,20 +41,60 @@ type Service struct {
 
 // LoadAgents loads an agents from the specified URL
 func (s *Service) LoadAgents(ctx context.Context, URL string) ([]*agentmdl.Agent, error) {
-	candidates, err := s.metaService.List(ctx, URL)
+	candidates, err := s.listAgentCandidates(ctx, URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agent from %s: %w", URL, err)
 	}
 	var result []*agentmdl.Agent
+	seen := map[string]string{}
 	for _, candidate := range candidates {
 		anAgent, err := s.Load(ctx, candidate)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load agent from %s: %w", candidate, err)
 		}
+		for _, identity := range []string{anAgent.ID, anAgent.Name} {
+			key := strings.ToLower(strings.TrimSpace(identity))
+			if key == "" {
+				continue
+			}
+			if first, ok := seen[key]; ok && first != candidate {
+				return nil, fmt.Errorf("duplicate agent identity %q in %s and %s", identity, first, candidate)
+			}
+			seen[key] = candidate
+		}
 		result = append(result, anAgent)
 	}
 	return result, nil
 
+}
+
+func (s *Service) listAgentCandidates(ctx context.Context, directory string) ([]string, error) {
+	candidates, err := s.metaService.ListDefinitionsRecursive(ctx, directory, ".md", ".yaml", ".yml", ".json")
+	if err != nil {
+		return nil, err
+	}
+	base := agentFilesystemPath(s.metaService.GetURL(directory))
+	var result []string
+	for _, candidate := range candidates {
+		if hasConfigExtension(filepath.Ext(directory)) {
+			result = append(result, candidate)
+			continue
+		}
+		relative, err := filepath.Rel(base, agentFilesystemPath(candidate))
+		if err != nil || relative == ".." || strings.HasPrefix(relative, "../") {
+			continue
+		}
+		parts := strings.Split(filepath.ToSlash(relative), "/")
+		if len(parts) == 1 || len(parts) == 2 && strings.EqualFold(parts[0], strings.TrimSuffix(parts[1], filepath.Ext(parts[1]))) {
+			result = append(result, candidate)
+		}
+	}
+	return result, nil
+}
+
+func agentFilesystemPath(location string) string {
+	location = strings.TrimPrefix(location, "file://localhost")
+	return strings.TrimPrefix(location, "file://")
 }
 
 func (s *Service) List() []*agentmdl.Agent {
@@ -90,44 +131,68 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 	URL := nameOrLocation
 	if !strings.Contains(URL, "/") && !hasConfigExtension(filepath.Ext(nameOrLocation)) {
 		URL = filepath.Join(workspace.KindAgent, nameOrLocation)
+	} else if !strings.Contains(URL, "/") && hasConfigExtension(filepath.Ext(nameOrLocation)) {
+		candidate := filepath.Join(workspace.KindAgent, nameOrLocation)
+		if ok, _ := s.metaService.Exists(ctx, candidate); ok {
+			URL = candidate
+		}
 	}
 
 	if url.IsRelative(URL) {
-		ext := ""
 		if !hasConfigExtension(filepath.Ext(URL)) {
-			ext = s.defaultExtension
-		}
-		if ok, _ := s.metaService.Exists(ctx, URL+ext); ok {
-			// Keep relative URL; metaService will resolve against its base.
-			URL = URL + ext
-		} else {
-			candidate := path.Join(URL, nameOrLocation)
-			if ok, _ = s.metaService.Exists(ctx, candidate+ext); ok {
-				URL = candidate + ext
-			} else if alt, ok, err := s.resolveSlugVariant(ctx, nameOrLocation); err != nil {
-				return nil, err
-			} else if ok {
-				URL = alt
-			} else if resolved, ok, err := s.resolveByDeclaredIdentity(ctx, nameOrLocation); err != nil {
+			if resolved, ok, err := s.resolveAvailableFormat(ctx, URL); err != nil {
 				return nil, err
 			} else if ok {
 				URL = resolved
+			} else {
+				candidate := path.Join(URL, nameOrLocation)
+				if resolved, ok, err := s.resolveAvailableFormat(ctx, candidate); err != nil {
+					return nil, err
+				} else if ok {
+					URL = resolved
+				} else if alt, ok, err := s.resolveSlugVariant(ctx, nameOrLocation); err != nil {
+					return nil, err
+				} else if ok {
+					URL = alt
+				} else if resolved, ok, err := s.resolveByDeclaredIdentity(ctx, nameOrLocation); err != nil {
+					return nil, err
+				} else if ok {
+					URL = resolved
+				}
 			}
+		} else if _, _, err := s.resolveAvailableFormat(ctx, strings.TrimSuffix(URL, filepath.Ext(URL))); err != nil {
+			return nil, err
 		}
 	}
 
 	var node yaml.Node
-	if err := s.metaService.Load(ctx, URL, &node); err != nil {
+	var markdown wscodec.MarkdownDocument
+	if strings.EqualFold(filepath.Ext(URL), ".md") {
+		var err error
+		markdown, err = s.metaService.LoadMarkdown(ctx, URL, &node)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load agent from %s: %w", URL, err)
+		}
+	} else if err := s.metaService.Load(ctx, URL, &node); err != nil {
 		return nil, fmt.Errorf("failed to load agent from %s: %w", URL, err)
 	}
 
 	anAgent := &agentmdl.Agent{Source: &agentmdl.Source{URL: s.metaService.GetURL(URL)}}
 	// Parse the YAML into our agent model
-	if err := s.parseAgent((*yml.Node)(&node), anAgent); err != nil {
-		return nil, fmt.Errorf("failed to parse agent from %s: %w", URL, err)
+	if len(node.Content) > 0 {
+		if err := validateAgentKind(&node); err != nil {
+			return nil, fmt.Errorf("invalid agent kind from %s: %w", URL, err)
+		}
+		if err := s.parseAgent((*yml.Node)(&node), anAgent); err != nil {
+			return nil, fmt.Errorf("failed to parse agent from %s: %w", URL, err)
+		}
 	}
-	// Normalize parsed agent prior to validation
+	// Preserve existing YAML normalization while keeping authored Markdown body
+	// whitespace intact when mapped into a prompt slot.
 	normalizeAgent(anAgent)
+	if err := applyAgentMarkdown(anAgent, markdown.Messages); err != nil {
+		return nil, fmt.Errorf("invalid agent markdown %s: %w", URL, err)
+	}
 	if err := anAgent.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid agent %s: %w", URL, err)
 	}
@@ -204,11 +269,29 @@ func (s *Service) Load(ctx context.Context, nameOrLocation string) (*agentmdl.Ag
 
 func hasConfigExtension(ext string) bool {
 	switch strings.ToLower(strings.TrimSpace(ext)) {
-	case ".yaml", ".yml", ".json":
+	case ".md", ".yaml", ".yml", ".json":
 		return true
 	default:
 		return false
 	}
+}
+
+func (s *Service) resolveAvailableFormat(ctx context.Context, base string) (string, bool, error) {
+	var found string
+	for _, extension := range []string{".md", ".yaml", ".yml", ".json"} {
+		candidate := base + extension
+		exists, err := s.metaService.Exists(ctx, candidate)
+		if err != nil {
+			return "", false, fmt.Errorf("failed to check agent %q: %w", candidate, err)
+		}
+		if exists {
+			if found != "" {
+				return "", false, fmt.Errorf("duplicate agent definition %s and %s", found, candidate)
+			}
+			found = candidate
+		}
+	}
+	return found, found != "", nil
 }
 
 func (s *Service) resolveSlugVariant(ctx context.Context, nameOrLocation string) (string, bool, error) {
@@ -219,17 +302,17 @@ func (s *Service) resolveSlugVariant(ctx context.Context, nameOrLocation string)
 	if slug == "" || slug == strings.TrimSpace(nameOrLocation) {
 		return "", false, nil
 	}
-	flat := path.Join(workspace.KindAgent, slug+defaultExtension)
-	if ok, err := s.metaService.Exists(ctx, flat); err != nil {
-		return "", false, fmt.Errorf("failed to check slug-variant agent %q: %w", flat, err)
+	flat := path.Join(workspace.KindAgent, slug)
+	if resolved, ok, err := s.resolveAvailableFormat(ctx, flat); err != nil {
+		return "", false, err
 	} else if ok {
-		return flat, true, nil
+		return resolved, true, nil
 	}
-	nested := path.Join(workspace.KindAgent, slug, slug+defaultExtension)
-	if ok, err := s.metaService.Exists(ctx, nested); err != nil {
-		return "", false, fmt.Errorf("failed to check slug-variant agent %q: %w", nested, err)
+	nested := path.Join(workspace.KindAgent, slug, slug)
+	if resolved, ok, err := s.resolveAvailableFormat(ctx, nested); err != nil {
+		return "", false, err
 	} else if ok {
-		return nested, true, nil
+		return resolved, true, nil
 	}
 	return "", false, nil
 }
@@ -239,19 +322,30 @@ func (s *Service) resolveByDeclaredIdentity(ctx context.Context, identifier stri
 	if identifier == "" || s == nil || s.metaService == nil {
 		return "", false, nil
 	}
-	candidates, err := s.metaService.List(ctx, workspace.KindAgent)
+	candidates, err := s.listAgentCandidates(ctx, workspace.KindAgent)
 	if err != nil {
 		return "", false, fmt.Errorf("failed to list agents for identity resolution: %w", err)
 	}
+	var matched string
 	for _, candidate := range candidates {
 		loadTargets := []string{candidate}
 		if filepath.Ext(candidate) == "" {
 			base := path.Base(candidate)
-			loadTargets = append(loadTargets, path.Join(candidate, base+defaultExtension))
+			if resolved, ok, err := s.resolveAvailableFormat(ctx, path.Join(candidate, base)); err != nil {
+				return "", false, err
+			} else if ok {
+				loadTargets = append(loadTargets, resolved)
+			}
 		}
 		for _, target := range loadTargets {
 			var node yaml.Node
-			if err := s.metaService.Load(ctx, target, &node); err != nil {
+			var err error
+			if strings.EqualFold(filepath.Ext(target), ".md") {
+				_, err = s.metaService.LoadMarkdown(ctx, target, &node)
+			} else {
+				err = s.metaService.Load(ctx, target, &node)
+			}
+			if err != nil || len(node.Content) == 0 {
 				continue
 			}
 			probe := &agentmdl.Agent{}
@@ -260,11 +354,14 @@ func (s *Service) resolveByDeclaredIdentity(ctx context.Context, identifier stri
 			}
 			normalizeAgent(probe)
 			if strings.EqualFold(strings.TrimSpace(probe.ID), identifier) || strings.EqualFold(strings.TrimSpace(probe.Name), identifier) {
-				return target, true, nil
+				if matched != "" && matched != target {
+					return "", false, fmt.Errorf("duplicate agent identity %q in %s and %s", identifier, matched, target)
+				}
+				matched = target
 			}
 		}
 	}
-	return "", false, nil
+	return matched, matched != "", nil
 }
 
 // (drive/UNC detection is handled by afs/url.IsRelative and ToFileURL)
@@ -294,6 +391,7 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 	}
 
 	// Parse agent properties
+	accessConfigured := ""
 	return agentNode.Pairs(func(key string, valueNode *yml.Node) error {
 		lowerKey := strings.ToLower(key)
 		if handled, err := s.parseAgentBasicScalar(agent, lowerKey, valueNode); err != nil {
@@ -570,9 +668,17 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 			}
 			agent.Template.Bundles = normalizeStrings(agent.Template.Bundles)
 
-		case "prompts":
+		case "playbooks", "intents", "prompts":
+			if accessConfigured != "" {
+				return fmt.Errorf("duplicate agent playbook allow-list aliases %q and %q", accessConfigured, lowerKey)
+			}
+			accessConfigured = lowerKey
 			if valueNode.Kind != yaml.MappingNode {
-				return fmt.Errorf("prompts must be a mapping")
+				return fmt.Errorf("%s must be a mapping", lowerKey)
+			}
+			target := &agent.Prompts
+			if lowerKey == "playbooks" {
+				target = &agent.Playbooks
 			}
 			if err := valueNode.Pairs(func(k string, v *yml.Node) error {
 				switch strings.ToLower(strings.TrimSpace(k)) {
@@ -580,22 +686,25 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					switch v.Kind {
 					case yaml.ScalarNode:
 						if id := strings.TrimSpace(v.Value); id != "" {
-							agent.Prompts.Bundles = append(agent.Prompts.Bundles, id)
+							target.Bundles = append(target.Bundles, id)
 						}
 					case yaml.SequenceNode:
-						agent.Prompts.Bundles = append(agent.Prompts.Bundles, asStrings(v)...)
+						target.Bundles = append(target.Bundles, asStrings(v)...)
 					}
 				case "injectselectedprofile", "injectselected", "inject":
 					if v.Kind == yaml.ScalarNode {
 						value := toBool(v.Value)
-						agent.Prompts.InjectSelectedProfile = &value
+						target.InjectSelectedProfile = &value
 					}
 				}
 				return nil
 			}); err != nil {
 				return err
 			}
-			agent.Prompts.Bundles = normalizeStrings(agent.Prompts.Bundles)
+			target.Bundles = normalizeStrings(target.Bundles)
+			if lowerKey == "playbooks" {
+				agent.Prompts = agent.Playbooks
+			}
 
 		case "intake":
 			if valueNode.Kind != yaml.MappingNode {

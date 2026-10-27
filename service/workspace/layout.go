@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 
+	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/policy"
 	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/agently-core/service/ui/layoutgate"
@@ -62,7 +63,8 @@ type LayoutLeft struct {
 }
 
 type LayoutNavigation struct {
-	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Enabled      *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Presentation string `json:"presentation,omitempty" yaml:"presentation,omitempty"`
 }
 type LayoutHistory struct {
 	Enabled         *bool                    `json:"enabled,omitempty" yaml:"enabled,omitempty"`
@@ -151,6 +153,7 @@ type LayoutMenu struct {
 }
 
 type LayoutAction struct {
+	providerOwned      bool           // Set only for an admitted owning-provider publication; never decoded from JSON/YAML.
 	ProviderIdentity   string         `json:"providerIdentity,omitempty" yaml:"providerIdentity,omitempty"`
 	URL                string         `json:"url,omitempty" yaml:"url,omitempty"`
 	ResourceURI        string         `json:"resourceUri,omitempty" yaml:"resourceUri,omitempty"`
@@ -272,6 +275,11 @@ func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*Layout
 		if err = json.Unmarshal(menuRead.Applications, &applications); err != nil || applications == nil {
 			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
 		}
+		if menuRead.ProviderOwnedApplications {
+			for i := range applications {
+				markProviderOwnedLayoutActions(&applications[i])
+			}
+		}
 		layout.Applications = applications
 		if err = validateLayout(&layout); err != nil {
 			logx.Debugf("workspace-navigation", "menu layout invalid: %v", err)
@@ -337,6 +345,9 @@ func validateLayout(layout *Layout) error {
 		return fmt.Errorf("unsupported right layout mode %q", layout.Right.Mode)
 	}
 	if layout.Left != nil {
+		if navigation := layout.Left.Navigation; navigation != nil && navigation.Presentation != "" && navigation.Presentation != "sections" {
+			return fmt.Errorf("unsupported navigation presentation %q", navigation.Presentation)
+		}
 		if width := layout.Left.Width; width != nil && (width.Min < 64 || width.Max < width.Min || width.Default < width.Min || width.Default > width.Max) {
 			return fmt.Errorf("invalid sidebar width limits")
 		}
@@ -429,7 +440,7 @@ func validateMenus(menus []LayoutMenu, seen map[string]bool, providers map[strin
 		if (menu.Action == nil) == (len(menu.Children) == 0) && !(menu.Disabled && menu.Action == nil && len(menu.Children) == 0) {
 			return fmt.Errorf("menu %s requires either action or children", menu.ID)
 		}
-		if menu.Action != nil && menu.Action.Type != "window" && menu.Action.Type != "url" {
+		if menu.Action != nil && menu.Action.Type != "window" && menu.Action.Type != "url" && menu.Action.Type != "report" {
 			return fmt.Errorf("menu %s has unsupported action", menu.ID)
 		}
 		if menu.Action != nil && menu.Action.Type == "window" && !validLayoutWindowKey(layoutActionDestination(menu.Action)) {
@@ -440,6 +451,11 @@ func validateMenus(menus []LayoutMenu, seen map[string]bool, providers map[strin
 			if action.Type == "url" {
 				if !validLayoutURL(action.URL) || action.WindowKey != "" || action.ResourceURI != "" || action.Provider != "" || len(action.Parameters) > 0 || len(action.RefreshDataSources) > 0 {
 					return fmt.Errorf("menu %s has invalid URL action", menu.ID)
+				}
+			} else if action.Type == "report" {
+				uri, err := identity.ParseResourceURI(action.ResourceURI)
+				if err != nil || uri.Kind != "report" || action.URL != "" || action.WindowKey != "" || action.Provider != "" || len(action.RefreshDataSources) > 0 {
+					return fmt.Errorf("menu %s has invalid report destination", menu.ID)
 				}
 			} else if action.URL != "" || (action.ResourceURI != "" && (!strings.HasPrefix(action.ResourceURI, "window://") || action.WindowKey != "" || action.Provider != "")) {
 				return fmt.Errorf("menu %s has conflicting window destinations", menu.ID)
@@ -743,7 +759,7 @@ func layoutPolicyKey(id string, exact bool) string {
 
 func collectLayoutWindowCandidates(menus []LayoutMenu, candidates *[]policy.Candidate, seen map[string]bool, exact bool) {
 	for _, menu := range menus {
-		if menu.Action != nil && menu.Action.Type == "window" {
+		if menu.Action != nil && menu.Action.Type == "window" && !menu.Action.providerOwned {
 			key := layoutWindowKey(menu.Action)
 			if normalized := layoutPolicyKey(key, exact); key != "" && !seen[normalized] {
 				seen[normalized] = true
@@ -793,7 +809,7 @@ func filterMenusContextWithRuntime(ctx context.Context, menus []LayoutMenu, inhe
 				continue
 			}
 		}
-		if menu.Action != nil && menu.Action.Type == "window" && allowedWindows != nil && !allowedWindows[layoutPolicyKey(layoutWindowKey(menu.Action), exact)] {
+		if menu.Action != nil && menu.Action.Type == "window" && !menu.Action.providerOwned && allowedWindows != nil && !allowedWindows[layoutPolicyKey(layoutWindowKey(menu.Action), exact)] {
 			continue
 		}
 		menu.Authorization, menu.VisibleWhen, menu.HiddenWhen, menu.DisabledWhen, menu.ReadOnlyWhen = nil, nil, nil, nil, nil
@@ -1009,4 +1025,27 @@ func validLayoutURL(raw string) bool {
 	host := parsed.Hostname()
 	ip := net.ParseIP(host)
 	return parsed.Scheme == "http" && (host == "localhost" || ip != nil && ip.IsLoopback())
+}
+
+// A navigation publication establishes routing/visibility only for its own
+// canonical destinations. Host controls and foreign-owner destinations keep
+// their existing local presentation policy; resource reads remain MCP-owned.
+func markProviderOwnedLayoutActions(app *LayoutApplication) {
+	if app.ProviderIdentity == "" || app.ResourceNamespace == "" {
+		return
+	}
+	var visit func([]LayoutMenu)
+	visit = func(menus []LayoutMenu) {
+		for i := range menus {
+			action := menus[i].Action
+			if action != nil && action.Type == "window" && action.ProviderIdentity == app.ProviderIdentity {
+				uri, err := identity.ParseResourceURI(action.ResourceURI)
+				if err == nil && uri.Kind == "window" && uri.Namespace == app.ResourceNamespace {
+					action.providerOwned = true
+				}
+			}
+			visit(menus[i].Children)
+		}
+	}
+	visit(app.Menus)
 }

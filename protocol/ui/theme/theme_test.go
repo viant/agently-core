@@ -273,3 +273,113 @@ fonts:
 		t.Fatal("accepted duplicate roles")
 	}
 }
+
+func TestCompleteTypographyRoles(t *testing.T) {
+	roles := []string{"caption", "small", "body", "section", "heading", "title", "metric", "display", "code", "label", "metadata"}
+	for _, role := range roles {
+		t.Run(role, func(t *testing.T) {
+			tokens := Tokens{
+				"typography." + role + ".family":        "monospace",
+				"typography." + role + ".size":          14,
+				"typography." + role + ".weight":        600,
+				"typography." + role + ".lineHeight":    20,
+				"typography." + role + ".letterSpacing": -0.01,
+			}
+			c := &Catalog{Version: Version, Themes: []ResolvedTheme{{ID: "role", Modes: map[string]Tokens{"light": tokens}}}}
+			css, err := CSS(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, prefix := range []string{"--forge-type-", "--agently-theme-type-"} {
+				for _, declaration := range []string{"family: ui-monospace", "size: 14px;", "weight: 600;", "line-height: 20px;", "letter-spacing: -0.01em;"} {
+					if !strings.Contains(css, prefix+role+"-"+declaration) {
+						t.Fatalf("missing %s in %s", declaration, css)
+					}
+				}
+			}
+			for key, bad := range map[string]interface{}{"weight": 600.5, "letterSpacing": -0.05, "family": "url(evil)", "lineHeight": "20px"} {
+				invalid := Tokens{}
+				for k, v := range tokens {
+					invalid[k] = v
+				}
+				invalid["typography."+role+"."+key] = bad
+				if validateTokens(invalid) == nil {
+					t.Errorf("accepted %s=%v", key, bad)
+				}
+			}
+		})
+	}
+	m, err := Parse([]byte(example))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Themes[0].Tokens["typography.body.family"] = "workspace-primary"
+	if _, err := Resolve(*m); err == nil {
+		t.Fatal("unregistered per-role font accepted")
+	}
+	m.Fonts = []FontFamily{{Role: "workspace-primary", Name: "Example", Faces: []FontFace{{File: "example.woff2", Style: "normal", Weight: "400"}}}}
+	if _, err := Resolve(*m); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFoundationUnits(t *testing.T) {
+	tokens := Tokens{"spacing.2": 8, "border.width": 1, "radius.surface": 12, "radius.pill": 999, "focus.width": 2, "focus.offset": 2, "motion.fast": 120, "icon.size": 16}
+	c := &Catalog{Version: Version, Themes: []ResolvedTheme{{ID: "foundation", Modes: map[string]Tokens{"light": tokens}}}}
+	css, err := CSS(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(css, "--forge-motion-fast: 120ms;") || !strings.Contains(css, "--agently-theme-spacing-2: 8px;") {
+		t.Fatal(css)
+	}
+	tokens["motion.fast"] = 501
+	if _, err := CSS(c); err == nil {
+		t.Fatal("unbounded motion accepted")
+	}
+}
+
+func TestPresentationProfileKeepsDefaultAndScopesTokens(t *testing.T) {
+	manifest := example + `  - id: reading
+    label: Reading
+    fallbackMode: light
+    tokens:
+      typography.body.size: 13
+    modes:
+      light: {}
+`
+	manifest = strings.Replace(manifest, "label: Branded", "label: Branded\n    presentations: {document: reading}", 1)
+	m, err := Parse([]byte(manifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Resolve(*m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	css, err := CSS(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.DefaultTheme != "branded" || catalog.Themes[0].Modes["light"]["control.radius"] != 8 {
+		t.Fatal("default changed")
+	}
+	for _, marker := range []string{`[data-agently-color-mode="light"] [data-agently-presentation="document"]`, `[data-agently-presentation="legacy"]`, `[data-forge-color-mode="dark"][data-forge-presentation="document"]`, "--forge-type-body-size: 13px;"} {
+		if !strings.Contains(css, marker) {
+			t.Fatalf("missing scoped profile: %s", marker)
+		}
+	}
+	for _, change := range []string{"{document: missing}", "{other: reading}", "{'document]{}': reading}"} {
+		invalid, err := Parse([]byte(strings.Replace(manifest, "{document: reading}", change, 1)))
+		if err == nil {
+			_, err = Resolve(*invalid)
+		}
+		if err == nil {
+			t.Fatalf("accepted %s", change)
+		}
+	}
+	catalog.Themes[0].Presentations["document"] = "missing"
+	if _, err = CSS(catalog); err == nil {
+		t.Fatal("CSS accepted a missing profile")
+	}
+}

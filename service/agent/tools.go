@@ -115,7 +115,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 	if len(control.Tools) == 0 && len(control.Bundles) == 0 && !hasToolDiscoverySelection(ctx, qi) && len(always) == 0 {
 		return nil, nil
 	}
-	defs, err := s.resolveStructuredToolDefinitions(ctx, control)
+	defs, err := s.resolveTurnToolDefinitions(ctx, qi, control)
 	if err != nil {
 		return nil, err
 	}
@@ -287,12 +287,24 @@ func configuredAgentSkills(agent *agentmdl.Agent) []string {
 }
 
 func (s *Service) appendToolSelections(ctx context.Context, defs []llm.ToolDefinition, names []string) ([]llm.ToolDefinition, error) {
+	return s.appendToolSelectionsWithMatcher(ctx, defs, names, s.matchDefinitionsResult)
+}
+
+func (s *Service) appendToolSelectionsWithMatcher(ctx context.Context, defs []llm.ToolDefinition, names []string, match func(context.Context, string) ([]*llm.ToolDefinition, error)) ([]llm.ToolDefinition, error) {
 	if len(names) == 0 {
 		return defs, nil
 	}
 	for _, name := range names {
-		matched := s.matchDefinitions(ctx, name)
-		if strictDiscoveryMode(ctx) && len(matched) == 0 {
+		matched, err := match(ctx, name)
+		selectedRequired, _ := ctx.Value(selectedSourceResolutionKey{}).(bool)
+		if err != nil && (strictDiscoveryMode(ctx) || selectedRequired) {
+			return nil, err
+		}
+		if selectedRequired && len(matched) == 0 {
+			return nil, fmt.Errorf("required tool unavailable: %s", name)
+		}
+		automaticPolicy, _ := ctx.Value(automaticToolPolicyKey{}).(bool)
+		if strictDiscoveryMode(ctx) && !automaticPolicy && len(matched) == 0 {
 			return nil, strictToolDiscoveryError(ctx, name)
 		}
 		for _, def := range matched {
@@ -346,9 +358,13 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 }
 
 func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, control agenttool.Selection) ([]llm.ToolDefinition, error) {
+	return s.resolveStructuredToolDefinitionsWithMatcher(ctx, control, s.matchDefinitionsResult)
+}
+
+func (s *Service) resolveStructuredToolDefinitionsWithMatcher(ctx context.Context, control agenttool.Selection, match func(context.Context, string) ([]*llm.ToolDefinition, error)) ([]llm.ToolDefinition, error) {
 	entry := &resolvedToolSurface{Complete: true}
 	if len(control.Bundles) > 0 {
-		res, err := s.resolveBundleResult(ctx, control.Bundles)
+		res, err := s.resolveBundleResultWithMatcher(ctx, control.Bundles, match)
 		if err != nil {
 			return nil, err
 		}
@@ -358,7 +374,7 @@ func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, cont
 		entry.Complete = res.Complete
 	}
 	var err error
-	entry.Definitions, err = s.appendToolSelections(ctx, entry.Definitions, control.Tools)
+	entry.Definitions, err = s.appendToolSelectionsWithMatcher(ctx, entry.Definitions, control.Tools, match)
 	if err != nil {
 		return nil, err
 	}
@@ -408,6 +424,10 @@ func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []stri
 }
 
 func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (*resolvedToolSurface, error) {
+	return s.resolveBundleResultWithMatcher(ctx, bundleIDs, s.matchDefinitionsResult)
+}
+
+func (s *Service) resolveBundleResultWithMatcher(ctx context.Context, bundleIDs []string, match func(context.Context, string) ([]*llm.ToolDefinition, error)) (*resolvedToolSurface, error) {
 	if s == nil || s.registry == nil {
 		return &resolvedToolSurface{}, nil
 	}
@@ -453,7 +473,7 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 			if definitions, ok := patternMatches[pattern]; ok {
 				return definitions
 			}
-			definitions, matchErr := s.matchDefinitionsResult(ctx, pattern)
+			definitions, matchErr := match(ctx, pattern)
 			if err == nil && matchErr != nil {
 				err = matchErr
 			}

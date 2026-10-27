@@ -61,7 +61,7 @@ func (m *delegatedLinkErrManagerStub) IsDelegatedAuth(ctx context.Context, serve
 func (m *delegatedLinkErrManagerStub) Get(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
 	return nil, &authcfg.OAuthLinkRequiredError{
 		ServerName:  serverName,
-		ProviderRef: "adelphic-dev6",
+		ProviderRef: "sample-provider",
 		Resource:    "https://mcp6.example.com/mcp",
 	}
 }
@@ -81,7 +81,7 @@ func TestExecute_MapsLinkRequiredToTypedError(t *testing.T) {
 	if !errors.As(err, &typed) {
 		t.Fatalf("expected Agently-typed link error, got %T: %v", err, err)
 	}
-	if typed.ServerName != "helper" || typed.ProviderRef != "adelphic-dev6" {
+	if typed.ServerName != "helper" || typed.ProviderRef != "sample-provider" {
 		t.Fatalf("typed error identity = %+v", typed)
 	}
 }

@@ -22,7 +22,7 @@ type AuthoredCompiler interface {
 	Release()
 }
 
-func AuthoredDirectories(templates, intents []DirectorySource) ([]resources.ExtensionDirectory, []AuthoredCompiler, error) {
+func AuthoredDirectories(templates, intents []DirectorySource, playbookSources ...[]DirectorySource) ([]resources.ExtensionDirectory, []AuthoredCompiler, error) {
 	var dirs []resources.ExtensionDirectory
 	var compilers []AuthoredCompiler
 	for _, src := range templates {
@@ -41,19 +41,33 @@ func AuthoredDirectories(templates, intents []DirectorySource) ([]resources.Exte
 		compilers = append(compilers, c)
 		dirs = append(dirs, c.IntentDirectory(src.Namespace))
 	}
+	for _, group := range playbookSources {
+		for _, src := range group {
+			if src.Namespace == "users" {
+				return nil, nil, fmt.Errorf("users playbooks require trusted ownership projection")
+			}
+			c := resources.NewIntentCompilation(src.Directory, workspace.KindToolBundle)
+			compilers = append(compilers, c)
+			dirs = append(dirs, c.PlaybookDirectory(src.Namespace))
+		}
+	}
 	return dirs, compilers, nil
 }
 
 // BindAuthoredSources composes content with the managing provider's existing
 // revision-policy callback. It never evaluates permissions during startup.
-func BindAuthoredSources(ctx context.Context, root, owner string, templates, intents []DirectorySource, policy resources.LocalRevisionPolicyFactory, snapshot identity.ResourceSource) ([]resources.LocalResourceBinding, error) {
-	if len(templates)+len(intents) == 0 {
+func BindAuthoredSources(ctx context.Context, root, owner string, templates, intents []DirectorySource, policy resources.LocalRevisionPolicyFactory, snapshot identity.ResourceSource, playbookSources ...[]DirectorySource) ([]resources.LocalResourceBinding, error) {
+	playbookCount := 0
+	for _, group := range playbookSources {
+		playbookCount += len(group)
+	}
+	if len(templates)+len(intents)+playbookCount == 0 {
 		return nil, nil
 	}
 	if owner == "" || policy == nil || snapshot == nil {
 		return nil, identity.ErrResourceDenied
 	}
-	dirs, _, err := AuthoredDirectories(templates, intents)
+	dirs, _, err := AuthoredDirectories(templates, intents, playbookSources...)
 	if err != nil {
 		return nil, err
 	}
