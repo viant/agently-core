@@ -18,6 +18,15 @@ var datasourceTimingPhaseNames = []struct {
 	phase observe.Phase
 	name  string
 }{
+	{"report.resource.entry", "report_entry"},
+	{"report.resource.total", "report_total"},
+	{"report.resource.select", "report_select"},
+	{"report.resource.compile", "report_compile"},
+	{"report.resource.precheck", "report_precheck"},
+	{"report.resource.plan", "report_plan"},
+	{"report.resource.fetch", "report_fetch"},
+	{"report.resource.materialize", "report_materialize"},
+	{"report.resource.final", "report_final"},
 	{"datasource.client.fetch", "ds_client"},
 	{"datasource.client.resolve", "ds_resolve"},
 	{"datasource.service.fetch", "ds_service"},
@@ -140,7 +149,7 @@ func safeDatasourceTracePhase(phase observe.Phase) bool {
 		return false
 	}
 	allowed := false
-	for _, prefix := range []string{"artifact.", "catalog.", "datasource.", "gateway.", "manager.", "mcp.", "tool.", "window."} {
+	for _, prefix := range []string{"artifact.", "catalog.", "datasource.", "gateway.", "manager.", "mcp.", "tool.", "window.", "report."} {
 		if strings.HasPrefix(value, prefix) {
 			allowed = true
 			break
