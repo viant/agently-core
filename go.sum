@@ -1288,6 +1288,8 @@ github.com/viant/authz v0.0.0-20261022171511-cc9325165338 h1:5ST1P++4KhCr4PRSP+N
 github.com/viant/authz v0.0.0-20261022171511-cc9325165338/go.mod h1:iazfsC9LZkGsbZY2o/9Aq3p8eHaD09tWudyRN5vQ9eI=
 github.com/viant/authz v0.1.1 h1:UwqoFXWBi0UIuF7EGhJrMErUp0NBz8X6+GiNhIC4bM4=
 github.com/viant/authz v0.1.1/go.mod h1:iazfsC9LZkGsbZY2o/9Aq3p8eHaD09tWudyRN5vQ9eI=
+github.com/viant/authz v0.1.2-0.20261027201251-5ba403d7e022 h1:DOPMUWwogRn/120lexXnlpcdsSPfbZS1pV2ZPp6kXa0=
+github.com/viant/authz v0.1.2-0.20261027201251-5ba403d7e022/go.mod h1:iazfsC9LZkGsbZY2o/9Aq3p8eHaD09tWudyRN5vQ9eI=
 github.com/viant/bindly v0.4.1-0.20261006234956-d0b4e58bac4e h1:v6y+qHGUrnENV48HJlpJDcXi6eLjCJgkqlMszaIB0C4=
 github.com/viant/bindly v0.4.1-0.20261006234956-d0b4e58bac4e/go.mod h1:2S+CsLqdGI1+s7BSuEWx/+ew8p+/Ax7Xi3HKGiE3/O8=
 github.com/viant/bindly v0.4.1-0.20261009060128-e3a43863d252 h1:n3/+aqeQK5kuP9ttijzWYJfcCMoA7xBN9Qf9/MzT+Yo=
