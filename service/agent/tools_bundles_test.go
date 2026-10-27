@@ -19,6 +19,7 @@ import (
 	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
+	agenttool "github.com/viant/agently-core/service/agent/tool"
 	planner "github.com/viant/agently-core/service/planner"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
@@ -391,7 +392,7 @@ func TestResolveTools_ErrorsWhenRequestedBundlesResolveZeroDefinitions(t *testin
 	require.Contains(t, err.Error(), "analyst-diagnostic-tools")
 }
 
-func TestResolveTools_CachesStructuredBundleResolution(t *testing.T) {
+func TestStructuredToolDefinitions_CachesBundleResolution(t *testing.T) {
 	registry := &countingRegistry{
 		fakeRegistry: fakeRegistry{
 			defs: []llm.ToolDefinition{
@@ -411,23 +412,19 @@ func TestResolveTools_CachesStructuredBundleResolution(t *testing.T) {
 			}}, nil
 		},
 	}
-	query := &QueryInput{
-		Agent: &agentmdl.Agent{
-			Tool: agentmdl.Tool{Bundles: []string{"system"}},
-		},
-	}
+	selection := agenttool.Selection{Bundles: []string{"system"}}
 
-	_, err := svc.resolveTools(context.Background(), query)
+	_, err := svc.resolveStructuredToolDefinitions(context.Background(), selection)
 	require.NoError(t, err)
 	firstCalls := registry.matchCalls
 	require.Greater(t, firstCalls, 0)
 
-	_, err = svc.resolveTools(context.Background(), query)
+	_, err = svc.resolveStructuredToolDefinitions(context.Background(), selection)
 	require.NoError(t, err)
 	assert.Equal(t, firstCalls, registry.matchCalls)
 }
 
-func TestResolveTools_DoesNotCacheEmptyStructuredBundleResolution(t *testing.T) {
+func TestStructuredToolDefinitions_DoesNotCacheEmptyBundleResolution(t *testing.T) {
 	registry := &countingRegistry{fakeRegistry: fakeRegistry{}}
 	svc := &Service{
 		registry: registry,
@@ -440,23 +437,19 @@ func TestResolveTools_DoesNotCacheEmptyStructuredBundleResolution(t *testing.T) 
 			}}, nil
 		},
 	}
-	query := &QueryInput{
-		Agent: &agentmdl.Agent{
-			Tool: agentmdl.Tool{Bundles: []string{"catalog-tools"}},
-		},
-	}
+	selection := agenttool.Selection{Bundles: []string{"catalog-tools"}}
 
-	actual, err := svc.resolveTools(context.Background(), query)
+	actual, err := svc.resolveStructuredToolDefinitions(context.Background(), selection)
 	require.NoError(t, err)
 	require.Empty(t, actual)
 	firstCalls := registry.matchCalls
 	require.Greater(t, firstCalls, 0)
 
 	registry.defs = []llm.ToolDefinition{{Name: "catalog:get_record"}}
-	actual, err = svc.resolveTools(context.Background(), query)
+	actual, err = svc.resolveStructuredToolDefinitions(context.Background(), selection)
 	require.NoError(t, err)
 	require.Len(t, actual, 1)
-	assert.Equal(t, canon("catalog:get_record"), actual[0].Definition.Name)
+	assert.Equal(t, canon("catalog:get_record"), actual[0].Name)
 	assert.Greater(t, registry.matchCalls, firstCalls)
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/protocol/intent"
 	"github.com/viant/agently-core/protocol/mcpname"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	"github.com/viant/agently-core/service/intake"
@@ -114,7 +115,7 @@ func TestCompleteIntakeIgnoresUnavailableAutomaticPatternWithRequiredHealthyBund
 }
 
 func TestAutomaticSchemaDiscoveryUsesHealthyCatalogWithoutCompleteIntake(t *testing.T) {
-	for _, mode := range []string{"incomplete", "invalid"} {
+	for _, mode := range []string{"absent", "incomplete", "invalid"} {
 		t.Run(mode, func(t *testing.T) {
 			service, registry := selectedSchemaService()
 			registry.defs = registry.defs[:2]
@@ -136,6 +137,25 @@ func TestAutomaticSchemaDiscoveryUsesHealthyCatalogWithoutCompleteIntake(t *test
 			for _, pattern := range registry.patterns {
 				require.NotContains(t, pattern, "remote")
 			}
+		})
+	}
+}
+
+func TestAbsentIntakeStillRequiresExplicitBundleAndProfileSchemas(t *testing.T) {
+	for _, mode := range []string{"bundle", "profile"} {
+		t.Run(mode, func(t *testing.T) {
+			service, registry := selectedSchemaService()
+			input := selectionInput(nil)
+			ctx := context.Background()
+			if mode == "bundle" {
+				input.ToolBundles = []string{"required"}
+			} else {
+				ctx = withSelectedPromptProfile(ctx, &intent.Profile{ID: "required-profile", PreferredTools: []string{"remote:query"}})
+			}
+			_, err := service.buildToolSignatures(ctx, input)
+			require.ErrorIs(t, err, registry.broken)
+			_, err = service.resolveTools(ctx, input)
+			require.ErrorIs(t, err, registry.broken)
 		})
 	}
 }
