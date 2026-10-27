@@ -524,7 +524,7 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 		return nil, nil
 	}
 	preparationStarted = time.Now()
-	defs, err := s.resolveStructuredToolDefinitions(ctx, control)
+	defs, err := s.resolveTurnToolDefinitions(ctx, input, control)
 	writeBindingToolStage(ctx, "structured_resolution", preparationStarted, len(defs), false, err)
 	if err != nil {
 		return nil, err
