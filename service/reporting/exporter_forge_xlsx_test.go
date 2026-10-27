@@ -53,3 +53,25 @@ func TestForgeXLSXExporter_RejectsUnsupportedFormatsAndInvalidFill(t *testing.T)
 	require.ErrorContains(t, err, "reporting forge xlsx export:")
 	require.ErrorContains(t, err, "reportFill.specVersion must be >= 1")
 }
+
+func TestForgeXLSXExporterRendersMultipleTablesAsWorkbook(t *testing.T) {
+	var fill map[string]any
+	require.NoError(t, json.Unmarshal([]byte(validRenderableTestReportFillJSON()), &fill))
+	blocks := fill["blocks"].([]any)
+	second := map[string]any{}
+	for key, value := range blocks[0].(map[string]any) {
+		second[key] = value
+	}
+	second["id"] = "secondTable"
+	second["title"] = "Second table"
+	fill["blocks"] = append(blocks, second)
+	raw, err := json.Marshal(fill)
+	require.NoError(t, err)
+	result, err := NewForgeXLSXExporter().Export(context.Background(), &RenderRequest{Format: ExportFormatXLSX, ReportFill: raw})
+	require.NoError(t, err)
+	book, err := excelize.OpenReader(bytes.NewReader(result.Data))
+	require.NoError(t, err)
+	defer book.Close()
+	require.Contains(t, book.GetSheetList(), "Dashboard")
+	require.Greater(t, len(book.GetSheetList()), 1)
+}

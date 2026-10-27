@@ -158,19 +158,21 @@ type RenderResult struct {
 
 // SubmitExportRequest queues an export job against canonical reporting models.
 type SubmitExportRequest struct {
-	DependencyPins      map[string]identity.ResolvedResource `json:"dependencyPins,omitempty"`
-	DependencyToken     string                               `json:"dependencyToken,omitempty"`
-	ArtifactRef         string                               `json:"artifactRef,omitempty"`
-	Format              ExportFormat                         `json:"format,omitempty"`
-	Scope               ExportScope                          `json:"scope,omitempty"`
-	ConversationID      string                               `json:"conversationId,omitempty"`
-	WorkspaceID         string                               `json:"workspaceId,omitempty"`
-	Source              *ExportSource                        `json:"source,omitempty"`
-	ReportSpec          json.RawMessage                      `json:"reportSpec,omitempty"`
-	ReportFill          json.RawMessage                      `json:"reportFill,omitempty"`
-	ReportPrint         json.RawMessage                      `json:"reportPrint,omitempty"`
-	Metadata            json.RawMessage                      `json:"metadata,omitempty"`
-	ReportExportRequest *ReportExportRequest                 `json:"reportExportRequest,omitempty"`
+	DependencyPins  map[string]identity.ResolvedResource `json:"dependencyPins,omitempty"`
+	DependencyToken string                               `json:"dependencyToken,omitempty"`
+	ArtifactRef     string                               `json:"artifactRef,omitempty"`
+	Format          ExportFormat                         `json:"format,omitempty"`
+	// TableBlockID selects one authored table for a tabular resource export.
+	TableBlockID        string               `json:"tableBlockId,omitempty"`
+	Scope               ExportScope          `json:"scope,omitempty"`
+	ConversationID      string               `json:"conversationId,omitempty"`
+	WorkspaceID         string               `json:"workspaceId,omitempty"`
+	Source              *ExportSource        `json:"source,omitempty"`
+	ReportSpec          json.RawMessage      `json:"reportSpec,omitempty"`
+	ReportFill          json.RawMessage      `json:"reportFill,omitempty"`
+	ReportPrint         json.RawMessage      `json:"reportPrint,omitempty"`
+	Metadata            json.RawMessage      `json:"metadata,omitempty"`
+	ReportExportRequest *ReportExportRequest `json:"reportExportRequest,omitempty"`
 	// ReportRunID selects the T2 run-reference mode.
 	// ExportRequestID is deliberately absent: trusted runtime/host context
 	// supplies it outside the model-visible arguments. The backend loads and
