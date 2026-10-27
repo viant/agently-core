@@ -16,6 +16,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
+	identity "github.com/viant/agently-core/protocol/resource"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	runtimectx "github.com/viant/agently-core/runtime/requestctx"
 	skillformat "github.com/viant/mcp-protocol/extension/skills"
@@ -138,6 +139,7 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 	}
 	names, err := s.mcpSource.Names(ctx)
 	if err != nil {
+		traceDiscoveryFailure(ctx, "names", "", false, only, err)
 		return nil, err
 	}
 	sort.Strings(names)
@@ -146,6 +148,7 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 	for _, server := range names {
 		cfg, err := s.mcpSource.Options(ctx, server)
 		if err != nil {
+			traceDiscoveryFailure(ctx, "options", server, false, only, err)
 			return nil, err
 		}
 		automatic := cfg != nil && cfg.SkillDiscovery == nil
@@ -166,17 +169,63 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 		}
 		entries, err := s.listRemoteServer(ctx, agent, server, id, cfg)
 		if err != nil {
-			if automatic && only == "" && errors.Is(err, errSkillCapabilityUnavailable) {
+			traceDiscoveryFailure(ctx, "list", server, automatic, only, err)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if automatic && only == "" && errors.Is(err, errSkillCapabilityUnavailable) && optionalDiscoveryUnavailable(err) {
 				continue
 			}
-			if only == "" && optionalSkillLinkRequired(err) {
+			if only == "" && (optionalSkillLinkRequired(err) || automatic && optionalDiscoveryUnavailable(err)) {
+				recordDiscoveryFailure(ctx, id)
 				continue
 			}
 			return nil, fmt.Errorf("MCP skill discovery unavailable for %s: %w", id, err)
 		}
 		out = append(out, entries...)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// Only failures while contacting a provider are optional. Locally validated
+// identities, manifests, limits and pagination invariants remain hard errors.
+type discoveryUnavailable struct{ error }
+
+func (e *discoveryUnavailable) Unwrap() error { return e.error }
+
+func optionalDiscoveryUnavailable(err error) bool {
+	return optionalDiscoveryContact(err, false)
+}
+
+func optionalDiscoveryContact(err error, contact bool) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) || errors.Is(err, identity.ErrResource) || errors.Is(err, identity.ErrInvalid) {
+		return false
+	}
+	if required, ok := err.(interface{ RequiredSkillDiscoveryFailure() bool }); ok && required.RequiredSkillDiscoveryFailure() {
+		return false
+	}
+	if _, ok := err.(*discoveryUnavailable); ok {
+		contact = true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !optionalDiscoveryContact(child, contact) {
+				return false
+			}
+		}
+		return true
+	}
+	if child := errors.Unwrap(err); child != nil {
+		return optionalDiscoveryContact(child, contact)
+	}
+	return contact
 }
 
 // Only a pure typed missing-link outcome is optional during aggregate
@@ -239,7 +288,7 @@ func (s *Service) listRemoteServer(ctx context.Context, agent *agentmdl.Agent, s
 	defer cancel()
 	ctx, cli, opts, err := s.remoteClient(ctx, server, cfg)
 	if err != nil {
-		return nil, err
+		return nil, &discoveryUnavailable{err}
 	}
 	var out []remoteEntry
 	var cursor *string
@@ -249,7 +298,7 @@ func (s *Service) listRemoteServer(ctx context.Context, agent *agentmdl.Agent, s
 	for page := 0; page < positive(limits.MaxPages, 20); page++ {
 		res, err := cli.(manager.SkillsClient).ListSkills(ctx, cursor, opts...)
 		if err != nil {
-			return nil, err
+			return nil, &discoveryUnavailable{err}
 		}
 		if res == nil || res.ResultType != "complete" {
 			return nil, fmt.Errorf("empty resource response")
