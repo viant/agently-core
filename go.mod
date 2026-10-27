@@ -150,7 +150,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
-	github.com/viant/authz v0.1.1
+	github.com/viant/authz v0.1.2-0.20261027201251-5ba403d7e022
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
 	github.com/viant/govalidator v0.3.4 // indirect
