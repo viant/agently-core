@@ -21,6 +21,16 @@ import (
 	resourcesvc "github.com/viant/agently-core/service/resource"
 )
 
+type reportDatasourceFetcher interface {
+	FetchResourceDatasource(context.Context, identity.ResourceRef, string, map[string]interface{}) (*dsproto.FetchResult, error)
+}
+
+type reportDatasourceFetchFunc func(context.Context, identity.ResourceRef, string, map[string]interface{}) (*dsproto.FetchResult, error)
+
+func (f reportDatasourceFetchFunc) FetchResourceDatasource(ctx context.Context, owner identity.ResourceRef, id string, inputs map[string]interface{}) (*dsproto.FetchResult, error) {
+	return f(ctx, owner, id, inputs)
+}
+
 // SetDatasourceStack wires the datasource + overlay services into the
 // embedded backend and installs the elicitation refiner hook.
 //
@@ -124,6 +134,16 @@ func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDataso
 	}
 	if in == nil || strings.TrimSpace(in.ID) == "" {
 		return nil, fmt.Errorf("datasource id is required")
+	}
+	if in.Owner != nil {
+		if c.reportDatasources == nil || in.Resource != nil || in.Reference != nil || in.ProviderIdentity != "" || in.Target != nil || in.ResourceProof != nil || in.SelectionBinding != nil {
+			return nil, identity.ErrResourceDenied
+		}
+		result, err := c.reportDatasources.FetchResourceDatasource(ctx, identity.ResourceRef{URI: in.Owner.URI}, in.ID, in.Inputs)
+		if err != nil {
+			return nil, err
+		}
+		return toAPIFetchOutput(result), nil
 	}
 	raw, err := json.Marshal(in)
 	if err != nil {

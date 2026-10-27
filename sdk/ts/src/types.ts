@@ -1087,6 +1087,7 @@ export interface DatasourceCacheMeta {
 }
 
 export interface FetchDatasourceInput {
+    owner?: {uri: string};
     resource?: ResolvedDefinitionResource;
     windowParameters?: JSONObject;
     id: string;

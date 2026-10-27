@@ -1196,6 +1196,7 @@ export class AgentlyClient {
         const id = String(input?.id || '').trim();
         if (!id) throw new Error('datasource id is required');
         const body: JSONObject = {};
+        if (input.owner) body.owner = {uri: input.owner.uri};
         if (input.resource) body.resource = input.resource as unknown as JSONObject;
         if (input.windowParameters) body.windowParameters = input.windowParameters;
         if (input.inputs) body.inputs = input.inputs;
