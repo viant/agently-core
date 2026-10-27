@@ -80,9 +80,13 @@ func runThreePageReportCounts(t *testing.T, httpScope bool) {
 	}
 	service.SetResourceReaderFactory(catalog.Reader)
 	dataCalls := 0
+	var readsAtPageDispatch []int
 	service.SetResourceDatasetExecutor(func(ctx context.Context, _ identity.ResolvedResource, exact *dsproto.DataSource, args map[string]interface{}) (*dsproto.FetchResult, error) {
 		require.NoError(t, service.AuthorizeResourceDataset(ctx, exact, args))
 		dataCalls++
+		counter.mu.Lock()
+		readsAtPageDispatch = append(readsAtPageDispatch, counter.calls["reports/get"])
+		counter.mu.Unlock()
 		if dataCalls == 1 {
 			require.NotContains(t, args, "resume")
 		} else {
@@ -98,7 +102,7 @@ func runThreePageReportCounts(t *testing.T, httpScope bool) {
 	counter.mu.Lock()
 	defer counter.mu.Unlock()
 	t.Logf("actual three-page run: reports/get=%d namespaces/list=%d namespaces/get=%d data=%d", counter.calls["reports/get"], counter.calls["namespaces/list"], counter.calls["namespaces/get"], dataCalls)
-	expectedGets := 4 // selection plus current working validation for each page
+	expectedGets := 3 // selection, compile source check, and final source check
 	if httpScope {
 		expectedGets = 2 // one operation selection and its final source check
 	}
@@ -106,5 +110,6 @@ func runThreePageReportCounts(t *testing.T, httpScope bool) {
 	require.Equal(t, 1, counter.calls["namespaces/list"])
 	require.Equal(t, 1, counter.calls["namespaces/get"])
 
+	require.Equal(t, []int{expectedGets - 1, expectedGets - 1, expectedGets - 1}, readsAtPageDispatch, "paging reuses admitted metadata until the one final source check")
 	require.Equal(t, 3, dataCalls)
 }
