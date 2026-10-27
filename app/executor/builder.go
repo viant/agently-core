@@ -986,6 +986,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			}
 		}
 		out.Reporting = reportingsvc.New(reportingsvc.Options{
+			ResourceDatasetConcurrency:  out.Defaults.Reporting.ResourceDatasetConcurrency,
 			Compiler:                    reportingsvc.NewReportSpecCompiler(nil),
 			Exporter:                    reportingsvc.NewForgeExporter(nil),
 			Store:                       reportStore,

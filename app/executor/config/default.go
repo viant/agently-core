@@ -238,11 +238,12 @@ type ReportingTransitionalWithUIDefaults struct {
 }
 
 type ReportingDefaults struct {
-	Enabled            bool                                `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	QueueIntervalMs    int                                 `yaml:"queueIntervalMs,omitempty" json:"queueIntervalMs,omitempty"`
-	QueueBatchLimit    int                                 `yaml:"queueBatchLimit,omitempty" json:"queueBatchLimit,omitempty"`
-	Store              ReportingStoreDefaults              `yaml:"store,omitempty" json:"store,omitempty"`
-	TransitionalWithUI ReportingTransitionalWithUIDefaults `yaml:"transitionalWithUI,omitempty" json:"transitionalWithUI,omitempty"`
+	ResourceDatasetConcurrency int                                 `yaml:"resourceDatasetConcurrency,omitempty" json:"resourceDatasetConcurrency,omitempty"`
+	Enabled                    bool                                `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	QueueIntervalMs            int                                 `yaml:"queueIntervalMs,omitempty" json:"queueIntervalMs,omitempty"`
+	QueueBatchLimit            int                                 `yaml:"queueBatchLimit,omitempty" json:"queueBatchLimit,omitempty"`
+	Store                      ReportingStoreDefaults              `yaml:"store,omitempty" json:"store,omitempty"`
+	TransitionalWithUI         ReportingTransitionalWithUIDefaults `yaml:"transitionalWithUI,omitempty" json:"transitionalWithUI,omitempty"`
 }
 
 func (r ReportingDefaults) BrowserRunPersistenceEnabled() bool {

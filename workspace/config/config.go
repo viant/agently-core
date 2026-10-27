@@ -625,6 +625,9 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 	if src.Reporting.Enabled {
 		dst.Reporting.Enabled = true
 	}
+	if src.Reporting.ResourceDatasetConcurrency > 0 {
+		dst.Reporting.ResourceDatasetConcurrency = src.Reporting.ResourceDatasetConcurrency
+	}
 	if src.Reporting.QueueIntervalMs > 0 {
 		dst.Reporting.QueueIntervalMs = src.Reporting.QueueIntervalMs
 	}
