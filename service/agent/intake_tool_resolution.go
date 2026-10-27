@@ -19,9 +19,6 @@ type automaticToolPolicyKey struct{}
 // Explicit workflow/runtime requirements and valid complete selections still
 // resolve their schemas through the source; unrelated discovery cannot gate them.
 func (s *Service) resolveTurnToolDefinitions(ctx context.Context, input *QueryInput, control agenttool.Selection) ([]llm.ToolDefinition, error) {
-	if intakeToolSelectionHint(input) == nil {
-		return s.resolveStructuredToolDefinitions(ctx, control)
-	}
 	selection := intakeSelection(input)
 	candidates, err := s.discoverableToolDefinitions(ctx, input)
 	if err != nil {
