@@ -26,27 +26,28 @@ import (
 
 // MetadataResponse is the response for the workspace metadata endpoint.
 type MetadataResponse struct {
-	BrowserMCP         []mcpcfg.BrowserDescriptor `json:"browserMCP,omitempty"`
-	Composer           wscfg.Composer             `json:"composer"`
-	WorkspaceID        string                     `json:"workspaceId,omitempty"`
-	UIStyles           *uistyle.Descriptor        `json:"uiStyles,omitempty"`
-	UIThemes           *uistyle.Descriptor        `json:"uiThemes,omitempty"`
-	UIStyleDiagnostics []string                   `json:"uiStyleDiagnostics,omitempty"`
-	WorkspaceRoot      string                     `json:"workspaceRoot,omitempty"`
-	WorkspaceVersion   string                     `json:"workspaceVersion,omitempty"`
-	MetadataVersion    string                     `json:"metadataVersion,omitempty"`
-	DefaultAgent       string                     `json:"defaultAgent,omitempty"`
-	DefaultModel       string                     `json:"defaultModel,omitempty"`
-	DefaultEmbedder    string                     `json:"defaultEmbedder,omitempty"`
-	AppName            string                     `json:"appName,omitempty"`
-	AppIconRef         string                     `json:"appIconRef,omitempty"`
-	Defaults           *Defaults                  `json:"defaults,omitempty"`
-	Capabilities       Capabilities               `json:"capabilities,omitempty"`
-	Agents             []string                   `json:"agents,omitempty"`
-	Models             []string                   `json:"models,omitempty"`
-	AgentInfos         []AgentInfo                `json:"agentInfos,omitempty"`
-	ModelInfos         []ModelInfo                `json:"modelInfos,omitempty"`
-	Version            string                     `json:"version,omitempty"`
+	BrowserMCPDiagnostics []string                   `json:"browserMCPDiagnostics,omitempty"`
+	BrowserMCP            []mcpcfg.BrowserDescriptor `json:"browserMCP,omitempty"`
+	Composer              wscfg.Composer             `json:"composer"`
+	WorkspaceID           string                     `json:"workspaceId,omitempty"`
+	UIStyles              *uistyle.Descriptor        `json:"uiStyles,omitempty"`
+	UIThemes              *uistyle.Descriptor        `json:"uiThemes,omitempty"`
+	UIStyleDiagnostics    []string                   `json:"uiStyleDiagnostics,omitempty"`
+	WorkspaceRoot         string                     `json:"workspaceRoot,omitempty"`
+	WorkspaceVersion      string                     `json:"workspaceVersion,omitempty"`
+	MetadataVersion       string                     `json:"metadataVersion,omitempty"`
+	DefaultAgent          string                     `json:"defaultAgent,omitempty"`
+	DefaultModel          string                     `json:"defaultModel,omitempty"`
+	DefaultEmbedder       string                     `json:"defaultEmbedder,omitempty"`
+	AppName               string                     `json:"appName,omitempty"`
+	AppIconRef            string                     `json:"appIconRef,omitempty"`
+	Defaults              *Defaults                  `json:"defaults,omitempty"`
+	Capabilities          Capabilities               `json:"capabilities,omitempty"`
+	Agents                []string                   `json:"agents,omitempty"`
+	Models                []string                   `json:"models,omitempty"`
+	AgentInfos            []AgentInfo                `json:"agentInfos,omitempty"`
+	ModelInfos            []ModelInfo                `json:"modelInfos,omitempty"`
+	Version               string                     `json:"version,omitempty"`
 }
 
 type PublicAgentsResponse struct {

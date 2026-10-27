@@ -45,7 +45,10 @@ func (h *MetadataHandler) Metadata(ctx context.Context) (*MetadataResponse, erro
 		var err error
 		resp.BrowserMCP, err = h.browserMCP(ctx)
 		if err != nil {
-			return nil, metadataFailure(http.StatusServiceUnavailable, "browser MCP configuration unavailable", err)
+			// Browser tools are optional. Never expose a partial descriptor set or
+			// let their configuration failure prevent ordinary workspace loading.
+			resp.BrowserMCP = nil
+			resp.BrowserMCPDiagnostics = []string{"Browser tools are temporarily unavailable."}
 		}
 	}
 	if h.defaults != nil {
