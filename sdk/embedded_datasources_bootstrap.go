@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"path/filepath"
 	"strings"
 
@@ -31,6 +32,14 @@ func (c *backendClient) bootstrapDatasourceStack(rt *executor.Runtime) error {
 		return nil
 	}
 
+	if rt.Reporting != nil {
+		c.reportDatasources = reportDatasourceFetchFunc(func(ctx context.Context, owner identity.ResourceRef, id string, inputs map[string]interface{}) (*dsproto.FetchResult, error) {
+			if rt.ExecutionContext != nil {
+				ctx = rt.ExecutionContext(ctx)
+			}
+			return rt.Reporting.FetchResourceDatasource(ctx, owner, id, inputs)
+		})
+	}
 	ctx := context.Background()
 	policy.SetDefaultRuntime(rt.AuthorizationPolicy)
 
