@@ -3,6 +3,7 @@ package cohort
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,40 @@ import (
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
+
+type metadataRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f metadataRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestAnonymousMetadataTransportNeverBorrowsIncomingCredentials(t *testing.T) {
+	var calls int
+	base := metadataRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.Header.Get("Authorization") != "" {
+			t.Fatal("anonymous metadata borrowed incoming credentials")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+	})
+	r, err := http.NewRequest(http.MethodGet, "http://localhost/mcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Header.Set("Authorization", "Bearer incoming-user-token")
+	if _, err = (artifactHostBearer{base: base}).RoundTrip(r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Header.Get("Authorization") != "Bearer incoming-user-token" {
+		t.Fatal("anonymous metadata mutated caller request")
+	}
+	for _, token := range []HostToken{func(context.Context) (string, error) { return "", nil }, func(context.Context) (string, error) { return "", errors.New("credential unavailable") }} {
+		if _, err = (artifactHostBearer{base: base, token: token}).RoundTrip(r); err == nil {
+			t.Fatal("configured authentication fell back to anonymous metadata")
+		}
+	}
+	if calls != 1 {
+		t.Fatal("failed configured credentials reached producer")
+	}
+}
 
 func TestArtifactHostStatelessClientSurvivesProducerSessionReset(t *testing.T) {
 	var generation atomic.Int32

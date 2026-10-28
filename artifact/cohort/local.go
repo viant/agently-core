@@ -23,8 +23,9 @@ import (
 )
 
 // LocalConfig is an explicit operator-only activation file.
-// It contains secret resource REFERENCES, never a token or password. The
-// cached scy credential is a named local test user, not a service account.
+// Omitted credentials select anonymous published metadata. ExpectedTenant and
+// ExpectedAccount then supply the trusted cache and interactive admission scope.
+// Optional authenticated compatibility uses secret REFERENCES, never tokens.
 type LocalConfig struct {
 	Namespace        string   `yaml:"namespace"`
 	ConnectionName   string   `yaml:"connectionName"`
@@ -74,20 +75,35 @@ func loadArtifactCohortLocalConfigs(path string) ([]LocalConfig, error) {
 	providers, connections := map[string]bool{}, map[string]bool{}
 	for i := range configs {
 		config := &configs[i]
-		for _, value := range []string{config.ConnectionName, config.ProviderIdentity, config.ExpectedEndpoint, config.OAuthClient, config.UserSecret, config.Key} {
+		for _, value := range []string{config.ConnectionName, config.ProviderIdentity, config.ExpectedEndpoint} {
 			if strings.TrimSpace(value) == "" {
 				return nil, artifactcohort.ErrInvalid
 			}
 		}
-		if !filepath.IsAbs(config.OAuthClient) || !filepath.IsAbs(config.UserSecret) || config.Key != "blowfish://default" || providers[config.ProviderIdentity] || connections[config.ConnectionName] {
+		authenticated, err := localCredentialMode(*config)
+		if err != nil || providers[config.ProviderIdentity] || connections[config.ConnectionName] {
 			return nil, artifactcohort.ErrInvalid
 		}
 		providers[config.ProviderIdentity], connections[config.ConnectionName] = true, true
-		if len(config.Scopes) == 0 {
+		if authenticated && len(config.Scopes) == 0 {
 			config.Scopes = []string{"openid"}
 		}
 	}
 	return configs, nil
+}
+
+func localCredentialMode(config LocalConfig) (bool, error) {
+	authenticated := config.OAuthClient != "" || config.UserSecret != "" || config.Key != ""
+	if authenticated {
+		if !filepath.IsAbs(config.OAuthClient) || !filepath.IsAbs(config.UserSecret) || config.Key != "blowfish://default" {
+			return false, artifactcohort.ErrInvalid
+		}
+		return true, nil
+	}
+	if strings.TrimSpace(config.ExpectedTenant) == "" || strings.TrimSpace(config.ExpectedAccount) == "" || config.ExpectedSubject != "" || len(config.Scopes) != 0 {
+		return false, artifactcohort.ErrInvalid
+	}
+	return false, nil
 }
 
 func loadArtifactCohortLocalConfig(path string) (LocalConfig, error) {
@@ -176,9 +192,9 @@ func unverifiedTokenExpiry(value string) (time.Time, error) {
 	return time.Unix(claims.Exp, 0), nil
 }
 
-// prepareLocalArtifactCohort verifies the cached local test identity through
-// the runtime's existing ID-token principal provider before constructing a
-// dedicated host MCP connection. It does not trust JWT fields decoded here.
+// prepareLocalArtifactCohort constructs the configured metadata connection.
+// Optional authenticated bootstrap verifies its configured identity through
+// the existing principal provider; anonymous bootstrap resolves no principal.
 func prepareLocalArtifactCohort(ctx context.Context, rt *executor.Runtime, path string) (Binding, error) {
 	config, err := loadArtifactCohortLocalConfig(path)
 	if err != nil {
@@ -191,34 +207,38 @@ func prepareLocalArtifactCohortConfig(ctx context.Context, rt *executor.Runtime,
 	if rt == nil || rt.VerifiedPrincipalResolver == nil {
 		return Binding{}, artifactcohort.ErrDenied
 	}
-	tokens := &localScyHostToken{config: config}
-	tokenTiming := observe.Start(ctx, "startup.cohort.token", observe.Labels{})
-	value, err := tokens.Token(ctx)
-	tokenTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
+	authenticated, err := localCredentialMode(config)
 	if err != nil {
 		return Binding{}, err
 	}
-	verifiedCtx := svcauth.InjectTokens(ctx, &scyauth.Token{IDToken: value})
-	principalTiming := observe.Start(ctx, "startup.cohort.principal", observe.Labels{})
-	principal, err := rt.VerifiedPrincipalResolver.ResolvePrincipal(verifiedCtx)
-	principalTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
-	if err != nil || principal.Facts.Subject == "" || config.ExpectedSubject != "" && principal.Facts.Subject != config.ExpectedSubject || principal.Facts.Issuer == "" || principal.Facts.Tenant == "" || principal.AccountID == "" || !principal.Facts.ValidUntil.After(time.Now()) {
-		return Binding{}, artifactcohort.ErrDenied
-	}
-	if config.ExpectedTenant != "" && config.ExpectedTenant != principal.Facts.Tenant {
-		return Binding{}, artifactcohort.ErrDenied
-	}
-	if config.ExpectedAccount != "" && config.ExpectedAccount != principal.AccountID {
-		return Binding{}, artifactcohort.ErrDenied
+	tenant, account := config.ExpectedTenant, config.ExpectedAccount
+	var hostToken HostToken
+	if authenticated {
+		tokens := &localScyHostToken{config: config}
+		hostToken = tokens.Token
+		tokenTiming := observe.Start(ctx, "startup.cohort.token", observe.Labels{})
+		value, err := tokens.Token(ctx)
+		tokenTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
+		if err != nil {
+			return Binding{}, err
+		}
+		verifiedCtx := svcauth.InjectTokens(ctx, &scyauth.Token{IDToken: value})
+		principalTiming := observe.Start(ctx, "startup.cohort.principal", observe.Labels{})
+		principal, err := rt.VerifiedPrincipalResolver.ResolvePrincipal(verifiedCtx)
+		principalTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
+		if err != nil || principal.Facts.Subject == "" || config.ExpectedSubject != "" && principal.Facts.Subject != config.ExpectedSubject || principal.Facts.Issuer == "" || principal.Facts.Tenant == "" || principal.AccountID == "" || !principal.Facts.ValidUntil.After(time.Now()) || tenant != "" && tenant != principal.Facts.Tenant || account != "" && account != principal.AccountID {
+			return Binding{}, artifactcohort.ErrDenied
+		}
+		tenant, account = principal.Facts.Tenant, principal.AccountID
 	}
 	connectionTiming := observe.Start(ctx, "startup.cohort.connection", observe.Labels{})
-	client, notifications, err := NewHostClient(ctx, rt, config.ConnectionName, config.ProviderIdentity, config.ExpectedEndpoint, config.Origin, tokens.Token)
+	client, notifications, err := NewHostClient(ctx, rt, config.ConnectionName, config.ProviderIdentity, config.ExpectedEndpoint, config.Origin, hostToken)
 	connectionTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 	if err != nil {
 		return Binding{}, err
 	}
 	cacheTiming := observe.Start(ctx, "startup.cohort.cache", observe.Labels{})
-	binding, err := PrepareBinding(ctx, rt, Registration{ConnectionName: config.ConnectionName, ProviderIdentity: config.ProviderIdentity, Namespace: config.Namespace, Tenant: principal.Facts.Tenant, Account: principal.AccountID, Cohort: config.Cohort, Client: client, Notifications: notifications})
+	binding, err := PrepareBinding(ctx, rt, Registration{ConnectionName: config.ConnectionName, ProviderIdentity: config.ProviderIdentity, Namespace: config.Namespace, Tenant: tenant, Account: account, Cohort: config.Cohort, Client: client, Notifications: notifications})
 	cacheTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		switch closer := client.(type) {
@@ -246,7 +266,7 @@ func prepareLocalArtifactCohortConfig(ctx context.Context, rt *executor.Runtime,
 			}
 		}
 		var err error
-		stopNotifications, err = StartNotifications(ctx, config.ExpectedEndpoint, config.Origin, binding.Namespaces[0], tokens.Token, known.KnownHash, notifications)
+		stopNotifications, err = StartNotifications(ctx, config.ExpectedEndpoint, config.Origin, binding.Namespaces[0], hostToken, known.KnownHash, notifications)
 		return err
 	}
 	binding.Close = func() {

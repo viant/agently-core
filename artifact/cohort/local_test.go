@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLocalCohortConfigMultipleProviders(t *testing.T) {
@@ -77,6 +79,46 @@ func TestLocalCohortConfigMultipleProviders(t *testing.T) {
 			if _, err = loadArtifactCohortLocalConfigs(path); err == nil {
 				t.Fatal("trailing configuration document accepted")
 			}
+		})
+	}
+}
+
+func TestLocalCohortAnonymousMetadataConfiguration(t *testing.T) {
+	base := func() map[string]any {
+		return map[string]any{
+			"connectionName": "catalog", "providerIdentity": "catalog", "namespace": "example",
+			"expectedEndpoint": "http://127.0.0.1:8096/mcp", "expectedTenant": "example-tenant", "expectedAccount": "example-account",
+		}
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(map[string]any)
+		valid  bool
+	}{
+		{"anonymous", func(map[string]any) {}, true},
+		{"missing tenant", func(c map[string]any) { delete(c, "expectedTenant") }, false},
+		{"missing account", func(c map[string]any) { delete(c, "expectedAccount") }, false},
+		{"partial credential", func(c map[string]any) { c["oauthClient"] = "/config/client.enc" }, false},
+		{"subject requires credential", func(c map[string]any) { c["expectedSubject"] = "user" }, false},
+		{"scopes require credential", func(c map[string]any) { c["scopes"] = []string{"openid"} }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := base()
+			tc.mutate(config)
+			raw, err := json.Marshal(config)
+			require.NoError(t, err)
+			path := filepath.Join(t.TempDir(), "cohort.json")
+			require.NoError(t, os.WriteFile(path, raw, 0600))
+			got, err := loadArtifactCohortLocalConfig(path)
+			if !tc.valid {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Empty(t, got.OAuthClient)
+			require.Empty(t, got.UserSecret)
+			require.Empty(t, got.Key)
+			require.Empty(t, got.Scopes)
 		})
 	}
 }

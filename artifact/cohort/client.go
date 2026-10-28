@@ -16,9 +16,10 @@ import (
 	mcpclient "github.com/viant/mcp/client"
 )
 
-// HostToken supplies a producer-authorized host credential from an
-// operator-owned service identity. It is never called with a browser request
-// or Agently user token. A rotating implementation can refresh on each call.
+// HostToken supplies an optional producer-authorized metadata credential from
+// operator-owned configuration. A nil HostToken selects anonymous metadata;
+// a configured callback must return a nonempty credential or fail closed.
+// It is never called with a browser request or Agently user token.
 type HostToken func(context.Context) (string, error)
 type artifactHostBearer struct {
 	base   http.RoundTripper
@@ -27,13 +28,16 @@ type artifactHostBearer struct {
 }
 
 func (b artifactHostBearer) RoundTrip(request *http.Request) (*http.Response, error) {
-	token, err := b.token(request.Context())
-	if err != nil || strings.TrimSpace(token) == "" {
-		return nil, artifactcohort.ErrDenied
-	}
 	clone := request.Clone(request.Context())
 	clone.Header = request.Header.Clone()
-	clone.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+	clone.Header.Del("Authorization")
+	if b.token != nil {
+		token, err := b.token(request.Context())
+		if err != nil || strings.TrimSpace(token) == "" {
+			return nil, artifactcohort.ErrDenied
+		}
+		clone.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+	}
 	if b.origin != "" {
 		clone.Header.Set("Origin", b.origin)
 	}
@@ -41,10 +45,11 @@ func (b artifactHostBearer) RoundTrip(request *http.Request) (*http.Response, er
 }
 
 // NewHostClient opens a dedicated stateless MCP client for the
-// polled native catalog. A producer restart cannot strand a negotiated
+// published metadata catalog. A producer restart cannot strand a negotiated
 // Mcp-Session-Id in this client. expectedEndpoint pins the trusted destination.
+// A nil token selects a producer's anonymous metadata contract.
 func NewHostClient(ctx context.Context, rt *executor.Runtime, connection, provider, expectedEndpoint, origin string, token HostToken) (mcpclient.Interface, *artifactcohort.NotificationHandler, error) {
-	if ctx == nil || ctx.Err() != nil || rt == nil || rt.MCPManager == nil || connection == "" || provider == "" || token == nil {
+	if ctx == nil || ctx.Err() != nil || rt == nil || rt.MCPManager == nil || connection == "" || provider == "" {
 		return nil, nil, artifactcohort.ErrInvalid
 	}
 	options, err := rt.MCPManager.Options(ctx, connection)
