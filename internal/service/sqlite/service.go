@@ -255,9 +255,12 @@ func ensureLegacyTurnColumns(ctx context.Context, db *sql.DB) error {
 	}
 
 	columns := map[string]string{
-		"origin":        "TEXT",
-		"goal_id":       "TEXT",
-		"status_reason": "TEXT",
+		"origin":              "TEXT",
+		"goal_id":             "TEXT",
+		"status_reason":       "TEXT",
+		"feedback_rating":     "INTEGER NOT NULL DEFAULT 0",
+		"feedback_comment":    "TEXT",
+		"feedback_updated_at": "DATETIME",
 	}
 	for column, dataType := range columns {
 		present, err := sqliteColumnExists(ctx, db, tableName, column)

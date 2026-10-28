@@ -8,7 +8,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.4
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.4
 	github.com/aws/smithy-go v1.28.5
-	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dlclark/regexp2/v2 v2.8.1 // indirect
 	github.com/dop251/goja v0.0.0-20261007200356-e2ea74d3d210 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11
@@ -36,7 +35,7 @@ require (
 	github.com/viant/bindly v0.4.1
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.7
-	github.com/viant/forge v0.3.47-0.20261028180512-8766ced7cfaa
+	github.com/viant/forge v0.3.47-0.20261028191321-05ca8eaf1fe8
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.1
 	github.com/viant/jsonrpc v0.25.1
@@ -47,13 +46,12 @@ require (
 	github.com/viant/mcp-ui v0.2.1
 	github.com/viant/parsly v0.3.3
 	github.com/viant/scy v0.35.1
-	github.com/viant/toolbox v0.39.0
+	github.com/viant/toolbox v0.39.0 // indirect
 	github.com/viant/velty v0.4.1
 	github.com/viant/xdatly v1.0.1-0.20261015075741-94be032b69bb
 	github.com/xeipuuv/gojsonschema v1.2.0
 	github.com/xuri/excelize/v2 v2.11.0
 	golang.org/x/crypto v0.55.0
-	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/text v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -149,18 +147,18 @@ require (
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/shakinm/xlsReader v0.9.12 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
-	github.com/tidwall/gjson v1.20.0 // indirect
+	github.com/tidwall/gjson v1.20.0
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	github.com/tiendc/go-deepcopy v1.7.2 // indirect
+	github.com/tiendc/go-deepcopy v1.7.2
 	github.com/viant/authz v0.1.2-0.20261027201251-5ba403d7e022
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
 	github.com/viant/govalidator v0.3.4 // indirect
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/sqlite-vec v0.3.1 // indirect
-	github.com/viant/sqlparser v0.13.1 // indirect
+	github.com/viant/sqlparser v0.13.1
 	github.com/viant/sqlx v0.26.2-0.20261028024456-7f52e55c52a2
 	github.com/viant/structology v0.10.1
 	github.com/viant/structql v0.5.5 // indirect
@@ -188,7 +186,7 @@ require (
 	golang.org/x/image v0.38.0
 	golang.org/x/mod v0.38.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/api v0.283.0 // indirect

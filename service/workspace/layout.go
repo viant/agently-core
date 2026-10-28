@@ -268,11 +268,12 @@ func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*Layout
 			defer menuRead.Close()
 		}
 		if err != nil || menuRead == nil || menuRead.Revalidate == nil || menuRead.Revision == "" {
-			logx.Debugf("workspace-navigation", "menu read failed: %v", err)
+			logLayoutMenuFailure("menu_read", err)
 			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
 		}
 		var applications []LayoutApplication
 		if err = json.Unmarshal(menuRead.Applications, &applications); err != nil || applications == nil {
+			logLayoutMenuFailure("menu_decode", err)
 			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
 		}
 		if menuRead.ProviderOwnedApplications {
@@ -282,7 +283,7 @@ func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*Layout
 		}
 		layout.Applications = applications
 		if err = validateLayout(&layout); err != nil {
-			logx.Debugf("workspace-navigation", "menu layout invalid: %v", err)
+			logLayoutMenuFailure("menu_validate", err)
 			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
 		}
 	}
@@ -305,6 +306,10 @@ func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*Layout
 	revisionBytes := append(append([]byte(source), 0), data...)
 	if menuRead != nil {
 		if err = menuRead.Revalidate(ctx); err != nil || ctx.Err() != nil {
+			if err == nil {
+				err = ctx.Err()
+			}
+			logLayoutMenuFailure("revalidate", err)
 			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
 		}
 		revisionBytes = append(append(revisionBytes, 0), menuRead.Revision...)

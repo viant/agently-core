@@ -284,6 +284,7 @@ func findOrCreateTurn(state *ConversationState, turnID string, status TurnStatus
 		}
 	}
 	turn := &TurnState{
+		Feedback:  &TurnFeedback{},
 		TurnID:    turnID,
 		Status:    status,
 		CreatedAt: createdAt,

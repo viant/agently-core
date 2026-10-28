@@ -1536,6 +1536,12 @@ export function applyTranscript(
     return state;
 }
 
+/** Apply a confirmed API response to the same canonical turn used by history. */
+export function applyTurnFeedback(state: ClientConversationState, turnId: string, feedback: NonNullable<ClientTurnState['feedback']>): void {
+    const turn = findTurnByTurnId(state, turnId);
+    if (turn) forceTranscriptRefinement(turn, 'feedback', { ...feedback });
+}
+
 function mergeTranscriptTurn(
     state: ClientConversationState,
     snapshotTurn: CanonicalTurnState,
@@ -1584,6 +1590,10 @@ function mergeTranscriptTurn(
         }
         if (snapshotTurn.createdAt) writeField(turn, 'createdAt', snapshotTurn.createdAt, 'transcript');
     }
+    // Feedback is a replaceable persisted value. Zero/null are explicit clears,
+    // independent of the append-only content and lifecycle merge rules.
+    if (snapshotTurn.feedback !== undefined) forceTranscriptRefinement(turn, 'feedback', { ...snapshotTurn.feedback });
+    if (snapshotTurn.feedbackEditable !== undefined) forceTranscriptRefinement(turn, 'feedbackEditable', snapshotTurn.feedbackEditable);
     if (isTerminalLifecycle(turn.lifecycle)) forceTranscriptRefinement(turn, 'waitKind', 'none');
     dropMatchedPendingBootstrapTurn(state, turn, snapshotTurn);
     // Canonical queue state is current committed state, while admission events

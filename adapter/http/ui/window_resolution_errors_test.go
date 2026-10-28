@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -57,6 +59,11 @@ func TestCanonicalHTTPOpenPreservesTrustedResolutionFailures(t *testing.T) {
 			{"native mapped unavailable", permittedview.ErrUnavailable, 503}, {"denied", identity.ErrResourceDenied, 404}, {"stale", identity.ErrResourceStale, 404}, {"unknown", errors.New("unavailable timeout 403 private text"), 404},
 		} {
 			t.Run(fmt.Sprintf("%s/late=%t", test.name, late), func(t *testing.T) {
+				t.Setenv("AGENTLY_DEBUG", "off")
+				var logs bytes.Buffer
+				previousLog := log.Writer()
+				log.SetOutput(&logs)
+				t.Cleanup(func() { log.SetOutput(previousLog) })
 				root := t.TempDir()
 				source := &resolutionHTTPSource{failure: fmt.Errorf("private source detail: %w", test.failure), late: late, raw: json.RawMessage(`{"view":{"content":{"id":"safe"}}}`)}
 				resolver := &identity.ResourceResolver{ProviderIdentity: "owner", Source: source, Policy: resolutionHTTPPolicy{}}
@@ -93,6 +100,9 @@ func TestCanonicalHTTPOpenPreservesTrustedResolutionFailures(t *testing.T) {
 				}
 				if response.Code != expected || emissions != expectedEmissions || strings.Contains(response.Body.String(), "private") || strings.Contains(response.Body.String(), "selectionBinding") {
 					t.Fatalf("canonical chain wrong status/release: %d %s emissions=%d reads=%d", response.Code, response.Body.String(), emissions, source.reads)
+				}
+				if !strings.Contains(logs.String(), `window.definition.failed stage="definition_read" window="view"`) || strings.Contains(logs.String(), "private source detail") {
+					t.Fatalf("unsafe or missing operational diagnostic: %s", logs.String())
 				}
 			})
 		}

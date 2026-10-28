@@ -138,6 +138,7 @@ var MCPResourceDocuments = shared.MCPResourceDocuments
 
 type MCPDefinitionSource = shared.MCPDefinitionSource
 type MCPReferenceReader = shared.MCPReferenceReader
+type MCPReferenceFailure = shared.MCPReferenceFailure
 
 var NewMCPReferenceReader = shared.NewMCPReferenceReader
 

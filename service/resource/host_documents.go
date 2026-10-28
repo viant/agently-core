@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	bundle "github.com/viant/agently-core/protocol/tool/bundle"
-	"gopkg.in/yaml.v3"
 	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/viant/agently-core/internal/logx"
+	bundle "github.com/viant/agently-core/protocol/tool/bundle"
+	"gopkg.in/yaml.v3"
 )
 
 // HostDocuments is a typed consumer of explicit startup inventory. It stores
@@ -114,7 +116,14 @@ func (d *HostDocuments) Read(ctx context.Context, file string) ([]byte, error) {
 	if uri == "" {
 		return nil, fmt.Errorf("host document is not registered")
 	}
-	return d.Gateway.ReadNativeResource(ctx, d.Connection, d.Provider, uri)
+	raw, err := d.Gateway.ReadNativeResource(ctx, d.Connection, d.Provider, uri)
+	if err != nil {
+		// The registered identity identifies the document without logging its
+		// body or an untrusted provider error.
+		logx.OperationalWarnf("resource", "host.document.read.failed file=%q uri=%q connection=%q provider=%q errorType=%T",
+			logx.SafeResourceIdentifier(file), logx.SafeResourceIdentifier(uri), logx.SafeResourceIdentifier(d.Connection), logx.SafeResourceIdentifier(d.Provider), err)
+	}
+	return raw, err
 }
 func (d *HostDocuments) ReadURI(ctx context.Context, uri string) ([]byte, error) {
 	parsed, err := url.Parse(uri)

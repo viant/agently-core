@@ -45,6 +45,7 @@ func buildTurnState(turn *convstore.Turn, includeModelPayloads bool) *TurnState 
 	if ts == nil {
 		return nil
 	}
+	ts.Feedback = &TurnFeedback{Rating: intValue(turn.FeedbackRating), Comment: turn.FeedbackComment, UpdatedAt: turn.FeedbackUpdatedAt}
 	// Queue metadata
 	if turn.StartedByMessageId != nil {
 		ts.StartedByMessageID = strings.TrimSpace(*turn.StartedByMessageId)

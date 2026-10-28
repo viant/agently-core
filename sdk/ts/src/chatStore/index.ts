@@ -16,6 +16,7 @@ export {
     applyEvent,
     applyLocalSubmit,
     applyTranscript,
+    applyTurnFeedback,
     getFieldProvenance,
     isEffectiveValue,
     newConversationState,

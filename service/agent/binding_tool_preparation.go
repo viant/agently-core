@@ -9,6 +9,7 @@ import (
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	resources "github.com/viant/agently-core/service/resource"
@@ -101,6 +102,11 @@ func (s *Service) ambientToolBundles(ctx context.Context) (items []*toolbundle.B
 }
 
 func writeBindingToolStage(ctx context.Context, stage string, started time.Time, count int, reused bool, err error) {
+	if err != nil {
+		turn, _ := requestctx.TurnMetaFromContext(ctx)
+		code, status := diagnosticRPCFields(err)
+		logx.OperationalWarnf("conversation", "binding.tool_stage.failed convo=%q turn=%q stage=%q errorType=%T rpcCode=%d rpcStatus=%d", requestctx.ConversationIDFromContext(ctx), turn.TurnID, stage, err, code, status)
+	}
 	if !debugtrace.Enabled() {
 		return
 	}

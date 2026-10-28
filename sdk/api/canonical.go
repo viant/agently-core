@@ -25,6 +25,8 @@ type ConversationState struct {
 }
 
 type TurnState struct {
+	Feedback            *TurnFeedback              `json:"feedback"`
+	FeedbackEditable    bool                       `json:"feedbackEditable"`
 	TurnID              string                     `json:"turnId"`
 	Status              TurnStatus                 `json:"status"`
 	ErrorMessage        string                     `json:"errorMessage,omitempty"`
