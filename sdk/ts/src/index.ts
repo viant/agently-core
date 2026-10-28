@@ -21,7 +21,7 @@ export type {
     Conversation, ConversationPage, CreateConversationInput,
     ListConversationsInput, UpdateConversationInput, Goal, GoalEnvelope, CreateGoalInput, UpdateGoalInput,
     // Turn / Transcript
-    Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
+    TurnFeedback, SetTurnFeedbackInput, Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
     // Execution pages (canonical)
     ExecutionPage, LiveExecutionGroup, LiveExecutionGroupsById, ModelStepState, ModelUsageState, ToolStepState,
     // Message
@@ -220,6 +220,7 @@ export {
     applyEvent as chatStoreApplyEvent,
     applyLocalSubmit as chatStoreApplyLocalSubmit,
     applyTranscript as chatStoreApplyTranscript,
+    applyTurnFeedback as chatStoreApplyTurnFeedback,
     describeHeader as chatStoreDescribeHeader,
     newConversationState as chatStoreNewConversationState,
     projectConversation as chatStoreProjectConversation,

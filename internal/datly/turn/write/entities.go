@@ -96,6 +96,36 @@ func (entity *Turn) SetStatusReason(value *string) {
 	}
 	entity.Has.StatusReason = true
 }
+func (entity *Turn) GetFeedbackRating() *int {
+	return entity.FeedbackRating
+}
+func (entity *Turn) SetFeedbackRating(value *int) {
+	entity.FeedbackRating = value
+	if entity.Has == nil {
+		entity.Has = &TurnHas{}
+	}
+	entity.Has.FeedbackRating = true
+}
+func (entity *Turn) GetFeedbackComment() *string {
+	return entity.FeedbackComment
+}
+func (entity *Turn) SetFeedbackComment(value *string) {
+	entity.FeedbackComment = value
+	if entity.Has == nil {
+		entity.Has = &TurnHas{}
+	}
+	entity.Has.FeedbackComment = true
+}
+func (entity *Turn) GetFeedbackUpdatedAt() *time.Time {
+	return entity.FeedbackUpdatedAt
+}
+func (entity *Turn) SetFeedbackUpdatedAt(value *time.Time) {
+	entity.FeedbackUpdatedAt = value
+	if entity.Has == nil {
+		entity.Has = &TurnHas{}
+	}
+	entity.Has.FeedbackUpdatedAt = true
+}
 func (entity *Turn) GetErrorMessage() *string {
 	return entity.ErrorMessage
 }

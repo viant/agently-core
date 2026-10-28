@@ -60,6 +60,8 @@ export interface UserRenderRow extends HostTrust {
 }
 
 export interface AssistantRenderRow extends HostTrust {
+    feedback?: ClientTurnState['feedback'];
+    feedbackEditable?: boolean;
     attachments?: WorkspaceAttachmentState[];
     kind: 'assistant';
     renderKey: string;
@@ -171,6 +173,8 @@ export interface LinkedConversationRenderView extends HostTrust {
 
 export interface IterationRenderRow extends HostTrust {
     assistantFinal?: ClientTurnState['assistantFinal'];
+    feedback?: ClientTurnState['feedback'];
+    feedbackEditable?: boolean;
     waitKind?: ClientTurnState['waitKind'];
     operationalNarration?: string;
     attachments?: WorkspaceAttachmentState[];
@@ -456,6 +460,8 @@ function messageToRow(message: ClientStandaloneMessage, turn: ClientTurnState): 
     }
     return {
         kind: 'assistant',
+        feedback: turn.feedback,
+        feedbackEditable: turn.lifecycle === 'completed' && turn.feedbackEditable === true,
         attachments: message.attachments,
         renderKey: message.renderKey,
         connectionProfile: message.connectionProfile,
@@ -482,6 +488,8 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
     const isStreaming = turn.lifecycle === 'pending' || turn.lifecycle === 'running';
     return {
         kind: 'iteration',
+        feedback: turn.feedback,
+        feedbackEditable: turn.lifecycle === 'completed' && turn.feedbackEditable === true,
         operationalNarration: turn.operationalNarration,
         attachments: turn.assistantFinal?.attachments,
         assistantFinal: turn.assistantFinal,

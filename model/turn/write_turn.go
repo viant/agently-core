@@ -10,6 +10,9 @@ type Turn struct {
 	QueueSeq              *int64     `sqlx:"queue_seq" json:",omitempty"`
 	Origin                *string    `sqlx:"origin" json:",omitempty"`
 	GoalID                *string    `sqlx:"goal_id" json:",omitempty"`
+	FeedbackRating        *int       `sqlx:"feedback_rating"`
+	FeedbackComment       *string    `sqlx:"feedback_comment"`
+	FeedbackUpdatedAt     *time.Time `sqlx:"feedback_updated_at"`
 	StatusReason          *string    `sqlx:"status_reason" json:",omitempty"`
 	Status                string     `sqlx:"status" validate:"required"`
 	StartedByMessageID    *string    `sqlx:"started_by_message_id" json:",omitempty"`
@@ -36,6 +39,9 @@ type TurnHas struct {
 	QueueSeq              bool
 	Origin                bool
 	GoalID                bool
+	FeedbackRating        bool
+	FeedbackComment       bool
+	FeedbackUpdatedAt     bool
 	StatusReason          bool
 	Status                bool
 	StartedByMessageID    bool
@@ -120,4 +126,20 @@ func ensureHas(h **TurnHas) {
 	if *h == nil {
 		*h = &TurnHas{}
 	}
+}
+
+func (t *Turn) SetFeedbackRating(v int) {
+	t.FeedbackRating = &v
+	ensureHas(&t.Has)
+	t.Has.FeedbackRating = true
+}
+func (t *Turn) SetFeedbackComment(v *string) {
+	t.FeedbackComment = v
+	ensureHas(&t.Has)
+	t.Has.FeedbackComment = true
+}
+func (t *Turn) SetFeedbackUpdatedAt(v *time.Time) {
+	t.FeedbackUpdatedAt = v
+	ensureHas(&t.Has)
+	t.Has.FeedbackUpdatedAt = true
 }

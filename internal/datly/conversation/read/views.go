@@ -57,6 +57,9 @@ type TranscriptView struct {
 	QueueSeq              *int           `sqlx:"queue_seq" json:"queueSeq"`
 	Origin                *string        `sqlx:"origin" json:"origin"`
 	StatusReason          *string        `sqlx:"status_reason" json:"statusReason"`
+	FeedbackRating        *int           `sqlx:"feedback_rating,required=true" json:"feedbackRating"`
+	FeedbackComment       *string        `sqlx:"feedback_comment" json:"feedbackComment"`
+	FeedbackUpdatedAt     *time.Time     `sqlx:"feedback_updated_at" json:"feedbackUpdatedAt"`
 	ErrorMessage          *string        `sqlx:"error_message" json:"errorMessage"`
 	StartedByMessageId    *string        `sqlx:"started_by_message_id" json:"startedByMessageId"`
 	RetryOf               *string        `sqlx:"retry_of" json:"retryOf"`

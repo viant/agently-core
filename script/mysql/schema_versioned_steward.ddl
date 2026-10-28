@@ -2856,3 +2856,34 @@ CALL schema_upgrade_42() $$
 DROP PROCEDURE schema_upgrade_42 $$
 
 DELIMITER ;
+
+-- Optional user feedback for the final response of a turn. No CHECK constraint.
+DELIMITER $$
+DROP PROCEDURE IF EXISTS schema_upgrade_43 $$
+CREATE PROCEDURE schema_upgrade_43()
+BEGIN
+    IF get_schema_version() = 43 THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'turn' AND COLUMN_NAME = 'feedback_rating'
+        ) THEN
+            ALTER TABLE turn ADD COLUMN feedback_rating SMALLINT NOT NULL DEFAULT 0;
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'turn' AND COLUMN_NAME = 'feedback_comment'
+        ) THEN
+            ALTER TABLE turn ADD COLUMN feedback_comment TEXT NULL;
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'turn' AND COLUMN_NAME = 'feedback_updated_at'
+        ) THEN
+            ALTER TABLE turn ADD COLUMN feedback_updated_at DATETIME DEFAULT NULL;
+        END IF;
+        CALL set_schema_version(44);
+    END IF;
+END $$
+CALL schema_upgrade_43() $$
+DROP PROCEDURE schema_upgrade_43 $$
+DELIMITER ;

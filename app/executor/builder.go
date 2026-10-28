@@ -1232,6 +1232,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 	r.closeOnce.Do(func() {
 		if r.mcpDefinitions != nil {
 			r.mcpDefinitions.gateway.Close()
+			r.mcpDefinitions.failures.Close()
 		}
 		if r.PrimitiveProviders != nil {
 			r.PrimitiveProviders.Close()

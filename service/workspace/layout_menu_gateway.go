@@ -32,10 +32,15 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 	if providerOwned {
 		return optionalGatewayLayoutMenuReader(gateway, sources)
 	}
-	return func(ctx context.Context) (*LayoutMenuRead, error) {
+	return func(ctx context.Context) (read *LayoutMenuRead, readErr error) {
+		stage, connectionName, resourceURI := "gateway_unavailable", "", ""
+		defer func() {
+			readErr = markLayoutMenuFailure(stage, connectionName, resourceURI, readErr)
+		}()
 		if gateway == nil {
 			return nil, identity.ErrResourceDenied
 		}
+		stage = "begin_read"
 		scoped, finish, err := gateway.BeginReadSequence(ctx, nil)
 		if err != nil {
 			return nil, err
@@ -50,6 +55,7 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 				_ = closeRead()
 			}
 		}()
+		stage = "source_discovery"
 		configured, err := sources(ctx)
 		if err != nil {
 			return nil, err
@@ -63,11 +69,13 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 		applications := make([]json.RawMessage, 0)
 		revisions := make([]string, 0, len(configured))
 		for _, source := range configured {
+			stage, connectionName, resourceURI = "source_validation", source.connection.Name, source.Resource.URI
 			uri, err := identity.ParseResourceURI(source.Resource.URI)
 			if err != nil || uri.Kind != "navigation" || source.ProviderIdentity == "" {
 				return nil, identity.ErrResourceDenied
 			}
 			connection := source.connection
+			stage = "connection_binding"
 			if connection.Name == "" {
 				connection, err = gateway.ConnectionForResource(ctx, uri, source.ProviderIdentity)
 			} else if connection.ProviderIdentity != source.ProviderIdentity {
@@ -76,10 +84,19 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 			if err != nil {
 				return nil, fmt.Errorf("navigation connection %s: %w", source.Resource.URI, err)
 			}
-			got, err := resources.GetWithCodec[json.RawMessage](ctx, gateway, connection, source.Resource, nil, resources.DefinitionCodec[json.RawMessage]{ID: "agently.navigation.layout.v1", Parse: validateNavigationDefinition})
+			connectionName = connection.Name
+			stage = "definition_read"
+			got, err := resources.GetWithCodec[json.RawMessage](ctx, gateway, connection, source.Resource, nil, resources.DefinitionCodec[json.RawMessage]{
+				ID: "agently.navigation.layout.v1",
+				Parse: func(raw json.RawMessage) (json.RawMessage, error) {
+					definition, parseErr := validateNavigationDefinition(raw)
+					return definition, markLayoutMenuFailure("definition_validation", connection.Name, source.Resource.URI, parseErr)
+				},
+			})
 			if err != nil {
 				return nil, fmt.Errorf("navigation read %s: %w", source.Resource.URI, err)
 			}
+			stage = "definition_validation"
 			if got.ResolvedResource == nil || len(got.Definition) == 0 {
 				return nil, fmt.Errorf("navigation projection %s: %w", source.Resource.URI, identity.ErrResourceDenied)
 			}
@@ -104,6 +121,7 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 						continue
 					}
 				}
+				stage = "projection_binding"
 				bound, err := bindNavigationOwner(raw, uri.Namespace, connection.ProviderIdentity, connection.Name)
 				if err != nil {
 					return nil, err
@@ -114,6 +132,7 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 			selected = append(selected, held{connection, pin, projection})
 			revisions = append(revisions, pin.ProviderIdentity+"\x00"+pin.URI+"\x00"+pin.Selector()+"\x00"+pin.ContentFingerprint+"\x00"+projection+"\x00"+source.ApplicationID)
 		}
+		stage, connectionName, resourceURI = "projection_encoding", "", ""
 		raw, err := json.Marshal(applications)
 		if err != nil {
 			return nil, err
@@ -125,7 +144,7 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 		success = true
 		return &LayoutMenuRead{Applications: raw, Revision: identity.ContentFingerprint(parts), Close: closeRead, ProviderOwnedApplications: providerOwned, Revalidate: func(release context.Context) error {
 			if release == nil || release.Err() != nil {
-				return identity.ErrResourceDenied
+				return markLayoutMenuFailure("revalidate_context", "", "", identity.ErrResourceDenied)
 			}
 			for _, hold := range selected {
 				if hold.pin.Kind == sharedidentity.PublishedCandidate {
@@ -136,13 +155,13 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 				}
 				got, err := resources.Get[json.RawMessage](ctx, gateway, hold.connection, identity.ResourceRef{URI: hold.pin.URI, Revision: hold.pin.Selector()}, &hold.pin)
 				if err != nil {
-					return err
+					return markLayoutMenuFailure("revalidate_read", hold.connection.Name, hold.pin.URI, err)
 				}
 				if identity.ContentFingerprint(got.Definition) != hold.projection {
-					return identity.ErrResourceStale
+					return markLayoutMenuFailure("revalidate_projection", hold.connection.Name, hold.pin.URI, identity.ErrResourceStale)
 				}
 			}
-			return closeRead()
+			return markLayoutMenuFailure("release_read", "", "", closeRead())
 		}}, nil
 	}
 }
@@ -224,7 +243,7 @@ func optionalGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(co
 		ctx = authconfig.WithNoRetry(ctx)
 		configured, err := sources(ctx)
 		if err != nil {
-			return nil, err
+			return nil, markLayoutMenuFailure("source_discovery", "", "", err)
 		}
 		held := []*LayoutMenuRead{}
 		closeReads := func() error {
@@ -253,7 +272,7 @@ func optionalGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(co
 			held = append(held, read)
 			var apps []json.RawMessage
 			if err := json.Unmarshal(read.Applications, &apps); err != nil {
-				return nil, err
+				return nil, markLayoutMenuFailure("merge_definitions", source.connection.Name, source.Resource.URI, err)
 			}
 			applications = append(applications, apps...)
 			revisions = append(revisions, read.Revision)

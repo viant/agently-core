@@ -49,3 +49,6 @@ const (
 	ElicitationStatusCanceled = api.ElicitationStatusCanceled
 	ElicitationStatusFailed   = api.ElicitationStatusFailed
 )
+
+type TurnFeedback = api.TurnFeedback
+type SetTurnFeedbackInput = api.SetTurnFeedbackInput

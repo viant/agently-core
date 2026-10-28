@@ -146,7 +146,20 @@ export interface ListConversationsInput {
 
 // ─── Turn / Transcript ─────────────────────────────────────────────────────────
 
+export interface TurnFeedback {
+    rating: -1 | 0 | 1;
+    comment: string | null;
+    updatedAt: string | null;
+}
+
+export interface SetTurnFeedbackInput {
+    rating: -1 | 1;
+    comment: string | null;
+}
+
 export interface Turn {
+    feedback?: TurnFeedback;
+    feedbackEditable?: boolean;
     assistant?: { final?: { messageId?: string; content?: string }; narration?: { messageId?: string; content?: string } };
     id: string;
     turnId?: string;

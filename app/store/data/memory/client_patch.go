@@ -335,6 +335,15 @@ func applyTurnPatch(dst *conversationmodel.TranscriptView, src *turnmodel.Turn) 
 	if src.Has.StatusReason {
 		dst.StatusReason = src.StatusReason
 	}
+	if src.Has.FeedbackRating {
+		dst.FeedbackRating = src.FeedbackRating
+	}
+	if src.Has.FeedbackComment {
+		dst.FeedbackComment = src.FeedbackComment
+	}
+	if src.Has.FeedbackUpdatedAt {
+		dst.FeedbackUpdatedAt = src.FeedbackUpdatedAt
+	}
 	if src.Has.Status {
 		dst.Status = src.Status
 	}
