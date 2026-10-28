@@ -19,6 +19,7 @@ type Frontmatter struct {
 }
 
 type AgentlyMetadata struct {
+	AlwaysInclude        bool
 	Context              string
 	AgentID              string
 	Model                string
@@ -45,6 +46,9 @@ type Skill struct {
 }
 
 type Metadata struct {
+	AlwaysInclude bool `json:"alwaysInclude,omitempty"`
+	// DiscoveryCacheScope is assigned by host catalog adapters, never config.
+	DiscoveryCacheScope string `json:"-"`
 	// LocalSelector preserves the original selector of a trusted startup-local
 	// entry. Host delivery sets it from registered originals, never MCP metadata.
 	LocalSelector string `json:"localSelector,omitempty"`
@@ -187,6 +191,7 @@ func parseAgentlyMetadata(metadata map[string]any, legacy *LegacyAgentlyFields) 
 		return nil
 	}
 	ret := &AgentlyMetadata{}
+	ret.AlwaysInclude, _ = metadataBoolValue(metadata, "agently-always-include")
 	source := metadata
 	if nested, ok := metadata["agently"].(map[string]any); ok && len(nested) > 0 {
 		source = nested
@@ -460,4 +465,14 @@ func toString(value any) string {
 	default:
 		return ""
 	}
+}
+
+// AlwaysIncluded retains authorized metadata during initial candidate ranking.
+// It does not activate the skill, read its body, or grant execution privileges.
+func (f Frontmatter) AlwaysIncluded() bool {
+	if f.Agently != nil && f.Agently.AlwaysInclude {
+		return true
+	}
+	value, _ := metadataBoolValue(f.Metadata, "agently-always-include")
+	return value
 }

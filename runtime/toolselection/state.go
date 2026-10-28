@@ -14,6 +14,7 @@ import (
 	"github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/mcpname"
 	"github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/runtime/capability"
 	"github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -29,6 +30,8 @@ type State struct {
 	principal, conversation, turn string
 	canonicalUser, provider       string
 	catalog                       *primitive.Catalog[Candidate]
+	partitionCatalog              *primitive.Catalog[Candidate]
+	partitionNames                map[string]bool
 	catalogDigest                 [32]byte
 	catalogGeneration             uint64
 	allowed                       map[string]bool
@@ -53,6 +56,7 @@ func (s *State) SetCandidates(candidates []llm.Tool) {
 	defer s.mu.Unlock()
 	s.allowed = map[string]bool{}
 	var metadata []Candidate
+	partitionByName := map[string]string{}
 	for _, tool := range candidates {
 		name := tool.Definition.Name
 		if name == "" || s.allowed[name] {
@@ -63,21 +67,32 @@ func (s *State) SetCandidates(candidates []llm.Tool) {
 		if len(description) > 512 {
 			description = append(description[:511], '…')
 		}
+		partitionByName[name] = capability.ToolNamespace(tool.Definition.DiscoveryNamespace, tool.Definition.SourceResourceURI, tool.Definition.SourceProviderIdentity)
 		metadata = append(metadata, Candidate{Name: name, Description: string(description), Namespace: tool.Definition.DiscoveryNamespace})
 	}
 	sort.Slice(metadata, func(i, j int) bool { return metadata[i].Name < metadata[j].Name })
 	namespaces := make([]string, len(metadata))
+	partitions := make([]string, len(metadata))
 	for i := range metadata {
 		namespaces[i] = metadata[i].Namespace
+		partitions[i] = partitionByName[metadata[i].Name]
 	}
-	encoded, _ := json.Marshal([]interface{}{metadata, namespaces})
+	encoded, _ := json.Marshal([]interface{}{metadata, namespaces, partitions})
 	digest := sha256.Sum256(encoded)
 	if s.catalog == nil || s.catalogDigest != digest {
 		items := make([]primitive.CatalogItem[Candidate], 0, len(metadata))
 		for _, item := range metadata {
 			items = append(items, primitive.CatalogItem[Candidate]{Name: item.Name, Description: item.Description, Namespace: candidateNamespace(item), Value: item})
 		}
+		partitionItems := make([]primitive.CatalogItem[Candidate], 0, len(metadata))
+		s.partitionNames = map[string]bool{}
+		for _, item := range metadata {
+			partition := partitionByName[item.Name]
+			s.partitionNames[partition] = true
+			partitionItems = append(partitionItems, primitive.CatalogItem[Candidate]{Name: item.Name, Description: item.Description, Namespace: partition, Value: item})
+		}
 		s.catalogGeneration++
+		s.partitionCatalog = primitive.NewCatalog(fmt.Sprintf("tool-partitions:%p:%d:%x", s, s.catalogGeneration, digest), partitionItems)
 		s.catalog = primitive.NewCatalog(fmt.Sprintf("tool-selection:%p:%d:%x", s, s.catalogGeneration, digest), items)
 		s.catalogDigest = digest
 	}
@@ -132,6 +147,9 @@ func (s *State) ListPage(ctx context.Context, query primitive.CatalogQuery, offs
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	index := s.catalog
+	if query.Namespace == capability.DefaultNamespace || s.partitionNames[query.Namespace] {
+		index = s.partitionCatalog
+	}
 	page, err := index.Page(ctx, query)
 	if err != nil || offset == 0 {
 		return page, err

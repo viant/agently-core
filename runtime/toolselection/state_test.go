@@ -163,3 +163,34 @@ func TestDeclaredNamespaceFilteringUsesExistingCatalogAndPreservesWire(t *testin
 		t.Fatal(err)
 	}
 }
+
+func TestDefaultPartitionFiltersWithoutRemovingLegacyAliases(t *testing.T) {
+	local := candidate("local-read")
+	declared := candidate("legacy-calendar")
+	declared.Definition.SourceResourceURI = "mcp://planning/configured"
+	declared.Definition.SourceProviderIdentity = "verified-owner"
+	ctx := WithState(turnContext(), []llm.Tool{local, declared})
+	state, _ := FromContext(ctx)
+	page, err := state.ListPage(ctx, primitive.CatalogQuery{Namespace: "default"}, 0)
+	if err != nil || len(page.Items) != 1 || page.Items[0].Name != "local-read" {
+		t.Fatalf("default partition: %+v %v", page, err)
+	}
+	page, err = state.ListPage(ctx, primitive.CatalogQuery{Namespace: "planning"}, 0)
+	if err != nil || len(page.Items) != 1 || page.Items[0].Name != "legacy-calendar" {
+		t.Fatalf("declared partition: %+v %v", page, err)
+	}
+	page, err = state.ListPage(ctx, primitive.CatalogQuery{Namespace: "legacy"}, 0)
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("legacy filter compatibility: %+v %v", page, err)
+	}
+	original := state.partitionCatalog
+	declared.Definition.SourceResourceURI = "mcp://updated/configured"
+	state.SetCandidates([]llm.Tool{local, declared})
+	if state.partitionCatalog == original {
+		t.Fatal("changed declared namespace retained a stale partition index")
+	}
+	page, err = state.ListPage(ctx, primitive.CatalogQuery{Namespace: "updated"}, 0)
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("updated partition: %+v %v", page, err)
+	}
+}

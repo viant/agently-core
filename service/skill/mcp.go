@@ -331,7 +331,12 @@ func (s *Service) listRemoteServer(ctx context.Context, agent *agentmdl.Agent, s
 				continue
 			}
 			description, _ := r.Frontmatter["description"].(string)
-			meta := skillproto.Metadata{Name: name, URI: ref.URI(), QualifiedName: id + "/" + name, ServerID: server, Description: description}
+			cacheScope := "user"
+			if res.CacheScope == "public" && cfg.ToolsListVisibility != mcpcfg.ToolsListVisibilityPrivate && (cfg.ClientOptions == nil || cfg.Auth == nil && cfg.CookieJar == nil) {
+				cacheScope = "public"
+			}
+			frontMetadata, _ := r.Frontmatter["metadata"].(map[string]any)
+			meta := skillproto.Metadata{AlwaysInclude: (skillproto.Frontmatter{Metadata: frontMetadata}).AlwaysIncluded(), DiscoveryCacheScope: cacheScope, Name: name, URI: ref.URI(), QualifiedName: id + "/" + name, ServerID: server, Description: description}
 			out = append(out, remoteEntry{entry: r, revision: ref.Revision, metadata: meta, server: server, uri: r.Uri, config: cfg})
 		}
 		if res.NextCursor == nil || *res.NextCursor == "" {
@@ -374,8 +379,17 @@ func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]ski
 	// resources and the skills extension. Prefer its native resource identity;
 	// identical names or URIs from different authenticated connections stay apart.
 	native := make(map[string]bool, len(generic))
-	for _, entry := range generic {
-		native[entry.ServerID+"\x00"+entry.URI] = true
+	remoteMetadata := make(map[string]skillproto.Metadata, len(entries))
+	for _, entry := range entries {
+		remoteMetadata[entry.server+"\x00"+entry.uri] = entry.metadata
+	}
+	for i, entry := range generic {
+		key := entry.ServerID + "\x00" + entry.URI
+		native[key] = true
+		if source, ok := remoteMetadata[key]; ok {
+			generic[i].AlwaysInclude = generic[i].AlwaysInclude || source.AlwaysInclude
+			generic[i].DiscoveryCacheScope = source.DiscoveryCacheScope
+		}
 	}
 	for _, entry := range entries {
 		if !native[entry.server+"\x00"+entry.uri] {
@@ -384,6 +398,9 @@ func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]ski
 	}
 	started = time.Now()
 	local = append(local, generic...)
+	for i := range local {
+		local[i].AlwaysInclude = local[i].AlwaysInclude || configuredSkillRetention(agent, local[i])
+	}
 	sort.SliceStable(local, func(i, j int) bool {
 		a, b := local[i].URI, local[j].URI
 		if a == "" {

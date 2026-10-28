@@ -633,18 +633,22 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				return err
 			}
 
-		case "skills":
+		case "skills", "skillsalwaysinclude":
+			target := &agent.Skills
+			if lowerKey == "skillsalwaysinclude" {
+				target = &agent.SkillsAlwaysInclude
+			}
 			switch valueNode.Kind {
 			case yaml.ScalarNode:
 				if id := strings.TrimSpace(valueNode.Value); id != "" {
-					agent.Skills = append(agent.Skills, id)
+					*target = append(*target, id)
 				}
 			case yaml.SequenceNode:
-				agent.Skills = append(agent.Skills, asStrings(valueNode)...)
+				*target = append(*target, asStrings(valueNode)...)
 			default:
-				return fmt.Errorf("invalid skills block; expected scalar or sequence")
+				return fmt.Errorf("invalid %s block; expected scalar or sequence", key)
 			}
-			agent.Skills = normalizeStrings(agent.Skills)
+			*target = normalizeStrings(*target)
 
 		case "template":
 			if valueNode.Kind != yaml.MappingNode {

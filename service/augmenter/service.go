@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"golang.org/x/sync/singleflight"
 	"path"
 	"reflect"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
+	"github.com/viant/agently-core/workspace"
 	embedius "github.com/viant/embedius"
 	embindexer "github.com/viant/embedius/indexer"
 	"github.com/viant/embedius/metadata"
@@ -35,8 +37,11 @@ const defaultIndexRefreshInterval = time.Hour
 
 // Service extracts structured information from LLM responses
 type Service struct {
-	finder         embedder.Finder
-	DocsAugmenters shared.Map[string, *DocsAugmenter]
+	capabilityStateStore workspace.StateStore
+	capabilityVectors    capabilityVectorCache
+	capabilityLoads      singleflight.Group
+	finder               embedder.Finder
+	DocsAugmenters       shared.Map[string, *DocsAugmenter]
 	// Optional MCP client manager for resolving mcp: resources during indexing
 	mcpMgr                      *mcpmgr.Manager
 	mcpSnapshotResolver         mcpfs.SnapshotResolver

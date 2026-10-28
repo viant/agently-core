@@ -103,6 +103,8 @@ type (
 		// Skills is a closed-by-default allow-list of visible skills.
 		// When omitted or empty, the agent sees no skills.
 		Skills []string `yaml:"skills,omitempty" json:"skills,omitempty"`
+		// SkillsAlwaysInclude retains matching authorized skill metadata during intake ranking.
+		SkillsAlwaysInclude []string `yaml:"skillsAlwaysInclude,omitempty" json:"skillsAlwaysInclude,omitempty"`
 		// Template assigns workspace output-template bundles to this agent.
 		Template Template `yaml:"template,omitempty" json:"template,omitempty"`
 		// Prompts restricts which intake profiles are visible to this agent via

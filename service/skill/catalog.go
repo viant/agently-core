@@ -15,6 +15,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	skillproto "github.com/viant/agently-core/protocol/skill"
+	"github.com/viant/agently-core/runtime/capability"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -80,6 +81,9 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 	raw, _ := json.Marshal(patterns)
 	fingerprint := sha256.Sum256(raw)
 	key := fmt.Sprintf("skill:%p:%p:%x:%s", s, registry, fingerprint, scope)
+	if query.Namespace == capability.DefaultNamespace {
+		key += ":default-partition"
+	}
 	var partialItems []primitive.CatalogItem[json.RawMessage]
 	load := func(ctx context.Context) ([]primitive.CatalogItem[json.RawMessage], error) {
 		metadata, err := s.ListVisible(ctx, agent)
@@ -89,6 +93,9 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 		items := make([]primitive.CatalogItem[json.RawMessage], 0, len(metadata))
 		for _, entry := range metadata {
 			namespace := skillCatalogNamespace(entry)
+			if query.Namespace == capability.DefaultNamespace {
+				namespace = capability.SkillNamespace(entry.Namespace, entry.URI)
+			}
 			raw, err := json.Marshal(entry)
 			if err != nil {
 				return nil, err

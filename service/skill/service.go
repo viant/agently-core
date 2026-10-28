@@ -150,9 +150,11 @@ func (s *Service) Visible(agent *agentmdl.Agent) ([]skillproto.Metadata, string)
 	meta := make([]skillproto.Metadata, 0, len(skills))
 	for _, item := range skills {
 		meta = append(meta, skillproto.Metadata{
-			Name:          item.Frontmatter.Name,
-			Description:   item.Frontmatter.Description,
-			ExecutionMode: item.Frontmatter.ContextMode(),
+			DiscoveryCacheScope: "public",
+			AlwaysInclude:       item.Frontmatter.AlwaysIncluded(),
+			Name:                item.Frontmatter.Name,
+			Description:         item.Frontmatter.Description,
+			ExecutionMode:       item.Frontmatter.ContextMode(),
 		})
 	}
 	return meta, skillproto.RenderPrompt(meta, s.budgetChars)

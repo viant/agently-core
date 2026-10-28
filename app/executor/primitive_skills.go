@@ -259,6 +259,8 @@ func (d *primitiveSkillDelivery) List(ctx context.Context) ([]proto.Metadata, er
 					meta.Name = original.Frontmatter.Name
 					meta.LocalSelector = original.Frontmatter.Name
 					meta.ExecutionMode = original.Frontmatter.ContextMode()
+					meta.AlwaysInclude = original.Frontmatter.AlwaysIncluded()
+					meta.DiscoveryCacheScope = "public"
 				}
 			}
 			out = append(out, meta)
