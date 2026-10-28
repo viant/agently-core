@@ -13,6 +13,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	mcpauth "github.com/viant/agently-core/internal/auth/mcpauth"
 	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
@@ -169,17 +170,20 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 		}
 		entries, err := s.listRemoteServer(ctx, agent, server, id, cfg)
 		if err != nil {
-			traceDiscoveryFailure(ctx, "list", server, automatic, only, err)
 			if ctx.Err() != nil {
+				traceDiscoveryFailure(ctx, "list", server, automatic, only, err)
 				return nil, ctx.Err()
 			}
 			if automatic && only == "" && errors.Is(err, errSkillCapabilityUnavailable) && optionalDiscoveryUnavailable(err) {
+				traceSkippedDiscoveryFailure(ctx, "list", server, automatic, only, err)
 				continue
 			}
 			if only == "" && (optionalSkillLinkRequired(err) || automatic && optionalDiscoveryUnavailable(err)) {
+				traceSkippedDiscoveryFailure(ctx, "list", server, automatic, only, err)
 				recordDiscoveryFailure(ctx, id)
 				continue
 			}
+			traceDiscoveryFailure(ctx, "list", server, automatic, only, err)
 			return nil, fmt.Errorf("MCP skill discovery unavailable for %s: %w", id, err)
 		}
 		out = append(out, entries...)
@@ -357,12 +361,14 @@ func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]ski
 	entries, err := s.remoteEntries(ctx, agent, "")
 	debugtrace.Write("skill", "list_visible_stage", map[string]any{"stage": "remote_entries", "count": len(entries), "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond)})
 	if err != nil {
+		logSkillCatalogFailure(ctx, "remote_entries", err)
 		return nil, err
 	}
 	started = time.Now()
 	generic, err := s.primitiveMetadata(ctx, agent)
 	debugtrace.Write("skill", "list_visible_stage", map[string]any{"stage": "primitive_metadata", "count": len(generic), "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond)})
 	if err != nil {
+		logSkillCatalogFailure(ctx, "primitive_metadata", err)
 		return nil, err
 	}
 	// A native producer can publish the same skill through both namespace
@@ -391,6 +397,15 @@ func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]ski
 	})
 	debugtrace.Write("skill", "list_visible_stage", map[string]any{"stage": "final_merge_filter", "count": len(local), "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond)})
 	return local, nil
+}
+
+func logSkillCatalogFailure(ctx context.Context, stage string, err error) {
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	code, status := skillDiagnosticRPCFields(err)
+	turn, _ := runtimectx.TurnMetaFromContext(ctx)
+	logx.OperationalWarnf("resource", "skill.catalog.failed stage=%q convo=%q turn=%q errorType=%T rpcCode=%d rpcStatus=%d", stage, runtimectx.ConversationIDFromContext(ctx), turn.TurnID, err, code, status)
 }
 
 // GetVisible always re-resolves remote identity using the caller's server list.

@@ -3,6 +3,7 @@ package logx
 import (
 	"context"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -242,6 +243,31 @@ func WarnCtxf(ctx context.Context, component, format string, args ...any) {
 		return
 	}
 	log.Printf("[debug][%s] [WARN] "+format, append([]any{component}, args...)...)
+}
+
+// OperationalWarnf records a sanitized failure even when debug logging is off.
+// Callers must pass fixed labels and safe identifiers, never raw upstream errors,
+// payloads, or credentials. It is intentionally independent of debug filters.
+func OperationalWarnf(component, format string, args ...any) {
+	component = strings.TrimSpace(component)
+	if component == "" {
+		component = "general"
+	}
+	log.Printf("[warn][%s] "+format, append([]any{component}, args...)...)
+}
+
+// SafeResourceIdentifier preserves bounded operator-authored names in failure
+// logs while excluding URL credentials, query strings, fragments and controls.
+func SafeResourceIdentifier(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 200 || strings.ContainsAny(value, "\r\n\t") {
+		return "<redacted>"
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return "<redacted>"
+	}
+	return value
 }
 
 func Errorf(component, format string, args ...any) {

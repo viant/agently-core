@@ -25,6 +25,7 @@ const configurationMCPName = "configuration"
 type mcpDefinitionRuntime struct {
 	provider *resources.LocalProvider
 	gateway  *resources.Gateway
+	failures *mcpDefinitionFailureAggregator
 	bound    bool
 }
 
@@ -50,6 +51,10 @@ func (b *Builder) bindMCPDefinitions(out *Runtime) error {
 	if err != nil {
 		return err
 	}
+	if out.mcpDefinitions.failures == nil {
+		out.mcpDefinitions.failures = newMCPDefinitionFailureAggregator(mcpDefinitionFailureWindow)
+	}
+	reader.OnFailure = out.mcpDefinitions.failures.Record
 	_, err = out.MCPManager.BindDefinitionReader(reader)
 	if err != nil {
 		return err
