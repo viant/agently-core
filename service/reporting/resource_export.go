@@ -12,6 +12,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/forge/backend/reporting/registry"
+	publishedidentity "github.com/viant/forge/backend/resource"
 )
 
 const exportResourceMetadataKey = "__agentlyCoreExportResourcePinV1"
@@ -132,6 +133,34 @@ func (s *Service) validateExportResourcePinUnscoped(ctx context.Context, job *Ex
 	}
 	if resolver == nil {
 		return identity.ErrResourceDenied
+	}
+	// A completed, producer-closed published export is a new read action.
+	// Select current permission at the original provider, but never substitute
+	// another report hash or renew authority held by an active export worker.
+	if action == "report.exportResult.read" && job.Status == JobStatusSucceeded && pin.Kind == publishedidentity.PublishedCandidate && pin.ValidUntil.IsZero() && len(job.DependencyPins) == 0 && job.DependencyToken == "" {
+		provider, ok := resolver.(ProviderResourceReader)
+		if !ok || pin.ProviderIdentity == "" {
+			return identity.ErrResourceDenied
+		}
+		current, err := provider.ResolveForProvider(ctx, identity.ResourceRef{URI: pin.URI}, pin.ProviderIdentity)
+		if err != nil {
+			return err
+		}
+		if current == nil || current.URI != pin.URI || current.ProviderIdentity != pin.ProviderIdentity || current.ResourceCandidate != pin.ResourceCandidate || current.AuthorityBinding == "" || !exportPinLeaseValid(current, s.now()) {
+			return identity.ErrResourceDenied
+		}
+		raw, checked, err := resolver.ReadResolved(ctx, *current)
+		if err != nil {
+			return err
+		}
+		if checked == nil || !sameResourcePin(current, checked) {
+			return identity.ErrResourceDenied
+		}
+		var definition registry.ReportEnvelope
+		if json.Unmarshal(raw, &definition) != nil || len(definition.DataSourceResources) != 0 {
+			return identity.ErrResourceDenied
+		}
+		return nil
 	}
 	var raw json.RawMessage
 	var fresh *identity.ResolvedResource
