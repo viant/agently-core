@@ -5,15 +5,7 @@
 AG-UI is the outward SDK conversation interaction path. Protocol selectors and legacy conversation transports are removed. The configured BFF authentication, cookies, headers and injected networking remain in use. Supporting workspace, report, layout and application APIs remain available. Dedicated readConversationHistory/readApplicationState helpers provide authorized native read-only history without a query or stream fallback; SDK checks do not establish full product UI parity.
 
 
-The backend has advanced beyond the original phase-one adapter: the current
-milestone uses the pinned AG-UI 1.0/1.0.1 contract, a Datly 1.0 durable
-journal, scoped client-tool handoff, detached-run attribution, goal/state and
-workspace/data/lookup/feed commands, plus run resource commands. This is not a
-complete goal/conformance/backend parity claim. Approval/graph final integration
-and interactive MCP Apps app-scope architecture remain open; production shell
-migration is later. See the core repository's current plan and operation matrix.
-
-The additive `com.viant.agentlysdk.agui` package speaks the pinned AG-UI 1.0 schema over POST SSE. `AgUiClient` accepts an explicit endpoint URL through `EndpointConfig`; authentication, cookies and custom transports use its existing configuration hooks. Standard external agents do not depend on Agently endpoints. Existing native clients remain available until the complete web/iOS/Android feature-parity gate in the repository's `ag-ui.md` is satisfied.
+The additive `com.viant.agentlysdk.agui` package speaks the pinned AG-UI 1.0 schema over POST SSE. `AgUiClient` accepts an explicit endpoint URL through `EndpointConfig`; authentication, cookies and custom transports use its existing configuration hooks. Standard external agents do not depend on Agently endpoints.
 
 ```kotlin
 val client = AgUiClient(EndpointConfig("https://agent.example/run"))
@@ -53,7 +45,7 @@ Run `./gradlew testDebugUnitTest` with JDK 17 and an Android SDK compatible with
 
 Canonical fixture: `protocol/agui/testdata/conformance.json`. Native copy: `src/test/resources/agui/conformance.json`. Bundled schema: `src/main/resources/agui/schema-1.0.json`. `pinnedMirrorsMatchCanonicalRepositoryFixtures` compares both copies byte-for-byte with canonical repository sources. Copy updated canonical files into both native SDK resources before rerunning tests; do not regenerate separate expected projections.
 
-Set `AGENTLY_AGUI_LIVE_URL` to a running local assembled endpoint to test capability discovery and standard streamed chat through OkHttp with fresh threads. Device/UI integration, authenticated deployment and every Agently feature flow still need the broader migration parity checks; consumer conformance alone does not establish those flows.
+Set `AGENTLY_AGUI_LIVE_URL` to a running local assembled endpoint to test capability discovery and standard streamed chat through OkHttp with fresh threads. This opt-in test checks the configured endpoint; it does not run product UI workflows.
 
 The action tests also execute authorized handlers and submit multipart results through actual OkHttp/MockWebServer POST SSE, exercise cached outputs and strict human-response coverage, and submit cancellation while a separate original HTTP call remains open. The standard tool roundtrip has no Agently forwarded properties. SDK protocol tests do not establish production Android UI or deployed authentication parity.
 
