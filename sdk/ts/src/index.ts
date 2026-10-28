@@ -8,7 +8,7 @@
 
 // Client
 export { AgentlyClient } from './client';
-export type { ClientOptions, TokenProvider, SessionDebugOptions, AgUiBackendDescriptor, AgUiBackendThread } from './client';
+export type { ToolExecuteOptions, ClientOptions, TokenProvider, SessionDebugOptions, AgUiBackendDescriptor, AgUiBackendThread } from './client';
 
 // Errors
 export { HttpError } from './errors';

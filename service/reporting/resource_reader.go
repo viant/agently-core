@@ -20,6 +20,12 @@ type ResourceDefinitionReader interface {
 	ReadDefinition(context.Context, identity.ResourceRef, *identity.ResolvedResource) (*primitive.GetResult, error)
 }
 
+// ResourceFreshDefinitionReader obtains a new metadata selection rather than
+// extending previous.ValidUntil. The old resource is a provider/selector bookmark.
+type ResourceFreshDefinitionReader interface {
+	ReadDefinitionFresh(context.Context, identity.ResourceRef, *identity.ResolvedResource) (*primitive.GetResult, error)
+}
+
 // ProviderResourceReader refreshes a durable bookmark only at its stored provider.
 type ProviderResourceReader interface {
 	ResourceReader

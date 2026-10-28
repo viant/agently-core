@@ -1020,12 +1020,13 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	if !resolvedIdentity {
 		serviceName, _ = splitToolName(baseName)
 	}
-	hasInternalClient := false
+	var internalClient mcpclient.Interface
 	if serviceName != "" {
 		r.mu.RLock()
-		_, hasInternalClient = r.internal[serviceName]
+		internalClient = r.internal[serviceName]
 		r.mu.RUnlock()
 	}
+	hasInternalClient := internalClient != nil
 	// cached executable?
 	if !hasInternalClient {
 		requestScopedAuth := strings.TrimSpace(authctx.EffectiveUserID(ctx)) != "" || strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)) != ""
@@ -1066,7 +1067,10 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return "", fmt.Errorf("tool not found: %s", baseName)
 	}
 	var options []mcpclient.RequestOption
-	if r.mgr != nil {
+	// In-process clients retain the ingress actor/token and ordinary adapter
+	// auth metadata. Remote configuration and credential selection belong only
+	// to managed transports, not to an authoritative registered local service.
+	if !hasInternalClient && r.mgr != nil {
 		ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	}
 	method := literalMethod
@@ -1082,7 +1086,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		ctx, closeCapture = dispatchpayload.WithState(ctx)
 		defer closeCapture()
 	}
-	if r.isDelegatedAuthServer(ctx, server) {
+	if !hasInternalClient && r.isDelegatedAuthServer(ctx, server) {
 		// Delegated servers resolve credentials through the manager-installed
 		// viant/mcp CredentialResolver; the registry must not independently
 		// select or attach a workspace token for them.
@@ -1091,7 +1095,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		}
 	} else {
 		useID := false
-		if r.mgr != nil {
+		if !hasInternalClient && r.mgr != nil {
 			useID = r.mgr.UseIDToken(ctx, server)
 		}
 		if tok := authctx.MCPAuthToken(ctx, useID); tok != "" {
@@ -1110,8 +1114,8 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	// Acquire appropriate client: internal or per-conversation via manager.
 	var cli mcpclient.Interface
 	var err error
-	if c, ok := r.internal[server]; ok && c != nil {
-		cli = c
+	if hasInternalClient {
+		cli = internalClient
 		debugMCPExecf("registry client internal server=%s base=%s", server, baseName)
 	} else {
 		debugMCPExecf("registry client manager get start server=%s convID=%s base=%s", server, convID, baseName)
@@ -1125,7 +1129,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return "", mcpauth.WrapError(err)
 	}
 	debugMCPExecf("registry client ready server=%s base=%s elapsed=%s", server, baseName, time.Since(execStart).Round(time.Millisecond))
-	if r.mgr != nil {
+	if !hasInternalClient && r.mgr != nil {
 		defer r.mgr.Touch(convID, server)
 	}
 
@@ -1441,7 +1445,10 @@ func (r *Registry) PreflightCredential(ctx context.Context, name string) error {
 			server = resolvedServer
 		}
 	}
-	if server == "" || !r.isDelegatedAuthServer(ctx, server) {
+	r.mu.RLock()
+	internalClient := r.internal[server]
+	r.mu.RUnlock()
+	if server == "" || internalClient != nil || !r.isDelegatedAuthServer(ctx, server) {
 		return nil
 	}
 	preflight, ok := r.mgr.(delegatedCredentialPreflighter)
@@ -1908,12 +1915,13 @@ func (r *Registry) ToolTimeout(name string) (time.Duration, bool) {
 	if !ok {
 		d, ok = r.internalTimeout[server]
 	}
+	internalClient := r.internal[server]
 	r.mu.RUnlock()
 	if ok && d > 0 {
 		return d, true
 	}
-	// MCP client config timeout
-	if r.mgr != nil {
+	// Remote configuration cannot override an internal service's own timeout.
+	if internalClient == nil && r.mgr != nil {
 		if opts, err := r.mgr.Options(context.Background(), server); err == nil && opts != nil {
 			if opts.ToolTimeoutSec > 0 {
 				return time.Duration(opts.ToolTimeoutSec) * time.Second, true

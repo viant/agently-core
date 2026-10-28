@@ -43,7 +43,7 @@ var inlineCanonicalKinds = map[string]bool{
 var inlineReportEnvelopeFields = map[string]bool{
 	"version": true, "scope": true, "id": true, "sequence": true, "mode": true,
 	"grammar": true, "target": true, "title": true, "subtitle": true,
-	"description": true, "theme": true, "blocks": true, "layout": true,
+	"description": true, "theme": true, "viewer": true, "blocks": true, "layout": true,
 	"removeBlockIds": true, "fallback": true, "metadata": true,
 	"datasets": true, "dataSources": true,
 }

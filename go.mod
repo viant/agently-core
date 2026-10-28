@@ -36,12 +36,12 @@ require (
 	github.com/viant/bindly v0.4.1
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.7
-	github.com/viant/forge v0.3.47-0.20261027173841-660004fe78d7
+	github.com/viant/forge v0.3.47-0.20261028013919-130fd56cb4c5
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.1
 	github.com/viant/jsonrpc v0.25.1
 	github.com/viant/linager v0.1.0
-	github.com/viant/mcp v0.24.1
+	github.com/viant/mcp v0.24.2-0.20261027183707-51774a610e25
 	github.com/viant/mcp-protocol v0.19.1
 	github.com/viant/mcp-tasks v0.1.0
 	github.com/viant/mcp-ui v0.2.1
@@ -62,6 +62,10 @@ require (
 
 require (
 	github.com/coder/websocket v1.8.15 // indirect
+	github.com/dolthub/maphash v0.1.0 // indirect
+	github.com/dolthub/swiss v0.2.1 // indirect
+	github.com/mhmtszr/concurrent-swiss-map v1.0.8 // indirect
+	github.com/viant/scache v0.5.1-0.20241014222741-4367658dff4f // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 )
 
@@ -150,14 +154,14 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
-	github.com/viant/authz v0.1.1
+	github.com/viant/authz v0.1.2-0.20261027201251-5ba403d7e022
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
 	github.com/viant/govalidator v0.3.4 // indirect
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/sqlite-vec v0.3.1 // indirect
 	github.com/viant/sqlparser v0.13.1 // indirect
-	github.com/viant/sqlx v0.26.1
+	github.com/viant/sqlx v0.26.2-0.20261028024456-7f52e55c52a2
 	github.com/viant/structology v0.10.1
 	github.com/viant/structql v0.5.5 // indirect
 	github.com/viant/tagly v0.4.1 // indirect

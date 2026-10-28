@@ -201,6 +201,8 @@ export class AgUiConversationTransport {
         const runId = crypto.randomUUID();
         const commands = new AgUiCommands(this.host.agUiTransport());
         const pending = this.resolveProtocolThread(entry).then(threadId => {
+        // Automatic bootstrap needs summaries, never all model/tool bodies.
+        // Keep both payload exclusions explicit, including fallback read paths.
         const command = commands.start('conversation.bootstrap', { mode: 'live', includeModelCalls: true, includeToolCalls: true, includeFeeds: false, includeModelPayloads: false, includeToolPayloads: false }, { threadId, runId, requestId: runId });
         entry.bootstrapHandle = command;
         return command.result;

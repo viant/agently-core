@@ -461,6 +461,9 @@ func syncAwaitedAsyncTerminalPersistence(ctx context.Context, manager *asynccfg.
 		Error:       strings.TrimSpace(rec.Error),
 	}
 	PatchAsyncToolPersistence(context.Background(), convFromContext(ctx), rec, "", payload)
+	// The waiter may observe completion before the autonomous poller publishes
+	// its final tick. Close the persisted carrier on the live stream as well.
+	publishAsyncUpdateEvent(ctx, rec.ToolName, rec.ToolCallID, opID, payload, rec)
 }
 
 func startAsyncNarration(ctx context.Context, cfg *asynccfg.Config, step StepInfo, rec *asynccfg.OperationRecord) *asyncNarrationHandle {
