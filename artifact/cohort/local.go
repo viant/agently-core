@@ -26,6 +26,7 @@ import (
 // It contains secret resource REFERENCES, never a token or password. The
 // cached scy credential is a named local test user, not a service account.
 type LocalConfig struct {
+	Namespace        string   `yaml:"namespace"`
 	ConnectionName   string   `yaml:"connectionName"`
 	ProviderIdentity string   `yaml:"providerIdentity"`
 	ExpectedEndpoint string   `yaml:"expectedEndpoint"`
@@ -217,7 +218,7 @@ func prepareLocalArtifactCohortConfig(ctx context.Context, rt *executor.Runtime,
 		return Binding{}, err
 	}
 	cacheTiming := observe.Start(ctx, "startup.cohort.cache", observe.Labels{})
-	binding, err := PrepareBinding(ctx, rt, Registration{ConnectionName: config.ConnectionName, ProviderIdentity: config.ProviderIdentity, Tenant: principal.Facts.Tenant, Account: principal.AccountID, Cohort: config.Cohort, Client: client, Notifications: notifications})
+	binding, err := PrepareBinding(ctx, rt, Registration{ConnectionName: config.ConnectionName, ProviderIdentity: config.ProviderIdentity, Namespace: config.Namespace, Tenant: principal.Facts.Tenant, Account: principal.AccountID, Cohort: config.Cohort, Client: client, Notifications: notifications})
 	cacheTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		switch closer := client.(type) {
