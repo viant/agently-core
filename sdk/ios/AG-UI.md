@@ -5,15 +5,7 @@
 AG-UI is the outward SDK conversation interaction path. Protocol selectors and legacy conversation transports are removed. The configured BFF authentication, cookies, headers and injected networking remain in use. Supporting workspace, report, layout and application APIs remain available. Dedicated readConversationHistory/readApplicationState helpers provide authorized native read-only history without a query or stream fallback; SDK checks do not establish full product UI parity.
 
 
-The backend has advanced beyond the original phase-one adapter: the current
-milestone uses the pinned AG-UI 1.0/1.0.1 contract, a Datly 1.0 durable
-journal, scoped client-tool handoff, detached-run attribution, goal/state and
-workspace/data/lookup/feed commands, plus run resource commands. This is not a
-complete goal/conformance/backend parity claim. Approval/graph final integration
-and interactive MCP Apps app-scope architecture remain open; production shell
-migration is later. See the core repository's current plan and operation matrix.
-
-The additive `AgUiClient` speaks the pinned AG-UI 1.0 schema over POST SSE. It accepts an explicit URL and configured URLSession/headers, so standard external agents do not depend on Agently endpoints. The existing native client remains available until the complete web/iOS/Android feature-parity gate in the repository's `ag-ui.md` is satisfied.
+The additive `AgUiClient` speaks the pinned AG-UI 1.0 schema over POST SSE. It accepts an explicit URL and configured URLSession/headers, so standard external agents do not depend on Agently endpoints.
 
 ```swift
 let client = AgUiClient(endpoint: URL(string: "https://agent.example/run")!)

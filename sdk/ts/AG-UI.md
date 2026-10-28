@@ -29,20 +29,6 @@ Nested client tools use a standard interrupt with reason `agently.client_tool`, 
 
 Upstream deliberately excludes `activity` messages from outgoing run inputs while preserving them in consumer history. Other roles, multipart media sources, metadata and opaque reasoning values round trip through upstream. `lastPostedInput` is a defensive copy of the original standard POST input; it does not itself prove server acceptance. `reconnectFull(subscriber?)` restores that original messages/state and re-POSTs the identical input, allowing a durable server to replay its full journal without duplicate deltas. It does not consume an arbitrary middle-of-run cursor. A physical-socket-drop test checks identical bodies and replaced partial history. The transport boundary suppresses only the pinned upstream reader-cancel teardown rejection; read failures still reject the run. Replay, background notifications and durable Agently resume require server support; consumers should check the connected server's capabilities before exposing them.
 
-## Current backend and migration gate
-
-The connected Agently backend has advanced beyond the original phase-one
-adapter: it uses the pinned AG-UI 1.0 / `@ag-ui/client` 1.0.1 contract and a
-Datly 1.0 durable journal, with scoped tool handoff, detached-run attribution,
-goal/state and workspace/datasource/lookup/feed commands, and run resource
-commands. This does not establish full goal/conformance/backend parity.
-Approval/graph final integration remains in progress, and interactive MCP Apps
-automatic app-scope resolution is still an architecture decision. See the
-current plan and operation matrix for the authoritative backend status.
-
-## Shell verification
-
-Web/iOS/Android applications retain their existing presentation and workspace controls. Final cutover acceptance requires lossless history/state, tool and interrupt round trips, cancellation/recovery and actual shell parity checks. See the operation inventory in `ag-ui.md`; those acceptance gates remain distinct from SDK unit tests.
 
 ## Verification
 

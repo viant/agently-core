@@ -1,5 +1,7 @@
 # Public framework boundaries
 
+- Commit documentation only for implemented, supported behavior and reproducible usage. Keep feature proposals, migration plans, implementation journals, dated acceptance diaries, and agent audit notes outside the public repository.
+
 - Keep runtime behavior generic and driven by declared contracts. Do not special-case customer applications, business resource names, report IDs, or production identifiers.
 - Never commit internal business records, live MCP responses, private deployment configuration, screenshots, captures, performance traces, credentials, or investigation notes. Keep such evidence outside this public repository.
 - Use small, independently constructed synthetic fixtures. Use reserved example domains and portable paths; do not copy fixtures from private repositories or production sessions.
