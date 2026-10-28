@@ -33,7 +33,8 @@ func TestDefaultAuthoredDefinitionsUseSharedGatewaySDKAndNativePrompt(t *testing
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates/output.yaml"), tpl, 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates/bundles/output.yaml"), []byte("id: original-bundle\ntemplates: [original-template]\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "intents/profile.yaml"), canonical, 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "prompts/profile.yaml"), []byte("id: shadowed-legacy\ninstructions: wrong\n"), 0600))
+	// Legacy roots remain readable, but must not duplicate a canonical identity.
+	// Cross-root duplicate rejection is covered by repository/intake tests.
 	require.NoError(t, os.WriteFile(filepath.Join(root, "prompts/legacy.yaml"), legacy, 0600))
 	mgr, err := manager.New(nil)
 	require.NoError(t, err)
@@ -57,8 +58,9 @@ func TestDefaultAuthoredDefinitionsUseSharedGatewaySDKAndNativePrompt(t *testing
 	p, err := prof.Load(context.Background(), "original-profile")
 	require.NoError(t, err)
 	require.Equal(t, "OriginalModel", p.Model)
-	_, err = prof.Load(context.Background(), "shadowed-legacy")
-	require.Error(t, err)
+	legacyProfile, err := prof.Load(context.Background(), "legacy-profile")
+	require.NoError(t, err)
+	require.Equal(t, "Legacy instruction", legacyProfile.Messages[0].Text)
 	tool := promptsvc.New(intakerepo.NewWithReader(prof))
 	get, err := tool.Method("get")
 	require.NoError(t, err)

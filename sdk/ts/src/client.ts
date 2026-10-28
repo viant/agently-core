@@ -372,6 +372,9 @@ export class AgentlyClient {
 
     /** Get structured turn-based transcript with optional tool/model call details. */
     async readConversationHistory(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
+        // Call summaries and payload bodies are separate options. Automatic
+        // history/restore callers must explicitly disable both payload flags;
+        // omission preserves legacy behavior for explicit detail consumers.
         const q = new URLSearchParams();
         if (input.since) q.set('since', input.since);
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
@@ -572,7 +575,9 @@ export class AgentlyClient {
                 if (error?.status === 403) {
                     // Shared readers use authorized native history, without
                     // access to the owner's private protocol journal.
-                    const snapshot = await this.readConversationHistory({ conversationId, includeModelCalls: true, includeToolCalls: true, includeFeeds: true });
+                    // This automatic fallback must also exclude request/response
+                    // bodies; omission would undo compact history after a 403.
+                    const snapshot = await this.readConversationHistory({ conversationId, includeModelCalls: true, includeToolCalls: true, includeFeeds: true, includeModelPayloads: false, includeToolPayloads: false });
                     if (current()) handlers.onSnapshot?.(snapshot);
                     return;
                 }
