@@ -61,7 +61,10 @@ func (s *Service) expandUserPrompt(ctx context.Context, in, out interface{}) err
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	p := input.Prompt
+	p, err := s.resolvePrompt(ctx, input.Prompt)
+	if err != nil {
+		return err
+	}
 	if p == nil {
 		p = &binding.Prompt{}
 	}
@@ -80,6 +83,10 @@ func (s *Service) expandUserPrompt(ctx context.Context, in, out interface{}) err
 }
 
 func (s *Service) Generate(ctx context.Context, input *GenerateInput, output *GenerateOutput) (retErr error) {
+	input, retErr = s.resolvePromptInput(ctx, input)
+	if retErr != nil {
+		return retErr
+	}
 	start := time.Now()
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	turnID := ""

@@ -783,8 +783,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if out.ToolAuthorizer != nil && !tool.SetAuthorizationGuard(out.Registry, out.ToolAuthorizer) {
 		return nil, fmt.Errorf("configured authz tool guard is unsupported by registry")
 	}
+	agentFinder := &gatewayAgentFinder{runtime: out, fallback: b.agentFinder}
 	skillsvc.ExecFn = out.Registry.Execute
-	out.Skills = skillsvc.New(out.Defaults, out.Conversation, b.agentFinder)
+	out.Skills = skillsvc.New(out.Defaults, out.Conversation, agentFinder)
 	out.Skills.SetToolRegistry(out.Registry)
 	out.Skills.SetMCPSource(out.MCPManager)
 	skillTiming := observe.Start(ctx, "startup.runtime.skills_load", observe.Labels{})
@@ -802,6 +803,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if out.Core == nil {
 		out.Core = core.New(b.modelFinder, out.Registry, out.Conversation)
 	}
+	out.Core.SetPromptReader(&runtimePromptReader{runtime: out})
 	out.Core.SetContinuationAuthority(b.primitiveActor, b.primitiveVerifier)
 
 	aug := b.augmenter
@@ -916,7 +918,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			}))
 		}
 		agentOpts = append(agentOpts, agentsvc.WithSkillService(out.Skills))
-		out.Agent = agentsvc.New(out.Core, b.agentFinder, aug, out.Registry, out.Defaults, out.Conversation, agentOpts...)
+		out.Agent = agentsvc.New(out.Core, agentFinder, aug, out.Registry, out.Defaults, out.Conversation, agentOpts...)
 	}
 	if out.Agent != nil {
 		out.Agent.SetAuthorizationPolicy(out.AuthorizationPolicy)
@@ -1051,7 +1053,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if resourcesSvc := resourcessvc.New(aug,
 		resourcessvc.WithMCPManager(out.MCPManager),
 		resourcessvc.WithConversationClient(out.Conversation),
-		resourcessvc.WithAgentFinder(b.agentFinder),
+		resourcessvc.WithAgentFinder(agentFinder),
 		resourcessvc.WithDefaultEmbedder(out.Defaults.Embedder),
 		resourcessvc.WithSkillService(out.Skills),
 		resourcessvc.WithRawResourceBoundary(out.RawResourceBoundary),
@@ -1068,7 +1070,8 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		promptRepo = intakerepo.NewWithReader(defaultIntentReader(out))
 	}
 	if err := tool.AddInternalService(out.Registry, llmagents.New(out.Agent,
-		llmagents.WithDirectoryProvider(localAgentDirectory(b.agentFinder, b.agentDirectoryProvider)),
+		llmagents.WithDirectoryProvider(localAgentDirectory(agentFinder, b.agentDirectoryProvider)),
+		llmagents.WithContextDirectoryProvider(publishedAgentDirectory(out, localAgentDirectory(agentFinder, b.agentDirectoryProvider))),
 		llmagents.WithConversationClient(out.Conversation),
 		llmagents.WithDataService(out.Data),
 		llmagents.WithPromptRepo(promptRepo),
@@ -1081,7 +1084,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	{
 		profileOptions := []func(*promptsvc.Service){
 			promptsvc.WithConversationClient(out.Conversation),
-			promptsvc.WithAgentFinder(b.agentFinder),
+			promptsvc.WithAgentFinder(agentFinder),
 			promptsvc.WithMCPManager(out.MCPManager),
 			promptsvc.WithAuthorizationPolicy(out.AuthorizationPolicy),
 		}

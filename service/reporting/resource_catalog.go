@@ -9,10 +9,12 @@ import (
 	"github.com/viant/agently-core/protocol/primitive"
 	useruri "github.com/viant/agently-core/protocol/resource/user"
 	"github.com/viant/agently-core/service/reporting/catalog"
+	publishedidentity "github.com/viant/forge/backend/resource"
 	"strings"
 	"time"
 
 	identity "github.com/viant/agently-core/protocol/resource"
+	sharedengine "github.com/viant/forge/backend/reporting/engine"
 	"github.com/viant/forge/backend/reporting/registry"
 )
 
@@ -161,8 +163,17 @@ func (s *Service) getResourceReportUnscoped(ctx context.Context, input *GetRepor
 		return nil, identity.ErrResourceDenied
 	}
 	var definition registry.ReportEnvelope
-	if json.Unmarshal(raw, &definition) != nil || definition.SchemaVersion != 1 || len(definition.ReportDocument) == 0 && len(definition.ReportSpec) == 0 {
+	if json.Unmarshal(raw, &definition) != nil || len(definition.ReportDocument) == 0 && len(definition.ReportSpec) == 0 {
 		return nil, identity.ErrResource
+	}
+	if definition.SchemaVersion != 1 {
+		verifier, ok := resolver.(sharedengine.PublishedResourceVerifier)
+		if definition.SchemaVersion != 2 || definition.Format != registry.ResourceReportFormat || pin.Kind != publishedidentity.PublishedCandidate || !ok {
+			return nil, identity.ErrResource
+		}
+		if err = verifier.VerifyPublishedResource(ctx, *pin); err != nil {
+			return nil, err
+		}
 	}
 	report := &SharedArtifact{ArtifactID: pin.URI, Resource: pin, ResourceDefinition: cloneJSON(raw), ArtifactRef: pin.URI, ReportID: pin.URI, Kind: savedReportArtifactKind, Document: cloneJSON(definition.ReportDocument), ReportSpec: cloneJSON(definition.ReportSpec), ReportFill: cloneJSON(definition.ReportFill), ReportPrint: cloneJSON(definition.ReportPrint), CompileState: cloneJSON(definition.CompileState), Metadata: cloneJSON(definition.Metadata), Title: jsonObjectText(definition.ReportDocument, "title")}
 	if state != nil {
