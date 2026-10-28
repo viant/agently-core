@@ -830,6 +830,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		aug = augmenter.New(b.embedderFinder, opts...)
 		out.ownedAugmenter = aug
 	}
+	aug.SetCapabilityStateStore(out.StateStore)
 
 	out.CancelRegistry = b.cancelRegistry
 	if out.CancelRegistry == nil {

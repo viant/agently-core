@@ -6,12 +6,26 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
 	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/agently-core/runtime/capability"
 	resourcesvc "github.com/viant/agently-core/service/resource"
 	"golang.org/x/sync/errgroup"
 	"sort"
 	"strings"
 	"time"
 )
+
+type intakeCapability struct {
+	Kind            string             `json:"kind"`
+	Name            string             `json:"name"`
+	Namespace       string             `json:"namespace"`
+	Description     string             `json:"description,omitempty"`
+	URI             string             `json:"uri,omitempty"`
+	Definition      llm.ToolDefinition `json:"-"`
+	LookupNames     []string           `json:"-"`
+	AlwaysInclude   bool               `json:"-"`
+	CacheScope      string             `json:"-"`
+	ConnectionAlias string             `json:"-"`
+}
 
 // Intake sees metadata for the same tool surface available to execution. It
 // receives no tool schemas, skill bodies, results, or extra execution privileges.
@@ -28,15 +42,7 @@ func (s *Service) intakeCapabilities(ctx context.Context, input *QueryInput) (st
 }
 
 func (s *Service) intakeCapabilitySnapshot(ctx context.Context, input *QueryInput) (string, []string, []string, error) {
-	type capability struct {
-		Kind            string             `json:"kind"`
-		Name            string             `json:"name"`
-		Description     string             `json:"description,omitempty"`
-		URI             string             `json:"uri,omitempty"`
-		Definition      llm.ToolDefinition `json:"-"`
-		ConnectionAlias string             `json:"-"`
-	}
-	var toolItems, skillItems []capability
+	var toolItems, skillItems []intakeCapability
 	var toolNames []string
 	if s == nil || input == nil || input.Agent == nil {
 		return "", nil, nil, nil
@@ -55,10 +61,16 @@ func (s *Service) intakeCapabilitySnapshot(ctx context.Context, input *QueryInpu
 			if err != nil {
 				return err
 			}
+			scopes := map[string]string{}
+			if provider, ok := s.registry.(interface {
+				CapabilityCacheScopes(context.Context, []llm.ToolDefinition) map[string]string
+			}); ok {
+				scopes = provider.CapabilityCacheScopes(workerCtx, tools)
+			}
 			toolNames = make([]string, 0, len(tools))
 			for _, tool := range tools {
 				toolNames = append(toolNames, tool.Name)
-				toolItems = append(toolItems, capability{Kind: "tool", Name: tool.Name, Description: tool.Description, Definition: tool})
+				toolItems = append(toolItems, intakeCapability{Kind: "tool", Name: tool.Name, Description: tool.Description, CacheScope: scopes[tool.Name], Namespace: capability.ToolNamespace(tool.DiscoveryNamespace, tool.SourceResourceURI, tool.SourceProviderIdentity), Definition: tool})
 			}
 			return nil
 		})
@@ -76,7 +88,7 @@ func (s *Service) intakeCapabilitySnapshot(ctx context.Context, input *QueryInpu
 				if strings.TrimSpace(name) == "" {
 					name = skill.Name
 				}
-				skillItems = append(skillItems, capability{Kind: "skill", Name: name, Description: skill.Description, URI: skill.URI, ConnectionAlias: skill.ServerID})
+				skillItems = append(skillItems, intakeCapability{Kind: "skill", Name: name, Description: skill.Description, Namespace: capability.SkillNamespace(skill.Namespace, skill.URI), URI: skill.URI, CacheScope: skill.DiscoveryCacheScope, AlwaysInclude: skill.AlwaysInclude, LookupNames: []string{skill.Name, skill.QualifiedName}, ConnectionAlias: skill.ServerID})
 			}
 			return nil
 		})
@@ -98,6 +110,22 @@ func (s *Service) intakeCapabilitySnapshot(ctx context.Context, input *QueryInpu
 		}
 		return items[i].URI < items[j].URI
 	})
+	items, ranked, err := s.rankIntakeCapabilities(ctx, input, items, namespaces)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	if ranked {
+		toolNames = make([]string, 0)
+		for _, item := range items {
+			if item.Kind == "tool" {
+				toolNames = append(toolNames, item.Name)
+			}
+		}
+		sort.Strings(toolNames)
+		encoded, hints := s.rankedIntakeMetadata(ctx, input, items, namespaces)
+		raw, err := json.Marshal(encoded)
+		return string(raw), toolNames, hints, err
+	}
 	var namespaceNames []string
 	var encodedItems []interface{}
 	if len(namespaces) > 0 {
@@ -108,7 +136,7 @@ func (s *Service) intakeCapabilitySnapshot(ctx context.Context, input *QueryInpu
 			if item.Kind == "tool" && retained["mcp"] && !retainedToolDefinition(item.Definition) {
 				namespace = item.Definition.DiscoveryNamespace
 			}
-			if item.Kind == "skill" && retained["skill"] {
+			if item.Kind == "skill" && retained["skill"] && !item.AlwaysInclude {
 				uri, err := identity.ParseResourceURI(item.URI)
 				if err == nil {
 					namespace = describedSkillNamespace(item.URI, item.ConnectionAlias, snapshot.byName[uri.Namespace])

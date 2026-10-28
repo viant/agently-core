@@ -16,11 +16,18 @@ import (
 // truth.
 type AsyncDefaults = wsconfig.WorkspaceConfig
 
+// DiscoveryDefaults configures initial capability retrieval, not authorization.
+type DiscoveryDefaults struct {
+	CandidateLimit              int    `yaml:"candidateLimit,omitempty" json:"candidateLimit,omitempty"`
+	DefaultNamespaceDescription string `yaml:"defaultNamespaceDescription,omitempty" json:"defaultNamespaceDescription,omitempty"`
+}
+
 type Defaults struct {
 	AppName    string
 	AppIconRef string
 	Model      string
 	Embedder   string
+	Discovery  DiscoveryDefaults `yaml:"discovery,omitempty" json:"discovery,omitempty"`
 	Agent      string
 	Skills     SkillsDefaults    `yaml:"skills,omitempty" json:"skills,omitempty"`
 	Reporting  ReportingDefaults `yaml:"reporting,omitempty" json:"reporting,omitempty"`
@@ -111,6 +118,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		AppIconRef  string            `yaml:"appIconRef,omitempty"`
 		Model       string            `yaml:"model"`
 		Embedder    string            `yaml:"embedder"`
+		Discovery   DiscoveryDefaults `yaml:"discovery,omitempty"`
 		Agent       string            `yaml:"agent"`
 		Skills      SkillsDefaults    `yaml:"skills,omitempty"`
 		Reporting   ReportingDefaults `yaml:"reporting,omitempty"`
@@ -158,6 +166,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		AppIconRef:  tmp.AppIconRef,
 		Model:       tmp.Model,
 		Embedder:    tmp.Embedder,
+		Discovery:   tmp.Discovery,
 		Agent:       tmp.Agent,
 		Skills:      tmp.Skills,
 		Reporting:   tmp.Reporting,
