@@ -269,6 +269,10 @@ func (d *primitiveSkillDelivery) List(ctx context.Context) ([]proto.Metadata, er
 		query.Cursor = page.NextCursor
 	}
 }
+func (d *primitiveSkillDelivery) OwnsReference(key string) bool {
+	return d.source.OwnsPublishedSkill(key)
+}
+
 func (d *primitiveSkillDelivery) Read(ctx context.Context, key string) (*proto.Skill, bool, error) {
 	if !strings.HasPrefix(key, "skill://") || strings.Contains(key, "?") {
 		return nil, false, nil
@@ -284,20 +288,26 @@ func (d *primitiveSkillDelivery) Read(ctx context.Context, key string) (*proto.S
 		item, _, err := d.readNative(ctx, key)
 		return item, true, err
 	}
-	got, err := resources.Get[schema.GetSkillResult](ctx, d.gateway, selected.Connection, identity.ResourceRef{URI: key, Revision: selected.Resource.Revision}, nil)
-	if err != nil {
+	manifest, published, err := d.source.PublishedSkill(ctx, selected.Connection.Name, key)
+	if err != nil && published {
 		return nil, true, err
 	}
-	manifest := got.Definition
+	if !published {
+		got, err := resources.Get[schema.GetSkillResult](ctx, d.gateway, selected.Connection, identity.ResourceRef{URI: key, Revision: selected.Resource.Revision}, nil)
+		if err != nil {
+			return nil, true, err
+		}
+		manifest = &got.Definition
+	}
 	maxBytes := 0
-	options, err := d.gateway.Manager.Options(ctx, selected.Connection.Name)
+	options, err := d.source.Options(ctx, selected.Connection.Name)
 	if err != nil {
 		return nil, true, err
 	}
 	if options != nil && options.SkillDiscovery != nil {
 		maxBytes = options.SkillDiscovery.MaxSkillBytes
 	}
-	item, err := skills.ReadManifestDocument(ctx, &manifest, key, selected.Connection.Name, maxBytes, func(ctx context.Context, uri string) (*schema.ReadResourceResult, error) {
+	item, err := skills.ReadManifestDocument(ctx, manifest, manifest.Skill.Uri, selected.Connection.Name, maxBytes, func(ctx context.Context, uri string) (*schema.ReadResourceResult, error) {
 		return d.source.ReadSkillResource(ctx, selected.Connection.Name, uri)
 	})
 	if err != nil {
@@ -341,6 +351,20 @@ func (d *primitiveSkillDelivery) ReadNativeFile(ctx context.Context, target stri
 }
 
 func (d *primitiveSkillDelivery) selectSkill(ctx context.Context, key string) (*resources.Located[json.RawMessage], error) {
+	if d.source.OwnsPublishedSkill(key) {
+		uri, err := identity.ParseResourceURI(key)
+		if err != nil {
+			return nil, err
+		}
+		connection, err := d.gateway.ConnectionForResource(ctx, uri, "")
+		if err != nil {
+			return nil, err
+		}
+		selected := &resources.Located[json.RawMessage]{}
+		selected.Connection = connection
+		selected.Resource.URI = key
+		return selected, nil
+	}
 	var selected *resources.Located[json.RawMessage]
 	query := resources.CatalogQuery{Limit: 100}
 	for {
@@ -368,7 +392,7 @@ func (d *primitiveSkillDelivery) selectSkill(ctx context.Context, key string) (*
 func (d *primitiveSkillDelivery) ReadRemoteResource(ctx context.Context, item *proto.Skill, uri string) (*schema.ReadResourceResult, bool, error) {
 	// Native extension references carry their separate manifest identity. Only
 	// the generic canonical reference is owned by this adapter.
-	if item == nil || item.CatalogURI == "" || item.CatalogURI != item.RemoteURI {
+	if item == nil || item.CatalogURI == "" || strings.Contains(item.CatalogURI, "?") {
 		return nil, false, nil
 	}
 	selected, err := d.selectSkill(ctx, item.CatalogURI)
@@ -381,8 +405,19 @@ func (d *primitiveSkillDelivery) ReadRemoteResource(ctx context.Context, item *p
 	if selected.Connection.Name == nativeSkillConnection && selected.Connection.ProviderIdentity == nativeSkillProvider {
 		return nil, false, nil
 	}
-	if item.ServerID != selected.Connection.Name || item.RemoteURI != selected.Resource.URI {
+	if item.ServerID != selected.Connection.Name {
 		return nil, true, identity.ErrResourceDenied
+	}
+	manifest, published, err := d.source.PublishedSkill(ctx, selected.Connection.Name, selected.Resource.URI)
+	if published {
+		if err != nil {
+			return nil, true, err
+		}
+		if item.RemoteURI != manifest.Skill.Uri {
+			return nil, true, identity.ErrResourceDenied
+		}
+	} else if item.RemoteURI != selected.Resource.URI {
+		return nil, false, nil
 	}
 	result, err := d.source.ReadSkillResource(ctx, selected.Connection.Name, uri)
 	return result, true, err
