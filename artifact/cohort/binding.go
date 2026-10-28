@@ -21,6 +21,7 @@ import (
 // Browser requests cannot select this client, source scope, account, or cohort.
 type Registration struct {
 	ConnectionName, ProviderIdentity, Tenant, Account, Cohort string
+	Namespace                                                 string
 	Client                                                    artifactcohort.ToolClient
 	Notifications                                             *artifactcohort.NotificationHandler
 }
@@ -63,7 +64,12 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 	if err != nil {
 		return Binding{}, err
 	}
-	scope := sha256.Sum256([]byte(registration.ProviderIdentity + "\x00" + registration.Tenant + "\x00" + registration.Account))
+	namespace, err := selectSyncNamespace(registration.Namespace, namespaces)
+	if err != nil {
+		return Binding{}, err
+	}
+	namespaces = []string{namespace}
+	scope := sha256.Sum256([]byte(registration.ProviderIdentity + "\x00" + namespace + "\x00" + registration.Tenant + "\x00" + registration.Account))
 	stateDir, err := rt.StateStore.StatePath(ctx, filepath.Join("mcp", "artifacts", hex.EncodeToString(scope[:])))
 	if err != nil {
 		return Binding{}, err
@@ -81,7 +87,7 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 		chosen := registration.Cohort
 		selectedCohort = func(context.Context) (string, error) { return chosen, nil }
 	}
-	replica, err := artifactcohort.NewReplica(artifactcohort.Config{Enabled: true, Source: registration.ProviderIdentity, Tenant: registration.Tenant, Account: registration.Account, Cohort: selectedCohort, Caller: artifactcohort.MCPCaller{Client: registration.Client}, Facts: verifiedCohortFacts{source: rt.VerifiedPrincipalResolver, tenant: registration.Tenant, account: registration.Account}, SessionKey: verifiedCohortSession, Store: store, ManifestStore: artifactcache.FileManifestStore{Directory: filepath.Join(stateDir, "manifests")}})
+	replica, err := artifactcohort.NewReplica(artifactcohort.Config{Enabled: true, Source: registration.ProviderIdentity, Tenant: registration.Tenant, Account: registration.Account, Cohort: selectedCohort, Caller: artifactcohort.NamespaceCaller{Client: registration.Client, Namespace: namespace}, Facts: verifiedCohortFacts{source: rt.VerifiedPrincipalResolver, tenant: registration.Tenant, account: registration.Account}, SessionKey: verifiedCohortSession, Store: store, ManifestStore: artifactcache.FileManifestStore{Directory: filepath.Join(stateDir, "manifests")}})
 	if err != nil {
 		_ = store.Close()
 		return Binding{}, err
@@ -102,6 +108,18 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 		binding.Start = func(context.Context) error { return registration.Notifications.AttachReplica(replica) }
 	}
 	return binding, nil
+}
+
+func selectSyncNamespace(selected string, claims []string) (string, error) {
+	if selected == "" && len(claims) == 1 {
+		return claims[0], nil
+	}
+	for _, name := range claims {
+		if selected != "" && name == selected {
+			return selected, nil
+		}
+	}
+	return "", artifactcohort.ErrInvalid
 }
 
 func artifactCohortNamespaceClaims(configured []string) ([]string, error) {
