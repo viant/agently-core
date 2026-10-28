@@ -58,4 +58,4 @@ claim. Use the generic datasource/resource report path above for cursor tools.
 Proofs include a strict real HTTP MCP tools/list + tools/call fixture through Core
 SDK and report execution, plus a rendered existing PaginationBar browser fixture.
 The browser fixture tests the same paging/session/extraction/connector helpers;
-it does not claim an end-to-end Steward or Agently application acceptance run.
+it does not claim an end-to-end host application or Agently application acceptance run.

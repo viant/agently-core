@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// mysql.sql preserves the deployed Steward Skeema reporting definitions for
+// mysql.sql preserves the deployed host application Skeema reporting definitions for
 // both agently schemas. The host conversation table is a prerequisite.
 //
 //go:embed mysql.sql

@@ -48,7 +48,7 @@ second dashboard schema.
 Live dataset declarations may include portable request, result-contract,
 field, format, and capability metadata. Provider-specific details remain
 optional capability metadata; generic report behavior must not require Datly,
-Steward, or another provider.
+host application, or another provider.
 
 ### Filters and scope
 
@@ -743,7 +743,7 @@ A report fragment may declare a reference without embedding workspace logic:
 ```
 
 Forge interprets the generic declaration. The host workspace owns endpoint,
-query, semantic model, credentials, and customization metadata. No Steward
+query, semantic model, credentials, and customization metadata. No host application
 logic belongs in Forge or Agently Core.
 
 `workspaceRef` is resolved only from the host-provided datasource catalog

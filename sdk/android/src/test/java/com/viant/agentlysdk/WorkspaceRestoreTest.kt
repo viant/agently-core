@@ -451,7 +451,7 @@ class WorkspaceRestoreTest {
     }
 
     @Test
-    fun `deriveHostedWorkspaceRestoreState restores hosted order from latest ui context`() {
+    fun `deriveHostedWorkspaceRestoreState restores hosted record from latest ui context`() {
         val context = buildJsonObject {
             put("focusedWindowId", "chat/new")
             put("selected", buildJsonObject { put("windowId", "chat/new") })
@@ -464,15 +464,15 @@ class WorkspaceRestoreTest {
                 })
                 add(buildJsonObject {
                     put("window", buildJsonObject {
-                        put("windowId", "order__conv-1")
+                        put("windowId", "record-example__conv-1")
                         put("conversationId", "conv-1")
-                        put("windowKey", "order")
-                        put("windowTitle", "Frisco - Display (2688386)")
+                        put("windowKey", "record")
+                        put("windowTitle", "Example record")
                         put("presentation", "hosted")
                         put("region", "chat.top")
                         put("parentKey", "chat/new")
                         put("parameters", buildJsonObject {
-                            put("AdOrderId", kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive(2688386)) })
+                            put("RecordId", kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive(7)) })
                         })
                         put("windowForm", buildJsonObject {
                             put("periodView", "today")
@@ -511,7 +511,7 @@ class WorkspaceRestoreTest {
         val restore = deriveHostedWorkspaceRestoreState(state)
 
         assertEquals("chat/new", restore?.selectedWindowId)
-        assertEquals("order", restore?.windows?.lastOrNull()?.windowKey)
+        assertEquals("record", restore?.windows?.lastOrNull()?.windowKey)
         assertEquals("today", restore?.windows?.lastOrNull()?.windowForm?.get("periodView")?.jsonPrimitive?.content)
     }
 
@@ -657,10 +657,30 @@ class WorkspaceRestoreTest {
     }
 
     @Test
-    fun `deriveHostedWorkspaceRestoreState restores hosted line window from live transcript payload envelope`() {
-        val content = """
-            {"clientId":"ios-ui-123","conversationId":"conv-1","items":[{"conversationId":"conv-1","parameters":{"AudienceId":[7289845]},"parentKey":"chat/new","presentation":"hosted","region":"chat.top","windowId":"line_3866014773__conv-1","windowKey":"line","windowTitle":"Line Summary","workspaceMinHeight":500,"workspaceSharePct":72}],"ok":true,"parameters":{"AudienceId":[7289845]},"parentKey":"chat/new","presentation":"hosted","region":"chat.top","selectedWindowId":"line_3866014773__conv-1","windowId":"line_3866014773__conv-1","windowKey":"line","windowTitle":"Line Summary","workspaceMinHeight":500,"workspaceSharePct":72}
-        """.trimIndent()
+    fun `deriveHostedWorkspaceRestoreState restores synthetic hosted record from transcript payload envelope`() {
+        // Independently authored synthetic envelope: no captured application data.
+        val content = buildJsonObject {
+            put("clientId", "example-ui")
+            put("conversationId", "conv-1")
+            put("ok", true)
+            val window = buildJsonObject {
+                put("conversationId", "conv-1")
+                put("parameters", buildJsonObject {
+                    put("GroupId", kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive(11)) })
+                })
+                put("parentKey", "chat/new")
+                put("presentation", "hosted")
+                put("region", "chat.top")
+                put("windowId", "record-example__conv-1")
+                put("windowKey", "record")
+                put("windowTitle", "Example record")
+                put("workspaceMinHeight", 480)
+                put("workspaceSharePct", 60)
+            }
+            put("items", kotlinx.serialization.json.buildJsonArray { add(window) })
+            for ((key, value) in window) put(key, value)
+            put("selectedWindowId", "record-example__conv-1")
+        }.toString()
 
         val state = ConversationStateResponse(
             conversation = ConversationState(
@@ -695,8 +715,8 @@ class WorkspaceRestoreTest {
 
         val restore = deriveHostedWorkspaceRestoreState(state)
 
-        assertEquals("line_3866014773__conv-1", restore?.selectedWindowId)
-        assertEquals("line", restore?.windows?.firstOrNull()?.windowKey)
-        assertEquals("Line Summary", restore?.windows?.firstOrNull()?.windowTitle)
+        assertEquals("record-example__conv-1", restore?.selectedWindowId)
+        assertEquals("record", restore?.windows?.firstOrNull()?.windowKey)
+        assertEquals("Example record", restore?.windows?.firstOrNull()?.windowTitle)
     }
 }

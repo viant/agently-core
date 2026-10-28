@@ -46,22 +46,21 @@ share native conversation/goal/queue storage and verify a committed queue; UI
 datasource fixtures establish polling heartbeats before requesting commands.
 Their original timing/identity assertions and production behavior remain intact.
 
-Authenticated Steward compatibility checks passed on 2026-10-03 through the
+Authenticated host application compatibility checks passed on 2026-10-03 through the
 existing Go HTTP SDK's AuthLocalOOBSession (PKCE and the deployment's complete
 scope set). The supplied Scy credential/client references work. The standalone
 helper must register scy/kms/blowfish; the installed CLI attempt also supplied
 comma-separated scopes as one scope. Those failed attempts do not indicate an
 invalid credential or an AG-UI regression.
 
-The current assembled backend loaded an isolated copy of Steward metadata with
+The current assembled backend loaded an isolated copy of host application metadata with
 fresh runtime/database/state; original deployment data was excluded. Legacy
 session creation/identity, public agents, conversation listing and workspace
 metadata for web/iOS/Android targets passed. On the same cookie session,
 capabilities, workspace.metadata.get, workspace.publicagents.list and
 workspace.models.list passed with nine schema-valid AG-UI events; legacy
-identity still passed afterward. Reproducible helper:
-../agently-ag-ui/dev/ag-ui/steward-compat/main.go. Evidence:
-/tmp/agui-steward-sdk-oob-compat-20261003.log. Tokens stay in memory and no
+identity still passed afterward. The compatibility helper and evidence were
+maintained outside this public repository. Tokens stay in memory and no
 remote business mutations or live model calls were performed. This proves
 shared backend/session/metadata compatibility, not native device UI or every
 remote MCP business operation.

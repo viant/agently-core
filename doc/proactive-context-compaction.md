@@ -50,7 +50,7 @@ across failures and restarts. Only a completed full-history model call with a
 provider response ID, started after the handoff, clears the durable barrier.
 
 The `e2e/query/testdata/proactive_compaction/` fixtures are isolated test inputs,
-not a default Steward profile. They select the available low-cost nano-tier
+not a default host application profile. They select the available low-cost nano-tier
 `gpt-5-nano` with its 400000-token capacity and a 1% trigger. No parameter-count
 claim is made. Import them only into a private test workspace. Seed more than
 4000 input tokens of completed history, retain a known fact and completed tool

@@ -106,7 +106,7 @@ native queue in 194 ms and began native execution in 492 ms. Its later fixture
 delay is intentional, not the previous lease-recovery delay. The earlier
 conflict evidence remains historical evidence of the fixed defect.
 
-Final BFF lifecycle evidence (isolated Steward shadow, 20531) is under assembly
+Final BFF lifecycle evidence (isolated host application shadow, 20531) is under assembly
 `output/playwright/agui-primary/`: `bff-logout-check.txt`,
 `bff-unauthorized-run-check.txt`, `bff-login-navigation-check.txt`, and
 `bff-session-restored-check.txt`. Logout was invoked through the actual user
@@ -576,12 +576,12 @@ retains the two-turn session. Remote IDs never enter native selection/global
 conversation state. Native controls are hidden or return explicitly to Agently;
 capability-limited remote controls do not call native services.
 
-Operational correction: the Steward clone's default runtimeRoot expands to its
+Operational correction: the host application clone's default runtimeRoot expands to its
 normal configured location unless overridden. The initial test startup found no
 native runs/artifacts to repair (zero processed/repaired/cleaned); it submitted
 no model/tool prompt. The test server was stopped, then restarted with explicit
 AGENTLY_RUNTIME_ROOT, STEWARD_RUNTIME_ROOT, and AGENTLY_DB_PATH pointing to the
-owned /tmp/agui-steward-compat-runtime-20261003 tree. The public two-turn proof
+owned isolated temporary runtime tree. The public two-turn proof
 above used that isolated instance. Temporary plaintext token/browser cookie
 state files were deleted immediately after session installation.
 
@@ -650,7 +650,7 @@ existing composer-shell frame. Native history/starter-task DOM helpers explicitl
 exclude the standard connection composer to avoid inserting native prompt history.
 Nine focused remote tests and production build pass for that correction.
 The corrected layout was then reloaded and visually inspected in the authenticated
-Steward shell: the remote header stays at the top and the rounded composer at the
+host application shell: the remote header stays at the top and the rounded composer at the
 bottom, with existing navigation intact. Artifact:
 `output/playwright/agui-primary/public-web-layout-final.png`. This is a layout
 check; the earlier two-turn evidence remains the interoperability proof.

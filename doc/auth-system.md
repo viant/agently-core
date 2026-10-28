@@ -109,5 +109,5 @@ when an explicit flag/environment token is rejected rather than authenticating
 as another identity through a fallback flow. RSA/JWKS fixtures cover both handler
 implementations, invalid signatures, expiration, issuer/audience/subject mismatch,
 access-token binding, and normal config/discovery fallback. Normal protected
-Steward token shape was audited privately; no credentials or claim values belong
+host application token shape was audited privately; no credentials or claim values belong
 in test logs or documentation.

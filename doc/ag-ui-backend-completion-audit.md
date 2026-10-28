@@ -261,13 +261,12 @@ The latest complete core run passes 180 packages, 6,487 test/subtest records,
 TypeScript 424 tests/5 opt-in skips plus typecheck/build, Swift 116 tests/4
 opt-in skips, Android 124 tests/4 skips.
 
-Authenticated Steward checks through the existing HTTP SDK pass against an
+Authenticated host application checks through the existing HTTP SDK pass against an
 isolated metadata copy and fresh runtime. OOB uses PKCE and the deployment's
 full scope set. Legacy session/identity, agents, conversations and web/iOS/Android
 metadata targets pass; four AG-UI discovery/workspace streams validate all nine
-events; legacy identity remains valid afterward. Evidence:
-/tmp/agui-steward-sdk-oob-compat-20261003.log. The reusable helper is
-../agently-ag-ui/dev/ag-ui/steward-compat/main.go. Credentials/tokens are never
+events; legacy identity remains valid afterward. The compatibility helper and
+evidence were maintained outside this public repository. Credentials/tokens are never
 printed; no original runtime/database was used, no live model was invoked and
 no remote business mutation was performed. Native device UI and every remote
 MCP operation remain outside this proof. The four broader legacy CLI failures

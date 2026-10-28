@@ -200,9 +200,9 @@ These are the known remaining gaps after the latest verified fixes:
    - but partial deselection has not yet been verified through an approved queue
      decision payload
 
-2. Some live Steward reviewed rows still omit `site_name` and `rationale`.
+2. Some live host application reviewed rows still omit `site_name` and `rationale`.
    - the prompt fragments were tightened so they are required
-   - the compiled Steward `system.tmpl` must be regenerated before that
+   - the compiled host application `system.tmpl` must be regenerated before that
      producer contract becomes live
 
 These are not reasons to add fallback heuristics. They are explicit producer or
