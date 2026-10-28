@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,6 +86,14 @@ func TestLocalCohortConfigUsesSecretReferencesAndStrictFields(t *testing.T) {
 	config, err := loadArtifactCohortLocalConfig(path)
 	if err != nil || config.ConnectionName != "catalog-management" || len(config.Scopes) != 1 || config.Scopes[0] != "openid" {
 		t.Fatalf("strict config: %+v %v", config, err)
+	}
+	// Authenticated server-to-server MCP does not need a browser Origin.
+	withoutOrigin := strings.Replace(body, "origin: http://127.0.0.1:8095\n", "", 1)
+	if err := os.WriteFile(path, []byte(withoutOrigin), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if config, err := loadArtifactCohortLocalConfig(path); err != nil || config.Origin != "" {
+		t.Fatalf("host-only configuration: %v", err)
 	}
 	if err := os.WriteFile(path, []byte(body+"browserRole: admin\n"), 0600); err != nil {
 		t.Fatal(err)
