@@ -74,7 +74,7 @@ func loadArtifactCohortLocalConfigs(path string) ([]LocalConfig, error) {
 	providers, connections := map[string]bool{}, map[string]bool{}
 	for i := range configs {
 		config := &configs[i]
-		for _, value := range []string{config.ConnectionName, config.ProviderIdentity, config.ExpectedEndpoint, config.Origin, config.OAuthClient, config.UserSecret, config.Key} {
+		for _, value := range []string{config.ConnectionName, config.ProviderIdentity, config.ExpectedEndpoint, config.OAuthClient, config.UserSecret, config.Key} {
 			if strings.TrimSpace(value) == "" {
 				return nil, artifactcohort.ErrInvalid
 			}
