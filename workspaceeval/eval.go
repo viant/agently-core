@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/agently-core/protocol/evaluation"
 	"github.com/viant/agently-core/sdk"
 	sdkapi "github.com/viant/agently-core/sdk/api"
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
@@ -23,25 +24,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type EvalDoc struct {
-	ID              string `yaml:"id"`
-	Title           string `yaml:"title"`
-	UserPrompt      string `yaml:"user_prompt"`
-	EntryAgent      string `yaml:"entry_agent"`
-	ExpectedRouting struct {
-		Agent   string   `yaml:"agent"`
-		Profile string   `yaml:"profile"`
-		FanOut  []string `yaml:"fan_out"`
-	} `yaml:"expected_routing"`
-	ExpectedPreDelegationTools []EvalToolExpectation `yaml:"expected_pre_delegation_tools"`
-	ExpectedOutput             struct {
-		Template string `yaml:"template"`
-	} `yaml:"expected_output"`
-}
-
-type EvalToolExpectation struct {
-	Name string `yaml:"name"`
-}
+type EvalDoc = evaluation.Definition
+type EvalToolExpectation = evaluation.ToolExpectation
 
 type AgentDoc struct {
 	ID                    string                   `yaml:"id"`
@@ -75,6 +59,8 @@ type PromptDoc struct {
 }
 
 type Options struct {
+	EvalReader           EvalReader
+	Context              context.Context
 	Workspace            string
 	ContractTests        []string
 	RequiredProfiles     []string
@@ -144,7 +130,7 @@ func Run(opts Options) error {
 	failures = append(failures, CheckEvidenceContractProfiles(filepath.Join(workspace, "prompts"), requiredProfiles)...)
 	failures = append(failures, RunContractTests(workspace, contractTests)...)
 	if opts.Behavioral {
-		failures = append(failures, RunBehavioralEvals(
+		failures = append(failures, runBehavioralEvalsWithReader(opts.Context, opts.EvalReader,
 			workspace,
 			filepath.Join(workspace, "evals"),
 			opts.BehavioralCases,
@@ -380,6 +366,13 @@ func RunContractTests(workspace string, contractTests []string) []string {
 }
 
 func RunBehavioralEvals(workspace, evalRoot, selected string, timeout time.Duration, api, oob, token, agentlyBin string) []string {
+	return runBehavioralEvalsWithReader(context.Background(), nil, workspace, evalRoot, selected, timeout, api, oob, token, agentlyBin)
+}
+
+func runBehavioralEvalsWithReader(ctx context.Context, reader EvalReader, workspace, evalRoot, selected string, timeout time.Duration, api, oob, token, agentlyBin string) []string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if timeout <= 0 {
 		timeout = 3 * time.Minute
 	}
@@ -391,7 +384,13 @@ func RunBehavioralEvals(workspace, evalRoot, selected string, timeout time.Durat
 	if agentlyBin == "" {
 		return []string{"behavioral mode requires --behavioral-agently-bin"}
 	}
-	evals, failures := LoadEvalDocs(evalRoot)
+	var evals map[string]EvalDoc
+	var failures []string
+	if reader != nil {
+		evals, failures = LoadEvalDocsWithReader(ctx, reader)
+	} else {
+		evals, failures = LoadEvalDocs(evalRoot)
+	}
 	if len(failures) > 0 {
 		return failures
 	}
@@ -399,15 +398,15 @@ func RunBehavioralEvals(workspace, evalRoot, selected string, timeout time.Durat
 	if len(targets) == 0 {
 		return []string{"behavioral mode enabled but no evals were selected"}
 	}
-	client, err := NewBehavioralHTTPClient(context.Background(), api, token, oob)
+	client, err := NewBehavioralHTTPClient(ctx, api, token, oob)
 	if err != nil {
 		return []string{fmt.Sprintf("build behavioral http client: %v", err)}
 	}
 	var behavioralFailures []string
 	for _, target := range targets {
 		doc := evals[target]
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		err := RunBehavioralEval(ctx, client, agentlyBin, api, token, oob, doc)
+		caseCtx, cancel := context.WithTimeout(ctx, timeout)
+		err := RunBehavioralEval(caseCtx, client, agentlyBin, api, token, oob, doc)
 		cancel()
 		if err != nil {
 			behavioralFailures = append(behavioralFailures, fmt.Sprintf("%s: %v", target, err))

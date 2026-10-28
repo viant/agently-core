@@ -10,6 +10,7 @@ import (
 
 	identity "github.com/viant/agently-core/protocol/resource"
 	resources "github.com/viant/agently-core/service/resource"
+	sharedidentity "github.com/viant/forge/backend/resource"
 	authconfig "github.com/viant/mcp/client/auth/config"
 )
 
@@ -146,6 +147,12 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 				return markLayoutMenuFailure("revalidate_context", "", "", identity.ErrResourceDenied)
 			}
 			for _, hold := range selected {
+				if hold.pin.Kind == sharedidentity.PublishedCandidate {
+					if err := gateway.VerifyPublishedMetadata(ctx, hold.pin); err != nil {
+						return err
+					}
+					continue
+				}
 				got, err := resources.Get[json.RawMessage](ctx, gateway, hold.connection, identity.ResourceRef{URI: hold.pin.URI, Revision: hold.pin.Selector()}, &hold.pin)
 				if err != nil {
 					return markLayoutMenuFailure("revalidate_read", hold.connection.Name, hold.pin.URI, err)

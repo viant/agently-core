@@ -82,6 +82,7 @@ type Options struct {
 // Service is the agently-core runtime boundary for reporting compile and
 // export job orchestration.
 type Service struct {
+	exportContexts              exportExecutionContexts
 	execution                   *sharedengine.Service
 	reportResourceService       primitive.ResourceAuthoring
 	reportCatalog               catalog.Provider
@@ -874,7 +875,11 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 		ResourcePin:    cloneResolvedResource(resourcePin),
 		SubmittedAt:    s.now().UTC(),
 	}
+	if err := s.retainExportExecutionContext(ctx, job); err != nil {
+		return nil, err
+	}
 	if err := s.store.CreateJob(ctx, job); err != nil {
+		s.releaseExportExecutionContext(job.JobID)
 		return nil, err
 	}
 	if job.ResourcePin != nil {
@@ -1035,15 +1040,22 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (out *ExportJob, 
 		if actor := parseAuthContextRef(queued.AuthContextRef)["actor"]; actor != "" && actor != queued.OwnerID {
 			return nil, identity.ErrResourceDenied
 		}
+		var cancel context.CancelFunc
+		startCtx, cancel, err = s.restoreExportExecutionContext(startCtx, queued)
+		if err != nil {
+			return s.failUnclaimableWorkerExport(ctx, jobID, err)
+		}
+		defer cancel()
 		startCtx, err = s.ensureRunExportAuthContext(startCtx, queued)
 		if err != nil {
-			return nil, err
+			return s.failUnclaimableWorkerExport(ctx, jobID, err)
 		}
 	}
 	job, err := s.StartExport(startCtx, jobID)
 	if err != nil {
-		return nil, err
+		return s.failUnclaimableWorkerExport(ctx, jobID, err)
 	}
+	defer s.releaseExportExecutionContext(job.JobID)
 	runCtx, err := s.ensureRunExportAuthContext(startCtx, job)
 	if err != nil {
 		return s.failRunExport(ctx, job.JobID, err)
@@ -2801,6 +2813,13 @@ func (s *Service) ensureRunExportAuthContext(ctx context.Context, job *ExportJob
 		return ctx, nil
 	}
 	meta := parseAuthContextRef(job.AuthContextRef)
+	if ctx.Value(retainedExportContextKey{}) == job.JobID {
+		owner, err := authctx.LocalStateOwner(ctx)
+		if err != nil || owner == nil || effectiveActorID(ctx) != job.OwnerID {
+			return ctx, identity.ErrResourceDenied
+		}
+		return ctx, nil
+	}
 	canonical := strings.TrimSpace(meta["canonical"])
 	if current := strings.TrimSpace(iauth.CanonicalUserID(ctx)); current != "" && canonical != "" && current != canonical {
 		return ctx, identity.ErrResourceDenied

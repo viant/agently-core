@@ -102,3 +102,27 @@ func TestLocalCohortConfigUsesSecretReferencesAndStrictFields(t *testing.T) {
 		t.Fatal("invalid token expiry accepted")
 	}
 }
+
+func TestSyncNamespaceUsesConfiguredClaims(t *testing.T) {
+	for _, tc := range []struct {
+		selected string
+		claims   []string
+		want     string
+	}{
+		{"", []string{"example"}, "example"},
+		{"second", []string{"first", "second"}, "second"},
+	} {
+		got, err := selectSyncNamespace(tc.selected, tc.claims)
+		if err != nil || got != tc.want {
+			t.Fatalf("namespace selection: %q %v", got, err)
+		}
+	}
+	for _, tc := range []struct {
+		selected string
+		claims   []string
+	}{{"", nil}, {"", []string{"first", "second"}}, {"foreign", []string{"example"}}} {
+		if _, err := selectSyncNamespace(tc.selected, tc.claims); err == nil {
+			t.Fatal("unconfigured or ambiguous namespace accepted")
+		}
+	}
+}

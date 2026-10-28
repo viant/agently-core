@@ -40,8 +40,9 @@ type agentRuntime interface {
 
 // Service exposes agent directory and execution as tool methods.
 type Service struct {
-	agent       agentRuntime
-	dirProvider func() []ListItem
+	agent            agentRuntime
+	dirProvider      func() []ListItem
+	contextDirectory func(context.Context) ([]ListItem, error)
 	// Optional external runner: returns answer, status, taskID, contextID, streamSupported, warnings
 	runExternal func(ctx context.Context, agentID, objective string, payload map[string]interface{}) (string, string, string, string, bool, []string, error)
 	// Routing policy
@@ -315,6 +316,11 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	}
 	lo.ReuseNote = "Reuse this directory for the rest of the current turn. Do not call llm/agents:list again unless the available agents changed."
 	lo.RunUsage = "Use llm/agents:start to launch an agent asynchronously and poll later with llm/agents:status. Use llm/agents:run when you need delegated output returned synchronously. Use llm/agents:query for the full agent query contract."
+	if s.contextDirectory != nil {
+		var err error
+		lo.Items, err = s.contextDirectory(ctx)
+		return err
+	}
 	if s.dirProvider != nil {
 		lo.Items = s.dirProvider()
 		return nil
