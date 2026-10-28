@@ -100,7 +100,7 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 			aWindow, err = resolvedHTTPWindow(r, settings.windows, strings.Join(pathParts, "/"))
 			span.End(observe.OutcomeFor(err), observe.CacheUnknown)
 			if err != nil {
-				log.Printf("window metadata lookup failed: %v", err)
+				logWindowDefinitionFailure(windowKey, err)
 				switch {
 				case errors.Is(err, context.DeadlineExceeded), errors.Is(err, forgeservice.ErrWindowSelectionUnavailable):
 					writeWindowError(w, err)
