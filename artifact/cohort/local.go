@@ -245,8 +245,9 @@ func prepareLocalArtifactCohortConfig(ctx context.Context, rt *executor.Runtime,
 				return err
 			}
 		}
-		stopNotifications = startArtifactCohortNotifications(ctx, config.ExpectedEndpoint, config.Origin, tokens.Token, known.KnownHash, notifications)
-		return nil
+		var err error
+		stopNotifications, err = StartNotifications(ctx, config.ExpectedEndpoint, config.Origin, binding.Namespaces[0], tokens.Token, known.KnownHash, notifications)
+		return err
 	}
 	binding.Close = func() {
 		if stopNotifications != nil {
