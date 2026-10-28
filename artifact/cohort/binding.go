@@ -17,7 +17,8 @@ import (
 )
 
 // Registration is an operator-owned bridge from one configured
-// MCP catalog to its dedicated, separately authenticated host-service client.
+// MCP catalog to its dedicated published-metadata client. Metadata may be
+// anonymous; interactive admission still uses verified user facts locally.
 // Browser requests cannot select this client, source scope, account, or cohort.
 type Registration struct {
 	ConnectionName, ProviderIdentity, Tenant, Account, Cohort string
@@ -51,7 +52,7 @@ func verifiedCohortSession(ctx context.Context) (string, error) {
 
 // PrepareBinding resolves the trusted MCP definition and state
 // directory once at startup. It never borrows a browser's BFF token or mints a
-// policy grant; Client must already represent the configured host identity.
+// policy grant; Client must already target the configured metadata producer.
 func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Registration) (Binding, error) {
 	if ctx == nil || ctx.Err() != nil || rt == nil || rt.MCPManager == nil || rt.StateStore == nil || rt.VerifiedPrincipalResolver == nil || registration.Client == nil || registration.ConnectionName == "" || registration.ProviderIdentity == "" || registration.Tenant == "" || registration.Account == "" {
 		return Binding{}, artifactcohort.ErrInvalid

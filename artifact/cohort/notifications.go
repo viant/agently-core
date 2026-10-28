@@ -34,8 +34,9 @@ func artifactNotificationTraceContext(ctx context.Context) context.Context {
 // stateless client. Lost streams fence the replica and queue validated Sync in
 // the handler's background retry loop; request handling never reconciles MCP.
 // Endpoint, namespace and credential must come from trusted host registration.
+// A nil credential callback selects anonymous metadata, as in NewHostClient.
 func StartNotifications(parent context.Context, endpoint, origin, namespace string, token HostToken, knownHash func() string, handler *artifactcohort.NotificationHandler) (func(), error) {
-	if parent == nil || parent.Err() != nil || strings.TrimSpace(endpoint) == "" || namespace == "" || strings.TrimSpace(namespace) != namespace || strings.ContainsAny(namespace, "/:?#") || token == nil || knownHash == nil || handler == nil {
+	if parent == nil || parent.Err() != nil || strings.TrimSpace(endpoint) == "" || namespace == "" || strings.TrimSpace(namespace) != namespace || strings.ContainsAny(namespace, "/:?#") || knownHash == nil || handler == nil {
 		return nil, artifactcohort.ErrInvalid
 	}
 	return startArtifactCohortNotificationsWithInterval(parent, endpoint, origin, namespace, token, knownHash, handler, 5*time.Second), nil
