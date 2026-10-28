@@ -83,5 +83,5 @@ an explicit durable command. Network loss does not synthesize turn completion or
 failure; uncertain mutations are never automatically repeated. A fresh reconcile
 waits behind an older read, then performs another command. The assembly retains its
 attachments, native Forge workspace, report/feed consumers and theme/layout renderers.
-Unit tests/APK assembly do not establish Steward simulator parity: actual authenticated
+Unit tests/APK assembly do not establish host application simulator parity: actual authenticated
 starter workflows, interactions, styling and restart checks remain required.

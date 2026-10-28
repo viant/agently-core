@@ -315,7 +315,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		}
 		// Backend/client collision validation is intentionally disabled: rebuilding
 		// and canonicalizing thousands of tool names added 4+ seconds to BuildBinding
-		// for an otherwise trivial Steward turn.
+		// for an otherwise trivial host application turn.
 		for _, definition := range definitions {
 			if managedBrowser[definition.Name] {
 				continue
