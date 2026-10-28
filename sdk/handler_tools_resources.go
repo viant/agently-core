@@ -103,6 +103,7 @@ func handleActivateSkill(client Client) http.HandlerFunc {
 
 func handleExecuteTool(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r, finishTiming := prepareToolTiming(r)
 		start := time.Now()
 		name := strings.TrimSpace(r.PathValue("name"))
 		if name == "" {
@@ -119,8 +120,13 @@ func handleExecuteTool(client Client) http.HandlerFunc {
 			ctx = runtimerequestctx.WithConversationID(ctx, convID)
 		}
 		ctx = ensureDirectToolPolicy(ctx)
+		if wantsToolStream(r) {
+			executeToolStream(w, r, ctx, func(streamCtx context.Context) (string, error) { return client.ExecuteTool(streamCtx, name, args) }, finishTiming)
+			return
+		}
 		debugMCPExecf("http execute start name=%s argsKeys=%d", name, len(args))
 		result, err := client.ExecuteTool(ctx, name, args)
+		finishTiming(w)
 		debugMCPExecf("http execute done name=%s elapsed=%s resultBytes=%d err=%v", name, time.Since(start).Round(time.Millisecond), len(result), err)
 		if err != nil {
 			writeToolExecuteError(w, err, result)
@@ -133,6 +139,7 @@ func handleExecuteTool(client Client) http.HandlerFunc {
 
 func handleExecuteToolByName(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r, finishTiming := prepareToolTiming(r)
 		start := time.Now()
 		var req struct {
 			Name string                 `json:"name"`
@@ -153,8 +160,13 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 			ctx = runtimerequestctx.WithConversationID(ctx, convID)
 		}
 		ctx = ensureDirectToolPolicy(ctx)
+		if wantsToolStream(r) {
+			executeToolStream(w, r, ctx, func(streamCtx context.Context) (string, error) { return client.ExecuteTool(streamCtx, name, req.Args) }, finishTiming)
+			return
+		}
 		debugMCPExecf("http execute-by-name start name=%s argsKeys=%d", name, len(req.Args))
 		result, err := client.ExecuteTool(ctx, name, req.Args)
+		finishTiming(w)
 		debugMCPExecf("http execute-by-name done name=%s elapsed=%s resultBytes=%d err=%v", name, time.Since(start).Round(time.Millisecond), len(result), err)
 		if err != nil {
 			writeToolExecuteError(w, err, result)
@@ -362,7 +374,7 @@ func statusForToolExecuteError(err error) int {
 	return http.StatusInternalServerError
 }
 
-func writeToolExecuteError(w http.ResponseWriter, err error, result string) {
+func toolExecuteErrorResponse(err error, result string) (int, error, string) {
 	status := statusForToolExecuteError(err)
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		// Partial definitions/data cannot accompany failed authorization.
@@ -377,7 +389,12 @@ func writeToolExecuteError(w http.ResponseWriter, err error, result string) {
 			}
 		}
 	}
-	httpErrorWithResult(w, status, err, result)
+	return status, err, result
+}
+
+func writeToolExecuteError(w http.ResponseWriter, err error, result string) {
+	status, safeError, safeResult := toolExecuteErrorResponse(err, result)
+	httpErrorWithResult(w, status, safeError, safeResult)
 }
 
 func ensureDirectToolPolicy(ctx context.Context) context.Context {

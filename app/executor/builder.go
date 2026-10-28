@@ -999,6 +999,11 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			ConversationAdoptionEnabled: out.Defaults.Reporting.ConversationAdoptionEnabled(),
 		})
 	}
+	if out.Reporting != nil {
+		if err := out.Reporting.PrepareRuntime(ctx); err != nil {
+			return nil, fmt.Errorf("prepare reporting runtime: %w", err)
+		}
+	}
 	if b.reportCatalog != nil || b.reportResourceResolver != nil {
 		if b.reportCatalog == nil || b.reportResourceResolver == nil || out.Reporting == nil {
 			return nil, fmt.Errorf("report resource catalog, resolver and reporting service are required")

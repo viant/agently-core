@@ -77,6 +77,7 @@ describe('explicit native application observation alongside AG-UI', () => {
         client.streamEvents('shared', { onSnapshot, onError });
         Observer.instances[0].emit({ type: 'compatibility_reconcile', conversationId: 'shared', turnId: 'native' });
         await vi.waitFor(() => expect(transcript).toHaveBeenCalled());
+        expect(transcript).toHaveBeenCalledWith({conversationId:'shared',includeModelCalls:true,includeToolCalls:true,includeFeeds:true,includeModelPayloads:false,includeToolPayloads:false});
         client.resetAgUiInteractions();
         release({ conversation: { conversationId: 'shared', turns: [] } } as never);
         await Promise.resolve();

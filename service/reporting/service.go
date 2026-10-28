@@ -2976,6 +2976,7 @@ func cloneSubmitExportRequest(input *SubmitExportRequest) *SubmitExportRequest {
 		DependencyPins: cloneDependencyPins(input.DependencyPins), DependencyToken: input.DependencyToken,
 		ArtifactRef:         strings.TrimSpace(input.ArtifactRef),
 		Format:              input.Format,
+		TableBlockID:        input.TableBlockID,
 		Scope:               input.Scope,
 		ConversationID:      strings.TrimSpace(input.ConversationID),
 		WorkspaceID:         strings.TrimSpace(input.WorkspaceID),

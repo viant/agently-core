@@ -41,6 +41,8 @@ import type {
     ListUIEventsInput, ListUIEventsOutput,
 } from './types';
 import { HttpError } from './errors';
+import { readToolExecuteStream, type ToolExecuteOptions } from './toolExecuteStream';
+export type { ToolExecuteOptions } from './toolExecuteStream';
 import { FetchEventSource } from './fetchEventSource';
 import { conversationDTO, messageDTO, transcriptDTO } from './wireDTO';
 import { normalizeStreamEventIdentity } from './streamIdentity';
@@ -370,6 +372,9 @@ export class AgentlyClient {
 
     /** Get structured turn-based transcript with optional tool/model call details. */
     async readConversationHistory(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
+        // Call summaries and payload bodies are separate options. Automatic
+        // history/restore callers must explicitly disable both payload flags;
+        // omission preserves legacy behavior for explicit detail consumers.
         const q = new URLSearchParams();
         if (input.since) q.set('since', input.since);
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
@@ -580,7 +585,9 @@ export class AgentlyClient {
                 if (error?.status === 403) {
                     // Shared readers use authorized native history, without
                     // access to the owner's private protocol journal.
-                    const snapshot = await this.readConversationHistory({ conversationId, includeModelCalls: true, includeToolCalls: true, includeFeeds: true });
+                    // This automatic fallback must also exclude request/response
+                    // bodies; omission would undo compact history after a 403.
+                    const snapshot = await this.readConversationHistory({ conversationId, includeModelCalls: true, includeToolCalls: true, includeFeeds: true, includeModelPayloads: false, includeToolPayloads: false });
                     if (current()) handlers.onSnapshot?.(snapshot);
                     return;
                 }
@@ -880,14 +887,46 @@ export class AgentlyClient {
     // ── Tools ────────────────────────────────────────────────────────────────
 
     /** Execute a registered tool by name. */
-    async executeTool(name: string, args?: JSONObject, options?: { conversationId?: string }): Promise<string> {
+    async executeTool(name: string, args?: JSONObject, options?: ToolExecuteOptions): Promise<string> {
         const q = new URLSearchParams();
         if (options?.conversationId) q.set('conversationId', options.conversationId);
         const url = q.toString() ? `/tools/${enc(name)}/execute?${q.toString()}` : `/tools/${enc(name)}/execute`;
-        const res = await this.post<JSONValue | undefined>(url, args ?? {});
+        const res = options?.onProgress || options?.onUpdate
+            ? await this.executeToolWithProgress(url, args ?? {}, options)
+            : await this.post<JSONValue | undefined>(url, args ?? {});
         if (typeof res === 'string') return res;
         const result = res && isJSONObject(res) ? res.result : undefined;
         return typeof result === 'string' ? result : JSON.stringify(result ?? res);
+    }
+
+    private async executeToolWithProgress(path: string, args: JSONObject, options: ToolExecuteOptions): Promise<JSONValue | undefined> {
+        const headers = await this.authHeaders();
+        headers.Accept = 'text/event-stream';
+        if (options.onUpdate) headers['X-Agently-Tool-Updates'] = 'true';
+        headers['Content-Type'] = 'application/json';
+        const controller = this.timeoutMs > 0 ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), this.timeoutMs) : null;
+        try {
+            const response = await this.fetchImpl(`${this.baseURL}${path}`, {
+                method: 'POST', headers, body: JSON.stringify(args),
+                credentials: this.useCookies ? 'include' : 'same-origin', signal: controller?.signal,
+            });
+            if (!response.ok) throw await this.toHttpError(response);
+            if (String(response.headers.get('content-type') || '').toLowerCase().startsWith('text/event-stream')) {
+                return await readToolExecuteStream(response, options.onProgress ?? (() => {}), options.onUpdate);
+            }
+            // Older servers may return their existing JSON envelope on this same request.
+            const text = await response.text();
+            return text ? JSON.parse(text) : undefined;
+        } catch (error) {
+            if (error instanceof HttpError) {
+                if (error.status === 401) this.onUnauthorizedHook?.(error);
+                else this.onErrorHook?.(error);
+            } else this.onErrorHook?.(new HttpError(0, 'NetworkError', String((error as Error)?.message || error)));
+            throw error;
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
     }
 
     /** List recent structured UI events for a conversation/client/window scope. */

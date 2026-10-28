@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	iauth "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/primitive"
 	useruri "github.com/viant/agently-core/protocol/resource/user"
@@ -123,8 +124,25 @@ func (s *Service) getResourceReportUnscoped(ctx context.Context, input *GetRepor
 	pin := cloneResolvedResource(input.ResolvedResource)
 	var raw json.RawMessage
 	var state *primitive.ResourceState
-	if reader, ok := resolver.(ResourceDefinitionReader); ok {
-		got, readErr := reader.ReadDefinition(ctx, ref, pin)
+	if input.RefreshMetadata && (pin == nil || pin.URI != ref.URI || ref.Revision != pin.Selector() || !pin.ResourceCandidate.Valid()) {
+		return nil, identity.ErrResourceDenied
+	}
+	var readDefinition func(context.Context, identity.ResourceRef, *identity.ResolvedResource) (*primitive.GetResult, error)
+	if input.RefreshMetadata {
+		if reader, ok := resolver.(ResourceFreshDefinitionReader); ok {
+			readDefinition = reader.ReadDefinitionFresh
+		} else if local, ok := resolver.(*identity.ResourceResolver); ok && local.ProviderIdentity == pin.ProviderIdentity {
+			// ResourceResolver has no cross-request metadata cache. A fresh
+			// unpinned selection invokes its ordinary source/policy path.
+			pin = nil
+		} else {
+			return nil, fmt.Errorf("fresh report metadata is unavailable")
+		}
+	} else if reader, ok := resolver.(ResourceDefinitionReader); ok {
+		readDefinition = reader.ReadDefinition
+	}
+	if readDefinition != nil {
+		got, readErr := readDefinition(ctx, ref, pin)
 		if readErr != nil {
 			return nil, readErr
 		}

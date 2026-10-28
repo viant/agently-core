@@ -9,6 +9,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNormalizeRenderedContent_PreservesViewerThroughTransactions(t *testing.T) {
+	fragments := []string{
+		`{"version":1,"id":"brief","sequence":1,"mode":"start","grammar":"report-document-v1","viewer":{"appearance":"document"},"blocks":[]}`,
+		`{"version":1,"id":"brief","sequence":2,"mode":"append","blocks":[{"id":"summary","kind":"markdownBlock","content":"Synthetic summary"}]}`,
+		`{"version":1,"id":"brief","sequence":3,"mode":"patch","viewer":{"allowChartTableSwitch":false}}`,
+		`{"version":1,"id":"brief","sequence":4,"mode":"commit"}`,
+	}
+	var content strings.Builder
+	for _, fragment := range fragments {
+		fmt.Fprintf(&content, "```forge-report\n%s\n```\n", fragment)
+	}
+	got := NormalizeRenderedContent(content.String())
+	require.Empty(t, got.Diagnostics)
+	require.Len(t, got.Reports, 1)
+	require.Equal(t, "committed", got.Reports[0].Status)
+	var source map[string]interface{}
+	require.NoError(t, json.Unmarshal(got.Reports[0].Source, &source))
+	require.Equal(t, map[string]interface{}{"appearance": "document", "allowChartTableSwitch": false}, source["viewer"])
+	require.Len(t, source["blocks"], 1)
+}
+
 func TestNormalizeRenderedContent_AssemblesProgressiveDashboardReport(t *testing.T) {
 	content := "```forge-data\n" +
 		`{"version":2,"scope":"campaign","reportRef":"brief","id":"summary","sequence":1,"format":"json","mode":"replace","data":[{"spend":12}]}` +

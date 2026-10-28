@@ -34,7 +34,13 @@ func (e *ForgeXLSXExporter) Export(_ context.Context, request *RenderRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("reporting forge xlsx export: %w", err)
 	}
-	data, err := forgexlsx.Render(report)
+	// Keep the established single-table workbook unchanged. A complete
+	// dashboard uses Forge's additive multi-sheet renderer.
+	render := forgexlsx.Render
+	if len(report.Blocks) > 1 {
+		render = forgexlsx.RenderDashboard
+	}
+	data, err := render(report)
 	if err != nil {
 		return nil, fmt.Errorf("reporting forge xlsx export: %w", err)
 	}

@@ -287,11 +287,22 @@ func (s *Service) prepareUnifiedExportRequestUnscoped(ctx context.Context, reque
 		format = ExportFormatPDF
 	}
 	conversationID := strings.TrimSpace(requestctx.ConversationIDFromContext(ctx))
+	fill := cloneJSON(execution.ReportFill)
+	print := cloneJSON(execution.ReportPrint)
+	if format == ExportFormatCSV || format == ExportFormatXLSX && request.TableBlockID != "" {
+		fill, err = selectExportTable(fill, request.TableBlockID)
+		if err != nil {
+			return nil, nil, err
+		}
+		// A selected table is a data export; the full dashboard print model
+		// describes different content and must not accompany that snapshot.
+		print = nil
+	}
 	prepared := &SubmitExportRequest{
 		DependencyPins: pins, DependencyToken: token,
 		ArtifactRef: execution.Resource.URI, Format: format, Scope: ExportScopeDraft,
 		ConversationID: conversationID, ReportSpec: cloneJSON(execution.ReportSpec),
-		ReportFill: cloneJSON(execution.ReportFill), ReportPrint: cloneJSON(execution.ReportPrint),
+		ReportFill: fill, ReportPrint: print,
 		ResolvedResource: cloneResolvedResource(exportPin),
 	}
 	if err := validateSubmitExportRequest(prepared, exportValidationOptions{resourceDatasourceRequests: true}); err != nil {
