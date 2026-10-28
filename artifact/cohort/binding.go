@@ -92,7 +92,12 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 		_ = store.Close()
 		return Binding{}, err
 	}
-	binding := Binding{ProviderIdentity: registration.ProviderIdentity, Namespaces: namespaces, Source: replica, Close: func() {
+	metadata, err := artifactcohort.NewMetadataSource(replica, namespaces)
+	if err != nil {
+		_ = store.Close()
+		return Binding{}, err
+	}
+	binding := Binding{ConnectionName: registration.ConnectionName, ProviderIdentity: registration.ProviderIdentity, Namespaces: namespaces, Source: replica, Metadata: metadata, Close: func() {
 		if registration.Notifications != nil {
 			registration.Notifications.Close()
 		}
@@ -104,6 +109,9 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 			_ = closer.Close()
 		}
 	}}
+	if configured.Name != "" && configured.Name != registration.ConnectionName {
+		binding.ConnectionAliases = []string{configured.Name}
+	}
 	if registration.Notifications != nil {
 		binding.Start = func(context.Context) error { return registration.Notifications.AttachReplica(replica) }
 	}

@@ -57,6 +57,11 @@ func (s *Service) HasMCPSource() bool {
 	if s == nil || s.mcpSource == nil {
 		return false
 	}
+	if s.delivery != nil {
+		if source, ok := s.mcpSource.(interface{ HasPublishedMetadata() bool }); ok && source.HasPublishedMetadata() {
+			return true
+		}
+	}
 	ctx := context.Background()
 	names, err := s.mcpSource.Names(ctx)
 	if err != nil {

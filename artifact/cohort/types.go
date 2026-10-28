@@ -4,12 +4,20 @@ import (
 	"context"
 	"time"
 
+	resources "github.com/viant/forge/backend/resourcehost"
 	forgetypes "github.com/viant/forge/backend/types"
 )
 
 // WindowSource is the published-window contract consumed by a host adapter.
 type WindowSource interface {
 	OpenWindowVariant(context.Context, string, *forgetypes.WindowTarget) (*forgetypes.WindowResourceVariant, string, error)
+}
+
+// WindowSourceFunc connects an owner-bound shared runtime loader to host UI.
+type WindowSourceFunc func(context.Context, string, *forgetypes.WindowTarget) (*forgetypes.WindowResourceVariant, string, error)
+
+func (f WindowSourceFunc) OpenWindowVariant(ctx context.Context, uri string, target *forgetypes.WindowTarget) (*forgetypes.WindowResourceVariant, string, error) {
+	return f(ctx, uri, target)
 }
 
 // Source owns synchronization and producer-issued admission for a replica.
@@ -21,12 +29,15 @@ type Source interface {
 
 // Binding is an operator-owned source and its background lifecycle.
 type Binding struct {
-	ProviderIdentity string
-	Namespaces       []string // configured claims, independent of current grants
-	Source           Source
-	PollInterval     time.Duration // fallback when notification Start is absent
-	Start            func(context.Context) error
-	Close            func()
+	ConnectionName    string
+	ConnectionAliases []string
+	ProviderIdentity  string
+	Namespaces        []string // configured claims, independent of current grants
+	Source            Source
+	Metadata          resources.PublishedMetadataSource
+	PollInterval      time.Duration // fallback when notification Start is absent
+	Start             func(context.Context) error
+	Close             func()
 }
 
 // WindowSource preserves producer admission before reading the local replica.

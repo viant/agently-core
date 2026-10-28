@@ -19,6 +19,7 @@ import (
 const Name = "llm/core"
 
 type Service struct {
+	promptReader PromptReader
 	registry     tool.Registry
 	llmFinder    llm.Finder
 	modelMatcher llm.Matcher

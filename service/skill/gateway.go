@@ -61,19 +61,25 @@ func (s *Service) getPrimitive(ctx context.Context, agent *agentmdl.Agent, key s
 	if s.delivery == nil {
 		return nil, false, nil
 	}
-	rows, err := s.primitiveMetadata(ctx, agent)
-	if err != nil {
-		return nil, true, err
+	owned := false
+	if owner, ok := s.delivery.(interface{ OwnsReference(string) bool }); ok {
+		owned = owner.OwnsReference(key)
 	}
-	matched := false
-	for _, row := range rows {
-		if row.URI == key {
-			matched = true
-			break
+	if !owned {
+		rows, err := s.primitiveMetadata(ctx, agent)
+		if err != nil {
+			return nil, true, err
 		}
-	}
-	if !matched {
-		return nil, false, nil
+		matched := false
+		for _, row := range rows {
+			if row.URI == key {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return nil, false, nil
+		}
 	}
 	item, handled, err := s.delivery.Read(ctx, key)
 	if err != nil || !handled {

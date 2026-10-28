@@ -59,6 +59,10 @@ func DecodeTemplateDefinition(raw json.RawMessage) (TemplateDefinition, error) {
 	return v, v.Template.Validate()
 }
 func DecodeIntentDefinition(raw json.RawMessage) (intent.Profile, error) {
+	raw, err := authoredProfileBytes(raw)
+	if err != nil {
+		return intent.Profile{}, err
+	}
 	v, err := decodeAuthored[intent.Profile](raw)
 	if err != nil {
 		return v, err
@@ -88,11 +92,15 @@ func DecodeIntentDefinition(raw json.RawMessage) (intent.Profile, error) {
 func DecodePlaybookDefinition(raw json.RawMessage) (intent.Profile, error) {
 	return DecodeIntentDefinition(raw)
 }
-func authoredPages[T any](ctx context.Context, g *Gateway, kind string) ([]Located[T], error) {
+func authoredPages[T any](ctx context.Context, g *Gateway, kind string, hydrate ...bool) ([]Located[T], error) {
+	includeDefinition := true
+	if len(hydrate) > 0 {
+		includeDefinition = hydrate[0]
+	}
 	var out []Located[T]
 	q := CatalogQuery{Limit: 100}
 	for {
-		p, err := ListPage[T](ctx, g, kind, q, true)
+		p, err := ListPage[T](ctx, g, kind, q, includeDefinition)
 		if err != nil {
 			return nil, err
 		}
@@ -146,19 +154,13 @@ func (r *TemplateReader) Load(ctx context.Context, key string) (*tpl.Template, e
 	return &got.Definition.Template, nil
 }
 func (r *IntentReader) LoadAll(ctx context.Context) ([]*intent.Profile, error) {
-	type summary struct {
-		ID, Name, Description, Model, Template                       string
-		AppliesTo, Templates, ToolBundles, PreferredTools, Resources []string
-		EvidenceContract                                             *intent.EvidenceContract
-		Knowledge                                                    []intent.KnowledgeMatch
-	}
 	var out []*intent.Profile
 	kinds := []string{"intent"}
 	if r.includePlaybooks {
 		kinds = []string{"playbook", "intent"}
 	}
 	for _, kind := range kinds {
-		rows, err := authoredPages[summary](ctx, r.Gateway, kind)
+		rows, err := authoredPages[json.RawMessage](ctx, r.Gateway, kind, false)
 		if errors.Is(err, ErrUnavailable) || errors.Is(err, identity.ErrResourceDenied) {
 			continue
 		}
@@ -166,11 +168,11 @@ func (r *IntentReader) LoadAll(ctx context.Context) ([]*intent.Profile, error) {
 			return nil, err
 		}
 		for _, row := range rows {
-			v := row.Definition
-			if v.ID == "" {
-				continue
+			value, err := r.Load(ctx, row.Resource.URI)
+			if err != nil {
+				return nil, err
 			}
-			out = append(out, &intent.Profile{ResourceURI: row.Resource.URI, ID: v.ID, Name: v.Name, Description: v.Description, Model: v.Model, Template: v.Template, AppliesTo: v.AppliesTo, Templates: v.Templates, ToolBundles: v.ToolBundles, PreferredTools: v.PreferredTools, Resources: v.Resources, EvidenceContract: v.EvidenceContract, Knowledge: v.Knowledge})
+			out = append(out, &intent.Profile{ResourceURI: row.Resource.URI, ID: value.ID, Name: value.Name, Description: value.Description, Model: value.Model, Template: value.Template, AppliesTo: value.AppliesTo, Templates: value.Templates, ToolBundles: value.ToolBundles, PreferredTools: value.PreferredTools, Resources: value.Resources, EvidenceContract: value.EvidenceContract, Knowledge: value.Knowledge})
 		}
 	}
 	return out, nil
@@ -178,6 +180,17 @@ func (r *IntentReader) LoadAll(ctx context.Context) ([]*intent.Profile, error) {
 func (r *IntentReader) Load(ctx context.Context, key string) (*intent.Profile, error) {
 	if r.Scope != (DefinitionScope{}) {
 		ctx = WithDefinitionScope(ctx, r.Scope)
+	}
+	if value, owned, err := publishedProfile(ctx, r.Gateway, key); owned {
+		if err != nil {
+			return nil, err
+		}
+		scope := DefinitionScopeFromContext(ctx)
+		uri, _ := identity.ParseResourceURI(key)
+		if scope.Namespace != "" && scope.Namespace != uri.Namespace || scope.ProviderIdentity != "" && scope.ProviderIdentity != value.ResourceProviderIdentity {
+			return nil, identity.ErrResourceDenied
+		}
+		return value, nil
 	}
 	kinds := []string{"intent"}
 	if r.includePlaybooks {

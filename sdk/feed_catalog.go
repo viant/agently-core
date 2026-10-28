@@ -107,6 +107,21 @@ func selectFeedSpec(specs []*FeedSpec, id string) (*FeedSpec, error) {
 	return selected, nil
 }
 func (c *backendClient) admitFeedSpec(ctx context.Context, spec *FeedSpec) (*FeedSpec, error) {
+	if spec == nil {
+		return nil, identity.ErrResourceDenied
+	}
+	if value, owned, err := c.publishedFeed(ctx, spec.URI); owned {
+		if err != nil {
+			return nil, err
+		}
+		if spec.DefinitionRevision != "" || spec.ProviderIdentity != "" && spec.ProviderIdentity != value.ProviderIdentity {
+			return nil, identity.ErrResourceDenied
+		}
+		if spec.DefinitionFingerprint != "" && spec.DefinitionFingerprint != value.DefinitionFingerprint {
+			return nil, identity.ErrResourceStale
+		}
+		return value, nil
+	}
 	if c.primitiveProviders == nil {
 		return spec, nil
 	}
@@ -158,6 +173,9 @@ func decodeFeedSpec(raw json.RawMessage) (FeedSpec, error) {
 	return spec, err
 }
 func (c *backendClient) GetFeedSpecContext(ctx context.Context, id string) (*FeedSpec, error) {
+	if value, owned, err := c.publishedFeed(ctx, strings.TrimSpace(id)); owned {
+		return value, err
+	}
 	if c.primitiveProviders != nil {
 		got, err := resources.ResolveDefinition[FeedSpec](ctx, c.primitiveProviders, primitive.ToolfeedKind, strings.TrimSpace(id), func(spec FeedSpec) string { return spec.ID }, decodeFeedSpec)
 		if err != nil {

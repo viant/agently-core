@@ -73,7 +73,7 @@ func (w *Worker) RunOnce(ctx context.Context) (*RunQueuedExportsResult, error) {
 			return nil, err
 		}
 	}
-	return w.service.RunQueuedExports(ctx, w.batchLimit)
+	return w.service.RunQueuedExports(context.WithValue(ctx, exportWorkerContextKey{}, true), w.batchLimit)
 }
 
 func (w *Worker) Start(ctx context.Context) error {
