@@ -207,6 +207,24 @@ func windowDefinitionFailure(err error, message string) error {
 	return errors.New(message)
 }
 
+type windowStageFailure struct {
+	stage string
+	err   error
+}
+
+func (e *windowStageFailure) Error() string { return e.err.Error() }
+func (e *windowStageFailure) Unwrap() error { return e.err }
+
+// WindowFailureStage exposes only a fixed diagnostic stage, not dependency
+// errors or resource authority details, to the HTTP logging boundary.
+func WindowFailureStage(err error) string {
+	var failure *windowStageFailure
+	if errors.As(err, &failure) {
+		return failure.stage
+	}
+	return ""
+}
+
 // Verification failures retain a typed denial fallback. Availability and timeout
 // sentinels remain distinguishable, but an unknown verifier cannot become 500.
 func windowVerificationFailure(err error, message string) error {
@@ -219,6 +237,9 @@ func windowVerificationFailure(err error, message string) error {
 // Scope wrappers preserve existing catalog-owned diagnostics for unknown
 // failures. Canonical dependency failures are already sanitized in getResolved.
 func knownWindowDefinitionFailure(err error, message string) error {
+	if stage := WindowFailureStage(err); stage != "" {
+		return &windowStageFailure{stage: stage, err: windowDefinitionFailure(err, message)}
+	}
 	if windowDefinitionSentinel(err) != nil {
 		return windowDefinitionFailure(err, message)
 	}
@@ -545,6 +566,12 @@ func (s *Service) windowDefinitionForOpen(ctx context.Context, in *WindowDefinit
 }
 
 func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWindow, requested *identity.ResourceRef, pinned *identity.ResolvedResource, target *types.WindowTarget) (result *WindowDefinitionGetOutput, resultErr error) {
+	stage := "authority_resolution"
+	defer func() {
+		if resultErr != nil {
+			resultErr = &windowStageFailure{stage: stage, err: resultErr}
+		}
+	}()
 	span := observe.Start(ctx, "window.native.get", observe.Labels{})
 	defer func() { span.End(observe.OutcomeFor(resultErr), observe.CacheUnknown) }()
 	resolveTiming := observe.Start(ctx, "window.native.resolver", observe.Labels{})
@@ -553,6 +580,7 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	if err != nil || resolver == nil {
 		return nil, windowDefinitionFailure(err, "window resource authority unavailable")
 	}
+	stage = "resource_mapping"
 	uri, err := identity.ParseResourceURI(ref.URI)
 	if err != nil || uri.Kind != "window" || entry.ResourceURI != "" && entry.ResourceURI != ref.URI {
 		return nil, errors.New("window resource mapping is invalid")
@@ -565,6 +593,7 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	}
 	// Existing host roles/admission remain an intersection, not a replacement for
 	// revision policy. The source is read only after explicit candidate admission.
+	stage = "visibility"
 	visibilityTiming := observe.Start(ctx, "window.native.visibility", observe.Labels{})
 	allowed, err := c.checkEntryAccess(ctx, entry)
 	visibilityTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
@@ -576,6 +605,7 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	}
 	pin := pinned
 	if pin == nil {
+		stage = "revision_selection"
 		selectTiming := observe.Start(ctx, "window.native.select", observe.Labels{})
 		pin, err = resolver.Resolve(ctx, ref)
 		selectTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
@@ -583,15 +613,18 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 			return nil, windowDefinitionFailure(err, "window definition is not available")
 		}
 	}
+	stage = "revision_match"
 	if pin.URI != ref.URI || ref.Revision != "" && pin.Selector() != ref.Revision {
 		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
+	stage = "definition_read"
 	readTiming := observe.Start(ctx, "window.native.read", observe.Labels{})
 	raw, fresh, err := resolver.ReadResolved(ctx, *pin)
 	readTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
+	stage = "variant_selection"
 	compileTiming := observe.Start(ctx, "window.native.compile", observe.Labels{})
 	variant, selectErr := types.SelectWindowResource(raw, target)
 	compileTiming.End(observe.OutcomeFor(selectErr), observe.CacheUnknown)
@@ -612,6 +645,7 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	}
 	definition := variant.Window
 	if c.loadResolvedDefinition != nil {
+		stage = "definition_enrichment"
 		selected, encodeErr := json.Marshal(definition)
 		if encodeErr != nil {
 			return nil, windowDefinitionFailure(encodeErr, "window definition is not available")
@@ -624,6 +658,7 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
 	// Clone host-owned values before attaching this request's authority pin.
+	stage = "definition_clone"
 	cloneTiming := observe.Start(ctx, "window.native.clone", observe.Labels{})
 	encoded, err := json.Marshal(definition)
 	if err != nil {
@@ -643,6 +678,7 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	// Snapshot sources can verify a candidate's current content without
 	// transferring its bytes. Arbitrary sources still require the full second
 	// read, including its error and post-I/O authorization checks.
+	stage = "revalidate"
 	revalidateTiming := observe.Start(ctx, "window.native.revalidate", observe.Labels{})
 	var current *identity.ResolvedResource
 	if checker, ok := resolver.Source.(interface {
@@ -672,8 +708,10 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	}
 	normalized, err = normalized.Normalize()
 	if err != nil {
+		stage = "target_validation"
 		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
+	stage = "target_proof"
 	if normalized.SelectionToken != "" {
 		if err := c.VerifyWindowTarget(ctx, *fresh, normalized, variant.Fingerprint); err != nil {
 			return nil, windowDefinitionFailure(err, "window definition is not available")

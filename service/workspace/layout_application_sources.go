@@ -67,7 +67,7 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 					if optionalApplicationDenied(err) {
 						break
 					}
-					return nil, err
+					return nil, markLayoutMenuFailure("source_list", root.Name, "", err)
 				}
 				providerRows = append(providerRows, page.Items...)
 				if page.NextCursor == "" {
@@ -78,7 +78,7 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 					break
 				}
 				if page.NextCursor == cursor {
-					return nil, fmt.Errorf("navigation pagination made no progress")
+					return nil, markLayoutMenuFailure("source_list", root.Name, "", fmt.Errorf("navigation pagination made no progress"))
 				}
 				cursor = page.NextCursor
 			}
