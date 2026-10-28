@@ -3,12 +3,17 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/viant/agently-core/internal/authlog"
 	scyauth "github.com/viant/scy/auth"
 	"github.com/viant/scy/auth/authorizer"
 	"github.com/viant/scy/auth/flow"
@@ -21,53 +26,67 @@ type oobOAuthAuthorizer interface {
 
 func (a *authExtension) handleIDPDelegate() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		logOAuthLogin(r, a.oauthProviderName(), "idp_delegate", "received", "", "", 0, nil)
 		resp, err := a.buildOAuthInitiateResponse(r)
 		if err != nil {
+			logOAuthLogin(r, a.oauthProviderName(), "idp_delegate", "failed", "initiate", "", http.StatusBadRequest, nil)
 			runtimeError(w, http.StatusBadRequest, err)
 			return
 		}
+		logOAuthLogin(r, a.oauthProviderName(), "idp_delegate", "authorization_url_issued", "", resp.AuthURL, http.StatusOK, nil)
 		runtimeJSON(w, http.StatusOK, map[string]any{"mode": "delegated", "idpLogin": resp.AuthURL, "provider": a.oauthProviderName(), "authURL": resp.AuthURL, "state": resp.State, "expiresIn": 300})
 	}
 }
 
 func (a *authExtension) handleIDPLogin() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		logOAuthLogin(r, a.oauthProviderName(), "idp_login", "received", "", "", 0, nil)
 		resp, err := a.buildOAuthInitiateResponse(r)
 		if err != nil {
+			logOAuthLogin(r, a.oauthProviderName(), "idp_login", "failed", "initiate", "", http.StatusBadRequest, nil)
 			runtimeError(w, http.StatusBadRequest, err)
 			return
 		}
+		logOAuthLogin(r, a.oauthProviderName(), "idp_login", "authorization_url_issued", "", resp.AuthURL, http.StatusTemporaryRedirect, nil)
 		http.Redirect(w, r, resp.AuthURL, http.StatusTemporaryRedirect)
 	}
 }
 
 func (a *authExtension) handleOAuthInitiate() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		logOAuthLogin(r, a.oauthProviderName(), "oauth_initiate", "received", "", "", 0, nil)
 		resp, err := a.buildOAuthInitiateResponse(r)
 		if err != nil {
+			logOAuthLogin(r, a.oauthProviderName(), "oauth_initiate", "failed", "initiate", "", http.StatusBadRequest, nil)
 			runtimeError(w, http.StatusBadRequest, err)
 			return
 		}
+		logOAuthLogin(r, a.oauthProviderName(), "oauth_initiate", "authorization_url_issued", "", resp.AuthURL, http.StatusOK, nil)
 		runtimeJSON(w, http.StatusOK, map[string]any{"authURL": resp.AuthURL, "state": resp.State, "provider": a.oauthProviderName(), "redirectURI": resp.RedirectURI, "delegated": true, "pkce": true, "responseType": "code"})
 	}
 }
 
 func (a *authExtension) handleOAuthMobileInitiate() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		logOAuthLogin(r, a.oauthProviderName(), "oauth_mobile_initiate", "received", "", "", 0, nil)
 		initiation, err := decodeOAuthInitiateRequest(r)
 		if err != nil {
+			logOAuthLogin(r, a.oauthProviderName(), "oauth_mobile_initiate", "failed", "invalid_request", "", http.StatusBadRequest, nil)
 			runtimeError(w, http.StatusBadRequest, err)
 			return
 		}
 		if strings.TrimSpace(initiation.RedirectURI) == "" {
+			logOAuthLogin(r, a.oauthProviderName(), "oauth_mobile_initiate", "failed", "missing_redirect_uri", "", http.StatusBadRequest, nil)
 			runtimeError(w, http.StatusBadRequest, fmt.Errorf("redirectURI is required for mobile oauth"))
 			return
 		}
 		resp, err := a.buildOAuthInitiateResponseFor(r, initiation, oauthScopeTargetMobile)
 		if err != nil {
+			logOAuthLogin(r, a.oauthProviderName(), "oauth_mobile_initiate", "failed", "initiate", "", http.StatusBadRequest, nil)
 			runtimeError(w, http.StatusBadRequest, err)
 			return
 		}
+		logOAuthLogin(r, a.oauthProviderName(), "oauth_mobile_initiate", "authorization_url_issued", "", resp.AuthURL, http.StatusOK, nil)
 		runtimeJSON(w, http.StatusOK, map[string]any{
 			"authURL":      resp.AuthURL,
 			"state":        resp.State,
@@ -300,13 +319,19 @@ func (a *authExtension) handleOAuthMobileCallback() http.HandlerFunc {
 
 func (a *authExtension) handleOAuthCallbackForSource(source string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		provider := a.oauthProviderName()
+		logOAuthLogin(r, provider, source, "received", "", "", 0, nil)
+		fail := func(status int, reason string, err error) {
+			logOAuthLogin(r, provider, source, "failed", reason, "", status, nil)
+			runtimeError(w, status, err)
+		}
 		if a.cfg == nil || a.cfg.OAuth == nil || a.cfg.OAuth.Client == nil {
-			runtimeError(w, http.StatusBadRequest, fmt.Errorf("oauth client not configured"))
+			fail(http.StatusBadRequest, "client_not_configured", fmt.Errorf("oauth client not configured"))
 			return
 		}
 		configURL := strings.TrimSpace(a.cfg.OAuth.Client.ConfigURL)
 		if configURL == "" {
-			runtimeError(w, http.StatusBadRequest, fmt.Errorf("oauth client configURL is required"))
+			fail(http.StatusBadRequest, "config_url_missing", fmt.Errorf("oauth client configURL is required"))
 			return
 		}
 		code := strings.TrimSpace(r.URL.Query().Get("code"))
@@ -326,22 +351,22 @@ func (a *authExtension) handleOAuthCallbackForSource(source string) http.Handler
 			}
 		}
 		if code == "" || state == "" {
-			runtimeError(w, http.StatusBadRequest, fmt.Errorf("missing oauth code/state"))
+			fail(http.StatusBadRequest, "code_or_state_missing", fmt.Errorf("missing oauth code/state"))
 			return
 		}
 		oauthCfg, err := loadOAuthClientConfig(r.Context(), configURL)
 		if err != nil {
-			runtimeError(w, http.StatusBadRequest, fmt.Errorf("unable to load oauth config: %w", err))
+			fail(http.StatusBadRequest, "config_load", fmt.Errorf("unable to load oauth config: %w", err))
 			return
 		}
 		statePayload, err := decryptOAuthState(r.Context(), configURL, state)
 		if err != nil {
-			runtimeError(w, http.StatusBadRequest, fmt.Errorf("invalid oauth state: %w", err))
+			fail(http.StatusBadRequest, "state_invalid", fmt.Errorf("invalid oauth state: %w", err))
 			return
 		}
 		codeVerifier := strings.TrimSpace(statePayload.CodeVerifier)
 		if codeVerifier == "" {
-			runtimeError(w, http.StatusBadRequest, fmt.Errorf("invalid oauth state: missing code verifier"))
+			fail(http.StatusBadRequest, "code_verifier_missing", fmt.Errorf("invalid oauth state: missing code verifier"))
 			return
 		}
 		redirectURI := strings.TrimSpace(statePayload.RedirectURI)
@@ -350,18 +375,18 @@ func (a *authExtension) handleOAuthCallbackForSource(source string) http.Handler
 		}
 		token, err := flow.Exchange(r.Context(), oauthCfg, code, flow.WithRedirectURI(redirectURI), flow.WithPKCE(true), flow.WithCodeVerifier(codeVerifier))
 		if err != nil {
+			logOAuthLogin(r, provider, source, "failed", "token_exchange", oauthCfg.Endpoint.TokenURL, 0, err)
 			runtimeError(w, http.StatusUnauthorized, fmt.Errorf("oauth exchange failed: %w", err))
 			return
 		}
 		username, subject, email, idToken := identityFromOAuthToken(token)
 		if err := validateRefreshedOAuthScopes(a.cfg.OAuth.Client, statePayload.Scopes, token, idToken); err != nil {
-			runtimeError(w, http.StatusUnauthorized, err)
+			fail(http.StatusUnauthorized, "scope_validation", err)
 			return
 		}
 		if username == "" {
 			username = "user"
 		}
-		provider := a.oauthProviderName()
 		sess := &Session{
 			ID:        uuid.New().String(),
 			Username:  username,
@@ -384,13 +409,14 @@ func (a *authExtension) handleOAuthCallbackForSource(source string) http.Handler
 		}
 		if a.tokenStore != nil {
 			if err := a.persistOAuthToken(r.Context(), source, username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry); err != nil {
-				runtimeError(w, http.StatusInternalServerError, err)
+				fail(http.StatusInternalServerError, "token_persist", err)
 				return
 			}
 		}
 		a.canonicalizeSessionUser(r.Context(), sess)
 		a.sessions.PutAsync(r.Context(), sess)
 		writeSessionCookie(w, r, a.cfg, a.sessions, sess.ID)
+		logOAuthLogin(r, provider, source, "session_established", "", "", http.StatusOK, nil)
 		if a.tokenStore == nil {
 			a.scheduleOAuthTokenPersist(r.Context(), source, username, email, subject, provider, token.AccessToken, idToken, token.RefreshToken, token.Expiry)
 		}
@@ -403,5 +429,55 @@ func (a *authExtension) handleOAuthCallbackForSource(source string) http.Handler
 			returnTo = "/"
 		}
 		http.Redirect(w, r, returnTo, http.StatusTemporaryRedirect)
+	}
+}
+
+// logOAuthLogin records browser login boundaries without code, state, tokens,
+// cookies, redirect queries, or upstream response bodies. An issued URL only
+// means that Agently returned it; the browser may still fail to reach the IdP.
+func logOAuthLogin(r *http.Request, provider, source, action, reason, endpoint string, status int, err error) {
+	event := authlog.Event{
+		Op:             "oauth_login",
+		Provider:       provider,
+		Source:         source,
+		Reason:         reason,
+		Endpoint:       endpoint,
+		HTTPStatus:     status,
+		Classification: "login",
+		Action:         action,
+	}
+	if err != nil {
+		event.Classification = "exchange_error"
+		event.HTTPStatus, event.OAuthErrorCode = oauthRefreshErrorDetails(err)
+		event.OAuthErrorCode = safeOAuthLoginErrorCode(event.OAuthErrorCode)
+		var transport *url.Error
+		if errors.As(err, &transport) {
+			event.Classification = "transport"
+			event.Reason = oauthLoginTransportReason(err)
+		}
+	}
+	authlog.Log(r.Context(), event)
+}
+
+func safeOAuthLoginErrorCode(code string) string {
+	switch code {
+	case "", "invalid_request", "invalid_client", "invalid_grant", "unauthorized_client", "unsupported_grant_type", "invalid_scope", "access_denied", "server_error", "temporarily_unavailable":
+		return code
+	default:
+		return "other"
+	}
+}
+
+func oauthLoginTransportReason(err error) string {
+	var dns *net.DNSError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "token_exchange_timeout"
+	case errors.As(err, &dns):
+		return "token_exchange_dns"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "token_exchange_connection_refused"
+	default:
+		return "token_exchange_transport"
 	}
 }

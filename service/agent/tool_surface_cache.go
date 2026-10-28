@@ -12,6 +12,7 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/logx"
 	toolctx "github.com/viant/agently-core/protocol/tool"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -100,6 +101,11 @@ func (s *Service) cachedBackendToolDefinitions(ctx context.Context, pattern stri
 		definitions = matcher.MatchDefinitionWithContext(ctx, pattern)
 	} else {
 		definitions = s.registry.MatchDefinition(pattern)
+	}
+	if err != nil {
+		turn, _ := requestctx.TurnMetaFromContext(ctx)
+		code, status := diagnosticRPCFields(err)
+		logx.OperationalWarnf("conversation", "tool.catalog.match.failed convo=%q turn=%q pattern=%q errorType=%T rpcCode=%d rpcStatus=%d", requestctx.ConversationIDFromContext(ctx), turn.TurnID, diagnosticToolPattern(pattern), err, code, status)
 	}
 	if err == nil && ctx.Err() == nil && supportsCache {
 		// First authenticated discovery may create the principal catalog.

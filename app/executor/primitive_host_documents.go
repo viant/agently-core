@@ -3,10 +3,13 @@ package executor
 import (
 	"context"
 	"fmt"
+
+	"github.com/viant/agently-core/internal/logx"
 	identity "github.com/viant/agently-core/protocol/resource"
 	auth "github.com/viant/agently-core/service/auth"
 	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/agently-core/workspace"
+	producer "github.com/viant/forge/backend/resourcehost/producer"
 )
 
 func (b *Builder) configureNativeHostDocuments(out *Runtime) error {
@@ -29,6 +32,7 @@ func (b *Builder) configureNativeHostDocuments(out *Runtime) error {
 	if snapshot != nil {
 		docs = append(docs, snapshot.NativeResourceDocuments()...)
 	}
+	attachNativeHostDocumentFailureDiagnostics(docs, files)
 	if len(docs) > 0 {
 		if out.LocalPrimitiveProvider != nil {
 			if err = out.LocalPrimitiveProvider.ConfigureNativeResources(docs); err != nil {
@@ -80,4 +84,20 @@ func (b *Builder) configureNativeHostDocuments(out *Runtime) error {
 	}
 	out.NativeHostDocuments = reader
 	return nil
+}
+
+func attachNativeHostDocumentFailureDiagnostics(docs []producer.NativeResource, files map[string]string) {
+	fileByURI := make(map[string]string, len(files))
+	for file, uri := range files {
+		fileByURI[uri] = file
+	}
+	for i := range docs {
+		file, ok := fileByURI[docs[i].Metadata.Uri]
+		if !ok {
+			continue
+		}
+		docs[i].OnFailure = func(ctx context.Context, failure producer.NativeResourceFailure) {
+			logx.OperationalWarnf("resource", "native.document.read.failed file=%q stage=%q category=%q", logx.SafeResourceIdentifier(file), failure.Stage, failure.Category)
+		}
+	}
 }

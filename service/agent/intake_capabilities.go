@@ -3,14 +3,17 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/internal/debugtrace"
-	identity "github.com/viant/agently-core/protocol/resource"
-	resourcesvc "github.com/viant/agently-core/service/resource"
-	"golang.org/x/sync/errgroup"
+	"errors"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/debugtrace"
+	"github.com/viant/agently-core/internal/logx"
+	identity "github.com/viant/agently-core/protocol/resource"
+	resourcesvc "github.com/viant/agently-core/service/resource"
+	"golang.org/x/sync/errgroup"
 )
 
 // Intake sees metadata for the same tool surface available to execution. It
@@ -53,6 +56,10 @@ func (s *Service) intakeCapabilitySnapshot(ctx context.Context, input *QueryInpu
 			tools, err := s.discoverableToolDefinitions(workerCtx, input)
 			debugtrace.Write("agent", "intake_capability_stage", map[string]any{"conversationID": input.ConversationID, "turnID": input.MessageID, "stage": "tools", "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond), "count": len(tools)})
 			if err != nil {
+				if !errors.Is(err, context.Canceled) {
+					code, status := diagnosticRPCFields(err)
+					logx.OperationalWarnf("conversation", "intake.capabilities.failed source=tools convo=%q turn=%q errorType=%T rpcCode=%d rpcStatus=%d", input.ConversationID, input.MessageID, err, code, status)
+				}
 				return err
 			}
 			toolNames = make([]string, 0, len(tools))
@@ -69,6 +76,10 @@ func (s *Service) intakeCapabilitySnapshot(ctx context.Context, input *QueryInpu
 			skills, err := s.skillSvc.ListVisible(workerCtx, input.Agent)
 			debugtrace.Write("agent", "intake_capability_stage", map[string]any{"conversationID": input.ConversationID, "turnID": input.MessageID, "stage": "skills", "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond), "count": len(skills)})
 			if err != nil {
+				if !errors.Is(err, context.Canceled) {
+					code, status := diagnosticRPCFields(err)
+					logx.OperationalWarnf("conversation", "intake.capabilities.failed source=skills convo=%q turn=%q errorType=%T rpcCode=%d rpcStatus=%d", input.ConversationID, input.MessageID, err, code, status)
+				}
 				return err
 			}
 			for _, skill := range skills {
