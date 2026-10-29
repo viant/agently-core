@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -132,6 +133,22 @@ func TestSyncNamespaceUsesConfiguredClaims(t *testing.T) {
 	}{{"", nil}, {"", []string{"first", "second"}}, {"foreign", []string{"example"}}} {
 		if _, err := selectSyncNamespace(tc.selected, tc.claims); err == nil {
 			t.Fatal("unconfigured or ambiguous namespace accepted")
+		}
+	}
+}
+
+func TestCohortConnectionAliasesIncludeCanonicalAndManagerNames(t *testing.T) {
+	for _, tc := range []struct {
+		primary, configured string
+		want                []string
+	}{
+		{"mcp://workspace/catalog", "mcp://workspace/catalog", []string{"catalog"}},
+		{"catalog", "mcp://workspace/catalog", []string{"mcp://workspace/catalog"}},
+		{"catalog", "catalog", nil},
+	} {
+		got := cohortConnectionAliases(tc.primary, tc.configured)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("aliases for %q: got %v, want %v", tc.primary, got, tc.want)
 		}
 	}
 }

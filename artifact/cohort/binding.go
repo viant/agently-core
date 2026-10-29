@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/app/executor"
+	identity "github.com/viant/agently-core/protocol/resource"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
@@ -110,9 +111,7 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 			_ = closer.Close()
 		}
 	}}
-	if configured.Name != "" && configured.Name != registration.ConnectionName {
-		binding.ConnectionAliases = []string{configured.Name}
-	}
+	binding.ConnectionAliases = cohortConnectionAliases(registration.ConnectionName, configured.Name)
 	if registration.Notifications != nil {
 		binding.Start = func(context.Context) error { return registration.Notifications.AttachReplica(replica) }
 	}
@@ -145,4 +144,25 @@ func artifactCohortNamespaceClaims(configured []string) ([]string, error) {
 		}
 	}
 	return claims, nil
+}
+
+// Both the authored URI and its manager lookup name identify this already
+// verified connection. Register both before serving so a short-name lookup
+// cannot fall through to a remote metadata read.
+func cohortConnectionAliases(primary, configured string) []string {
+	seen := map[string]bool{primary: true}
+	var aliases []string
+	add := func(name string) {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			aliases = append(aliases, name)
+		}
+	}
+	for _, name := range []string{primary, configured} {
+		add(name)
+		if uri, err := identity.ParseResourceURI(name); err == nil && uri.Kind == "mcp" {
+			add(uri.Name)
+		}
+	}
+	return aliases
 }
