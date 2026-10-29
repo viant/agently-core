@@ -72,7 +72,7 @@ func loadArtifactCohortLocalConfigs(path string) ([]LocalConfig, error) {
 	if len(configs) == 0 || decoder.Decode(new(any)) != io.EOF {
 		return nil, artifactcohort.ErrInvalid
 	}
-	providers, connections := map[string]bool{}, map[string]bool{}
+	providers, connections := map[string]map[string]bool{}, map[string]bool{}
 	for i := range configs {
 		config := &configs[i]
 		for _, value := range []string{config.ConnectionName, config.ProviderIdentity, config.ExpectedEndpoint} {
@@ -81,10 +81,15 @@ func loadArtifactCohortLocalConfigs(path string) ([]LocalConfig, error) {
 			}
 		}
 		authenticated, err := localCredentialMode(*config)
-		if err != nil || providers[config.ProviderIdentity] || connections[config.ConnectionName] {
+		claims := providers[config.ProviderIdentity]
+		if err != nil || connections[config.ConnectionName] || claims[config.Namespace] || claims[""] || config.Namespace == "" && len(claims) > 0 {
 			return nil, artifactcohort.ErrInvalid
 		}
-		providers[config.ProviderIdentity], connections[config.ConnectionName] = true, true
+		if claims == nil {
+			claims = map[string]bool{}
+			providers[config.ProviderIdentity] = claims
+		}
+		claims[config.Namespace], connections[config.ConnectionName] = true, true
 		if authenticated && len(config.Scopes) == 0 {
 			config.Scopes = []string{"openid"}
 		}
