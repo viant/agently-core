@@ -111,3 +111,12 @@ func TestWorkspaceContextRetainsEntityParametersAndPrioritizesSelections(t *test
 	}
 	require.Len(t, sources, 201, "projection must not mutate the request context")
 }
+
+func TestWorkspaceContextRetainsCanonicalResourceIdentity(t *testing.T) {
+	input := &QueryInput{Context: workspaceFixture(t, `{"workspace":{"windowId":"nested","windowKey":"detail","resourceUri":"window://example/detail","parameters":{"RecordId":[7]},"internalTabs":{"sections":"properties"}}}`)}
+	b := &binding.Binding{}
+	appendWorkspaceContextDocument(input, b)
+	require.Len(t, b.Documents.Items, 1)
+	raw, _ := json.Marshal(b.Documents.Items[0])
+	require.Contains(t, string(raw), "window://example/detail")
+}

@@ -41,7 +41,7 @@ func appendWorkspaceContextDocument(input *QueryInput, b *binding.Binding) {
 		return
 	}
 	snapshot := map[string]interface{}{}
-	for _, key := range []string{"objectId", "windowId", "windowKey", "title", "renderer"} {
+	for _, key := range []string{"objectId", "windowId", "windowKey", "resourceUri", "title", "renderer"} {
 		if text, ok := raw[key].(string); ok {
 			snapshot[key] = boundedWorkspaceText(text, 512)
 		}
