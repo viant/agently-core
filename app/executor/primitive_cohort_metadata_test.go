@@ -42,13 +42,19 @@ func TestInstallPublishedMetadataConnectsBothConsumers(t *testing.T) {
 	defer runtime.PrimitiveProviders.Close()
 	defer runtime.mcpDefinitions.gateway.Close()
 	source := &cohortMetadataFixture{}
-	connection := resources.Connection{Name: "source", ProviderIdentity: "producer"}
-	require.NoError(t, runtime.InstallPublishedMetadata(connection, []string{"example"}, source))
+	connection := resources.Connection{Name: "mcp://workspace/source", ProviderIdentity: "producer"}
+	require.NoError(t, runtime.InstallPublishedMetadata(connection, []string{"example"}, source, "source"))
 	for _, gateway := range []*resources.Gateway{runtime.PrimitiveProviders, runtime.mcpDefinitions.gateway} {
-		got, err := gateway.Get(context.Background(), connection, identity.ResourceRef{URI: "report://example/sample"}, nil)
-		require.NoError(t, err)
-		require.Equal(t, identity.PublishedCandidate, got.ResolvedResource.Kind)
-		require.Empty(t, got.ResolvedResource.Selector())
+		for _, name := range []string{connection.Name, "source"} {
+			for _, uri := range []string{"report://example/sample", "mcp://example/data"} {
+				// No remote connection is configured: either spelling must use the
+				// installed source for resource reads and data-client metadata alike.
+				got, err := gateway.Get(context.Background(), resources.Connection{Name: name, ProviderIdentity: "producer"}, identity.ResourceRef{URI: uri}, nil)
+				require.NoError(t, err, "%s via %s", uri, name)
+				require.Equal(t, identity.PublishedCandidate, got.ResolvedResource.Kind)
+				require.Empty(t, got.ResolvedResource.Selector())
+			}
+		}
 	}
-	require.Equal(t, 2, source.calls)
+	require.Equal(t, 8, source.calls)
 }
