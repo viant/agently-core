@@ -122,3 +122,41 @@ func TestLocalCohortAnonymousMetadataConfiguration(t *testing.T) {
 		})
 	}
 }
+
+// Independent synthetic namespace endpoints share one producer identity.
+func TestLocalCohortConfigSharedProviderNamespaces(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		first, second string
+		valid         bool
+	}{
+		{"disjoint", "first", "second", true},
+		{"overlap", "first", "first", false},
+		{"unscoped first", "", "second", false},
+		{"unscoped second", "first", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entries := []map[string]any{}
+			for index, namespace := range []string{tc.first, tc.second} {
+				entries = append(entries, map[string]any{
+					"namespace": namespace, "connectionName": []string{"first", "second"}[index],
+					"providerIdentity": "publisher", "expectedEndpoint": "https://example.invalid/" + namespace + "/mcp",
+					"expectedTenant": "tenant", "expectedAccount": "account",
+				})
+			}
+			raw, err := json.Marshal(entries)
+			require.NoError(t, err)
+			path := filepath.Join(t.TempDir(), "cohorts.json")
+			require.NoError(t, os.WriteFile(path, raw, 0600))
+			configs, err := loadArtifactCohortLocalConfigs(path)
+			if !tc.valid {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, configs, 2)
+			require.Equal(t, "first", configs[0].Namespace)
+			require.Equal(t, "second", configs[1].Namespace)
+		})
+	}
+}
