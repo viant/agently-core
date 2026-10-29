@@ -348,6 +348,10 @@ func statusForToolExecuteError(err error) int {
 	if errors.Is(err, authz.ErrUnavailable) {
 		return http.StatusServiceUnavailable
 	}
+	var statusError interface{ HTTPStatusCode() int }
+	if errors.As(err, &statusError) && isAuthStatus(statusError.HTTPStatusCode()) {
+		return statusError.HTTPStatusCode()
+	}
 	if toolpolicy.IsPolicyError(err) {
 		return http.StatusConflict
 	}
