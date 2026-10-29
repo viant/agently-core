@@ -343,7 +343,11 @@ func (c *internalWindowCatalog) RevalidateResource(ctx context.Context, key stri
 		ctx, close = c.native.begin(ctx)
 		defer close()
 	}
-	connection, err := c.remote.Gateway.ConnectionForProvider(ctx, pin.ProviderIdentity)
+	parsed, err := identity.ParseResourceURI(pin.URI)
+	if err != nil {
+		return nil, identity.ErrResourceDenied
+	}
+	connection, err := c.remote.Gateway.ConnectionForResource(ctx, parsed, pin.ProviderIdentity)
 	if err != nil {
 		return nil, identity.ErrResourceDenied
 	}

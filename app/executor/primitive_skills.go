@@ -153,7 +153,11 @@ func (p nativeSkillRevision) SelectRevision(_ context.Context, ref identity.Reso
 	return identity.ResourceDecision{Candidate: c[0], AuthorityBinding: "native-skill:" + p.actor.IdentityRevision, ValidUntil: p.actor.ValidUntil}, nil
 }
 func (d *primitiveSkillDelivery) nativeFile(ctx context.Context, uri, file string) ([]byte, *schema.Skill, error) {
-	connection, err := d.gateway.ConnectionForProvider(ctx, nativeSkillProvider)
+	parsed, err := identity.ParseResourceURI(uri)
+	if err != nil {
+		return nil, nil, err
+	}
+	connection, err := d.gateway.ConnectionForResource(ctx, parsed, nativeSkillProvider)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -102,7 +102,11 @@ func (b *Builder) configurePrimitiveProvidersObserved(ctx context.Context, out *
 	}
 	if out.Reporting != nil && out.PrimitiveProviders != nil && reportProof != nil {
 		out.Reporting.SetResourceDependencies(func(ctx context.Context, pin identity.ResolvedResource, refs map[string]primitive.DataSourceReference, descriptors map[string]json.RawMessage, original map[string]identity.ResolvedResource) (map[string]identity.ResolvedResource, error) {
-			parent, e := out.PrimitiveProviders.ConnectionForProvider(ctx, pin.ProviderIdentity)
+			parsed, e := identity.ParseResourceURI(pin.URI)
+			if e != nil {
+				return nil, e
+			}
+			parent, e := out.PrimitiveProviders.ConnectionForResource(ctx, parsed, pin.ProviderIdentity)
 			if e != nil {
 				return nil, e
 			}

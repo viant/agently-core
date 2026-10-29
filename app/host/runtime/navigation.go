@@ -254,7 +254,11 @@ func configureLayoutMenuReader(sources []HostNavigationSource, localOwner string
 				if err := checkActor(); err != nil {
 					return nil, err
 				}
-				connection, err := rt.PrimitiveProviders.ConnectionForProvider(ctx, source.ProviderIdentity)
+				parsed, err := identity.ParseResourceURI(source.URI)
+				if err != nil {
+					return nil, err
+				}
+				connection, err := rt.PrimitiveProviders.ConnectionForResource(ctx, parsed, source.ProviderIdentity)
 				if err != nil {
 					return nil, err
 				}
