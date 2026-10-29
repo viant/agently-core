@@ -116,6 +116,7 @@ func (r *Runtime) authenticate(req *http.Request) (*runtimeAuthUser, bool) {
 				tok := &scyauth.Token{}
 				tok.Token.AccessToken = token
 				tok.IDToken = token
+				tok.Token.Expiry = verifiedClaimsDeadline(claims)
 				subject := strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Email))
 				return &runtimeAuthUser{
 					EffectiveUserID: subject,
