@@ -52,7 +52,7 @@ func (r *Registry) outputArtifactPolicy(ctx context.Context, server, method stri
 			if errors.As(err, &rpc) {
 				code = rpc.Code
 			}
-			fmt.Fprintf(os.Stderr, "primitive mcp options failure category=%s type=%T rpc_code=%d\n", category, err, code)
+			fmt.Fprintf(os.Stderr, "primitive mcp options failure stage=configuration_lookup server=%q method=%q category=%s type=%T rpc_code=%d\n", server, method, category, err, code)
 		}
 		return nil, errors.New("output artifact policy unavailable")
 	}
