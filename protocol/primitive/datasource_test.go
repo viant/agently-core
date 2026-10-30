@@ -19,7 +19,7 @@ func TestDatasourceReferenceBindsExactProviderAndImmutableSelector(t *testing.T)
 			t.Fatal("invalid provider accepted")
 		}
 	}
-	for _, selector := range []string{"", "main", "latest", "01", "0"} {
+	for _, selector := range []string{"main", "latest", "01", "0"} {
 		bad := ref
 		bad.Resource.Revision = selector
 		if bad.Validate(false) == nil {
@@ -29,5 +29,12 @@ func TestDatasourceReferenceBindsExactProviderAndImmutableSelector(t *testing.T)
 	ref.Resource.Revision = identity.WorkingCandidate
 	if ref.Validate(false) != nil || ref.Validate(true) == nil {
 		t.Fatal("working must remain mutable and unavailable to immutable closure")
+	}
+}
+
+func TestDatasourceReferenceCanUseServerPolicySelection(t *testing.T) {
+	ref := DataSourceReference{Resource: identity.ResourceRef{URI: "datasource://example/rows"}, ProviderIdentity: "provider"}
+	if err := ref.Validate(false); err != nil {
+		t.Fatal(err)
 	}
 }
