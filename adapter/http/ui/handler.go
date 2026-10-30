@@ -293,7 +293,7 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 		encodeSpan := observe.Start(r.Context(), observe.HTTPResponseEncode, observe.Labels{Kind: "window"})
 		encodeErr := json.NewEncoder(w).Encode(permittedWindowResponse{
 			Status:        "ok",
-			Data:          aWindow,
+			Data:          forgeTypes.ConsumerWindow(aWindow),
 			Authorization: authorization,
 		})
 		encodeSpan.End(observe.OutcomeFor(encodeErr), observe.CacheBypass)
