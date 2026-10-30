@@ -127,3 +127,23 @@ func TestCanonicalHTTPAdmittedFrameIsSingleReadAndNextRequestIsFresh(t *testing.
 		t.Fatal("next request reused prior managing admission", second.Code, f.gets, f.signs)
 	}
 }
+
+func TestWindowConsumerWireOmitsDatasourceHashes(t *testing.T) {
+	f := selectionHTTP(t)
+	f.window.ResourceDependencies = map[string]string{"rows": "private-descriptor-hash"}
+	f.window.ResourceTarget.DependencyPins = map[string]identity.ResolvedResource{"rows": {URI: "datasource://team/rows", ResourceCandidate: identity.ResourceCandidate{ContentFingerprint: "private-datasource-hash"}}}
+	handler := NewEmbeddedHandlerWithAuthorization(t.TempDir(), nil, nil, nil, WithWindowResourceProvider(f))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/window/view", nil))
+	if response.Code != 200 {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	for _, secret := range []string{"private-descriptor-hash", "private-datasource-hash", "dependencyPins", "resourceDependencies"} {
+		if strings.Contains(response.Body.String(), secret) {
+			t.Fatalf("consumer wire leaked %s", secret)
+		}
+	}
+	if len(f.window.ResourceTarget.DependencyPins) != 1 {
+		t.Fatal("server selection mutated")
+	}
+}

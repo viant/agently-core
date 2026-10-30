@@ -148,7 +148,7 @@ func tryPublishedWindow(w http.ResponseWriter, r *http.Request, registrations ma
 	variant.Window.SelectionBinding = nil
 	variant.Window.LocalStateOwner = nil
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(permittedWindowResponse{Status: "ok", Data: variant.Window})
+	_ = json.NewEncoder(w).Encode(permittedWindowResponse{Status: "ok", Data: forgetypes.ConsumerWindow(variant.Window)})
 	return true
 }
 

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/viant/agently-core/runtime/requestctx"
 	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/forge/backend/types"
 )
 
@@ -31,10 +31,17 @@ func (r *Registry) WindowRequestContext(ctx context.Context, namespace, clientID
 	if requested != nil && (requested.URI != pin.URI || requested.ResourceCandidate != pin.ResourceCandidate || requested.AuthorityBinding != pin.AuthorityBinding) {
 		return nil, identity.ErrResourceDenied
 	}
+	privateTarget, err := r.bridge.WindowResourceTarget(ctx, namespace, clientID, window.WindowID, window.WindowKey)
+	if err != nil {
+		return nil, err
+	}
+	if !types.SameConsumerWindowTarget(window.ResourceTarget, privateTarget) {
+		return nil, identity.ErrResourceDenied
+	}
 	for _, target := range targets {
-		if target != nil && !types.SameWindowTarget(target, window.ResourceTarget) {
+		if target != nil && !types.SameConsumerWindowTarget(target, privateTarget) {
 			return nil, identity.ErrResourceDenied
 		}
 	}
-	return requestctx.WithWindowTarget(requestctx.WithResolvedResource(ctx, *pin), window.ResourceTarget), nil
+	return requestctx.WithWindowTarget(requestctx.WithResolvedResource(ctx, *pin), privateTarget), nil
 }
