@@ -138,17 +138,8 @@ func (b *PublishedWindowBindings) lookup(ctx context.Context, windowID string) (
 	}
 	b.mu.RLock()
 	entry, ok := b.entries[bindingKey(owner, session, windowID)]
-	if !ok {
-		// A binding held by another verified owner or bridge session is a
-		// denial, not a restart-induced missing binding. Keep that distinction
-		// before the HTTP handler offers one metadata readmission attempt.
-		for key := range b.entries {
-			if key.windowID == windowID {
-				b.mu.RUnlock()
-				return publishedWindowBinding{}, false, identity.ErrResourceDenied
-			}
-		}
-	}
+	// Window IDs are client-local. A different owner's or browser session's
+	// entry cannot satisfy this lookup or prevent fresh metadata admission.
 	b.mu.RUnlock()
 	return entry, ok, nil
 }
