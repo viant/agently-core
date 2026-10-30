@@ -13,6 +13,7 @@ import (
 	"github.com/viant/agently-core/protocol/mcpname"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	toolservice "github.com/viant/agently-core/protocol/tool/service/llm/tools"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	"github.com/viant/agently-core/runtime/toolselection"
 	agenttool "github.com/viant/agently-core/service/agent/tool"
 )
@@ -52,6 +53,17 @@ func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryI
 	}
 	if profile != nil {
 		ctx = withSelectedPromptProfile(ctx, profile)
+	}
+	// Every candidate consumer (binding, intake selection and execution) uses
+	// this same boundary. Warm only explicit requirements before reading the
+	// user catalog, rather than discovering every configured provider again.
+	required := agenttool.Merge(agenttool.FromPromptProfile(profile), runtimeToolRequirements(input))
+	if len(required.Tools) > 0 || len(required.Bundles) > 0 {
+		sourceCtx := runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Required: true})
+		if _, err = s.resolveStructuredToolDefinitions(sourceCtx, required); err != nil {
+			return nil, err
+		}
+		ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{CachedCatalog: true})
 	}
 	phaseStarted = time.Now()
 	definitions := s.definitions(ctx)

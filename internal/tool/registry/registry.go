@@ -556,6 +556,12 @@ func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefi
 	}
 	r.mu.RUnlock()
 
+	// Required source resolution has already warmed its exact schemas. An
+	// advisory catalog read must not contact unrelated optional providers.
+	if mode, ok := runtimediscovery.ModeFromContext(ctx); ok && mode.CachedCatalog {
+		return defs
+	}
+
 	// Try to aggregate current server tools; merge with cache, but never remove on failure.
 	discoveryCtx, cancel := r.withDiscoveryTimeout(ctx)
 	defer func() {
