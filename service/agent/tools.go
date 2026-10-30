@@ -63,9 +63,6 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 			tools, err = s.modelVisibleTools(ctx, tools)
 		}
 	}()
-	if qi != nil && len(qi.ToolBundles) > 0 {
-		ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Required: true})
-	}
 	// Clear any previous registry warnings before this resolution cycle.
 	if w, ok := s.registry.(interface{ ClearWarnings() }); ok {
 		w.ClearWarnings()
