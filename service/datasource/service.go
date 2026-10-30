@@ -583,6 +583,8 @@ func (s *Service) runBackendRaw(ctx context.Context, ds *dsproto.DataSource, arg
 		return filterInlineRows(rows, ds.Backend.InlineFilters, args)
 
 	case dsproto.BackendMCPTool:
+		// Reads, published bindings and actions share the same authored mapping.
+		args = shared.OperationArguments(ds.Backend, args)
 		if ds.Backend.Component != nil {
 			raw, err := s.components.ExecuteComponent(ctx, ds.Backend.Service, ds.Backend.Method, *ds.Backend.Component, transportArguments(args, ds.Backend.RequestMetadata))
 			if err != nil {

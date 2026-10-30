@@ -4,7 +4,6 @@ import (
 	"context"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	identity "github.com/viant/agently-core/protocol/resource"
-	shared "github.com/viant/forge/backend/datasource"
 	"github.com/viant/forge/backend/types"
 	"strings"
 )
@@ -65,7 +64,6 @@ func (s *Service) operateDeclared(ctx context.Context, ds *dsproto.DataSource, n
 		}
 	}
 	args := expandNestedArgs(mergeArgs(inputs, backend.Pinned))
-	args = shared.OperationArguments(&backend, args)
 	value, err := s.runBackend(ctx, &selected, args)
 	if err != nil {
 		return nil, err
