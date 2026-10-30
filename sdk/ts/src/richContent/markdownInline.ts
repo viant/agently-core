@@ -81,10 +81,26 @@ export function renderMarkdownCellHTML(md: string): string {
 export function renderMarkdownBlock(value: string): string {
   const lines = String(value ?? '').split('\n');
   const blocks: string[] = [];
+  const paragraph: string[] = [];
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(`<p>${paragraph.join('<br/>')}</p>`);
+    paragraph.length = 0;
+  };
+  const pushBlock = (html: string) => {
+    flushParagraph();
+    blocks.push(html);
+  };
   let i = 0;
 
   while (i < lines.length) {
     const line = lines[i];
+
+    if (!line.trim()) {
+      flushParagraph();
+      i++;
+      continue;
+    }
 
     const fence = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
     if (fence) {
@@ -95,7 +111,7 @@ export function renderMarkdownBlock(value: string): string {
         body.push(lines[i++]);
       }
       if (i < lines.length) i++;
-      blocks.push(`<pre style="white-space:pre-wrap;overflow-wrap:anywhere"><code>${escapeHTML(body.join('\n'))}</code></pre>`);
+      pushBlock(`<pre style="white-space:pre-wrap;overflow-wrap:anywhere"><code>${escapeHTML(body.join('\n'))}</code></pre>`);
       continue;
     }
 
@@ -107,14 +123,14 @@ export function renderMarkdownBlock(value: string): string {
         const rows: string[][] = [];
         while (i < lines.length && lines[i].trim() && lines[i].includes('|')) rows.push(splitPipeTableRow(lines[i++]));
         const cell = (text: string) => inlineMarkdown(escapeHTML(text));
-        blocks.push(`<table><thead><tr>${headings.map((heading) => `<th>${cell(heading)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${headings.map((_, index) => `<td>${cell(row[index] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
+        pushBlock(`<table><thead><tr>${headings.map((heading) => `<th>${cell(heading)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${headings.map((_, index) => `<td>${cell(row[index] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
         continue;
       }
     }
 
     // Horizontal rule
     if (/^(\s*[-*_]\s*){3,}$/.test(line)) {
-      blocks.push('<hr/>');
+      pushBlock('<hr/>');
       i++;
       continue;
     }
@@ -126,7 +142,7 @@ export function renderMarkdownBlock(value: string): string {
         items.push(lines[i].replace(/^\s*[-*+]\s+/, ''));
         i++;
       }
-      blocks.push(`<ul>${items.map((it) => `<li>${inlineMarkdown(escapeHTML(it))}</li>`).join('')}</ul>`);
+      pushBlock(`<ul>${items.map((it) => `<li>${inlineMarkdown(escapeHTML(it))}</li>`).join('')}</ul>`);
       continue;
     }
 
@@ -137,7 +153,7 @@ export function renderMarkdownBlock(value: string): string {
         items.push(lines[i].replace(/^\s*\d+\.\s+/, ''));
         i++;
       }
-      blocks.push(`<ol>${items.map((it) => `<li>${inlineMarkdown(escapeHTML(it))}</li>`).join('')}</ol>`);
+      pushBlock(`<ol>${items.map((it) => `<li>${inlineMarkdown(escapeHTML(it))}</li>`).join('')}</ol>`);
       continue;
     }
 
@@ -148,7 +164,7 @@ export function renderMarkdownBlock(value: string): string {
         qLines.push(lines[i].replace(/^\s*>\s?/, ''));
         i++;
       }
-      blocks.push(`<blockquote>${inlineMarkdown(escapeHTML(qLines.join('\n')))}</blockquote>`);
+      pushBlock(`<blockquote>${qLines.map((text) => inlineMarkdown(escapeHTML(text))).join('<br/>')}</blockquote>`);
       continue;
     }
 
@@ -156,15 +172,16 @@ export function renderMarkdownBlock(value: string): string {
     const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
       const level = headingMatch[1].length;
-      blocks.push(`<h${level}>${inlineMarkdown(escapeHTML(headingMatch[2]))}</h${level}>`);
+      pushBlock(`<h${level}>${inlineMarkdown(escapeHTML(headingMatch[2]))}</h${level}>`);
       i++;
       continue;
     }
 
     // Plain text
-    blocks.push(line.trim() === '' ? '<br/>' : inlineMarkdown(escapeHTML(line)));
+    paragraph.push(inlineMarkdown(escapeHTML(line)));
     i++;
   }
 
+  flushParagraph();
   return blocks.join('\n');
 }
