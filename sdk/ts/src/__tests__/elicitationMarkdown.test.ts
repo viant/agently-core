@@ -2,6 +2,37 @@ import { describe, it, expect } from 'vitest';
 import { renderMarkdownBlock } from '../richContent/markdownInline';
 
 describe('elicitation Markdown presentation', () => {
+  it('uses paragraph blocks instead of stacking blank-line breaks', () => {
+    expect(renderMarkdownBlock('\nFirst paragraph.\n\n\nSecond paragraph.\n'))
+      .toBe('<p>First paragraph.</p>\n<p>Second paragraph.</p>');
+    expect(renderMarkdownBlock(' \n\t\n')).toBe('');
+  });
+
+  it('preserves deliberate line breaks within paragraphs and quotes', () => {
+    expect(renderMarkdownBlock('First line.\nSecond **line**.\n\n> Quoted line.\n> Next line.'))
+      .toBe('<p>First line.<br/>Second <strong>line</strong>.</p>\n<blockquote>Quoted line.<br/>Next line.</blockquote>');
+  });
+
+  it.each([
+    ['## Heading', '<h2>Heading</h2>'],
+    ['- Item', '<ul><li>Item</li></ul>'],
+    ['1. Item', '<ol><li>Item</li></ol>'],
+    ['---', '<hr/>'],
+    ['> Quote', '<blockquote>Quote</blockquote>'],
+  ])('separates prose from an adjacent block: %s', (markdown, block) => {
+    expect(renderMarkdownBlock(`Before.\n${markdown}\nAfter.`))
+      .toBe(`<p>Before.</p>\n${block}\n<p>After.</p>`);
+  });
+
+  it('keeps code whitespace and table structure outside paragraphs', () => {
+    const html = renderMarkdownBlock('Before.\n```text\n  <literal>\n\n    indented\n```\nAfter.\n| Name | Value |\n| --- | --- |\n| Example | 2 |');
+    expect(html).toContain('<p>Before.</p>\n<pre');
+    expect(html).toContain('<code>  &lt;literal&gt;\n\n    indented</code></pre>\n<p>After.</p>\n<table>');
+    expect(html).toContain('<td>Example</td><td>2</td>');
+    expect(html).not.toContain('<p><pre');
+    expect(html).not.toContain('<p><table');
+  });
+
   it('renders prose, lists, and fenced examples without interpreting code as markup', () => {
     const html = renderMarkdownBlock('## Review changes\n**Campaign** needs *approval*.\n- First item\n- Second item\n\n```json\n{"example":"**literal**"}\n```');
     expect(html).toContain('<h2>Review changes</h2>');
