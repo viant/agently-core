@@ -75,3 +75,15 @@ func (c *HTTPClient) ListLookupRegistry(ctx context.Context, in *api.ListLookupR
 	}
 	return &out, nil
 }
+
+// OperateDatasource dispatches a declared action without cache hints.
+func (c *HTTPClient) OperateDatasource(ctx context.Context, in *api.OperateDatasourceInput) (*api.OperateDatasourceOutput, error) {
+	if in == nil || strings.TrimSpace(in.ID) == "" || strings.TrimSpace(in.Operation) == "" {
+		return nil, errors.New("datasource id and operation are required")
+	}
+	var out api.OperateDatasourceOutput
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/api/datasources/"+url.PathEscape(in.ID)+"/operate", in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

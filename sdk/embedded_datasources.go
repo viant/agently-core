@@ -145,58 +145,11 @@ func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDataso
 		}
 		return toAPIFetchOutput(result), nil
 	}
-	raw, err := json.Marshal(in)
+	request, err := c.resolveDatasourceRequest(ctx, in)
 	if err != nil {
 		return nil, err
 	}
-	var request api.FetchDatasourceInput
-	if err = json.Unmarshal(raw, &request); err != nil {
-		return nil, err
-	}
-	if request.Resource == nil && request.Reference != nil && c.primitiveProviders != nil {
-		uri, e := identity.ParseResourceURI(request.Reference.URI)
-		if e != nil || uri.Kind != "datasource" || request.ProviderIdentity == "" {
-			return nil, identity.ErrResource
-		}
-		resolution := observe.Start(ctx, observe.Phase("datasource.client.resolve"), observe.Labels{Kind: "datasource"})
-		got, e := c.primitiveProviders.GetForProvider(ctx, request.ProviderIdentity, *request.Reference, nil)
-		resolution.End(observe.OutcomeFor(e), observe.CacheUnknown)
-		if e != nil {
-			return nil, e
-		}
-		definition, e := resourcesvc.DecodeDatasourceDefinition(got.Resource.Definition)
-		if e != nil {
-			return nil, e
-		}
-		request.ID = definition.ID
-		request.Resource = got.ResolvedResource
-		request.ResourceProof = got.ExecutionProof
-	}
-	if request.Resource == nil && c.primitiveProviders != nil {
-		resolution := observe.Start(ctx, observe.Phase("datasource.client.resolve"), observe.Labels{Kind: "datasource"})
-		resolved, err := resourcesvc.ResolveDefinition[*dsproto.DataSource](ctx, c.primitiveProviders, "datasource", request.ID, func(ds *dsproto.DataSource) string { return ds.ID }, resourcesvc.DecodeDatasourceDefinition)
-		resolution.End(observe.OutcomeFor(err), observe.CacheUnknown)
-		if err != nil {
-			return nil, err
-		}
-		request.ID = resolved.Definition.ID
-		request.Resource = resolved.ResolvedResource
-		request.ResourceProof = resolved.ExecutionProof
-	} else if request.Resource == nil {
-		if err := c.refreshDatasourceStack(ctx); err != nil {
-			return nil, err
-		}
-	}
-	if request.Resource != nil && request.Resource.ProviderIdentity == resourcesvc.InternalProviderIdentity && request.Resource.AuthorityBinding == "public-local-definition" && strings.HasPrefix(request.Resource.URI, "window://workspace/") && !identity.MetadataExpiryValid(request.Resource.ValidUntil, time.Now()) {
-		if c.prepareNativePresentationRead == nil {
-			return nil, identity.ErrResourceDenied
-		}
-		request.Resource, request.Target, err = c.prepareNativePresentationRead(ctx, request.Resource, request.Target)
-		if err != nil {
-			return nil, err
-		}
-	}
-	in = &request
+	in = request
 	opts := dssvc.FetchOptions{SelectionBinding: in.SelectionBinding, Resource: in.Resource, Target: in.Target, ResourceProof: in.ResourceProof, WindowParameters: in.WindowParameters}
 	if in.Cache != nil {
 		opts.BypassCache = in.Cache.BypassCache
@@ -345,4 +298,60 @@ func toAPIParams(ps []loproto.Parameter) []api.LookupParameter {
 		})
 	}
 	return out
+}
+
+func (c *backendClient) resolveDatasourceRequest(ctx context.Context, in *api.FetchDatasourceInput) (*api.FetchDatasourceInput, error) {
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return nil, err
+	}
+	var request api.FetchDatasourceInput
+	if err = json.Unmarshal(raw, &request); err != nil {
+		return nil, err
+	}
+	if request.Resource == nil && request.Reference != nil && c.primitiveProviders != nil {
+		uri, e := identity.ParseResourceURI(request.Reference.URI)
+		if e != nil || uri.Kind != "datasource" || request.ProviderIdentity == "" {
+			return nil, identity.ErrResource
+		}
+		resolution := observe.Start(ctx, observe.Phase("datasource.client.resolve"), observe.Labels{Kind: "datasource"})
+		got, e := c.primitiveProviders.GetForProvider(ctx, request.ProviderIdentity, *request.Reference, nil)
+		resolution.End(observe.OutcomeFor(e), observe.CacheUnknown)
+		if e != nil {
+			return nil, e
+		}
+		definition, e := resourcesvc.DecodeDatasourceDefinition(got.Resource.Definition)
+		if e != nil {
+			return nil, e
+		}
+		request.ID = definition.ID
+		request.Resource = got.ResolvedResource
+		request.ResourceProof = got.ExecutionProof
+	}
+	if request.Resource == nil && c.primitiveProviders != nil {
+		resolution := observe.Start(ctx, observe.Phase("datasource.client.resolve"), observe.Labels{Kind: "datasource"})
+		resolved, err := resourcesvc.ResolveDefinition[*dsproto.DataSource](ctx, c.primitiveProviders, "datasource", request.ID, func(ds *dsproto.DataSource) string { return ds.ID }, resourcesvc.DecodeDatasourceDefinition)
+		resolution.End(observe.OutcomeFor(err), observe.CacheUnknown)
+		if err != nil {
+			return nil, err
+		}
+		request.ID = resolved.Definition.ID
+		request.Resource = resolved.ResolvedResource
+		request.ResourceProof = resolved.ExecutionProof
+	} else if request.Resource == nil {
+		if err := c.refreshDatasourceStack(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if request.Resource != nil && request.Resource.ProviderIdentity == resourcesvc.InternalProviderIdentity && request.Resource.AuthorityBinding == "public-local-definition" && strings.HasPrefix(request.Resource.URI, "window://workspace/") && !identity.MetadataExpiryValid(request.Resource.ValidUntil, time.Now()) {
+		if c.prepareNativePresentationRead == nil {
+			return nil, identity.ErrResourceDenied
+		}
+		request.Resource, request.Target, err = c.prepareNativePresentationRead(ctx, request.Resource, request.Target)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &request, nil
 }

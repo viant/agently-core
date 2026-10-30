@@ -3,9 +3,11 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/forge/backend/types"
+	"io"
 )
 
 // FetchDatasourceInput is the wire request for POST /v1/api/datasources/{id}/fetch.
@@ -135,5 +137,47 @@ func (in *FetchDatasourceInput) UnmarshalJSON(raw []byte) error {
 		}
 	}
 	*in = FetchDatasourceInput(decoded)
+	return nil
+}
+
+// OperateDatasourceInput selects a server-declared action without cache hints.
+type OperateDatasourceInput struct {
+	Operation string `json:"operation"`
+	// Owner selects an attached source from the server-selected report definition.
+	Owner            *DatasourceOwner      `json:"owner,omitempty"`
+	Reference        *identity.ResourceRef `json:"reference,omitempty"`
+	ProviderIdentity string                `json:"providerIdentity,omitempty"`
+	// SelectionBinding is original provenance for optional server NEW delivery preparation.
+	SelectionBinding *identity.SelectionBinding `json:"selectionBinding,omitempty"`
+	// WindowParameters select entities; the server independently authorizes them.
+	WindowParameters map[string]any             `json:"windowParameters,omitempty"`
+	ResourceProof    *primitive.ExecutionProof  `json:"resourceProof,omitempty"`
+	Target           *types.WindowTarget        `json:"target,omitempty"`
+	Resource         *identity.ResolvedResource `json:"resource,omitempty"`
+	ID               string                     `json:"id"`
+	ConversationID   string                     `json:"conversationId,omitempty"`
+	Inputs           map[string]interface{}     `json:"inputs,omitempty"`
+}
+
+// OperateDatasourceOutput preserves the producer result.
+type OperateDatasourceOutput struct {
+	Result interface{} `json:"result"`
+}
+
+// UnmarshalJSON preserves numeric action inputs and rejects browser routing declarations.
+func (in *OperateDatasourceInput) UnmarshalJSON(raw []byte) error {
+	type wire OperateDatasourceInput
+	var decoded wire
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	var trailing interface{}
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("unexpected trailing action JSON")
+	}
+	*in = OperateDatasourceInput(decoded)
 	return nil
 }
