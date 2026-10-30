@@ -343,7 +343,9 @@ func (c *backendClient) resolveDatasourceRequest(ctx context.Context, in *api.Fe
 			return nil, err
 		}
 	}
-	if request.Resource != nil && strings.HasPrefix(request.Resource.URI, "window://") && request.Target != nil && len(request.Target.DependencyPins) == 0 && (request.Target.SelectionToken != "" || !identity.MetadataExpiryValid(request.Resource.ValidUntil, time.Now())) {
+	restoreWindowSelection := request.Resource != nil && strings.HasPrefix(request.Resource.URI, "window://") && request.Target != nil && len(request.Target.DependencyPins) == 0 && requestctx.UIBridgeSessionIDFromContext(ctx) != "" && identity.MetadataExpiryValid(request.Resource.ValidUntil, time.Now())
+	renewPublicPresentation := request.Resource != nil && request.Resource.ProviderIdentity == resourcesvc.InternalProviderIdentity && request.Resource.AuthorityBinding == "public-local-definition" && strings.HasPrefix(request.Resource.URI, "window://workspace/") && !identity.MetadataExpiryValid(request.Resource.ValidUntil, time.Now())
+	if restoreWindowSelection || renewPublicPresentation {
 		if c.prepareNativePresentationRead == nil {
 			return nil, identity.ErrResourceDenied
 		}
