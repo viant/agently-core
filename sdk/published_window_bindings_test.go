@@ -81,7 +81,7 @@ func TestPublishedDatasourceHTTPUsesServerBindingOneDataCall(t *testing.T) {
 		t.Fatalf("fast route: status=%d body=%s tools=%d localOpens=%d legacy=%d", response.Code, response.Body.String(), toolCalls, *opens, legacy.fetchCalls)
 	}
 }
-func TestPublishedDatasourceRejectsUndeclaredAndOtherSession(t *testing.T) {
+func TestPublishedDatasourceRejectsUndeclaredAndRequiresSessionBinding(t *testing.T) {
 	toolCalls := 0
 	registry, _, _ := cohortTestRegistry(t, func(context.Context, *dsproto.DataSource, map[string]interface{}, map[string]any) (*api.FetchDatasourceOutput, error) {
 		toolCalls++
@@ -95,7 +95,8 @@ func TestPublishedDatasourceRejectsUndeclaredAndOtherSession(t *testing.T) {
 		r = r.WithContext(context.WithValue(r.Context(), cohortOwnerKey{}, tc.owner))
 		w := httptest.NewRecorder()
 		handleFetchDatasourceWithBindings(legacy, registry)(w, r)
-		if w.Code != http.StatusForbidden || strings.Contains(w.Body.String(), "window_binding_required") {
+		missing := tc.owner != "alice" || tc.session != "session-1"
+		if w.Code != http.StatusForbidden || strings.Contains(w.Body.String(), "window_binding_required") != missing {
 			t.Fatalf("%+v allowed: %d %s", tc, w.Code, w.Body.String())
 		}
 	}
@@ -222,4 +223,37 @@ func TestPublishedBindingDelayedCloseCannotEraseNewVersion(t *testing.T) {
 	if _, ok, _ := registry.lookup(ctx, "window-1"); ok {
 		t.Fatal("exact close retained binding")
 	}
+}
+
+func TestPublishedWindowIDCollisionAllowsOnlyFreshSessionAdmission(t *testing.T) {
+	calls := 0
+	registry, _, denied := cohortTestRegistry(t, func(ctx context.Context, _ *dsproto.DataSource, _ map[string]interface{}, _ map[string]any) (*api.FetchDatasourceOutput, error) {
+		calls++
+		return &api.FetchDatasourceOutput{Rows: []map[string]interface{}{{"owner": ctx.Value(cohortOwnerKey{})}}}, nil
+	})
+	for index, next := range []struct{ owner, session string }{{"alice", "session-2"}, {"bob", "session-3"}} {
+		ctx := cohortTestContext(next.owner, next.session)
+		result, handled, err := registry.Fetch(ctx, "window-1", "connectors", nil, nil)
+		require.NoError(t, err)
+		require.False(t, handled)
+		require.Nil(t, result)
+		require.Equal(t, index, calls)
+		before := calls
+		// The normal trusted metadata path must admit and bind this session anew.
+		variant, hash, err := registry.open(ctx, "studio", "window://datastudio/connectors", &types.WindowTarget{Platform: "web"})
+		require.NoError(t, err)
+		require.NoError(t, registry.Bind(ctx, "new-client", "window-1", "studio", "window://datastudio/connectors", hash, variant))
+		result, handled, err = registry.Fetch(ctx, "window-1", "connectors", nil, nil)
+		require.NoError(t, err)
+		require.True(t, handled)
+		require.Equal(t, before+1, calls)
+		require.Equal(t, next.owner, result.Rows[0]["owner"])
+	}
+	*denied = true
+	before := calls
+	result, handled, err := registry.Fetch(cohortTestContext("bob", "session-3"), "window-1", "connectors", nil, nil)
+	require.Error(t, err)
+	require.True(t, handled)
+	require.Nil(t, result)
+	require.Equal(t, before, calls)
 }
