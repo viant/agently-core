@@ -158,8 +158,8 @@ type RenderResult struct {
 
 // SubmitExportRequest queues an export job against canonical reporting models.
 type SubmitExportRequest struct {
-	DependencyPins  map[string]identity.ResolvedResource `json:"dependencyPins,omitempty"`
-	DependencyToken string                               `json:"dependencyToken,omitempty"`
+	DependencyPins  map[string]identity.ResolvedResource `json:"-"`
+	DependencyToken string                               `json:"-"`
 	ArtifactRef     string                               `json:"artifactRef,omitempty"`
 	Format          ExportFormat                         `json:"format,omitempty"`
 	// TableBlockID selects one authored table for a tabular resource export.
