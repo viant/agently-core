@@ -70,3 +70,26 @@ func (s *Service) FetchPublished(ctx context.Context, ds *dsproto.DataSource, in
 	}
 	return &dsproto.FetchResult{Rows: rows, DataInfo: dataInfo, Metrics: metrics}, nil
 }
+
+// OperatePublished runs a server-selected immutable descriptor. The host must
+// revalidate its held window binding before dispatch and before result release.
+func (s *Service) OperatePublished(ctx context.Context, ds *dsproto.DataSource, operation string, inputs map[string]interface{}, windowParameters map[string]any) (*dsproto.OperateResult, error) {
+	if s == nil || ds == nil || ds.ID == "" {
+		return nil, fmt.Errorf("published datasource unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.executionContext != nil {
+		ctx = s.executionContext(ctx)
+	}
+	ctx = requestctx.WithWindowParameters(ctx, windowParameters)
+	// Authenticated producer execution owns business authorization, as for FetchPublished.
+	execution := *s
+	execution.authorize = nil
+	value, err := execution.operateDeclared(ctx, ds, operation, inputs)
+	if err != nil {
+		return nil, err
+	}
+	return &dsproto.OperateResult{Result: value}, nil
+}

@@ -280,6 +280,7 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 	// Backends that have not wired the datasource service return 501 from
 	// the handler; no panic, no route registration gating.
 	mux.HandleFunc("POST /v1/api/datasources/{id}/fetch", handleFetchDatasourceWithBindings(client, cfg.publishedWindowBindings))
+	mux.HandleFunc("POST /v1/api/datasources/{id}/operate", handleOperateDatasourceWithBindings(client, cfg.publishedWindowBindings))
 	mux.HandleFunc("DELETE /v1/api/datasources/{id}/cache", handleInvalidateDatasourceCache(client))
 	mux.HandleFunc("GET /v1/api/lookups/registry", handleListLookupRegistry(client))
 }

@@ -27,5 +27,22 @@ func NewPublishedWindowBindingsForBackend(open PublishedWindowOpen, client Backe
 	if !ok {
 		return NewPublishedWindowBindings(open, nil, nil)
 	}
-	return NewPublishedWindowBindings(open, executor.FetchPublishedDatasource, nil)
+	bindings := NewPublishedWindowBindings(open, executor.FetchPublishedDatasource, nil)
+	if operator, ok := client.(interface {
+		OperatePublishedDatasource(context.Context, *dsproto.DataSource, string, map[string]interface{}, map[string]any) (*api.OperateDatasourceOutput, error)
+	}); ok {
+		bindings.operate = operator.OperatePublishedDatasource
+	}
+	return bindings
+}
+
+func (c *backendClient) OperatePublishedDatasource(ctx context.Context, descriptor *dsproto.DataSource, operation string, inputs map[string]interface{}, windowParameters map[string]any) (*api.OperateDatasourceOutput, error) {
+	if c == nil || c.datasourceSvc == nil {
+		return nil, ErrDatasourceStackNotConfigured
+	}
+	result, err := c.datasourceSvc.OperatePublished(ctx, descriptor, operation, inputs, windowParameters)
+	if err != nil {
+		return nil, err
+	}
+	return &api.OperateDatasourceOutput{Result: result.Result}, nil
 }

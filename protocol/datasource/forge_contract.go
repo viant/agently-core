@@ -4,6 +4,8 @@ package datasource
 import shared "github.com/viant/forge/backend/datasource/contract"
 
 type (
+	Operation                  = shared.Operation
+	OperateResult              = shared.OperateResult
 	DataSource                 = shared.DataSource
 	BackendKind                = shared.BackendKind
 	Backend                    = shared.Backend

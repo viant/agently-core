@@ -20,6 +20,7 @@ import (
 // The replica owns policy, session and generation freshness; no MCP metadata
 // request or legacy ResolvedResource lease is synthesized by this adapter.
 type PublishedWindowOpen func(context.Context, string, string, *types.WindowTarget) (*types.WindowResourceVariant, string, error)
+type PublishedDatasourceOperate func(context.Context, *dsproto.DataSource, string, map[string]interface{}, map[string]any) (*api.OperateDatasourceOutput, error)
 type PublishedDatasourceExecute func(context.Context, *dsproto.DataSource, map[string]interface{}, map[string]any) (*api.FetchDatasourceOutput, error)
 type VerifiedWindowOwner func(context.Context) (string, error)
 type publishedWindowBinding struct {
@@ -34,6 +35,7 @@ type PublishedWindowBindings struct {
 	protectedProviders map[string]bool
 	open               PublishedWindowOpen
 	execute            PublishedDatasourceExecute
+	operate            PublishedDatasourceOperate
 	owner              VerifiedWindowOwner
 }
 
@@ -207,4 +209,49 @@ func (b *PublishedWindowBindings) Forget(ctx context.Context, windowID, expected
 	}
 	b.mu.Unlock()
 	return nil
+}
+
+func (b *PublishedWindowBindings) Operate(ctx context.Context, windowID, id, operation string, inputs map[string]interface{}, windowParameters map[string]any) (*api.OperateDatasourceOutput, bool, error) {
+	entry, ok, err := b.lookup(ctx, windowID)
+	if err != nil {
+		return nil, true, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	if _, declared := entry.descriptors[id]; !declared {
+		return nil, true, identity.ErrResourceDenied
+	}
+	current, hash, err := b.open(ctx, entry.provider, entry.uri, cloneTarget(entry.target))
+	if err != nil || current == nil || hash != entry.hash {
+		return nil, true, identity.ErrResourceDenied
+	}
+	raw := current.DataSources[id]
+	if len(raw) == 0 || !bytes.Equal(raw, entry.descriptors[id]) {
+		return nil, true, identity.ErrResourceDenied
+	}
+	var descriptor dsproto.DataSource
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&descriptor); err != nil || descriptor.ID != id || descriptor.Backend == nil {
+		return nil, true, identity.ErrResourceDenied
+	}
+	if action, declared := descriptor.Operations[operation]; strings.TrimSpace(operation) == "" || strings.TrimSpace(operation) != operation || !declared || action == nil || action.Backend == nil {
+		return nil, true, identity.ErrResourceDenied
+	}
+	if b.operate == nil {
+		return nil, true, ErrDatasourceStackNotConfigured
+	}
+	out, err := b.operate(ctx, &descriptor, operation, inputs, windowParameters)
+	if err != nil {
+		return nil, true, err
+	}
+	fresh, freshHash, err := b.open(ctx, entry.provider, entry.uri, cloneTarget(entry.target))
+	if err != nil || fresh == nil || freshHash != entry.hash || !bytes.Equal(fresh.DataSources[id], raw) {
+		return nil, true, identity.ErrResourceDenied
+	}
+	if owner, err := b.owner(ctx); err != nil || owner != entry.owner || runtimerequestctx.UIBridgeSessionIDFromContext(ctx) != entry.session {
+		return nil, true, identity.ErrResourceDenied
+	}
+	return out, true, nil
 }
