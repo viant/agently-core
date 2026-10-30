@@ -165,7 +165,7 @@ func TestOrdinaryMCPUnifiedExportIncludesEveryPageAndRejectsPartialPersistence(t
 			}
 			if scenario == "cursor" || scenario == "unpaged" {
 				if !strings.Contains(string(job.ReportFill), "beta") || !strings.Contains(string(job.ReportPrint), "beta") {
-					t.Fatal("complete semantic data missing from fill/print")
+					t.Fatalf("complete semantic data missing from fill/print: fill=%s print=%s", job.ReportFill, job.ReportPrint)
 				}
 			}
 			// A caller-visible pin and a server-produced fill are insufficient to

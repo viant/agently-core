@@ -319,13 +319,10 @@ func (s *Service) prepareUnifiedExportRequestUnscoped(ctx context.Context, reque
 	fill := cloneJSON(execution.ReportFill)
 	print := cloneJSON(execution.ReportPrint)
 	if format == ExportFormatCSV || format == ExportFormatXLSX && request.TableBlockID != "" {
-		fill, err = selectExportTable(fill, request.TableBlockID)
+		fill, print, err = selectExportTableSnapshot(fill, print, request.TableBlockID)
 		if err != nil {
 			return nil, nil, err
 		}
-		// A selected table is a data export; the full dashboard print model
-		// describes different content and must not accompany that snapshot.
-		print = nil
 	}
 	prepared := &SubmitExportRequest{
 		DependencyPins: pins, DependencyToken: token,
