@@ -109,7 +109,13 @@ type LayoutSplit struct {
 	MinSectionHeight int     `json:"minSectionHeight" yaml:"minSectionHeight"`
 }
 
+// LayoutApplicationScope declares shared UI state keys for an application.
+type LayoutApplicationScope struct {
+	Keys []string `json:"keys" yaml:"keys"`
+}
+
 type LayoutApplication struct {
+	Scope              *LayoutApplicationScope       `json:"scope,omitempty" yaml:"scope,omitempty"`
 	ID                 string                        `json:"id" yaml:"id"`
 	Title              string                        `json:"title" yaml:"title"`
 	Icon               string                        `json:"icon,omitempty" yaml:"icon,omitempty"`
@@ -136,6 +142,7 @@ type LayoutWindowCatalog struct {
 }
 
 type LayoutMenu struct {
+	ScopeLabelKey string                        `json:"scopeLabelKey,omitempty" yaml:"scopeLabelKey,omitempty"`
 	ID            string                        `json:"id" yaml:"id"`
 	Title         string                        `json:"title" yaml:"title"`
 	Icon          string                        `json:"icon,omitempty" yaml:"icon,omitempty"`
