@@ -14,7 +14,6 @@ import (
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
-	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/workspace/repository/toolplaybook"
@@ -502,9 +501,6 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 			ConversationID: strings.TrimSpace(input.ConversationID),
 			TurnID:         strings.TrimSpace(input.MessageID),
 		})
-	}
-	if len(input.ToolBundles) > 0 {
-		ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Required: true})
 	}
 	preparationStarted := time.Now()
 	always, err := s.resolveAlwaysIncludedTools(ctx, input)
