@@ -117,3 +117,23 @@ func TestFetchDatasourceRefreshesPublicWindowBeforeReadAssociation(t *testing.T)
 		require.Equal(t, prior, prepared, "nonpresentation business pin must not refresh")
 	}
 }
+
+func TestFetchDatasourceRestoresPrivateWindowSelection(t *testing.T) {
+	pin := &identity.ResolvedResource{URI: "window://example/view", ValidUntil: time.Now().Add(time.Minute)}
+	public := &types.WindowTarget{SelectionToken: "opaque"}
+	private := *public
+	private.DependencyPins = map[string]identity.ResolvedResource{"rows": {URI: "datasource://example/rows"}}
+	calls := 0
+	client := &backendClient{prepareNativePresentationRead: func(ctx context.Context, resource *identity.ResolvedResource, target *types.WindowTarget) (*identity.ResolvedResource, *types.WindowTarget, error) {
+		calls++
+		require.Equal(t, "owned-session", requestctx.UIBridgeSessionIDFromContext(ctx))
+		require.Empty(t, target.DependencyPins)
+		return resource, &private, nil
+	}}
+	ctx := requestctx.WithUIBridgeSessionID(context.Background(), "owned-session")
+	resolved, err := client.resolveDatasourceRequest(ctx, &api.FetchDatasourceInput{ID: "rows", Resource: pin, Target: public})
+	require.NoError(t, err)
+	require.Len(t, resolved.Target.DependencyPins, 1)
+	require.Empty(t, public.DependencyPins, "browser state must not receive private pins")
+	require.Equal(t, 1, calls)
+}
