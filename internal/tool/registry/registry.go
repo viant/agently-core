@@ -96,6 +96,7 @@ type Registry struct {
 	debugWriter         io.Writer
 	authorizationGuard  func(context.Context, string, map[string]interface{}) error
 	resultReuseDisabled bool
+	metadataOnly        map[string]bool
 
 	// virtual tool overlay (id → definition)
 	virtualDefs map[string]llm.ToolDefinition
@@ -2412,6 +2413,9 @@ func cacheAsyncConfigAliases(cache map[string]*asynccfg.Config, cfg *asynccfg.Co
 
 // listServerTools queries the server tool registry via MCP ListTools.
 func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpschema.Tool, error) {
+	if r.metadataConnection(server) {
+		return nil, nil
+	}
 	var cancel context.CancelFunc
 	ctx, cancel = r.withDiscoveryTimeout(ctx)
 	if cancel != nil {
@@ -3221,6 +3225,9 @@ func (r *Registry) listServers(ctx context.Context) ([]string, error) {
 	seen := map[string]struct{}{}
 	var out []string
 	for _, n := range names {
+		if r.metadataConnection(n) {
+			continue
+		}
 		if _, ok := seen[n]; ok {
 			continue
 		}

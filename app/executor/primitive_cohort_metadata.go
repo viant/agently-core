@@ -16,5 +16,11 @@ func (r *Runtime) InstallPublishedMetadata(connection resources.Connection, name
 	if err := r.PrimitiveProviders.RegisterPublishedMetadataSource(connection, namespaces, source, aliases...); err != nil {
 		return err
 	}
-	return r.mcpDefinitions.gateway.RegisterPublishedMetadataSource(connection, namespaces, source, aliases...)
+	if err := r.mcpDefinitions.gateway.RegisterPublishedMetadataSource(connection, namespaces, source, aliases...); err != nil {
+		return err
+	}
+	if registry, ok := r.Registry.(interface{ RegisterMetadataConnections(...string) }); ok {
+		registry.RegisterMetadataConnections(append([]string{connection.Name}, aliases...)...)
+	}
+	return nil
 }
