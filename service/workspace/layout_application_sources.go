@@ -22,9 +22,10 @@ import (
 // LayoutApplicationSource selects presentation order, never grants access.
 // Names, icons and menu content remain owned by the managing MCP.
 type LayoutApplicationSource struct {
-	Connection    string `yaml:"connection"`
-	Resource      string `yaml:"resource"`
-	ApplicationID string `yaml:"applicationId"`
+	AllowStyleOverrides bool   `yaml:"allowStyleOverrides,omitempty"`
+	Connection          string `yaml:"connection"`
+	Resource            string `yaml:"resource"`
+	ApplicationID       string `yaml:"applicationId"`
 }
 
 // ApplicationMenuReader uses the same cached primitive gateway as windows and
@@ -101,7 +102,7 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 		for _, source := range config.Sources {
 			key := source.Connection + "\x00" + source.Resource
 			if row, ok := available[key]; ok {
-				out = append(out, GatewayMenuSource{Resource: identity.ResourceRef{URI: source.Resource}, ProviderIdentity: row.Connection.ProviderIdentity, ApplicationID: source.ApplicationID, connection: row.Connection})
+				out = append(out, GatewayMenuSource{Resource: identity.ResourceRef{URI: source.Resource}, ProviderIdentity: row.Connection.ProviderIdentity, ApplicationID: source.ApplicationID, AllowStyleOverrides: source.AllowStyleOverrides, connection: row.Connection})
 				selected[key] = true
 			}
 		}

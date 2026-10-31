@@ -148,3 +148,23 @@ not establish shared identity without an explicit backend descriptor. Core does
 not infer report persistence or product placement from starter-task captions.
 The existing SDK tests and type check cover final projection; host lifecycle
 checks do not establish authenticated access recovery or cross-device retention.
+
+## Application stylesheet overrides
+
+Agently uses its workspace theme by default. To allow an MCP application's
+linked stylesheets to override that appearance, opt in on the host's source:
+
+```yaml
+applicationSources:
+  - connection: mcp://workspace/catalog
+    resource: navigation://example/main
+    applicationId: example
+    allowStyleOverrides: true
+```
+
+Omitted or false disables delivery of `styleResources` in the application
+projection. A provider cannot enable this option in its navigation payload.
+The UI removes previously installed application sheets when the option is
+turned off. Local workspace themes, authored layout and chart colors remain
+unchanged. Original verified artifacts and producer preview CSS are retained;
+this option does not rewrite signed or fingerprinted bundle bytes.

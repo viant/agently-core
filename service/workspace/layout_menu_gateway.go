@@ -17,10 +17,11 @@ import (
 // GatewayMenuSource is trusted menu-consumer wiring, separate from a transport
 // URL or any action's window key. The managing provider owns menu visibility.
 type GatewayMenuSource struct {
-	Resource         identity.ResourceRef
-	ProviderIdentity string
-	ApplicationID    string
-	connection       resources.Connection
+	AllowStyleOverrides bool
+	Resource            identity.ResourceRef
+	ProviderIdentity    string
+	ApplicationID       string
+	connection          resources.Connection
 }
 
 func NewGatewayLayoutMenuReader(gateway *resources.Gateway, sources []GatewayMenuSource) LayoutMenuReader {
@@ -126,11 +127,15 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 				if err != nil {
 					return nil, err
 				}
+				bound, err = applyNavigationStylePreference(bound, source.AllowStyleOverrides)
+				if err != nil {
+					return nil, err
+				}
 				applications = append(applications, bound)
 			}
 			pin := *got.ResolvedResource
 			selected = append(selected, held{connection, pin, projection})
-			revisions = append(revisions, pin.ProviderIdentity+"\x00"+pin.URI+"\x00"+pin.Selector()+"\x00"+pin.ContentFingerprint+"\x00"+projection+"\x00"+source.ApplicationID)
+			revisions = append(revisions, pin.ProviderIdentity+"\x00"+pin.URI+"\x00"+pin.Selector()+"\x00"+pin.ContentFingerprint+"\x00"+projection+"\x00"+source.ApplicationID+fmt.Sprintf("\x00styles:%t", source.AllowStyleOverrides))
 		}
 		stage, connectionName, resourceURI = "projection_encoding", "", ""
 		raw, err := json.Marshal(applications)
@@ -298,4 +303,20 @@ func optionalGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(co
 			return closeReads()
 		}}, nil
 	}
+}
+
+// The host selects whether provider CSS may override its workspace appearance.
+// Provider-supplied opt-ins are overwritten; immutable source bytes stay intact.
+func applyNavigationStylePreference(raw json.RawMessage, allow bool) (json.RawMessage, error) {
+	var app map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &app); err != nil {
+		return nil, err
+	}
+	if allow {
+		app["allowStyleOverrides"] = json.RawMessage("true")
+	} else {
+		delete(app, "allowStyleOverrides")
+		delete(app, "styleResources")
+	}
+	return json.Marshal(app)
 }

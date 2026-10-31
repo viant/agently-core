@@ -35,3 +35,22 @@ func TestNavigationPreservesStylesAndTheirDiscoveredConnection(t *testing.T) {
 	require.Equal(t, "studio", app.ResourceNamespace)
 	require.Contains(t, string(raw), "untrusted-source-claim")
 }
+
+func TestProviderStylesRequireHostOptInAndPreserveSource(t *testing.T) {
+	raw := json.RawMessage(`{"id":"example","allowStyleOverrides":true,"styleResources":["style://example/theme"],"parameters":{"id":9007199254740993}}`)
+	for _, allow := range []bool{false, true} {
+		projected, err := applyNavigationStylePreference(raw, allow)
+		require.NoError(t, err)
+		var app LayoutApplication
+		require.NoError(t, json.Unmarshal(projected, &app))
+		require.Equal(t, allow, app.AllowStyleOverrides)
+		if allow {
+			require.Equal(t, []string{"style://example/theme"}, app.StyleResources)
+		} else {
+			require.Empty(t, app.StyleResources)
+		}
+		require.Contains(t, string(projected), "9007199254740993")
+	}
+	require.Contains(t, string(raw), `"allowStyleOverrides":true`)
+	require.Contains(t, string(raw), "style://example/theme")
+}
