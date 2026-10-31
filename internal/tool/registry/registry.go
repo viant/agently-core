@@ -560,6 +560,20 @@ func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefi
 	// Required source resolution has already warmed its exact schemas. An
 	// advisory catalog read must not contact unrelated optional providers.
 	if mode, ok := runtimediscovery.ModeFromContext(ctx); ok && mode.CachedCatalog {
+		servers, err := r.listServers(ctx)
+		if err != nil {
+			return defs
+		}
+		for _, server := range servers {
+			if r.isInternalServer(server) || r.isExternalPublicToolCatalog(ctx, server) {
+				continue
+			}
+			identity, tools, err := r.cachedManagerCatalog(ctx, server)
+			if err != nil || identity == "" {
+				continue
+			}
+			defs = r.appendCatalogDefinitions(ctx, server, tools, defs, seen)
+		}
 		return defs
 	}
 
@@ -592,35 +606,39 @@ func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefi
 	}
 	catalogs := r.listToolCatalogs(discoveryCtx, pending)
 	for i, s := range pending {
-		applyCacheable := r.cacheableOverride(ctx, s)
-		injectTimeoutMs := r.shouldInjectTimeoutMs(s)
 		tools, err := catalogs[i].tools, catalogs[i].err
 		if err != nil {
-			// Keep cached entries; just warn on failure.
 			r.warnf("tools: list %s failed: %v", s, err)
 			continue
 		}
-		for _, t := range tools {
-			disp := displayToolName(s, strings.TrimSpace(t.Name))
-			if _, ok := seen[disp]; ok {
-				continue
+		defs = r.appendCatalogDefinitions(ctx, s, tools, defs, seen)
+	}
+	return defs
+}
+
+func (r *Registry) appendCatalogDefinitions(ctx context.Context, s string, tools []mcpschema.Tool, defs []llm.ToolDefinition, seen map[string]struct{}) []llm.ToolDefinition {
+	applyCacheable := r.cacheableOverride(ctx, s)
+	injectTimeoutMs := r.shouldInjectTimeoutMs(s)
+	for _, t := range tools {
+		disp := displayToolName(s, strings.TrimSpace(t.Name))
+		if _, ok := seen[disp]; ok {
+			continue
+		}
+		if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
+			def.Name = disp
+			_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
+			applyCacheable(def)
+			def.SourceMCPServer = s
+			defs = append(defs, *def)
+			seen[disp] = struct{}{}
+			// Update cache for lookup by display name
+			cachedDefinition := *def
+			cachedDefinition.Name = qualifiedToolName(s, strings.TrimSpace(t.Name))
+			r.mu.Lock()
+			if entry := newToolCacheEntry(&cachedDefinition, t, injectTimeoutMs); entry != nil && r.internal[s] != nil {
+				r.cache[disp] = entry
 			}
-			if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
-				def.Name = disp
-				_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
-				applyCacheable(def)
-				def.SourceMCPServer = s
-				defs = append(defs, *def)
-				seen[disp] = struct{}{}
-				// Update cache for lookup by display name
-				cachedDefinition := *def
-				cachedDefinition.Name = qualifiedToolName(s, strings.TrimSpace(t.Name))
-				r.mu.Lock()
-				if entry := newToolCacheEntry(&cachedDefinition, t, injectTimeoutMs); entry != nil && r.internal[s] != nil {
-					r.cache[disp] = entry
-				}
-				r.mu.Unlock()
-			}
+			r.mu.Unlock()
 		}
 	}
 	return defs
@@ -699,8 +717,20 @@ func (r *Registry) rawMatchDefinitionWithContextResult(ctx context.Context, patt
 	// service. This avoids spurious warnings for internal tools such as
 	// llm/agents:list where no MCP config file is expected, and preserves
 	// already-known remote tool definitions when a server is temporarily down.
-	// Discover matching server tools when pattern specifies an MCP service prefix.
-	if svc := serverFromPattern(pattern); svc != "" {
+	// Exact model aliases are lossy. Reuse dispatch's catalog identity before
+	// falling back to service-prefix matching for authored wildcard patterns.
+	svc := serverFromPattern(pattern)
+	literalMethod := ""
+	if !strings.ContainsAny(pattern, "*?[]") {
+		resolvedServer, method, found, err := r.discoveredMCPIdentity(ctx, pattern)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			svc, literalMethod = resolvedServer, method
+		}
+	}
+	if svc != "" {
 		if r.isExternalPublicToolCatalog(ctx, svc) {
 			return result, nil
 		}
@@ -718,7 +748,7 @@ func (r *Registry) rawMatchDefinitionWithContextResult(ctx context.Context, patt
 			if r.isInternalServer(svc) {
 				full = legacyInternalQualifiedToolName(svc, strings.TrimSpace(t.Name))
 			}
-			if tmatch.Match(pattern, full) {
+			if (literalMethod != "" && t.Name == literalMethod) || (literalMethod == "" && tmatch.Match(pattern, full)) {
 				def := llm.ToolDefinitionFromMcpTool(&t)
 				if def == nil {
 					continue

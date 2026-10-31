@@ -35,7 +35,7 @@ require (
 	github.com/viant/bindly v0.4.1
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.7
-	github.com/viant/forge v0.3.47-0.20261030152645-835185c1cdb4
+	github.com/viant/forge v0.3.47-0.20261031041016-235c2853cedf
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.1
 	github.com/viant/jsonrpc v0.25.1
@@ -162,7 +162,7 @@ require (
 	github.com/viant/sqlx v0.26.2-0.20261028024456-7f52e55c52a2
 	github.com/viant/structology v0.10.1
 	github.com/viant/structql v0.5.5 // indirect
-	github.com/viant/tagly v0.4.1 // indirect
+	github.com/viant/tagly v0.4.2-0.20261028223500-81e046a19ef9 // indirect
 	github.com/viant/vec v0.2.4 // indirect
 	github.com/viant/x v0.5.1
 	github.com/viant/xlsy v0.3.1 // indirect

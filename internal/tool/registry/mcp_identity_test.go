@@ -126,3 +126,24 @@ func TestAdvertisedMCPIdentityKeepsPrincipalCatalogScoped(t *testing.T) {
 	require.False(t, ok)
 	require.Empty(t, r.cache)
 }
+
+func TestPrivateAdvertisedAliasResolvesDuringStructuredMatching(t *testing.T) {
+	const server = "mcp://example/data-source"
+	const method = "namespace/component_read:fetch"
+	t.Setenv("AGENTLY_MCP_SERVERS", server)
+	manager := &discoveryManagerStub{options: &config.MCPClient{ToolsListVisibility: config.ToolsListVisibilityPrivate}, getFunc: func(_ string, name string) (client.Interface, error) {
+		if name != server {
+			return nil, fmt.Errorf("wrong configured server %q", name)
+		}
+		return &discoveryListClient{tools: []schema.Tool{{Name: method}}}, nil
+	}}
+	r := &Registry{mgr: manager, cache: map[string]*toolCacheEntry{}}
+	ctx := requestctx.WithConversationID(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"}), "owned")
+	_, err := r.listServerTools(ctx, server)
+	require.NoError(t, err)
+	definitions, err := r.MatchDefinitionWithContextResult(ctx, mcpname.Canonical(server+"/"+method))
+	require.NoError(t, err)
+	require.Len(t, definitions, 1)
+	require.Equal(t, server, definitions[0].SourceMCPServer)
+	require.Empty(t, r.cache, "private definitions never enter the shared cache")
+}
