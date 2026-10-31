@@ -15,6 +15,7 @@ import (
 	"github.com/viant/agently-core/protocol/binding"
 	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/runtime/toolselection"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/workspace/repository/toolplaybook"
 )
@@ -131,9 +132,15 @@ func collectToolPresence(defs []*llm.ToolDefinition) (map[string]bool, map[strin
 	return present, services
 }
 
-func filterDelegationDiscoveryTools(defs []*llm.ToolDefinition, docs *binding.Documents) []*llm.ToolDefinition {
+func filterDelegationDiscoveryTools(ctx context.Context, defs []*llm.ToolDefinition, docs *binding.Documents) []*llm.ToolDefinition {
 	if len(defs) == 0 || docs == nil || !hasDocumentURI(docs.Items, "internal://llm/agents/list") {
 		return defs
+	}
+	selected := map[string]bool{}
+	if state, ok := toolselection.FromContext(ctx); ok {
+		for _, name := range state.SelectedNames() {
+			selected[mcpname2.Canonical(name)] = true
+		}
 	}
 	filtered := make([]*llm.ToolDefinition, 0, len(defs))
 	for _, def := range defs {
@@ -141,7 +148,7 @@ func filterDelegationDiscoveryTools(defs []*llm.ToolDefinition, docs *binding.Do
 			continue
 		}
 		name := mcpname2.Canonical(strings.TrimSpace(def.Name))
-		if name == "llm_agents-list" && !retainedToolDefinition(*def) {
+		if name == "llm_agents-list" && !retainedToolDefinition(*def) && !selected[name] {
 			continue
 		}
 		filtered = append(filtered, def)
