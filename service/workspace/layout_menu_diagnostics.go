@@ -7,6 +7,7 @@ import (
 
 	"github.com/viant/agently-core/internal/logx"
 	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/forge/backend/artifactcohort"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
 )
@@ -43,7 +44,13 @@ func layoutFailureCategory(err error) string {
 		return "timeout"
 	case errors.Is(err, identity.ErrResourceStale):
 		return "stale"
-	case errors.Is(err, identity.ErrResourceDenied):
+	case errors.Is(err, artifactcohort.ErrUnavailable):
+		return "cohort_unavailable"
+	case errors.Is(err, artifactcohort.ErrInvalid):
+		return "cohort_invalid"
+	case errors.Is(err, artifactcohort.ErrConflict):
+		return "cohort_conflict"
+	case errors.Is(err, identity.ErrResourceDenied), errors.Is(err, artifactcohort.ErrDenied):
 		return "denied"
 	}
 	var unauthorized *jsonrpc.UnauthorizedError

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	identity "github.com/viant/agently-core/protocol/resource"
 	ws "github.com/viant/agently-core/workspace"
+	"github.com/viant/forge/backend/artifactcohort"
 )
 
 func TestLayoutMenuFailureLogsSafeStageWithoutDebug(t *testing.T) {
@@ -46,6 +47,22 @@ func TestLayoutMenuFailureLogsSafeStageWithoutDebug(t *testing.T) {
 			require.Equal(t, 1, strings.Count(output.String(), "layout.menu.failed"))
 			require.NotContains(t, output.String(), "private session token")
 			require.NotContains(t, response.Body.String(), "private session token")
+		})
+	}
+}
+
+func TestLayoutMenuFailureClassifiesCohortState(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{artifactcohort.ErrUnavailable, "cohort_unavailable"},
+		{artifactcohort.ErrInvalid, "cohort_invalid"},
+		{artifactcohort.ErrConflict, "cohort_conflict"},
+		{artifactcohort.ErrDenied, "denied"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			require.Equal(t, tc.want, layoutFailureCategory(markLayoutMenuFailure("source_list", "internal", "", tc.err)))
 		})
 	}
 }
