@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/viant/agently-core/protocol/mcp/manager"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/mcp"
 	"net/http"
@@ -92,6 +93,13 @@ func TestPrivateSurfaceIdentityTracksPrincipalCredentialsAndInvalidation(t *test
 	require.Len(t, r.DefinitionsWithContext(ctx), 1)
 	require.Len(t, r.DefinitionsWithContext(ctx), 1)
 	require.EqualValues(t, 1, calls.Load(), "warm aggregate listing must not repeat remote tools/list")
+	cachedCtx := runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{CachedCatalog: true})
+	require.Len(t, r.DefinitionsWithContext(cachedCtx), 1, "cached-only binding retains the caller private catalog")
+	require.EqualValues(t, 1, calls.Load(), "cached-only binding must not fetch metadata")
+	require.Empty(t, r.DefinitionsWithContext(authctx.WithBearer(cachedCtx, "uncached")), "another credential cannot reuse this catalog")
+	require.EqualValues(t, 1, calls.Load(), "cache misses must not trigger discovery")
+	require.Empty(t, r.DefinitionsWithContext(authctx.WithUserInfo(cachedCtx, &authctx.UserInfo{Subject: "bob"})), "another user cannot inherit the warm catalog")
+	require.EqualValues(t, 1, initializes.Load(), "cache-only discovery must not initialize another connection")
 	kind, generation := r.ToolSurfaceCacheIdentity(ctx, "private:*")
 	require.Equal(t, "private", kind)
 	require.NotEmpty(t, generation)
