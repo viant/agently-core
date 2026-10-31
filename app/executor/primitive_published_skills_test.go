@@ -85,6 +85,16 @@ func (p *publishedSkillTransportTrap) Options(context.Context, string) (*cfg.MCP
 }
 
 func TestPublishedSkillConsumedFromClosedCohortWithoutRemoteMetadata(t *testing.T) {
+	for _, binary := range []bool{false, true} {
+		name := "text-envelope"
+		if binary {
+			name = "byte-envelope"
+		}
+		t.Run(name, func(t *testing.T) { testPublishedSkillClosedCohort(t, binary) })
+	}
+}
+
+func testPublishedSkillClosedCohort(t *testing.T, binary bool) {
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "reader"})
 	trap := &publishedSkillTransportTrap{}
 	mgr, err := manager.New(trap, manager.WithClientFactory(func(context.Context, string, string) (client.Interface, error) {
@@ -98,7 +108,13 @@ func TestPublishedSkillConsumedFromClosedCohortWithoutRemoteMetadata(t *testing.
 	t.Cleanup(gateway.Close)
 	delivery, err := newPrimitiveSkillDelivery(ctx, gateway, nil)
 	require.NoError(t, err)
-	raw, err := json.Marshal(map[string]any{"schemaVersion": 1, "document": "---\nname: review\ndescription: Review synthetic examples\n---\nClosed package body.", "files": map[string]string{"refs/note.txt": "exact supporting bytes"}})
+	document := "---\nname: review\ndescription: Review synthetic examples\n---\nClosed package body."
+	payload := map[string]any{"schemaVersion": 1, "document": document, "files": map[string]string{"refs/note.txt": "exact supporting bytes"}}
+	if binary {
+		// Native publishers serialize exact document/file bytes as JSON base64.
+		payload = map[string]any{"document": []byte(document), "files": map[string][]byte{"refs/note.txt": []byte("exact supporting bytes")}}
+	}
+	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 	source := &publishedSkillConsumerSource{raw: raw}
 	require.NoError(t, gateway.RegisterPublishedMetadataSource(resources.Connection{Name: "catalog", ProviderIdentity: "publisher"}, []string{"example"}, source))
