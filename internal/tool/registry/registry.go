@@ -2517,7 +2517,7 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		return listErr
 	})
 	if err != nil {
-		if isReconnectableError(err) {
+		if isReconnectableError(err) && ctx.Err() == nil {
 			if retried, retryErr := r.retrySharedDiscoveryListTools(ctx, scope, server, opts); retryErr == nil {
 				if err := ctx.Err(); err != nil {
 					return nil, err
