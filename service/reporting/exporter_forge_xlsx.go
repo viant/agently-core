@@ -34,13 +34,20 @@ func (e *ForgeXLSXExporter) Export(_ context.Context, request *RenderRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("reporting forge xlsx export: %w", err)
 	}
-	// Keep the established single-table workbook unchanged. A complete
-	// dashboard uses Forge's additive multi-sheet renderer.
-	render := forgexlsx.Render
-	if len(report.Blocks) > 1 {
-		render = forgexlsx.RenderDashboard
+	// Preserve the legacy fill-only and single-table APIs. When a complete
+	// dashboard has a matched print, use its visibility with compact worksheets.
+	var data []byte
+	if len(report.Blocks) > 1 && len(bytes.TrimSpace(request.ReportPrint)) > 0 {
+		render := forgexlsx.RenderDashboardWithVisibility
+		if request.resourceDatasourceRequests {
+			render = forgexlsx.RenderDatasourceDashboardWithVisibility
+		}
+		data, err = render(request.ReportFill, request.ReportPrint)
+	} else if len(report.Blocks) > 1 {
+		data, err = forgexlsx.RenderDashboard(report)
+	} else {
+		data, err = forgexlsx.Render(report)
 	}
-	data, err := render(report)
 	if err != nil {
 		return nil, fmt.Errorf("reporting forge xlsx export: %w", err)
 	}
