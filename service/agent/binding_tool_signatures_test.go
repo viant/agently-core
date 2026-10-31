@@ -13,6 +13,7 @@ import (
 	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
+	"github.com/viant/agently-core/runtime/toolselection"
 	"github.com/viant/agently-core/service/core"
 	skillsvc "github.com/viant/agently-core/service/skill"
 )
@@ -135,7 +136,7 @@ func TestFilterDelegationDiscoveryTools_RemovesAgentsListWhenDirectoryDocPresent
 			{SourceURI: "internal://llm/agents/list"},
 		},
 	}
-	filtered := filterDelegationDiscoveryTools(defs, docs)
+	filtered := filterDelegationDiscoveryTools(context.Background(), defs, docs)
 	var got []string
 	for _, def := range filtered {
 		if def == nil {
@@ -388,4 +389,14 @@ func TestEnsureInternalToolsIfNeeded_SkipsMessageShowWhenContinuationDisabled(t 
 		Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "analyst", Name: "Analyst"}},
 	}, withOverflow)
 	assert.Empty(t, withOverflow.Tools.Signatures)
+}
+
+func TestExplicitDirectoryActivationSurvivesBootstrapPruning(t *testing.T) {
+	definition := llm.ToolDefinition{Name: "llm_agents-list"}
+	ctx := toolselection.WithState(context.Background(), []llm.Tool{{Definition: definition}})
+	state, _ := toolselection.FromContext(ctx)
+	require.NoError(t, state.Activate([]string{definition.Name}))
+	docs := &binding.Documents{Items: []*binding.Document{{SourceURI: "internal://llm/agents/list"}}}
+	result := filterDelegationDiscoveryTools(ctx, []*llm.ToolDefinition{&definition}, docs)
+	require.Len(t, result, 1, "explicitly selected tools must reach the next model call")
 }

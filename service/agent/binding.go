@@ -265,7 +265,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	s.appendAgentDirectoryDoc(ctx, input, &b.SystemDocuments)
 	logx.Infof("conversation", "agent.BuildBinding appendAgentDirectoryDoc ok convo=%q elapsed=%s", convoID, time.Since(agentDirectoryStageStart).String())
 	stageTimings["agentDirectoryMs"] = time.Since(agentDirectoryStageStart).Milliseconds()
-	b.Tools.Signatures = filterDelegationDiscoveryTools(b.Tools.Signatures, &b.SystemDocuments)
+	b.Tools.Signatures = filterDelegationDiscoveryTools(ctx, b.Tools.Signatures, &b.SystemDocuments)
 	// Normalize system doc URIs similarly (even if not rendered now)
 	s.normalizeDocURIs(&b.SystemDocuments, workspace.Root())
 	visibleSkillsStageStart := time.Now()
