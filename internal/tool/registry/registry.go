@@ -1315,8 +1315,11 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			}
 			if res.IsError != nil && *res.IsError {
 				terr := toolError(res)
-				if status := numericMCPAuthorizationStatus(res); status != 0 {
+				switch status := numericMCPErrorStatus(res); status {
+				case 401, 403:
 					terr = &dsproto.UpstreamAuthorizationError{Status: status, Cause: terr}
+				case 400, 422:
+					terr = &upstreamMCPInputError{status: status, cause: terr}
 				}
 				if mcpapps.Active(ctx) || appActivity {
 					terr = errors.New("MCP app tool returned an error")
