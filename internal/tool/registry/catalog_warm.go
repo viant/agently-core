@@ -17,6 +17,11 @@ const catalogDiscoveryConcurrency = 4
 type toolCatalogWarmContextKey struct{}
 
 func (r *Registry) noteCatalogDiscoveryFailure(ctx context.Context, server, scope string, err error) {
+	// Cancellation describes this operation's budget, not provider health.
+	// In particular, optional discovery must not block a later user request.
+	if ctx.Err() != nil {
+		return
+	}
 	if proactive, _ := ctx.Value(toolCatalogWarmContextKey{}).(bool); !proactive {
 		r.noteDiscoveryFailure(server, scope, err)
 	}
