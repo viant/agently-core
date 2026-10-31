@@ -44,7 +44,7 @@ func TestApplicationSourcesUseProviderAppsInWorkspaceOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, page.Items, 2)
 	reader, err := ApplicationMenuReader(gateway, []byte(`applicationSources:
- - {connection: second, resource: "navigation://second/main", applicationId: secondary}
+ - {connection: second, resource: "navigation://second/main", applicationId: secondary, allowStyleOverrides: true}
  - {connection: first, resource: "navigation://first/absent", applicationId: hidden}
  - {connection: first, resource: "navigation://first/main", applicationId: primary}
 applications: []
@@ -60,6 +60,8 @@ applications: []
 		require.Equal(t, "Provider secondary", apps[0].Title)
 		require.Equal(t, "database", apps[0].Icon)
 		require.Equal(t, "primary", apps[1].ID)
+		require.True(t, apps[0].AllowStyleOverrides)
+		require.False(t, apps[1].AllowStyleOverrides)
 		require.NoError(t, read.Revalidate(ctx))
 		require.NoError(t, read.Close())
 	}
