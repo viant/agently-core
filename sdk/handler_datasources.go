@@ -190,15 +190,21 @@ func statusForDatasourceErr(err error) int {
 	if status, ok := upstreamAuthStatusFromError(err); ok {
 		return status
 	}
+	if status, ok := upstreamInputStatusFromError(err); ok {
+		return status
+	}
 	return http.StatusInternalServerError
 }
 
 // Availability is classified by trusted sentinels; upstream payloads are omitted.
 func writeDatasourceError(w http.ResponseWriter, err error) {
 	status := statusForDatasourceErr(err)
-	var rpcError *jsonrpc.Error
-	if isAuthStatus(status) && errors.As(err, &rpcError) && isAuthStatus(rpcError.Code) {
-		err = &dsproto.UpstreamAuthorizationError{Status: status, Cause: err}
+	if isAuthStatus(status) {
+		if errors.Is(err, dsproto.ErrDatasourceDenied) {
+			err = dsproto.ErrDatasourceDenied
+		} else {
+			err = &dsproto.UpstreamAuthorizationError{Status: status, Cause: err}
+		}
 	}
 	switch status {
 	case http.StatusGatewayTimeout:
@@ -239,9 +245,26 @@ type datasourceErrorDetail struct {
 	Object     []datasourceErrorDetail `json:"object"`
 }
 
+// Tool and datasource HTTP endpoints preserve the same explicit validation
+// provenance. Message text alone cannot supply a validation status.
+func upstreamInputStatusFromError(err error) (int, bool) {
+	var statusError interface{ HTTPStatusCode() int }
+	if errors.As(err, &statusError) {
+		status := statusError.HTTPStatusCode()
+		if status == http.StatusBadRequest || status == http.StatusUnprocessableEntity {
+			return status, true
+		}
+	}
+	return 0, false
+}
+
 func upstreamAuthStatusFromError(err error) (int, bool) {
 	if err == nil {
 		return 0, false
+	}
+	var upstream *dsproto.UpstreamAuthorizationError
+	if errors.As(err, &upstream) && isAuthStatus(upstream.Status) {
+		return upstream.Status, true
 	}
 	msg := strings.TrimSpace(err.Error())
 	if msg == "" {

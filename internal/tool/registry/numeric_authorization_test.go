@@ -33,3 +33,34 @@ func TestNumericMCPProvenanceSurvivesActualRegistryDispatch(t *testing.T) {
 		})
 	}
 }
+
+func TestNumericMCPValidationStatusRequiresExplicitErrorStatus(t *testing.T) {
+	failed := true
+	for _, tc := range []struct {
+		payload any
+		want    int
+	}{
+		{map[string]any{"statusCode": 400}, 400},
+		{map[string]any{"statusCode": json.Number("422")}, 422},
+		{map[string]any{"error": map[string]any{"statusCode": 400}}, 400},
+		{map[string]any{"code": 400}, 0},
+		{map[string]any{"statusCode": "400"}, 0},
+		{map[string]any{"statusCode": 400.5}, 0},
+		{map[string]any{"message": "400"}, 0},
+		{map[string]any{"statusCode": 400, "error": map[string]any{"code": 403}}, 403},
+	} {
+		got := numericMCPErrorStatus(&schema.CallToolResult{IsError: &failed, StructuredContent: tc.payload})
+		if got != tc.want {
+			t.Fatalf("numeric status got %d want %d", got, tc.want)
+		}
+	}
+	result := &schema.CallToolResult{StructuredContent: map[string]any{"statusCode": 400}}
+	if got := numericMCPErrorStatus(result); got != 0 {
+		t.Fatalf("successful payload classified as error: %d", got)
+	}
+	result.IsError = &failed
+	result.Content = []schema.CallToolResultContentElem{schema.TextContent{Type: "text", Text: `{"statusCode":401}`}}
+	if got := numericMCPErrorStatus(result); got != 401 {
+		t.Fatalf("authorization status did not win: %d", got)
+	}
+}

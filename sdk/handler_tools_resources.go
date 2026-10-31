@@ -366,6 +366,11 @@ func statusForToolExecuteError(err error) int {
 	if errors.Is(err, reporting.ErrReportParameterBinding) {
 		return http.StatusUnprocessableEntity
 	}
+	// Preserve explicit producer validation status after authorization handling;
+	// generic JSON-RPC codes and untyped message numbers are not HTTP status.
+	if status, ok := upstreamInputStatusFromError(err); ok {
+		return status
+	}
 	msg := strings.ToLower(strings.TrimSpace(fmt.Sprint(err)))
 	if strings.Contains(msg, "permission denied") || strings.Contains(msg, "forbidden") {
 		return http.StatusForbidden
@@ -387,14 +392,12 @@ func toolExecuteErrorResponse(err error, result string) (int, error, string) {
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		// Partial definitions/data cannot accompany failed authorization.
 		result = ""
-		var rpcError *jsonrpc.Error
-		if errors.As(err, &rpcError) && isAuthStatus(rpcError.Code) {
-			// Managing-server error messages/data can contain private payloads.
-			if status == http.StatusUnauthorized {
-				err = errors.New("managing server requires authentication")
-			} else {
-				err = errors.New("managing server denied access")
-			}
+		// A denied operation may join a producer validation error with a later
+		// authority failure. Never expose that producer payload after denial.
+		if status == http.StatusUnauthorized {
+			err = errors.New("managing server requires authentication")
+		} else {
+			err = errors.New("managing server denied access")
 		}
 	}
 	return status, err, result
