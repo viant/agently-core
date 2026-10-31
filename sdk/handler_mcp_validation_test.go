@@ -38,8 +38,10 @@ func (c *validationMCPClient) CallTool(context.Context, *schema.CallToolRequestP
 	c.calls++
 	payload := map[string]any{"status": "error", "message": "Both bounds must be supplied together.", "statusCode": c.status}
 	raw, _ := json.Marshal(payload)
+	var structured any
+	_ = json.Unmarshal(raw, &structured) // match the native MCP wire decoder
 	failed := true
-	return &schema.CallToolResult{IsError: &failed, StructuredContent: payload, Content: []schema.CallToolResultContentElem{schema.TextContent{Type: "text", Text: string(raw)}}}, nil
+	return &schema.CallToolResult{IsError: &failed, StructuredContent: structured, Content: []schema.CallToolResultContentElem{schema.TextContent{Type: "text", Text: string(raw)}}}, nil
 }
 
 type registryToolHTTPClient struct {
@@ -74,7 +76,11 @@ func TestMCPValidationStatusSurvivesRegistryAndHTTP(t *testing.T) {
 			require.Equal(t, status, response.Code, response.Body.String())
 			require.Equal(t, 1, client.calls, "validation must not replay the source operation")
 			if status == 400 || status == 422 {
-				require.Contains(t, response.Body.String(), "Both bounds must be supplied together.")
+				var envelope struct {
+					Error string `json:"error"`
+				}
+				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+				require.Equal(t, "Both bounds must be supplied together.", envelope.Error)
 			}
 			streamRequest := httptest.NewRequest(http.MethodPost, "/v1/tools/fixture:read/execute", strings.NewReader(`{}`))
 			streamRequest.SetPathValue("name", "fixture:read")
@@ -111,4 +117,20 @@ func TestMCPValidationStatusSurvivesRegistryAndHTTP(t *testing.T) {
 
 		})
 	}
+}
+
+type explicitInputStatusError struct {
+	status  int
+	message string
+}
+
+func (e explicitInputStatusError) Error() string       { return e.message }
+func (e explicitInputStatusError) HTTPStatusCode() int { return e.status }
+func TestExplicitInputStatusDoesNotBecomePermissionFromWording(t *testing.T) {
+	input := explicitInputStatusError{status: 400, message: "This field is forbidden in the request shape."}
+	require.Equal(t, 400, statusForToolExecuteError(input))
+	require.Equal(t, 400, statusForDatasourceErr(input))
+	denied := errors.Join(input, explicitInputStatusError{status: 403, message: "denied"})
+	require.Equal(t, 403, statusForToolExecuteError(denied))
+	require.Equal(t, 403, statusForDatasourceErr(denied))
 }

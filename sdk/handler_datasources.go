@@ -248,23 +248,54 @@ type datasourceErrorDetail struct {
 // Tool and datasource HTTP endpoints preserve the same explicit validation
 // provenance. Message text alone cannot supply a validation status.
 func upstreamInputStatusFromError(err error) (int, bool) {
-	var statusError interface{ HTTPStatusCode() int }
-	if errors.As(err, &statusError) {
-		status := statusError.HTTPStatusCode()
-		if status == http.StatusBadRequest || status == http.StatusUnprocessableEntity {
-			return status, true
+	status := upstreamTypedHTTPStatus(err)
+	return status, status == http.StatusBadRequest || status == http.StatusUnprocessableEntity
+}
+
+// Walk wrapped/joined errors so an input error cannot hide a real denial.
+func upstreamTypedHTTPStatus(err error) int {
+	var hasStatus func(error, int) bool
+	hasStatus = func(err error, wanted int) bool {
+		if err == nil {
+			return false
+		}
+		if value, ok := err.(interface{ HTTPStatusCode() int }); ok && value.HTTPStatusCode() == wanted {
+			return true
+		}
+		if isAuthStatus(wanted) {
+			if value, ok := err.(*dsproto.UpstreamAuthorizationError); ok && value.Status == wanted {
+				return true
+			}
+			if value, ok := err.(*jsonrpc.Error); ok && value.Code == wanted {
+				return true
+			}
+		}
+		switch value := err.(type) {
+		case interface{ Unwrap() []error }:
+			for _, child := range value.Unwrap() {
+				if hasStatus(child, wanted) {
+					return true
+				}
+			}
+		case interface{ Unwrap() error }:
+			return hasStatus(value.Unwrap(), wanted)
+		}
+		return false
+	}
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusBadRequest, http.StatusUnprocessableEntity} {
+		if hasStatus(err, status) {
+			return status
 		}
 	}
-	return 0, false
+	return 0
 }
 
 func upstreamAuthStatusFromError(err error) (int, bool) {
 	if err == nil {
 		return 0, false
 	}
-	var upstream *dsproto.UpstreamAuthorizationError
-	if errors.As(err, &upstream) && isAuthStatus(upstream.Status) {
-		return upstream.Status, true
+	if status := upstreamTypedHTTPStatus(err); status != 0 {
+		return status, isAuthStatus(status) // numeric input status outranks message wording
 	}
 	msg := strings.TrimSpace(err.Error())
 	if msg == "" {
