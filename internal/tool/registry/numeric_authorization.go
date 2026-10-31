@@ -92,10 +92,31 @@ func numericMCPErrorPayload(value any) int {
 }
 
 type upstreamMCPInputError struct {
-	status int
-	cause  error
+	status  int
+	cause   error
+	message string
 }
 
-func (e *upstreamMCPInputError) Error() string       { return e.cause.Error() }
+func newMCPInputError(result *schema.CallToolResult, status int, cause error) error {
+	message := ""
+	if payload, ok := result.StructuredContent.(map[string]any); ok && numericMCPErrorPayload(payload) == status {
+		message, _ = payload["message"].(string)
+	}
+	if strings.TrimSpace(message) == "" {
+		var payload struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(cause.Error()), &payload) == nil {
+			message = payload.Message
+		}
+	}
+	return &upstreamMCPInputError{status: status, cause: cause, message: strings.TrimSpace(message)}
+}
+func (e *upstreamMCPInputError) Error() string {
+	if e.message != "" {
+		return e.message
+	}
+	return e.cause.Error()
+}
 func (e *upstreamMCPInputError) Unwrap() error       { return e.cause }
 func (e *upstreamMCPInputError) HTTPStatusCode() int { return e.status }
