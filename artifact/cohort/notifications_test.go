@@ -82,12 +82,19 @@ func (p *sidecarNotificationProbe) OnNotification(_ context.Context, event *json
 
 func TestArtifactNotificationSidecarReadmitsAfterProducerSessionReset(t *testing.T) {
 	var generation, synchronizations, legacyDiscoveries, getStreams, invalidAuth atomic.Int32
+	var unavailable atomic.Bool
+	var failedConnections atomic.Int32
 	notify := make(chan struct{}, 1)
 	drop := make(chan struct{}, 1)
 	replica, caller := sidecarReplica(t)
 	knownHash := replica.KnownHash()
 	generation.Store(1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if unavailable.Load() {
+			failedConnections.Add(1)
+			http.Error(w, "synthetic transport outage", http.StatusServiceUnavailable)
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer fixture-token" || r.Header.Get("Origin") != "http://localhost" || r.Header.Get("MCP-Protocol-Version") != schema.LegacyProtocolVersion {
 			invalidAuth.Add(1)
 			http.Error(w, "denied", http.StatusForbidden)
@@ -215,6 +222,23 @@ func TestArtifactNotificationSidecarReadmitsAfterProducerSessionReset(t *testing
 	require.Eventually(t, func() bool { _, err := replica.Open(context.Background(), "window://example/main"); return err == nil }, 2*time.Second, time.Millisecond)
 	generation.Store(2)
 	waitFor(2)
+	// Keep both notification transport and synchronization unavailable through
+	// multiple retries, then restore them without restarting the host.
+	caller.blocked.Store(true)
+	unavailable.Store(true)
+	drop <- struct{}{}
+	require.Eventually(t, func() bool { return failedConnections.Load() >= 2 }, 12*time.Second, 10*time.Millisecond)
+	_, err = replica.Open(context.Background(), "window://example/main")
+	require.ErrorIs(t, err, artifactcohort.ErrUnavailable)
+	require.Equal(t, knownHash, replica.KnownHash())
+	generation.Store(3)
+	caller.blocked.Store(false)
+	unavailable.Store(false)
+	require.Eventually(t, func() bool {
+		_, err := replica.Open(context.Background(), "window://example/main")
+		return err == nil && synchronizations.Load() >= 3
+	}, 12*time.Second, 10*time.Millisecond)
+
 	observedDeadline := time.Now().Add(time.Second)
 	for {
 		timingMu.Lock()
