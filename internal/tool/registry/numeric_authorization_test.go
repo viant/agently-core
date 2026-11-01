@@ -64,3 +64,31 @@ func TestNumericMCPValidationStatusRequiresExplicitErrorStatus(t *testing.T) {
 		t.Fatalf("authorization status did not win: %d", got)
 	}
 }
+
+func TestProducerInputDiagnosticSurvivesRegistryDispatch(t *testing.T) {
+	failed := true
+	for _, denied := range []bool{false, true} {
+		payload := map[string]any{"statusCode": 400, "code": "report_input_validation", "fieldPath": "to", "message": "End date cannot be in the future."}
+		if denied {
+			payload["error"] = map[string]any{"statusCode": 403}
+		}
+		cli := &scriptedCallClient{result: &schema.CallToolResult{IsError: &failed, StructuredContent: payload}}
+		registry := newReconnectTestRegistry(&scriptedReconnectManager{clients: []mcpclient.Interface{cli}})
+		_, err := registry.Execute(context.Background(), "fixture:read", nil)
+		var input *upstreamMCPInputError
+		if denied {
+			var authError *ds.UpstreamAuthorizationError
+			if !errors.As(err, &authError) || authError.Status != 403 || errors.As(err, &input) {
+				t.Fatalf("denial must take precedence: %v", err)
+			}
+			continue
+		}
+		if !errors.As(err, &input) {
+			t.Fatalf("lost typed input error: %v", err)
+		}
+		diagnostic := input.ReportParameterBindingDiagnostic()
+		if diagnostic.Code != "report_input_validation" || diagnostic.Path != "to" || diagnostic.Message != payload["message"] {
+			t.Fatalf("lost input diagnostic: %+v", diagnostic)
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	reporting "github.com/viant/forge/backend/reporting/engine"
 	"github.com/viant/mcp-protocol/schema"
 )
 
@@ -92,9 +93,10 @@ func numericMCPErrorPayload(value any) int {
 }
 
 type upstreamMCPInputError struct {
-	status  int
-	cause   error
-	message string
+	status     int
+	cause      error
+	message    string
+	diagnostic reporting.Diagnostic
 }
 
 func newMCPInputError(result *schema.CallToolResult, status int, cause error) error {
@@ -110,7 +112,14 @@ func newMCPInputError(result *schema.CallToolResult, status int, cause error) er
 			message = payload.Message
 		}
 	}
-	return &upstreamMCPInputError{status: status, cause: cause, message: strings.TrimSpace(message)}
+	resultError := &upstreamMCPInputError{status: status, cause: cause, message: strings.TrimSpace(message)}
+	if payload, ok := result.StructuredContent.(map[string]any); ok && numericMCPErrorPayload(payload) == status && payload["code"] == "report_input_validation" {
+		path, _ := payload["fieldPath"].(string)
+		if resultError.message != "" && len(resultError.message) <= 1024 && len(path) <= 256 {
+			resultError.diagnostic = reporting.Diagnostic{Code: "report_input_validation", Severity: "error", Path: path, Message: resultError.message}
+		}
+	}
+	return resultError
 }
 func (e *upstreamMCPInputError) Error() string {
 	if e.message != "" {
@@ -120,3 +129,7 @@ func (e *upstreamMCPInputError) Error() string {
 }
 func (e *upstreamMCPInputError) Unwrap() error       { return e.cause }
 func (e *upstreamMCPInputError) HTTPStatusCode() int { return e.status }
+
+func (e *upstreamMCPInputError) ReportParameterBindingDiagnostic() reporting.Diagnostic {
+	return e.diagnostic
+}

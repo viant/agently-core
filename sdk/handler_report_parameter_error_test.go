@@ -38,3 +38,31 @@ func TestToolReportInputFailureIsActionableWithoutInternalDetails(t *testing.T) 
 	}
 	require.Equal(t, http.StatusForbidden, statusForToolExecuteError(errors.Join(identity.ErrResourceDenied, reportInputError{})))
 }
+
+type reportDateInputError struct{}
+
+func (reportDateInputError) Error() string { return "private upstream detail" }
+
+func (reportDateInputError) HTTPStatusCode() int { return 400 }
+func (reportDateInputError) ReportParameterBindingDiagnostic() reporting.Diagnostic {
+	return reporting.Diagnostic{Code: "report_input_validation", Severity: "error", Path: "to", Message: "End date cannot be in the future."}
+}
+func TestToolProducerInputDiagnosticPreservesMessageAndDenial(t *testing.T) {
+	for _, denied := range []bool{false, true} {
+		var err error = fmt.Errorf("internal dispatch: %w", reportDateInputError{})
+		if denied {
+			err = errors.Join(identity.ErrResourceDenied, err)
+		}
+		response := httptest.NewRecorder()
+		writeToolExecuteError(response, err, "")
+		if denied {
+			require.Equal(t, 403, response.Code)
+			require.NotContains(t, response.Body.String(), "End date")
+		} else {
+			require.Equal(t, 400, response.Code)
+			require.Contains(t, response.Body.String(), "End date cannot be in the future.")
+			require.Contains(t, response.Body.String(), `"path":"to"`)
+		}
+		require.NotContains(t, response.Body.String(), "internal dispatch")
+	}
+}

@@ -405,14 +405,15 @@ func toolExecuteErrorResponse(err error, result string) (int, error, string) {
 
 func writeToolExecuteError(w http.ResponseWriter, err error, result string) {
 	status, safeError, safeResult := toolExecuteErrorResponse(err, result)
-	if status == http.StatusUnprocessableEntity && errors.Is(err, reporting.ErrReportParameterBinding) {
+	if status == http.StatusBadRequest || status == http.StatusUnprocessableEntity {
 		var failure interface{ ReportParameterBindingDiagnostic() reporting.Diagnostic }
-		diagnostics := []reporting.Diagnostic{}
 		if errors.As(err, &failure) {
-			diagnostics = append(diagnostics, failure.ReportParameterBindingDiagnostic())
+			diagnostic := failure.ReportParameterBindingDiagnostic()
+			if diagnostic.Code != "" {
+				httpJSON(w, status, map[string]any{"error": "Report inputs do not match the published report. Check the required inputs and report definition.", "diagnostics": []reporting.Diagnostic{diagnostic}})
+				return
+			}
 		}
-		httpJSON(w, status, map[string]any{"error": "Report inputs do not match the published report. Check the required inputs and report definition.", "diagnostics": diagnostics})
-		return
 	}
 	httpErrorWithResult(w, status, safeError, safeResult)
 }
