@@ -8,6 +8,7 @@ import (
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	"github.com/viant/agently-core/workspace"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"strconv"
@@ -363,6 +364,9 @@ func statusForToolExecuteError(err error) int {
 	if status, ok := upstreamAuthStatusFromError(err); ok {
 		return status
 	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return http.StatusNotFound
+	}
 	if errors.Is(err, reporting.ErrReportParameterBinding) {
 		return http.StatusUnprocessableEntity
 	}
@@ -389,6 +393,9 @@ func statusForToolExecuteError(err error) int {
 
 func toolExecuteErrorResponse(err error, result string) (int, error, string) {
 	status := statusForToolExecuteError(err)
+	if status == http.StatusNotFound && errors.Is(err, fs.ErrNotExist) {
+		return status, errors.New("tool not found"), ""
+	}
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		// Partial definitions/data cannot accompany failed authorization.
 		result = ""

@@ -29,6 +29,12 @@ type outputArtifactMissingBytes struct{}
 
 func (outputArtifactMissingBytes) Error() string { return "output artifact capture failed" }
 
+// Retain typed authority and availability causes without publishing their text.
+type outputArtifactPolicyError struct{ cause error }
+
+func (outputArtifactPolicyError) Error() string   { return "output artifact policy unavailable" }
+func (e outputArtifactPolicyError) Unwrap() error { return e.cause }
+
 func (r *Registry) outputArtifactPolicy(ctx context.Context, server, method string) (*mcpcfg.OutputArtifact, error) {
 	if r.mgr == nil || r.isInternalServer(server) {
 		return nil, nil
@@ -54,7 +60,7 @@ func (r *Registry) outputArtifactPolicy(ctx context.Context, server, method stri
 			}
 			fmt.Fprintf(os.Stderr, "primitive mcp options failure stage=configuration_lookup server=%q method=%q category=%s type=%T rpc_code=%d\n", server, method, category, err, code)
 		}
-		return nil, errors.New("output artifact policy unavailable")
+		return nil, outputArtifactPolicyError{cause: err}
 	}
 	if options == nil {
 		return nil, nil
