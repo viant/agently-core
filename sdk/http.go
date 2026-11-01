@@ -139,6 +139,7 @@ func NewHTTP(baseURL string, opts ...HTTPOption) (*HTTPClient, error) {
 			opt(c)
 		}
 	}
+	c.configureSessionRedirects()
 	return c, nil
 }
 
@@ -1319,6 +1320,7 @@ func (c *HTTPClient) applyAuth(ctx context.Context, req *http.Request) error {
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	c.applySessionOrigin(req)
 	return nil
 }
 
