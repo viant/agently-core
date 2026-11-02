@@ -135,6 +135,7 @@ type MetadataHandler struct {
 	capturedLayoutSource  string
 	capturedLayoutCheck   func(context.Context) error
 	layoutMenuReader      LayoutMenuReader
+	layoutDecorator       func(context.Context, *Layout) error
 	toolDefinitions       func(context.Context) ([]ToolDefinition, error)
 }
 

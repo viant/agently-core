@@ -21,21 +21,22 @@ import (
 type HandlerOption func(*handlerConfig)
 
 type handlerConfig struct {
-	browserMCP              *browsermcp.Registry
-	authCfg                 *svcauth.Config
-	authSessions            *svcauth.Manager
-	authOpts                []svcauth.HandlerOption
-	speechHandler           *speech.Handler
-	schedulerHandler        *scheduler.Handler
-	schedulerSvc            *scheduler.Service
-	schedulerOpts           *SchedulerOptions
-	metadataHandler         *svcworkspace.MetadataHandler
-	fileBrowser             *svcworkspace.FileBrowserHandler
-	a2aHandler              *svca2a.Handler
-	callbackHandler         *callbackhttp.Handler
-	uiBridgeHandler         http.Handler
-	reportRunHandler        http.Handler
-	publishedWindowBindings *PublishedWindowBindings
+	browserMCP               *browsermcp.Registry
+	authCfg                  *svcauth.Config
+	authSessions             *svcauth.Manager
+	authOpts                 []svcauth.HandlerOption
+	speechHandler            *speech.Handler
+	schedulerHandler         *scheduler.Handler
+	schedulerSvc             *scheduler.Service
+	schedulerOpts            *SchedulerOptions
+	metadataHandler          *svcworkspace.MetadataHandler
+	fileBrowser              *svcworkspace.FileBrowserHandler
+	a2aHandler               *svca2a.Handler
+	callbackHandler          *callbackhttp.Handler
+	uiBridgeHandler          http.Handler
+	reportRunHandler         http.Handler
+	conversationAuditHandler http.Handler
+	publishedWindowBindings  *PublishedWindowBindings
 
 	mcpUIResourceReader        MCPUIResourceReader
 	mcpUIResourceContextBinder MCPUIResourceContextBinder
@@ -104,6 +105,12 @@ func WithUIBridgeHandler(h http.Handler) HandlerOption {
 // The route is not part of the tool registry or model-visible definitions.
 func WithReportRunHandler(h http.Handler) HandlerOption {
 	return func(c *handlerConfig) { c.reportRunHandler = h }
+}
+
+// WithConversationAuditHandler mounts a read-only host API with the same
+// server-resolved principal used by conversation routes.
+func WithConversationAuditHandler(h http.Handler) HandlerOption {
+	return func(c *handlerConfig) { c.conversationAuditHandler = h }
 }
 
 // WithPublishedWindowBindings enables the optional server-side cohort
@@ -286,6 +293,14 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 }
 
 func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {
+	if cfg.conversationAuditHandler != nil {
+		mux.Handle("/v1/api/conversation-audit/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			request, ok := applicationRequestPrincipal(w, r, "", []*svcauth.Config{cfg.authCfg})
+			if ok {
+				cfg.conversationAuditHandler.ServeHTTP(w, request)
+			}
+		}))
+	}
 	if cfg.reportRunHandler != nil {
 		mux.Handle("/v1/api/report-runs", cfg.reportRunHandler)
 		mux.Handle("/v1/api/report-runs/", cfg.reportRunHandler)

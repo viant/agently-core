@@ -312,6 +312,16 @@ func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*Layout
 		permitted.Applications = make([]LayoutApplication, 0)
 	}
 	revisionBytes := append(append([]byte(source), 0), data...)
+	if h.layoutDecorator != nil {
+		if err = h.layoutDecorator(ctx, permitted); err != nil {
+			return nil, err
+		}
+		decorated, marshalErr := json.Marshal(permitted)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		revisionBytes = append(append(revisionBytes, 0), decorated...)
+	}
 	if menuRead != nil {
 		if err = menuRead.Revalidate(ctx); err != nil || ctx.Err() != nil {
 			if err == nil {

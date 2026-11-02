@@ -11,6 +11,7 @@ import (
 	"time"
 
 	callbackhttp "github.com/viant/agently-core/adapter/http/callback"
+	audithttp "github.com/viant/agently-core/adapter/http/conversationaudit"
 	reportingrunhttp "github.com/viant/agently-core/adapter/http/reportingrun"
 	"github.com/viant/agently-core/app/executor"
 	"github.com/viant/agently-core/genai/llm"
@@ -22,6 +23,7 @@ import (
 	"github.com/viant/agently-core/sdk"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
+	audit "github.com/viant/agently-core/service/conversationaudit"
 	resourcesvc "github.com/viant/agently-core/service/resource"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/service/ui/permittedview"
@@ -33,6 +35,8 @@ import (
 )
 
 type APIOptions struct {
+	ConversationAudit          audit.Options
+	LayoutDecorator            func(context.Context, *svcworkspace.Layout) error
 	PublishedWindowBindings    *sdk.PublishedWindowBindings
 	ToolCatalogWarmup          ToolCatalogWarmOptions
 	MCPUIResourceReader        sdk.MCPUIResourceReader
@@ -71,6 +75,7 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	}
 	metadataHandler := svcworkspace.NewMetadataHandler(opts.Runtime.Defaults, opts.Runtime.Store, metadataVersion)
 	metadataHandler.SetLayoutDefault(opts.LayoutDefault)
+	metadataHandler.SetLayoutDecorator(opts.LayoutDecorator)
 	captured := opts.NativeLayoutSource
 	if captured == nil {
 		captured = opts.Runtime.NativeLayoutSource
@@ -169,6 +174,10 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	}
 	if opts.UIBridgeHandler != nil {
 		handlerOpts = append(handlerOpts, sdk.WithUIBridgeHandler(opts.UIBridgeHandler))
+	}
+	if opts.Runtime.Native != nil && opts.Runtime.Conversation != nil {
+		auditService := audit.New(audit.NativeReader{Invoker: opts.Runtime.Native}, opts.ConversationAudit, opts.Runtime.Conversation.GetPayload)
+		handlerOpts = append(handlerOpts, sdk.WithConversationAuditHandler(audithttp.New(auditService)))
 	}
 	if opts.Runtime != nil && opts.Runtime.Defaults != nil &&
 		opts.Runtime.Defaults.Reporting.BrowserRunPersistenceEnabled() && opts.Runtime.ReportRuns != nil {
