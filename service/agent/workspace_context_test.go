@@ -43,6 +43,35 @@ func TestWorkspaceContextDocumentIsDescriptiveUserContent(t *testing.T) {
 	require.Contains(t, generated.Message[0].Items[0].Text, `"windowId":"orders"`)
 }
 
+func TestWorkspaceReportContextReachesModelWithoutReportRows(t *testing.T) {
+	input := &QueryInput{Context: workspaceFixture(t, `{"workspace":{"windowId":"example-report","report":{"resourceUri":"report://example/summary","title":"Summary","status":"idle","activeSectionId":"overview","parameters":{"from":"2026-10-01"},"draftParameters":{"from":"2026-10-02"},"canRun":true,"canSave":false,"canExport":false,"hasCompletedRun":false,"runControlId":"report-filter:apply","rows":[{"private":"excluded"}],"authorization":"excluded"}}}`)}
+	b := &binding.Binding{}
+	appendWorkspaceContextDocument(input, b)
+	generated := &core.GenerateInput{Binding: b, ModelSelection: llm.ModelSelection{Options: &llm.Options{}}}
+	require.NoError(t, generated.Init(context.Background()))
+	text := generated.Message[0].Items[0].Text
+	require.Contains(t, text, `"resourceUri":"report://example/summary"`)
+	require.Contains(t, text, `"parameters":{"from":"2026-10-01"}`)
+	require.Contains(t, text, `"draftParameters":{"from":"2026-10-02"}`)
+	require.Contains(t, text, `"hasCompletedRun":false`)
+	require.Contains(t, text, `"canRun":true`)
+	require.Contains(t, text, `"canExport":false`)
+	require.Contains(t, text, `"runControlId":"report-filter:apply"`)
+	require.NotContains(t, text, "excluded")
+}
+
+func TestWorkspaceReportContextMarksCompactedParametersIncomplete(t *testing.T) {
+	ids := make([]interface{}, 20)
+	for i := range ids {
+		ids[i] = i + 1
+	}
+	input := &QueryInput{Context: map[string]interface{}{"workspace": map[string]interface{}{"windowId": "example-report", "report": map[string]interface{}{"parameters": map[string]interface{}{"entityIds": ids}}}}}
+	b := &binding.Binding{}
+	appendWorkspaceContextDocument(input, b)
+	require.Contains(t, b.Documents.Items[0].PageContent, `"parametersComplete":false`)
+	require.Len(t, ids, 20)
+}
+
 func TestWorkspaceContextDocumentDoesNotRetainPreviousTurn(t *testing.T) {
 	for _, raw := range []string{`{}`, `{"workspace":{}}`, `{"workspace":{"windowId":""}}`} {
 		b := &binding.Binding{}

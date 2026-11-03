@@ -326,10 +326,12 @@ func TestServiceMethodsRegistered(t *testing.T) {
 
 func TestTypedActionResultPreservesForwardCompatibleRawFields(t *testing.T) {
 	output := &ActionOutput{Result: map[string]interface{}{
-		"ok":           true,
-		"windowId":     "report-window-1",
-		"futureField":  map[string]interface{}{"enabled": true},
-		"materialized": false,
+		"ok":              true,
+		"windowId":        "report-window-1",
+		"futureField":     map[string]interface{}{"enabled": true},
+		"draftParameters": map[string]interface{}{"from": "2026-10-02"},
+		"reportFill":      map[string]interface{}{"datasets": []interface{}{map[string]interface{}{"rows": []interface{}{map[string]interface{}{"count": 7}}}}},
+		"materialized":    false,
 	}}
 	result, err := decodeActionResult(output.Result)
 	require.NoError(t, err)
@@ -340,6 +342,8 @@ func TestTypedActionResultPreservesForwardCompatibleRawFields(t *testing.T) {
 		Status:       "completed",
 	}))
 	require.Equal(t, map[string]interface{}{"enabled": true}, output.Result["futureField"])
+	require.Equal(t, "2026-10-02", output.Result["draftParameters"].(map[string]interface{})["from"])
+	require.NotNil(t, output.Result["reportFill"])
 	require.Equal(t, true, output.Result["materialized"])
 	require.Equal(t, "completed", output.Result["status"])
 }
