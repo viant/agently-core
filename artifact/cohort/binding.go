@@ -29,8 +29,8 @@ type Registration struct {
 }
 
 type verifiedCohortFacts struct {
-	source          gating.PrincipalResolver
-	tenant, account string
+	source gating.PrincipalResolver
+	tenant string
 }
 
 func (p verifiedCohortFacts) Resolve(ctx context.Context) (authz.Facts, error) {
@@ -38,7 +38,7 @@ func (p verifiedCohortFacts) Resolve(ctx context.Context) (authz.Facts, error) {
 		return authz.Facts{}, authz.ErrDenied
 	}
 	principal, err := p.source.ResolvePrincipal(ctx)
-	if err != nil || principal.Facts.Subject == "" || principal.Facts.Issuer == "" || principal.Facts.Tenant != p.tenant || principal.AccountID != p.account || !principal.Facts.ValidUntil.After(time.Now()) {
+	if err != nil || principal.Facts.Subject == "" || principal.Facts.Issuer == "" || principal.Facts.Tenant != p.tenant || !principal.Facts.ValidUntil.After(time.Now()) {
 		return authz.Facts{}, authz.ErrDenied
 	}
 	return principal.Facts, nil
@@ -89,7 +89,7 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 		chosen := registration.Cohort
 		selectedCohort = func(context.Context) (string, error) { return chosen, nil }
 	}
-	replica, err := artifactcohort.NewReplica(artifactcohort.Config{Enabled: true, Source: registration.ProviderIdentity, Tenant: registration.Tenant, Account: registration.Account, Cohort: selectedCohort, Caller: artifactcohort.NamespaceCaller{Client: registration.Client, Namespace: namespace}, Facts: verifiedCohortFacts{source: rt.VerifiedPrincipalResolver, tenant: registration.Tenant, account: registration.Account}, SessionKey: verifiedCohortSession, Store: store, ManifestStore: artifactcache.FileManifestStore{Directory: filepath.Join(stateDir, "manifests")}})
+	replica, err := artifactcohort.NewReplica(artifactcohort.Config{Enabled: true, Source: registration.ProviderIdentity, Tenant: registration.Tenant, Account: registration.Account, Cohort: selectedCohort, Caller: artifactcohort.NamespaceCaller{Client: registration.Client, Namespace: namespace}, Facts: verifiedCohortFacts{source: rt.VerifiedPrincipalResolver, tenant: registration.Tenant}, SessionKey: verifiedCohortSession, Store: store, ManifestStore: artifactcache.FileManifestStore{Directory: filepath.Join(stateDir, "manifests")}})
 	if err != nil {
 		_ = store.Close()
 		return Binding{}, err

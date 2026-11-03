@@ -26,17 +26,21 @@ func (p cohortPrincipal) ResolvePrincipal(context.Context) (gating.Principal, er
 	return p.value, nil
 }
 
-func TestCohortFactsUseOnlyVerifiedPrincipalAndAccountScope(t *testing.T) {
+func TestCohortFactsUseVerifiedPrincipalWithoutAccountGating(t *testing.T) {
 	ctx := context.Background()
 	facts := authz.Facts{Subject: "alice", Issuer: "verified", Tenant: "tenant", Roles: []string{"operator"}, MembershipGroups: []string{"studio"}, Exposures: []string{"connectors"}, EntityGroups: authz.EntityGroups{"project": {"101"}}, ValidUntil: time.Now().Add(time.Hour)}
-	provider := verifiedCohortFacts{source: cohortPrincipal{value: gating.Principal{Facts: facts, AccountID: "account"}}, tenant: "tenant", account: "account"}
+	provider := verifiedCohortFacts{source: cohortPrincipal{value: gating.Principal{Facts: facts, AccountID: "account"}}, tenant: "tenant"}
 	got, err := provider.Resolve(ctx)
 	if err != nil || got.Subject != "alice" || len(got.MembershipGroups) != 1 || len(got.Exposures) != 1 || len(got.EntityGroups["project"]) != 1 {
 		t.Fatalf("verified facts lost: %+v %v", got, err)
 	}
-	provider.account = "other"
+	provider.source = cohortPrincipal{value: gating.Principal{Facts: facts, AccountID: "other"}}
+	if got, err := provider.Resolve(ctx); err != nil || got.Subject != facts.Subject {
+		t.Fatalf("user account incorrectly restricted presentation facts: %v", err)
+	}
+	provider.tenant = "another-identity-realm"
 	if _, err := provider.Resolve(ctx); err == nil {
-		t.Fatal("foreign account facts admitted")
+		t.Fatal("unverified identity realm admitted")
 	}
 	if _, err := verifiedCohortSession(ctx); err == nil {
 		t.Fatal("unverified context acquired session binding")
