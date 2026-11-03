@@ -9,6 +9,7 @@ import (
 
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	uisvc "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/agently-core/service/reporting/catalog"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgewindowrepo "github.com/viant/agently-core/workspace/repository/forgewindow"
@@ -18,6 +19,13 @@ func (s *Service) workspaceUIBootstrap(ctx context.Context, conversationID strin
 	if s == nil {
 		return ""
 	}
+	// One advisory metadata batch reuses the host's existing actor/revision
+	// snapshot across view admission and the nested report catalog read.
+	readCtx, finish, err := uisvc.BeginMetadataReadScope(ctx, s.uiBridge.MetadataScope())
+	if err != nil {
+		return ""
+	}
+	ctx = readCtx
 	var lines []string
 	if views := s.workspaceUIViewSummaries(ctx); len(views) > 0 {
 		lines = append(lines, "Available workspace UI views:")
@@ -33,6 +41,9 @@ func (s *Service) workspaceUIBootstrap(ctx context.Context, conversationID strin
 		}
 		lines = append(lines, "Current live workspace state for this conversation:")
 		lines = append(lines, live...)
+	}
+	if err := uisvc.FinishMetadataReadScope(finish, nil); err != nil {
+		return ""
 	}
 	if len(lines) == 0 {
 		return ""
