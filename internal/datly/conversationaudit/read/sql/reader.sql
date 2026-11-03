@@ -1,4 +1,4 @@
-SELECT reader.* FROM (
+SELECT reader.id, reader.conversation_id, reader.created_at, reader.status, reader.goal_id, reader.queue_seq, reader.origin, reader.status_reason, reader.feedback_rating, reader.feedback_comment, reader.feedback_updated_at, reader.error_message, reader.started_by_message_id, reader.retry_of, reader.agent_id_used, reader.agent_config_used_id, reader.model_override_provider, reader.model_override, reader.model_params_override, reader.run_id, reader.owner_id, reader.conversation_title, reader.conversation_created_at, reader.model_calls, reader.tool_calls, reader.input_tokens, reader.output_tokens, reader.cost, reader.input_preview, reader.output_preview, reader.known_input_tokens, reader.known_output_tokens, reader.known_costs FROM  (SELECT reader.* FROM (
  SELECT t.*,
  (SELECT COUNT(*) FROM model_call mc JOIN message mm ON mm.id=mc.message_id WHERE mm.turn_id=t.id) AS model_calls,
  (SELECT COUNT(mc.prompt_tokens) FROM model_call mc JOIN message mm ON mm.id=mc.message_id WHERE mm.turn_id=t.id) AS known_input_tokens,
@@ -29,3 +29,4 @@ SELECT reader.* FROM (
  ) t
  ORDER BY t.created_at DESC,t.id DESC
 ) reader
+)  reader

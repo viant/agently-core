@@ -30,9 +30,18 @@ func (r NativeReader) Read(ctx context.Context, input *projection.Input) ([]*pro
 	if r.Invoker == nil {
 		return nil, fmt.Errorf("audit reader unavailable")
 	}
+	// Service filters deliberately bind zero values (empty IDs and false detail).
+	// Generated inputs track presence for every field, including these values.
+	bound := *input
+	bound.Has = &projection.InputHas{
+		Allowed: true, OwnerID: true, OwnerIDContains: true,
+		ConversationID: true, From: true, To: true, TurnID: true,
+		CursorTime: true, CursorID: true, Detail: true, Limit: true,
+		TurnIDs: input.Has != nil && input.Has.TurnIDs,
+	}
 	value, err := r.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{
 		Target:    dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[projection.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/conversation-audit"}},
-		Input:     input,
+		Input:     &bound,
 		Providers: auditProviders(input),
 	})
 	if err != nil {
@@ -85,7 +94,8 @@ func (r NativeReader) Count(ctx context.Context, input *projection.Input) (int64
 	value, err := r.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{
 		Target: dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[countview.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/conversation-audit/count"}},
 		Input: &countview.Input{Allowed: input.Allowed, OwnerID: input.OwnerID, OwnerIDContains: input.OwnerIDContains,
-			ConversationID: input.ConversationID, From: input.From, To: input.To},
+			ConversationID: input.ConversationID, From: input.From, To: input.To,
+			Has: &countview.InputHas{Allowed: true, OwnerID: true, OwnerIDContains: true, ConversationID: true, From: true, To: true}},
 		Providers: auditProviders(input),
 	})
 	if err != nil {

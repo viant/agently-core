@@ -1,4 +1,4 @@
-SELECT message.* FROM (
+SELECT message.linked_conversation_id, message.id, message.conversation_id, message.created_at, message.role, message.type, message.interim, message.preamble, message.turn_id, message.archived, message.sequence, message.updated_at, message.created_by_user_id, message.status, message.mode, message.content, message.raw_content, message.summary, message.context_summary, message.tags, message.elicitation_id, message.parent_message_id, message.superseded_by, message.attachment_payload_id, message.elicitation_payload_id, message.tool_name, message.embedding_index, message.iteration, message.phase FROM (SELECT message.* FROM (
  SELECT m.*, ROW_NUMBER() OVER (PARTITION BY m.turn_id ORDER BY m.sequence,m.created_at,m.id) AS audit_rank
  FROM message m JOIN turn t ON t.id=m.turn_id JOIN conversation c ON c.id=t.conversation_id
  WHERE $Detail=1 AND $Allowed=1 AND ($OwnerID='' OR (c.created_by_user_id=$OwnerID AND HEX(c.created_by_user_id)=HEX($OwnerID)))
@@ -8,3 +8,4 @@ SELECT message.* FROM (
 ) message
 WHERE message.audit_rank<=10001
 ORDER BY message.turn_id,message.sequence,message.created_at,message.id
+) message
