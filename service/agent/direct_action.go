@@ -74,11 +74,8 @@ func validateDirectAction(action *intakesvc.DirectActionContext) error {
 	}
 	switch strings.ToLower(strings.TrimSpace(mcpname2.Display(toolName))) {
 	case "ui/view/open":
-		if strings.TrimSpace(stringValue(action.Input["id"])) == "" {
-			items, ok := action.Input["items"].([]interface{})
-			if !ok || len(items) == 0 {
-				return fmt.Errorf("ui/view:open direct action input.id or input.items is required")
-			}
+		if intakesvc.NormalizeClassifierDirectAction(action).ToolName == "" {
+			return fmt.Errorf("ui/view:open direct action input.id, input.resource or input.items is required")
 		}
 	}
 	return nil

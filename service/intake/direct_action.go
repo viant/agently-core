@@ -121,7 +121,11 @@ func validDirectActionInput(action DirectActionContext) bool {
 		// The UI tool also accepts resource-based opens. URI validity and
 		// parameter contracts remain with that tool and its owning producer.
 		resource, ok := action.Input["resource"].(map[string]interface{})
-		return ok && strings.TrimSpace(directActionString(resource["uri"])) != ""
+		if ok && strings.TrimSpace(directActionString(resource["uri"])) != "" {
+			return true
+		}
+		items, ok := action.Input["items"].([]interface{})
+		return ok && len(items) > 0
 	default:
 		return true
 	}

@@ -108,7 +108,7 @@ func TestValidateDirectAction(t *testing.T) {
 		Input:         map[string]any{"AdLineId": "8336"},
 		AssistantText: "Opening forecast view.",
 	}
-	require.ErrorContains(t, validateDirectAction(missingViewID), "input.id or input.items is required")
+	require.ErrorContains(t, validateDirectAction(missingViewID), "input.id, input.resource or input.items is required")
 
 	multiOpen := &intakesvc.DirectActionContext{
 		ToolName: "ui/view:open",

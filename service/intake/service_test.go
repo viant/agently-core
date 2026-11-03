@@ -57,6 +57,14 @@ func TestParseOutput_PreservesResourceUIViewOpen(t *testing.T) {
 	}
 }
 
+func TestParseOutput_PreservesOrderedUIViewOpen(t *testing.T) {
+	raw := `{"directAction":{"toolName":"ui/view:open","inputJson":"{\"items\":[{\"id\":\"records\"},{\"resource\":{\"uri\":\"report://example/summary\"}}]}","assistantText":"Opening the selected views."}}`
+	result, err := parseOutput(raw)
+	require.NoError(t, err)
+	require.Equal(t, "ui/view:open", result.DirectAction.ToolName)
+	require.Len(t, result.DirectAction.Input["items"], 2)
+}
+
 func TestParseOutput_DropsMalformedDirectAction(t *testing.T) {
 	raw := `{"classification":{"title":"Open Recommendation Review","intent":"open_recommendations","confidence":0.56},"prompting":{"suggestedProfileId":"workspace_ui","templateId":"recommendation_review_dashboard"},"directAction":{"toolName":"ui/view:open","inputJson":"","assistantText":"Opening the Recommendation Review workspace."}}`
 	tc, err := parseOutput(raw)
