@@ -115,6 +115,11 @@ func patternVariants(name string) []string {
 	if raw == "" {
 		return nil
 	}
+	// Explicit MCP resource patterns are already understood by the registry.
+	// Their namespace and literal method cannot be recovered from model aliases.
+	if strings.HasPrefix(raw, "mcp://") {
+		return []string{raw}
+	}
 	variants := map[string]struct{}{
 		raw: {},
 	}

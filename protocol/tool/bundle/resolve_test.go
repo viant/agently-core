@@ -216,3 +216,21 @@ func TestResolveDefinitionsWithOptions_AsyncConfig(t *testing.T) {
 		assert.Equal(t, "conversationId", rule.Async.Run.OperationIDPath)
 	}
 }
+
+func TestURIIncludesAndExcludesUseOnlyDeclaredPatterns(t *testing.T) {
+	const server = "mcp://inventory/nested/connection"
+	for _, method := range []string{"ReadItem", "literal.tool", "nested/tool:operation", "*"} {
+		t.Run(method, func(t *testing.T) {
+			var patterns []string
+			actual := ResolveDefinitions(&Bundle{Match: []llm.Tool{{Name: server + ":" + method, Exclude: []string{server + ":omitted.tool"}}}}, func(pattern string) []*llm.ToolDefinition {
+				patterns = append(patterns, pattern)
+				if pattern == server+":omitted.tool" {
+					return []*llm.ToolDefinition{{Name: server + "/omitted.tool"}}
+				}
+				return []*llm.ToolDefinition{{Name: server + "/ReadItem"}, {Name: server + "/omitted.tool"}}
+			})
+			assert.Equal(t, []string{server + ":omitted.tool", server + ":" + method}, patterns)
+			assert.Equal(t, []llm.ToolDefinition{{Name: server + "/ReadItem"}}, actual)
+		})
+	}
+}
