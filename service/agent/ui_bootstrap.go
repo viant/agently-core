@@ -9,6 +9,7 @@ import (
 
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/service/reporting/catalog"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgewindowrepo "github.com/viant/agently-core/workspace/repository/forgewindow"
 )
@@ -22,6 +23,10 @@ func (s *Service) workspaceUIBootstrap(ctx context.Context, conversationID strin
 		lines = append(lines, "Available workspace UI views:")
 		lines = append(lines, views...)
 	}
+	if reports := s.workspaceUIReportSummaries(ctx); len(reports) > 0 {
+		lines = append(lines, "Published report resources (metadata visibility only; opening and execution reauthorize):")
+		lines = append(lines, reports...)
+	}
 	if live := s.workspaceUILiveSummaries(ctx, conversationID); len(live) > 0 {
 		if len(lines) > 0 {
 			lines = append(lines, "")
@@ -34,6 +39,27 @@ func (s *Service) workspaceUIBootstrap(ctx context.Context, conversationID strin
 	}
 	lines = append(lines, "", "UI capability contract: Metadata discovers declarative windows, tab hierarchy, forms, field constraints/options and supported actions without running them (ui/metadata:list|get when advertised). Read inspects current UI observations (ui/context:get; scoped datasource peek). Operate uses only advertised MCP UI actions on the exact current window. Discover metadata before operating; UI state is observation, never permission authority.")
 	return strings.Join(lines, "\n")
+}
+
+// Report identities come from the same managing catalog used by report opening.
+// They are metadata hints, not execution grants or window-definition aliases.
+func (s *Service) workspaceUIReportSummaries(ctx context.Context) []string {
+	if s == nil || s.uiBridge == nil || !s.uiBridge.HasReportCatalog() {
+		return nil
+	}
+	result, err := s.uiBridge.ReportCatalog(ctx, &catalog.ReportCatalogQuery{Limit: 1000})
+	if err != nil || result == nil {
+		return nil
+	}
+	lines := make([]string, 0, len(result.Reports))
+	for _, entry := range result.Reports {
+		lines = append(lines, fmt.Sprintf("- resourceUri=%s title=%q namespace=%s open=%t", entry.URI, entry.Title, entry.Namespace, entry.Capabilities.Open))
+	}
+	sort.Strings(lines)
+	if result.NextCursor != "" {
+		lines = append(lines, "- Additional report resources are available through the report catalog.")
+	}
+	return lines
 }
 
 func (s *Service) workspaceUIViewSummaries(ctx context.Context) []string {
