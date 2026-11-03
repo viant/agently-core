@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ import (
 )
 
 type skillMCPFixture struct {
+	mu sync.Mutex
 	client.Interface
 	listCalls, readCalls int
 	seenURI              string
@@ -55,6 +57,8 @@ func (f *skillMCPFixture) GetSkill(ctx context.Context, uri string, _ ...client.
 	return &schema.GetSkillResult{ResultType: "complete", Skill: f.entry(), TtlMs: &ttl, CacheScope: "private"}, nil
 }
 func (f *skillMCPFixture) ListSkills(ctx context.Context, _ *string, _ ...client.RequestOption) (*schema.ListSkillsResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.listCalls++
 	ttl := 0
 	result := &schema.ListSkillsResult{ResultType: "complete", TtlMs: &ttl, CacheScope: "private"}
@@ -86,6 +90,8 @@ func TestMCPDirectGetAndPinnedManifest(t *testing.T) {
 	require.ErrorContains(t, err, "extension not advertised")
 }
 func (f *skillMCPFixture) ReadResource(ctx context.Context, in *schema.ReadResourceRequestParams, _ ...client.RequestOption) (*schema.ReadResourceResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.readCalls++
 	f.seenURI = in.Uri
 	uri := in.Uri
@@ -96,6 +102,7 @@ func (f *skillMCPFixture) ReadResource(ctx context.Context, in *schema.ReadResou
 }
 
 type skillSourceFixture struct {
+	mu   sync.Mutex
 	f    *skillMCPFixture
 	gets int
 }
@@ -105,6 +112,8 @@ func (s *skillSourceFixture) Options(context.Context, string) (*cfg.MCPClient, e
 	return &cfg.MCPClient{SkillDiscovery: &cfg.SkillDiscovery{Enabled: true}}, nil
 }
 func (s *skillSourceFixture) Get(context.Context, string, string) (client.Interface, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.gets++
 	return s.f, nil
 }

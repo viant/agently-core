@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"sort"
 	"strings"
 	"time"
@@ -149,13 +150,28 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 		return nil, err
 	}
 	sort.Strings(names)
-	var out []remoteEntry
+	// Prepare source configuration in inventory order, then overlap independent
+	// metadata I/O. Results and failures are still reduced in source order.
+	type catalogResult struct {
+		server, id string
+		config     *mcpcfg.MCPClient
+		automatic  bool
+		entries    []remoteEntry
+		err        error
+	}
+	var catalogs []catalogResult
+	var preflightErr error
+	var preflightServer, preflightStage string
 	ids := map[string]bool{}
 	for _, server := range names {
+		if err := ctx.Err(); err != nil {
+			preflightErr = err
+			break
+		}
 		cfg, err := s.mcpSource.Options(ctx, server)
 		if err != nil {
-			traceDiscoveryFailure(ctx, "options", server, false, only, err)
-			return nil, err
+			preflightErr, preflightServer, preflightStage = err, server, "options"
+			break
 		}
 		automatic := cfg != nil && cfg.SkillDiscovery == nil
 		cfg = ordinarySkillDiscovery(cfg)
@@ -167,13 +183,37 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 			id = server
 		}
 		if !skillproto.ValidCatalogSegment(id) || ids[id] {
-			return nil, fmt.Errorf("invalid or duplicate MCP skill catalog ID")
+			preflightErr = fmt.Errorf("invalid or duplicate MCP skill catalog ID")
+			break
 		}
 		ids[id] = true
 		if only != "" && only != id {
 			continue
 		}
-		entries, err := s.listRemoteServer(ctx, agent, server, id, cfg)
+		catalogs = append(catalogs, catalogResult{server: server, id: id, config: cfg, automatic: automatic})
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	group := new(errgroup.Group)
+	// Match the framework's bounded tool/namespace catalog discovery pattern.
+	group.SetLimit(4)
+	for i := range catalogs {
+		group.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				catalogs[i].err = err
+				return nil
+			}
+			item := &catalogs[i]
+			item.entries, item.err = s.listRemoteServer(ctx, agent, item.server, item.id, item.config)
+			return nil
+		})
+	}
+	_ = group.Wait()
+	var out []remoteEntry
+	for _, catalog := range catalogs {
+		server, id, automatic := catalog.server, catalog.id, catalog.automatic
+		entries, err := catalog.entries, catalog.err
 		if err != nil {
 			if ctx.Err() != nil {
 				traceDiscoveryFailure(ctx, "list", server, automatic, only, err)
@@ -192,6 +232,12 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 			return nil, fmt.Errorf("MCP skill discovery unavailable for %s: %w", id, err)
 		}
 		out = append(out, entries...)
+	}
+	if preflightErr != nil {
+		if preflightStage != "" {
+			traceDiscoveryFailure(ctx, preflightStage, preflightServer, false, only, preflightErr)
+		}
+		return nil, preflightErr
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
