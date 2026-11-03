@@ -1013,6 +1013,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 		out.Reporting.SetReportResourceService(b.reportResourceService)
 		out.Reporting.SetReportCatalog(b.reportCatalog)
+		out.UIBridge.ConfigureReportCatalog(b.reportCatalog)
 		out.Reporting.SetResourceResolver(b.reportResourceResolver)
 		if out.ReportRuns != nil {
 			out.ReportRuns.RequireCanonicalExecution()
