@@ -139,6 +139,60 @@ func TestAuditInputBounds(t *testing.T) {
 	require.Error(t, (&projection.Input{Limit: 1, ConversationID: "own"}).Init(ctx))
 }
 
+func TestAuditNativeFullPageCursorsWithContent(t *testing.T) {
+	ctx := principal(context.Background(), "alice")
+	s, db := fixture(ctx, t)
+	for n := 0; n < 101; n++ {
+		_, err := db.ExecContext(ctx, `INSERT INTO turn(id,conversation_id,created_at,status) VALUES(?,'own','2026-10-27 13:00:00','completed')`, fmt.Sprintf("page-%03d", n))
+		require.NoError(t, err)
+	}
+	f := dates()
+	f.Limit, f.IncludeContent = 50, true
+	seen := map[string]bool{}
+	for pageNumber, count := range []int{50, 50, 3} {
+		page, err := s.List(ctx, f)
+		require.NoError(t, err)
+		require.Len(t, page.Rows, count, "page %d", pageNumber+1)
+		for _, row := range page.Rows {
+			require.False(t, seen[row.Id], "duplicate turn %s", row.Id)
+			require.Equal(t, "alice", row.OwnerID)
+			seen[row.Id] = true
+		}
+		if pageNumber < 2 {
+			require.NotEmpty(t, page.NextCursor)
+		} else {
+			require.Empty(t, page.NextCursor)
+		}
+		f.Cursor = page.NextCursor
+	}
+	require.Len(t, seen, 103)
+}
+
+func TestAuditPrivilegesFollowEffectiveConversationOwner(t *testing.T) {
+	s := New(nil, Options{AuditorUserIDs: []string{"auditor"}}, nil)
+	ctx := authctx.WithCanonicalUserID(principal(context.Background(), "alice"), "auditor")
+	caps, err := s.Capabilities(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "alice", caps.CurrentUserID)
+	require.False(t, caps.CanAuditAllUsers, "canonical persistence identity must not grant another effective principal's access")
+	for _, owner := range []string{"", "alice"} {
+		i, _, err := s.input(ctx, Filter{ConversationID: "own", UserID: owner})
+		require.NoError(t, err)
+		require.Equal(t, "alice", i.OwnerID)
+	}
+	_, _, err = s.input(ctx, Filter{ConversationID: "own", UserID: "bob"})
+	require.ErrorIs(t, err, ErrForbidden)
+	ctx = authctx.WithCanonicalUserID(principal(context.Background(), "auditor"), "different-canonical-id")
+	caps, err = s.Capabilities(ctx)
+	require.NoError(t, err)
+	require.True(t, caps.CanAuditAllUsers)
+	for _, owner := range []string{"", "bob"} {
+		i, _, err := s.input(ctx, Filter{ConversationID: "own", UserID: owner})
+		require.NoError(t, err)
+		require.Equal(t, owner, i.OwnerID)
+	}
+}
+
 func TestAuditConversationDateBoundaries(t *testing.T) {
 	ctx := context.Background()
 	s, db := fixture(ctx, t)
