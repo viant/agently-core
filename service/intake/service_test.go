@@ -42,6 +42,21 @@ func TestParseOutput_DirectAction(t *testing.T) {
 	assert.Equal(t, "Opened the order summary window.", tc.DirectAction.AssistantText)
 }
 
+func TestParseOutput_PreservesResourceUIViewOpen(t *testing.T) {
+	for _, uri := range []string{"report://example/delivery", "window://example/details"} {
+		input := map[string]interface{}{"resource": map[string]interface{}{"uri": uri}, "parameters": map[string]interface{}{"entityId": 42, "executeOnOpen": true}}
+		inputJSON, err := json.Marshal(input)
+		require.NoError(t, err)
+		wire, err := json.Marshal(map[string]interface{}{"directAction": map[string]interface{}{"toolName": "ui/view:open", "inputJson": string(inputJSON), "assistantText": "Opening the selected resource."}})
+		require.NoError(t, err)
+		result, err := parseOutput(string(wire))
+		require.NoError(t, err)
+		require.Equal(t, "ui/view:open", result.DirectAction.ToolName)
+		require.Equal(t, uri, result.DirectAction.Input["resource"].(map[string]interface{})["uri"])
+		require.Equal(t, float64(42), result.DirectAction.Input["parameters"].(map[string]interface{})["entityId"])
+	}
+}
+
 func TestParseOutput_DropsMalformedDirectAction(t *testing.T) {
 	raw := `{"classification":{"title":"Open Recommendation Review","intent":"open_recommendations","confidence":0.56},"prompting":{"suggestedProfileId":"workspace_ui","templateId":"recommendation_review_dashboard"},"directAction":{"toolName":"ui/view:open","inputJson":"","assistantText":"Opening the Recommendation Review workspace."}}`
 	tc, err := parseOutput(raw)

@@ -115,7 +115,13 @@ func validDirectActionInput(action DirectActionContext) bool {
 	toolName := strings.ToLower(strings.TrimSpace(mcpname2.Display(action.ToolName)))
 	switch toolName {
 	case "ui/view/open":
-		return strings.TrimSpace(directActionString(action.Input["id"])) != ""
+		if strings.TrimSpace(directActionString(action.Input["id"])) != "" {
+			return true
+		}
+		// The UI tool also accepts resource-based opens. URI validity and
+		// parameter contracts remain with that tool and its owning producer.
+		resource, ok := action.Input["resource"].(map[string]interface{})
+		return ok && strings.TrimSpace(directActionString(resource["uri"])) != ""
 	default:
 		return true
 	}
