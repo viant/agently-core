@@ -48,6 +48,7 @@ func (s *Service) intakeCapabilities(ctx context.Context, input *QueryInput) (st
 func (s *Service) intakeCapabilitySnapshot(ctx context.Context, input *QueryInput) (string, []string, []string, error) {
 	var toolItems, skillItems []intakeCapability
 	var toolNames []string
+	var toolDefinitions, toolCatalog []llm.ToolDefinition
 	if s == nil || input == nil || input.Agent == nil {
 		return "", nil, nil, nil
 	}
@@ -60,7 +61,7 @@ func (s *Service) intakeCapabilitySnapshot(ctx context.Context, input *QueryInpu
 	if s.registry != nil {
 		group.Go(func() error {
 			started := time.Now()
-			tools, err := s.discoverableToolDefinitions(workerCtx, input)
+			tools, catalog, err := s.discoverableToolSnapshot(workerCtx, input)
 			debugtrace.Write("agent", "intake_capability_stage", map[string]any{"conversationID": input.ConversationID, "turnID": input.MessageID, "stage": "tools", "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond), "count": len(tools)})
 			if err != nil {
 				if !errors.Is(err, context.Canceled) {
@@ -69,6 +70,7 @@ func (s *Service) intakeCapabilitySnapshot(ctx context.Context, input *QueryInpu
 				}
 				return err
 			}
+			toolDefinitions, toolCatalog = tools, catalog
 			scopes := map[string]string{}
 			if provider, ok := s.registry.(interface {
 				CapabilityCacheScopes(context.Context, []llm.ToolDefinition) map[string]string
@@ -134,14 +136,15 @@ func (s *Service) intakeCapabilitySnapshot(ctx context.Context, input *QueryInpu
 			}
 		}
 		sort.Strings(toolNames)
-		encoded, hints := s.rankedIntakeMetadata(ctx, input, items, namespaces)
+		retained := s.retainedNamespaceDiscoveryFromCatalog(ctx, toolDefinitions, toolCatalog)
+		encoded, hints := s.rankedIntakeMetadata(items, namespaces, retained)
 		raw, err := json.Marshal(encoded)
 		return string(raw), toolNames, hints, err
 	}
 	var namespaceNames []string
 	var encodedItems []interface{}
 	if len(namespaces) > 0 {
-		retained := s.retainedNamespaceDiscovery(ctx, input)
+		retained := s.retainedNamespaceDiscoveryFromCatalog(ctx, toolDefinitions, toolCatalog)
 		cards := map[string]resourcesvc.DiscoveredNamespace{}
 		for _, item := range items {
 			namespace := ""

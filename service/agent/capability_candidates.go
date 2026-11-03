@@ -81,7 +81,7 @@ func (s *Service) rankIntakeCapabilities(ctx context.Context, input *QueryInput,
 
 // Cards remain discovery guidance alongside selected metadata. They never hide
 // the candidates needed by intake or restrict subsequent tools/skills listing.
-func (s *Service) rankedIntakeMetadata(ctx context.Context, input *QueryInput, items []intakeCapability, namespaces []resourcesvc.DiscoveredNamespace) ([]any, []string) {
+func (s *Service) rankedIntakeMetadata(items []intakeCapability, namespaces []resourcesvc.DiscoveredNamespace, retained map[string]bool) ([]any, []string) {
 	encoded := make([]any, 0, len(items)+len(namespaces)+1)
 	defaultKinds := map[string]bool{}
 	for _, item := range items {
@@ -94,7 +94,6 @@ func (s *Service) rankedIntakeMetadata(ctx context.Context, input *QueryInput, i
 			defaultKinds[kind] = true
 		}
 	}
-	retained := s.retainedNamespaceDiscovery(ctx, input)
 	cards := map[string]namespaceCapability{}
 	for _, namespace := range namespaces {
 		descriptor := describedNamespaceDescriptor(namespace.Namespace, namespaces)

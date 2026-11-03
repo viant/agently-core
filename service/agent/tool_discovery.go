@@ -32,11 +32,16 @@ func hasToolDiscoverySelection(ctx context.Context, input *QueryInput) bool {
 
 // Discovery uses the existing principal-scoped catalog and its normal warm
 // cache, independently of which workflow's bundles are currently selected.
-func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryInput) (result []llm.ToolDefinition, err error) {
+func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryInput) ([]llm.ToolDefinition, error) {
+	definitions, _, err := s.discoverableToolSnapshot(ctx, input)
+	return definitions, err
+}
+
+func (s *Service) discoverableToolSnapshot(ctx context.Context, input *QueryInput) (result []llm.ToolDefinition, retained []llm.ToolDefinition, err error) {
 	started := time.Now()
 	defer func() { writeBindingToolStage(ctx, "candidate_discovery", started, len(result), false, err) }()
 	if s == nil || s.registry == nil || input == nil || input.Agent == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	phaseStarted := time.Now()
 	profile, err := s.selectedPromptProfileAny(ctx, input)
@@ -46,10 +51,10 @@ func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryI
 	}
 	writeBindingToolStage(ctx, "candidate_profile", phaseStarted, profileCount, false, err)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if profile != nil && profile.Execution != nil && profile.Execution.DisableTools {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if profile != nil {
 		ctx = withSelectedPromptProfile(ctx, profile)
@@ -61,7 +66,7 @@ func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryI
 	if len(required.Tools) > 0 || len(required.Bundles) > 0 {
 		sourceCtx := runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Required: true})
 		if _, err = s.resolveStructuredToolDefinitions(sourceCtx, required); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{CachedCatalog: true})
 	}
@@ -72,13 +77,13 @@ func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryI
 	definitions, err = s.callerScopedToolDefinitions(ctx, input, definitions)
 	writeBindingToolStage(ctx, "candidate_caller_scope", phaseStarted, len(definitions), false, err)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	phaseStarted = time.Now()
 	bundles, err := s.discoveryBundles(ctx, definitions)
 	writeBindingToolStage(ctx, "candidate_bundles", phaseStarted, len(bundles), false, err)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	phaseStarted = time.Now()
 	// Rules repeat separator variants and patterns across bundles. Prepare names
@@ -152,6 +157,8 @@ func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryI
 			admitted = append(admitted, definition)
 		}
 	}
+	// Capture retained discovery helpers before presentation omits their schemas.
+	retained = admitted
 	var metadata []llm.ToolDefinition
 	for _, definition := range admitted {
 		if definition.Name == mcpname.Canonical(toolservice.Name+":list") || definition.Name == mcpname.Canonical(toolservice.Name+":activate") {
@@ -165,12 +172,12 @@ func (s *Service) discoverableToolDefinitions(ctx context.Context, input *QueryI
 	definitions, err = s.modelVisibleDefinitions(ctx, definitions)
 	writeBindingToolStage(ctx, "candidate_visibility", phaseStarted, len(definitions), false, err)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	phaseStarted = time.Now()
 	result = s.namespaceDefinitions(ctx, definitions)
 	writeBindingToolStage(ctx, "candidate_namespace", phaseStarted, len(result), false, nil)
-	return result, nil
+	return result, retained, nil
 }
 
 // callerToolScope preserves the existing explicit contract: exact caller

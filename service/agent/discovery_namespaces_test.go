@@ -217,7 +217,9 @@ func TestToolsOnlyCompactionNeedsOnlyRetainedAutoActivatingList(t *testing.T) {
 	}
 	namespaces[0].Kinds = append(namespaces[0].Kinds, primitive.KindSupport{Kind: "window"}, primitive.KindSupport{Kind: "intent"}, primitive.KindSupport{Kind: "report"})
 	svc.namespaceProvider = func(context.Context) ([]resourcesvc.DiscoveredNamespace, error) { return namespaces, nil }
-	retained := svc.retainedNamespaceDiscovery(context.Background(), input)
+	definitions, catalog, err := svc.discoverableToolSnapshot(context.Background(), input)
+	require.NoError(t, err)
+	retained := svc.retainedNamespaceDiscoveryFromCatalog(context.Background(), definitions, catalog)
 	require.True(t, retained["mcp"])
 	require.False(t, retained["skill"])
 	summary, _, hints, err := svc.intakeCapabilitySnapshot(context.Background(), input)
@@ -349,7 +351,7 @@ func TestNamespacePostDiscoveryValidationUsesLiveParentContext(t *testing.T) {
 	_, _, hints, err := svc.intakeCapabilitySnapshot(parent, input)
 	require.NoError(t, err)
 	require.NoError(t, parent.Err())
-	require.GreaterOrEqual(t, calls, 2, "bundle reader participates in discovery and post-Wait retained-helper validation")
+	require.Equal(t, 1, calls, "namespace presentation reuses discovery bundle metadata after the workers join")
 	require.Equal(t, []string{"analysis", "planning"}, hints, "a canceled worker context must not silently disable compaction")
 }
 

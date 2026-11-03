@@ -186,11 +186,24 @@ func (s *Service) namespaceDefinitions(ctx context.Context, definitions []llm.To
 	return definitions
 }
 
-func (s *Service) retainedNamespaceDiscovery(ctx context.Context, input *QueryInput) map[string]bool {
-	definitions, err := s.resolveAlwaysIncludedTools(ctx, input)
+// Visible definitions already carry caller scope and native bundle metadata.
+// Only the discovery list omitted by presentation needs its visibility check.
+func (s *Service) retainedNamespaceDiscoveryFromCatalog(ctx context.Context, visible, catalog []llm.ToolDefinition) map[string]bool {
+	var omitted []llm.ToolDefinition
+	for _, definition := range catalog {
+		if mcpname.Canonical(definition.Name) == mcpname.Canonical("llm/tools:list") && retainedToolDefinition(definition) {
+			omitted = append(omitted, definition)
+		}
+	}
+	helpers, err := s.modelVisibleDefinitions(ctx, omitted)
 	if err != nil {
 		return nil
 	}
+	definitions := append(append([]llm.ToolDefinition(nil), visible...), helpers...)
+	return retainedNamespaceDiscoveryFlags(definitions)
+}
+
+func retainedNamespaceDiscoveryFlags(definitions []llm.ToolDefinition) map[string]bool {
 	have := map[string]bool{}
 	for _, def := range definitions {
 		if retainedToolDefinition(def) {
