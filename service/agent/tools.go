@@ -443,8 +443,9 @@ func (s *Service) resolveBundleResultWithMatcher(ctx context.Context, bundleIDs 
 		AsyncByID:    map[string]*llm.Tool{},
 		Complete:     true,
 	}
-	// Bundle rules and exclusions often repeat the same patterns. Reuse their
-	// matches during this resolution without caching across users or catalogs.
+	// Bundle rules and exclusions repeat separator variants. Reuse their matches
+	// within this resolution using the same canonical names as bundle expansion.
+	// Literal namespace hyphens remain distinct from path separators.
 	patternMatches := map[string][]*llm.ToolDefinition{}
 	for _, id := range bundleIDs {
 		key := strings.ToLower(strings.TrimSpace(id))
@@ -467,7 +468,8 @@ func (s *Service) resolveBundleResultWithMatcher(ctx context.Context, bundleIDs 
 			continue
 		}
 		res := toolbundle.ResolveDefinitionsWithOptions(b, func(pattern string) []*llm.ToolDefinition {
-			if definitions, ok := patternMatches[pattern]; ok {
+			key := mcpname2.Canonical(strings.TrimSpace(pattern))
+			if definitions, ok := patternMatches[key]; ok {
 				return definitions
 			}
 			definitions, matchErr := match(ctx, pattern)
@@ -475,7 +477,7 @@ func (s *Service) resolveBundleResultWithMatcher(ctx context.Context, bundleIDs 
 				err = matchErr
 			}
 			if matchErr == nil {
-				patternMatches[pattern] = definitions
+				patternMatches[key] = definitions
 			}
 			return definitions
 		})
