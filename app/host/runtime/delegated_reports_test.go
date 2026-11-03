@@ -20,6 +20,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	authsvc "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/policy"
+	bridge "github.com/viant/agently-core/service/primitiveprovider"
 	reporting "github.com/viant/agently-core/service/reporting"
 	catalog "github.com/viant/agently-core/service/reporting/catalog"
 	resources "github.com/viant/agently-core/service/resource"
@@ -123,6 +124,10 @@ func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) 
 	foreignGet, getErr := runtime.Reporting.GetReport(ctx, &reporting.GetReportInput{Resource: &identity.ResourceRef{URI: foreignPin.URI}})
 	require.NoError(t, getErr, "configured reporting reader retrieval")
 	require.NotNil(t, foreignGet)
+	foreignUI, uiErr := runtime.UIBridge.ReportDefinition(ctx, &bridge.ReportDefinitionInput{Resource: identity.ResourceRef{URI: foreignPin.URI}})
+	require.NoError(t, uiErr, "UI opening must use the configured managing report catalog")
+	require.Equal(t, foreignGet.Resource.ProviderIdentity, foreignUI.Resource.ProviderIdentity)
+	require.Equal(t, foreignGet.Resource.AuthorityBinding, foreignUI.Resource.AuthorityBinding)
 	foreignRun, err := runtime.Reporting.ExecuteResource(ctx, &reporting.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: foreignPin.URI}})
 	require.NoError(t, err)
 	require.Equal(t, "external", foreignRun.Resource.ProviderIdentity)
@@ -138,6 +143,8 @@ func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) 
 	require.NoError(t, err, "a hidden Run control must not become a consumer-side resource denial")
 	require.Equal(t, owner, localRun.Resource.ProviderIdentity)
 	principal.principal.Facts.Roles = nil
+	_, uiErr = runtime.UIBridge.ReportDefinition(ctx, &bridge.ReportDefinitionInput{Resource: identity.ResourceRef{URI: uri}})
+	require.Error(t, uiErr, "UI report reads must preserve the managing provider's denial")
 	_, err = runtime.Reporting.ExecuteResource(ctx, &reporting.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: uri}})
 	require.Error(t, err, "the managing provider's read denial must still reach the caller")
 	principal.principal.Facts.Roles = []string{"reader"}

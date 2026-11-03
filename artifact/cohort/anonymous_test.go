@@ -234,9 +234,10 @@ func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t 
 	}
 	require.Eventually(t, func() bool { return read("allowed-user") == nil }, 3*time.Second, time.Millisecond)
 	require.Error(t, read("viewer-user"))
-	require.Error(t, read("foreign-user"))
+	require.NoError(t, read("foreign-user"), "producer metadata owner is not an interactive user account restriction")
 	beforeGets, beforeFetches := gets.Load(), fetches.Load()
 	require.NoError(t, read("allowed-user"))
+	require.NoError(t, read("foreign-user"))
 	require.Equal(t, beforeGets, gets.Load())
 	require.Equal(t, beforeFetches, fetches.Load(), "interactive admission fetched producer metadata")
 	oldHash := binding.Source.(interface{ KnownHash() string }).KnownHash()

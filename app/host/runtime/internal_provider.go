@@ -264,6 +264,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 			gatewayCatalog.BeginMetadataRead = scope.BeginMetadataRead
 		}
 		rt.Reporting.SetReportCatalog(gatewayCatalog)
+		rt.UIBridge.ConfigureReportCatalog(gatewayCatalog)
 		rt.Reporting.SetResourceReaderFactory(gatewayCatalog.Reader)
 		return nil
 	}

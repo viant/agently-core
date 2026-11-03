@@ -56,7 +56,9 @@ func (b *Builder) configurePrimitiveReports(out *Runtime) error {
 			return nil
 		}
 		owner := &primitiveReportLocalReader{local: local, resolve: b.reportResourceResolver}
-		out.Reporting.SetReportCatalog(&primitiveReportLocalCatalog{local: local, remote: catalog, owner: owner})
+		combined := &primitiveReportLocalCatalog{local: local, remote: catalog, owner: owner}
+		out.Reporting.SetReportCatalog(combined)
+		out.UIBridge.ConfigureReportCatalog(combined)
 		out.Reporting.SetResourceReaderFactory(func(ctx context.Context, operation string) (reporting.ResourceReader, error) {
 			remote, err := catalog.Reader(ctx, operation)
 			if err != nil {
@@ -71,6 +73,7 @@ func (b *Builder) configurePrimitiveReports(out *Runtime) error {
 		return nil
 	}
 	out.Reporting.SetReportCatalog(catalog)
+	out.UIBridge.ConfigureReportCatalog(catalog)
 	out.Reporting.SetResourceReaderFactory(catalog.Reader)
 	return nil
 }

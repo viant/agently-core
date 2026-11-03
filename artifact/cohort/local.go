@@ -24,7 +24,8 @@ import (
 
 // LocalConfig is an explicit operator-only activation file.
 // Omitted credentials select anonymous published metadata. ExpectedTenant and
-// ExpectedAccount then supply the trusted cache and interactive admission scope.
+// ExpectedAccount identify the producer cache; the owner account does not
+// restrict which users can match the producer-authored presentation policy.
 // Optional authenticated compatibility uses secret REFERENCES, never tokens.
 type LocalConfig struct {
 	Namespace        string   `yaml:"namespace"`

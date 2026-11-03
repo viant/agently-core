@@ -8,8 +8,8 @@ import (
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	"github.com/viant/agently-core/runtime/evidence"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	"reflect"
 	"strings"
 	"time"
@@ -126,7 +126,7 @@ func (s *Service) Methods() svc.Signatures {
 	input := reflect.TypeOf(&WindowInput{})
 	output := reflect.TypeOf(&ActionOutput{})
 	return []svc.Signature{
-		{Name: "getCurrent", Description: "Inspect the canonical report currently shown in a live report-builder window, including its identity, current filters, and run/save readiness.", Input: input, Output: output},
+		{Name: "getCurrent", Description: "Inspect the report currently shown in a live predefined-report or report-builder window: identity, applied and draft filters, execution status, and available UI actions. Predefined reports include reportSpec and reportFill for their completed current run, so existing output can be interpreted without rerunning it. This read does not run, save, or change the report.", Input: input, Output: output},
 		{Name: "run", Description: "Run the canonical report currently shown in a live report-builder window with its current filter values.", Input: input, Output: output},
 		{Name: "save", Description: "Persist the canonical report currently shown in a live report-builder window and return its stable reportId and artifactId.", Input: input, Output: output},
 	}

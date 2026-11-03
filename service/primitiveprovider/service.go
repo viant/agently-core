@@ -114,6 +114,9 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 	defer cancel()
 	ctx = WithoutMetadataReadScope(ctx, s.cfg.MetadataScope)
 	baseCtx := runtimerequestctx.WithoutWindowReadDecision(ctx)
+	if reportResourceCommand(in) {
+		return s.openReportResource(baseCtx, in)
+	}
 	pureOpen := s.canonicalWindowCatalog() && (in.Method == "ui.window.open" || in.Method == "ui.window.openDynamic")
 	var preFinish func() error
 	if pureOpen {

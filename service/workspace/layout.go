@@ -147,6 +147,7 @@ type LayoutMenu struct {
 	ID            string                        `json:"id" yaml:"id"`
 	Title         string                        `json:"title" yaml:"title"`
 	Icon          string                        `json:"icon,omitempty" yaml:"icon,omitempty"`
+	IconSvg       map[string]any                `json:"iconSvg,omitempty" yaml:"iconSvg,omitempty"`
 	ClassName     string                        `json:"className,omitempty" yaml:"className,omitempty"`
 	Parameters    map[string]any                `json:"parameters,omitempty" yaml:"parameters,omitempty"`
 	Authorization *forgetypes.AuthorizationSpec `json:"authorization,omitempty" yaml:"authorization,omitempty"`

@@ -23,6 +23,15 @@ type ReportDefinitionOutput struct {
 func (s *Service) HasReportCatalog() bool {
 	return s != nil && s.cfg != nil && s.cfg.ReportCatalog != nil
 }
+
+// ConfigureReportCatalog binds the managing catalog before serving requests.
+// Like ConfigureWindowCatalog, this startup-only hook preserves bridge state
+// and must not run concurrently with request handling.
+func (s *Service) ConfigureReportCatalog(provider catalog.Provider) {
+	if s != nil && s.cfg != nil {
+		s.cfg.ReportCatalog = provider
+	}
+}
 func (s *Service) ReportCatalog(ctx context.Context, input *catalog.ReportCatalogQuery) (*catalog.ReportCatalogResult, error) {
 	if !s.HasReportCatalog() || input == nil {
 		return nil, identity.ErrResourceDenied
