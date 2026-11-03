@@ -29,6 +29,7 @@ import (
 	_ "github.com/viant/agently-core/internal/datly/conversation/graph/read"
 	_ "github.com/viant/agently-core/internal/datly/conversation/read"
 	_ "github.com/viant/agently-core/internal/datly/conversation/write"
+	_ "github.com/viant/agently-core/internal/datly/conversationaudit/count"
 	_ "github.com/viant/agently-core/internal/datly/conversationaudit/read"
 	_ "github.com/viant/agently-core/internal/datly/elicitation/resolve"
 	_ "github.com/viant/agently-core/internal/datly/generatedfile/read"

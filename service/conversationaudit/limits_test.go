@@ -34,7 +34,7 @@ func TestAuditPayloadMembershipAndLimits(t *testing.T) {
 			return nil, nil
 		}
 		return []*projection.Row{{Id: "turn", ConversationId: "own", Status: "completed", OwnerID: "alice", Message: []*projection.Message{{Id: "u", Role: "user", Content: ptr("input"), AttachmentPayloadId: ptr("saved")}}}}, nil
-	}), Options{}, func(context.Context, string) (*convstore.Payload, error) {
+	}), Options{UserIDs: []string{"*"}}, func(context.Context, string) (*convstore.Payload, error) {
 		calls++
 		return payload, nil
 	})
@@ -81,10 +81,12 @@ func TestAuditExportRejectsWholeOversizedSelection(t *testing.T) {
 		}
 		return rows, nil
 	})
-	s := New(reader, Options{}, nil)
-	data, err := s.CSV(ctx, Filter{ConversationID: "own"})
-	require.ErrorIs(t, err, ErrTooLarge)
-	require.Nil(t, data, "no truncated CSV may be returned")
+	s := New(reader, Options{UserIDs: []string{"*"}}, nil)
+	for _, export := range []func(context.Context, Filter) ([]byte, error){s.CSV, s.JSON} {
+		data, err := export(ctx, Filter{ConversationID: "own"})
+		require.ErrorIs(t, err, ErrTooLarge)
+		require.Nil(t, data, "no truncated export may be returned")
+	}
 	large := strings.Repeat("a", MaxExportBytes/2+1024)
 	s.reader = readerFunc(func(_ context.Context, i *projection.Input) ([]*projection.Row, error) {
 		row := &projection.Row{Id: "turn", ConversationId: "own", OwnerID: "alice", Status: "completed"}
@@ -94,9 +96,11 @@ func TestAuditExportRejectsWholeOversizedSelection(t *testing.T) {
 		}
 		return []*projection.Row{row, {Id: "turn2", ConversationId: "own", OwnerID: "alice"}}, nil
 	})
-	data, err = s.CSV(ctx, Filter{ConversationID: "own"})
-	require.ErrorIs(t, err, ErrTooLarge)
-	require.Nil(t, data)
+	for _, export := range []func(context.Context, Filter) ([]byte, error){s.CSV, s.JSON} {
+		data, err := export(ctx, Filter{ConversationID: "own"})
+		require.ErrorIs(t, err, ErrTooLarge)
+		require.Nil(t, data)
+	}
 }
 
 func TestAuditExportConcurrencyAndCancellation(t *testing.T) {
@@ -110,10 +114,10 @@ func TestAuditExportConcurrencyAndCancellation(t *testing.T) {
 		entered <- struct{}{}
 		<-ctx.Done()
 		return nil, ctx.Err()
-	}), Options{}, nil)
+	}), Options{UserIDs: []string{"*"}}, nil)
 	done := make(chan error, 2)
-	for n := 0; n < 2; n++ {
-		go func() { _, err := s.CSV(ctx, Filter{ConversationID: "own"}); done <- err }()
+	for _, export := range []func(context.Context, Filter) ([]byte, error){s.CSV, s.JSON} {
+		go func() { _, err := export(ctx, Filter{ConversationID: "own"}); done <- err }()
 	}
 	for n := 0; n < 2; n++ {
 		select {
@@ -123,6 +127,8 @@ func TestAuditExportConcurrencyAndCancellation(t *testing.T) {
 		}
 	}
 	_, err := s.CSV(ctx, Filter{ConversationID: "own"})
+	require.ErrorIs(t, err, ErrBusy)
+	_, err = s.JSON(ctx, Filter{ConversationID: "own"})
 	require.ErrorIs(t, err, ErrBusy)
 	require.Equal(t, int32(2), reads.Load())
 	cancel()

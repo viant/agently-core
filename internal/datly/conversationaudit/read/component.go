@@ -24,18 +24,19 @@ func (ReaderComponent) EmbedFS() *embed.FS     { return &resources }
 func (ReaderComponent) EmbedNamespace() string { return "datly_conversation_audit" }
 
 type Input struct {
-	Allowed        bool      `parameter:"Allowed,kind=auditaccess,in=allowed,dataType=bool,required=true"`
-	OwnerID        string    `parameter:"OwnerID,kind=auditaccess,in=owner,dataType=string,required=true"`
-	ConversationID string    `parameter:"ConversationID,kind=query,in=conversationId,dataType=string,required=true"`
-	TurnID         string    `parameter:"TurnID,kind=query,in=turnId,dataType=string,required=true"`
-	TurnIDs        []string  `parameter:"TurnIDs,kind=query,in=turnIds,dataType=[]string,required=false" predicate:"in,t,id"`
-	From           string    `parameter:"From,kind=query,in=from,dataType=string,required=true"`
-	To             string    `parameter:"To,kind=query,in=to,dataType=string,required=true"`
-	CursorTime     time.Time `parameter:"CursorTime,kind=query,in=cursorTime,dataType=time.Time,required=true"`
-	CursorID       string    `parameter:"CursorID,kind=query,in=cursorId,dataType=string,required=true"`
-	Detail         bool      `parameter:"Detail,kind=query,in=detail,dataType=bool,required=true"`
-	Limit          int       `parameter:"Limit,kind=query,in=limit,dataType=int,required=true" querySelector:"view=reader,property=limit"`
-	Has            *InputHas `setMarker:"true" json:"-" sqlx:"-"`
+	Allowed         bool      `parameter:"Allowed,kind=auditaccess,in=allowed,dataType=bool,required=true"`
+	OwnerID         string    `parameter:"OwnerID,kind=auditaccess,in=owner,dataType=string,required=true"`
+	OwnerIDContains string    `parameter:"OwnerIDContains,kind=auditaccess,in=ownerContains,dataType=string,required=true"`
+	ConversationID  string    `parameter:"ConversationID,kind=query,in=conversationId,dataType=string,required=true"`
+	TurnID          string    `parameter:"TurnID,kind=query,in=turnId,dataType=string,required=true"`
+	TurnIDs         []string  `parameter:"TurnIDs,kind=query,in=turnIds,dataType=[]string,required=false" predicate:"in,t,id"`
+	From            string    `parameter:"From,kind=query,in=from,dataType=string,required=true"`
+	To              string    `parameter:"To,kind=query,in=to,dataType=string,required=true"`
+	CursorTime      time.Time `parameter:"CursorTime,kind=query,in=cursorTime,dataType=time.Time,required=true"`
+	CursorID        string    `parameter:"CursorID,kind=query,in=cursorId,dataType=string,required=true"`
+	Detail          bool      `parameter:"Detail,kind=query,in=detail,dataType=bool,required=true"`
+	Limit           int       `parameter:"Limit,kind=query,in=limit,dataType=int,required=true" querySelector:"view=reader,property=limit"`
+	Has             *InputHas `setMarker:"true" json:"-" sqlx:"-"`
 }
 
 type InputHas struct {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -16,8 +17,20 @@ const MaxExportBytes = 32 << 20
 // CSV buffers the complete result before HTTP headers are committed. A limit or
 // timeout therefore returns an error, never a successful partial export.
 func (s *Service) CSV(ctx context.Context, f Filter) ([]byte, error) {
+	return s.export(ctx, f, false)
+}
+
+// JSON exports only the table fields, with original text and typed values.
+func (s *Service) JSON(ctx context.Context, f Filter) ([]byte, error) {
+	return s.export(ctx, f, true)
+}
+
+// export shares authorization, selection, mapping and limits across formats.
+// Both formats are buffered completely before the caller can send a file.
+func (s *Service) export(ctx context.Context, f Filter, asJSON bool) ([]byte, error) {
 	// Export hydrates each detail itself; do not also enrich its list pages.
 	f.IncludeContent = false
+	f.IncludeTotal = false
 	if _, _, err := s.input(ctx, f); err != nil {
 		return nil, err
 	}
@@ -33,12 +46,14 @@ func (s *Service) CSV(ctx context.Context, f Filter) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var buffer bytes.Buffer
-	w := csv.NewWriter(&limitedWriter{buffer: &buffer, remaining: MaxExportBytes})
-	// Keep the fields in the same order as the audit table. Execution details
-	// remain available through Detail and are intentionally excluded from CSV.
-	header := []string{"turn_created_at", "turn_id", "conversation_id", "conversation_title", "input", "output", "user_id", "agent_id", "status", "models", "input_tokens", "output_tokens", "execution_span_ms", "feedback_rating", "feedback_comment", "model_calls", "tool_calls", "conversation_created_at"}
-	if err := w.Write(header); err != nil {
-		return nil, err
+	bounded := &limitedWriter{buffer: &buffer, remaining: MaxExportBytes}
+	w := csv.NewWriter(bounded)
+	if asJSON {
+		_, _ = bounded.Write([]byte("["))
+	} else {
+		if err := w.Write(exportHeader); err != nil {
+			return nil, err
+		}
 	}
 	f.Limit = 200
 	count := 0
@@ -64,18 +79,17 @@ func (s *Service) CSV(ctx context.Context, f Filter) ([]byte, error) {
 			if d.Row.OwnerID != row.OwnerID {
 				return nil, ErrNotFound
 			}
-			r := d.Row
-			fields := []string{r.CreatedAt.Format(time.RFC3339Nano), r.Id, r.ConversationId, textValue(r.ConversationTitle), d.Input, d.Output, r.OwnerID, textValue(r.AgentIdUsed), r.Status, strings.Join(d.Models, ", "), optional(r.InputTokens), optional(r.OutputTokens), optional(d.ExecutionSpanMs), optional(r.FeedbackRating), textValue(r.FeedbackComment), fmt.Sprint(r.ModelCalls), fmt.Sprint(r.ToolCalls), r.ConversationCreatedAt.Format(time.RFC3339Nano)}
-			for i := range fields {
-				// Typed numeric measurements and ratings must remain numeric,
-				// including the valid negative feedback rating (-1).
-				switch header[i] {
-				case "input_tokens", "output_tokens", "execution_span_ms", "feedback_rating", "model_calls", "tool_calls":
-					continue
+			record := newExportRecord(d)
+			if asJSON {
+				if count > 1 {
+					if _, err = bounded.Write([]byte(",")); err != nil {
+						return nil, err
+					}
 				}
-				fields[i] = csvCell(fields[i])
-			}
-			if err = w.Write(fields); err != nil {
+				if err = json.NewEncoder(bounded).Encode(record); err != nil {
+					return nil, err
+				}
+			} else if err = w.Write(record.csvFields()); err != nil {
 				return nil, err
 			}
 		}
@@ -84,14 +98,69 @@ func (s *Service) CSV(ctx context.Context, f Filter) ([]byte, error) {
 		}
 		f.Cursor = page.NextCursor
 	}
-	w.Flush()
-	if err := w.Error(); err != nil {
-		return nil, err
+	if asJSON {
+		if _, err := bounded.Write([]byte("]")); err != nil {
+			return nil, err
+		}
+	} else {
+		w.Flush()
+		if err := w.Error(); err != nil {
+			return nil, err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return buffer.Bytes(), nil
+}
+
+var exportHeader = []string{"turn_created_at", "turn_id", "conversation_id", "conversation_title", "input", "output", "user_id", "agent_id", "status", "models", "input_tokens", "output_tokens", "execution_span_ms", "feedback_rating", "feedback_comment", "model_calls", "tool_calls", "conversation_created_at"}
+
+// Field order is shared with the table and CSV. Unknown measurements stay null
+// in JSON and empty in CSV; the CSV formula guard never modifies JSON text.
+type exportRecord struct {
+	TurnCreatedAt         string   `json:"turn_created_at"`
+	TurnID                string   `json:"turn_id"`
+	ConversationID        string   `json:"conversation_id"`
+	ConversationTitle     string   `json:"conversation_title"`
+	Input                 string   `json:"input"`
+	Output                string   `json:"output"`
+	UserID                string   `json:"user_id"`
+	AgentID               string   `json:"agent_id"`
+	Status                string   `json:"status"`
+	Models                []string `json:"models"`
+	InputTokens           *int     `json:"input_tokens"`
+	OutputTokens          *int     `json:"output_tokens"`
+	ExecutionSpanMs       *int64   `json:"execution_span_ms"`
+	FeedbackRating        *int     `json:"feedback_rating"`
+	FeedbackComment       string   `json:"feedback_comment"`
+	ModelCalls            int      `json:"model_calls"`
+	ToolCalls             int      `json:"tool_calls"`
+	ConversationCreatedAt string   `json:"conversation_created_at"`
+}
+
+func newExportRecord(d *Detail) exportRecord {
+	r := d.Row
+	models := append([]string{}, d.Models...)
+	return exportRecord{r.CreatedAt.Format(time.RFC3339Nano), r.Id, r.ConversationId,
+		textValue(r.ConversationTitle), d.Input, d.Output, r.OwnerID, textValue(r.AgentIdUsed), r.Status, models,
+		r.InputTokens, r.OutputTokens, d.ExecutionSpanMs, r.FeedbackRating, textValue(r.FeedbackComment),
+		r.ModelCalls, r.ToolCalls, r.ConversationCreatedAt.Format(time.RFC3339Nano)}
+}
+
+func (r exportRecord) csvFields() []string {
+	fields := []string{r.TurnCreatedAt, r.TurnID, r.ConversationID, r.ConversationTitle, r.Input, r.Output,
+		r.UserID, r.AgentID, r.Status, strings.Join(r.Models, ", "), optional(r.InputTokens), optional(r.OutputTokens),
+		optional(r.ExecutionSpanMs), optional(r.FeedbackRating), r.FeedbackComment,
+		fmt.Sprint(r.ModelCalls), fmt.Sprint(r.ToolCalls), r.ConversationCreatedAt}
+	for i := range fields {
+		switch exportHeader[i] {
+		case "input_tokens", "output_tokens", "execution_span_ms", "feedback_rating", "model_calls", "tool_calls":
+			continue
+		}
+		fields[i] = csvCell(fields[i])
+	}
+	return fields
 }
 
 func textValue(p *string) string {

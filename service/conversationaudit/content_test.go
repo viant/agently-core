@@ -172,7 +172,7 @@ func TestAuditPageContentRejectsChangedOwnershipAndMissingTurns(t *testing.T) {
 					}
 				}
 				return []*projection.Row{row}, nil
-			}), Options{}, nil)
+			}), Options{UserIDs: []string{"*"}}, nil)
 			page, err := s.List(ctx, Filter{ConversationID: "own", IncludeContent: true})
 			if tc == "canceled" {
 				require.ErrorIs(t, err, context.Canceled)
@@ -195,7 +195,7 @@ func TestAuditPageContentRejectsWholeOversizedPage(t *testing.T) {
 			}
 		}
 		return rows, nil
-	}), Options{}, nil)
+	}), Options{UserIDs: []string{"*"}}, nil)
 	page, err := s.List(ctx, Filter{ConversationID: "own", IncludeContent: true})
 	require.ErrorIs(t, err, ErrTooLarge)
 	require.Nil(t, page, "never return a successful page with truncated content")

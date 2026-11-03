@@ -2,12 +2,14 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/viant/agently-core/service/browsermcp"
 	"log"
 	"net/http"
 
 	callbackhttp "github.com/viant/agently-core/adapter/http/callback"
+	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
@@ -295,10 +297,15 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {
 	if cfg.conversationAuditHandler != nil {
 		mux.Handle("/v1/api/conversation-audit/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			request, ok := applicationRequestPrincipal(w, r, "", []*svcauth.Config{cfg.authCfg})
-			if ok {
-				cfg.conversationAuditHandler.ServeHTTP(w, request)
+			// Audit never promotes the unsigned local browser cookie to an identity.
+			if authctx.EffectiveUserID(r.Context()) == "" {
+				w.Header().Set("Cache-Control", "private, no-store")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "audit authentication required"})
+				return
 			}
+			cfg.conversationAuditHandler.ServeHTTP(w, r)
 		}))
 	}
 	if cfg.reportRunHandler != nil {

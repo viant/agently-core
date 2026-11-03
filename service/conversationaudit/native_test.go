@@ -23,10 +23,15 @@ import (
 func fixture(ctx context.Context, t *testing.T) (*Service, *sql.DB) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "audit.db")
-	db, err := sql.Open("sqlite", path)
+	return databaseFixture(ctx, t, "sqlite", path, "../../internal/script/sqlite/schema.ddl")
+}
+
+func databaseFixture(ctx context.Context, t *testing.T, driver, dsn, schemaPath string) (*Service, *sql.DB) {
+	t.Helper()
+	db, err := sql.Open(driver, dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	schema, err := os.ReadFile("../../internal/script/sqlite/schema.ddl")
+	schema, err := os.ReadFile(schemaPath)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, string(schema))
 	require.NoError(t, err)
@@ -40,10 +45,10 @@ func fixture(ctx context.Context, t *testing.T) (*Service, *sql.DB) {
 		_, err = db.ExecContext(ctx, q)
 		require.NoError(t, err)
 	}
-	server, err := native.New(ctx, native.Options{Connectors: []connector.Config{{Name: "agently", Driver: "sqlite", DSN: path}}})
+	server, err := native.New(ctx, native.Options{Connectors: []connector.Config{{Name: "agently", Driver: driver, DSN: dsn}}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(ctx)) })
-	return New(NativeReader{server}, Options{AuditorUserIDs: []string{"auditor"}}, nil), db
+	return New(NativeReader{server}, Options{UserIDs: []string{"*"}, AuditorUserIDs: []string{"auditor"}}, nil), db
 }
 
 func principal(ctx context.Context, id string) context.Context {
@@ -100,7 +105,7 @@ func TestAuditNativeScopePaginationAndCanonical(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, p.Rows, 1)
 	_, err = s.List(ctx, dates())
-	require.ErrorIs(t, err, ErrForbidden)
+	require.ErrorIs(t, err, ErrUnauthenticated)
 	f = dates()
 	f.Cursor = page.NextCursor
 	f.ConversationID = "old"
@@ -118,7 +123,7 @@ func TestAuditNativeScopePaginationAndCanonical(t *testing.T) {
 }
 
 func TestAuditInputBounds(t *testing.T) {
-	s := New(nil, Options{}, nil)
+	s := New(nil, Options{UserIDs: []string{"*"}}, nil)
 	ctx := principal(context.Background(), "alice")
 	for _, f := range []Filter{{}, {UserID: "alice"}, {Limit: 201, ConversationID: "own"}, {Limit: -1, ConversationID: "own"}} {
 		_, _, err := s.input(ctx, f)
@@ -169,7 +174,7 @@ func TestAuditNativeFullPageCursorsWithContent(t *testing.T) {
 }
 
 func TestAuditPrivilegesFollowEffectiveConversationOwner(t *testing.T) {
-	s := New(nil, Options{AuditorUserIDs: []string{"auditor"}}, nil)
+	s := New(nil, Options{UserIDs: []string{"*"}, AuditorUserIDs: []string{"auditor"}}, nil)
 	ctx := authctx.WithCanonicalUserID(principal(context.Background(), "alice"), "auditor")
 	caps, err := s.Capabilities(ctx)
 	require.NoError(t, err)
