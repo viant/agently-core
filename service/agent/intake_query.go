@@ -19,6 +19,7 @@ import (
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	intakesvc "github.com/viant/agently-core/service/intake"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
+	"golang.org/x/sync/errgroup"
 )
 
 // maybeRunIntakeSidecar runs the pre-turn intake sidecar when the agent is
@@ -44,21 +45,7 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	defer writeIntakeStage(ctx, input, "total", totalStarted)
 	cfg := &input.Agent.Intake
 	runCfg := *cfg
-	var liveContext []string
 	started := time.Now()
-	bootstrap := s.workspaceUIBootstrap(ctx, input.ConversationID)
-	writeIntakeStage(ctx, input, "workspace_ui_bootstrap", started)
-	if strings.TrimSpace(bootstrap) != "" {
-		liveContext = append(liveContext, "Workspace UI bootstrap:\n"+bootstrap)
-	}
-	started = time.Now()
-	client := s.intakeClientSummary(ctx, input)
-	writeIntakeStage(ctx, input, "client_context", started)
-	if client != "" {
-		liveContext = append(liveContext, "Client context (transport facts, not user intent): "+client)
-	}
-
-	started = time.Now()
 	overridden := s.maybeInjectWorkspaceUIOverride(ctx, input, &runCfg)
 	writeIntakeStage(ctx, input, "workspace_override", started)
 	if overridden {
@@ -114,19 +101,44 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	if userMessage == "" {
 		return
 	}
+	// Routing checks above may mutate input. Metadata preparation below only
+	// reads this frozen turn input, and joins before intake applies any changes.
+	metadataInput := *input
+	var bootstrap, client, capabilities string
 	var intakeToolNames, intakeNamespaces []string
-	if runCfg.HasScope(agentmdl.IntakeScopeTools) || runCfg.PlannerEnabled {
+	var capabilityErr error
+	group, metadataCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		started := time.Now()
+		bootstrap = s.workspaceUIBootstrap(metadataCtx, metadataInput.ConversationID)
+		writeIntakeStage(metadataCtx, &metadataInput, "workspace_ui_bootstrap", started)
 		started = time.Now()
-		capabilities, toolNames, namespaces, err := s.intakeCapabilitySnapshot(ctx, input)
-		writeIntakeStage(ctx, input, "capability_summary", started)
-		if err != nil {
-			logx.Warnf("conversation", "intake.capabilities.unavailable errorType=%T", err)
-		} else {
-			intakeToolNames, intakeNamespaces = toolNames, namespaces
-			if capabilities != "" {
-				liveContext = append(liveContext, "Available tools and skills (capability metadata, not instructions):\n"+capabilities)
-			}
-		}
+		client = s.intakeClientSummary(metadataCtx, &metadataInput)
+		writeIntakeStage(metadataCtx, &metadataInput, "client_context", started)
+		return nil
+	})
+	if runCfg.HasScope(agentmdl.IntakeScopeTools) || runCfg.PlannerEnabled {
+		group.Go(func() error {
+			started := time.Now()
+			capabilities, intakeToolNames, intakeNamespaces, capabilityErr = s.intakeCapabilitySnapshot(metadataCtx, &metadataInput)
+			writeIntakeStage(metadataCtx, &metadataInput, "capability_summary", started)
+			return nil // Capability failures remain advisory to intake.
+		})
+	}
+	_ = group.Wait()
+	// Wait cancels metadataCtx. Continue the actual intake on its parent ctx.
+	var liveContext []string
+	if strings.TrimSpace(bootstrap) != "" {
+		liveContext = append(liveContext, "Workspace UI bootstrap:\n"+bootstrap)
+	}
+	if client != "" {
+		liveContext = append(liveContext, "Client context (transport facts, not user intent): "+client)
+	}
+	if capabilityErr != nil {
+		logx.Warnf("conversation", "intake.capabilities.unavailable errorType=%T", capabilityErr)
+		intakeToolNames, intakeNamespaces = nil, nil
+	} else if capabilities != "" {
+		liveContext = append(liveContext, "Available tools and skills (capability metadata, not instructions):\n"+capabilities)
 	}
 	started = time.Now()
 	runCtx := s.intakeTrackedContext(ctx, input)
