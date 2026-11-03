@@ -106,9 +106,6 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 	if in == nil || in.Method == "" {
 		return nil, errors.New("method is required")
 	}
-	if reportResourceCommand(in) {
-		return s.openReportResource(ctx, in)
-	}
 	timeout := 15 * time.Second
 	if in.TimeoutMs > 0 {
 		timeout = time.Duration(in.TimeoutMs) * time.Millisecond
@@ -117,6 +114,9 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 	defer cancel()
 	ctx = WithoutMetadataReadScope(ctx, s.cfg.MetadataScope)
 	baseCtx := runtimerequestctx.WithoutWindowReadDecision(ctx)
+	if reportResourceCommand(in) {
+		return s.openReportResource(baseCtx, in)
+	}
 	pureOpen := s.canonicalWindowCatalog() && (in.Method == "ui.window.open" || in.Method == "ui.window.openDynamic")
 	var preFinish func() error
 	if pureOpen {

@@ -23,12 +23,6 @@ func reportResourceCommand(in *UICommandInput) bool {
 // Reports render through the host's existing report resource renderer; they are
 // not window definitions and never enter the window-designer loader.
 func (s *Service) openReportResource(ctx context.Context, in *UICommandInput) (*UICommandOutput, error) {
-	timeout := 15 * time.Second
-	if in.TimeoutMs > 0 {
-		timeout = time.Duration(in.TimeoutMs) * time.Millisecond
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	var params map[string]any
 	raw, err := json.Marshal(in.Params)
 	if err != nil || decodeSelectionJSON(raw, &params) != nil {
