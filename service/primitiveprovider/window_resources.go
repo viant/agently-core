@@ -56,6 +56,16 @@ func (c *MetadataWindowCatalog) RevalidateResource(ctx context.Context, windowKe
 	return nil, identity.ErrResourceDenied
 }
 func (s *Service) revalidateWindowPin(ctx context.Context, pin windowResourcePin) (*identity.ResolvedResource, error) {
+	if strings.HasPrefix(pin.Resource.URI, "report://") {
+		report, err := s.ReportDefinition(ctx, &ReportDefinitionInput{Resource: identity.ResourceRef{URI: pin.Resource.URI, Revision: pin.Resource.Selector()}, ResolvedResource: &pin.Resource})
+		if err != nil {
+			return nil, err
+		}
+		if report == nil || report.Resource == nil || !sameReportPin(pin.Resource, *report.Resource) {
+			return nil, identity.ErrResourceDenied
+		}
+		return report.Resource, nil
+	}
 	if catalog, ok := s.cfg.WindowDefinitions.(interface {
 		RevalidateWindowResource(context.Context, string, identity.ResolvedResource, *types.WindowTarget) (*identity.ResolvedResource, error)
 	}); ok {
@@ -176,6 +186,28 @@ func (s *Service) filterResourceSnapshot(ctx context.Context, ns, clientID strin
 		if _, err := s.revalidateWindowPin(ctx, pin); err != nil {
 			continue
 		}
+		if strings.HasPrefix(pin.Resource.URI, "report://") {
+			// A report uses its existing report renderer, not a window definition.
+			// Preserve observed report state only after revalidating the exact
+			// server-held report candidate; client metadata is never authority.
+			var content map[string]any
+			if json.Unmarshal(window, &content) != nil {
+				return nil, identity.ErrResourceDenied
+			}
+			content["resource"] = pin.Resource
+			delete(content, "metadata")
+			delete(content, "resourceTarget")
+			delete(content, "dataSources")
+			encoded, err := json.Marshal(content)
+			if err != nil {
+				return nil, err
+			}
+			result.Windows = append(result.Windows, encoded)
+			if envelope.Selected.WindowID == item.WindowID {
+				result.Selected.WindowID = item.WindowID
+			}
+			continue
+		}
 		definition, err := s.cfg.WindowDefinitions.Get(ctx, &WindowDefinitionGetInput{WindowID: pin.WindowKey, ResolvedResource: &pin.Resource, Target: pin.Target})
 		if err != nil || definition == nil || definition.Definition == nil {
 			continue
@@ -281,6 +313,10 @@ func (s *Service) WindowResource(ctx context.Context, namespace, clientID, windo
 }
 
 func (s *Service) checkWindowContentCurrent(ctx context.Context, pin windowResourcePin) error {
+	if strings.HasPrefix(pin.Resource.URI, "report://") {
+		_, err := s.revalidateWindowPin(ctx, pin)
+		return err
+	}
 	if ctx == nil || ctx.Err() != nil || !identity.MetadataExpiryValid(pin.Resource.ValidUntil, time.Now()) {
 		return identity.ErrResourceDenied
 	}

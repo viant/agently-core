@@ -228,7 +228,7 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "list", Description: "List workspace-defined dynamic UI views that can be opened for the user.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "get", Description: "Get a workspace-defined dynamic UI view by id.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
-		{Name: "open", Description: "Open one or more workspace-defined dynamic UI views for the active conversation and wait for the UI to acknowledge the request. For a single open, provide id plus parameters. A list view with declared quickSearch also accepts searchText to seed its name filter before loading. For ordered multi-open, provide items[] where each item includes id, parameters, and optional openMode. parameters.reportStarterId may be a canonical ReportPresets id, a unique human label, or the reserved __blank__ value.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
+		{Name: "open", Description: "Open existing predefined report resources (resource.uri=report://namespace/name) or workspace-defined UI views for the active conversation. Report parameters are forwarded unchanged; parameters.executeOnOpen=true requests the normal authorized report run, while omission honors authored defaults. Waits for the UI acknowledgement; an opening lifecycle is not proof of completed report data. For a single open, provide id plus parameters. A list view with declared quickSearch also accepts searchText to seed its name filter before loading. For ordered multi-open, provide items[] where each item includes id, parameters, and optional openMode. parameters.reportStarterId may be a canonical ReportPresets id, a unique human label, or the reserved __blank__ value.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
 	}
 }
 
@@ -464,6 +464,12 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 }
 
 func (s *Service) prepareOpenItem(ctx context.Context, input OpenItem) (*preparedOpenItem, error) {
+	if ref, report, err := reportOpenReference(input); report || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		return s.prepareReportOpen(ctx, input, ref)
+	}
 	item, err := s.loadRequested(ctx, strings.TrimSpace(input.ID), input.Resource, input.Target)
 	if err != nil {
 		return nil, err
@@ -531,7 +537,7 @@ func (s *Service) workspaceDescriptor(ctx context.Context, windowID, conversatio
 			descriptor.Revision = previous.Revision + 1
 		}
 	}
-	if item.ReportBuilderRef != "" {
+	if item.ReportBuilderRef != "" || strings.HasPrefix(item.WindowKey, "report://") {
 		descriptor.Kind = "report"
 	}
 	descriptor.Content.WindowID = windowID
@@ -561,6 +567,9 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 	descriptor := s.workspaceDescriptor(ctx, windowID, conversationID, item, windowParameters)
 	options := buildOpenWindowOptions(item, conversationID, prepared.openMode)
 	options["workspaceObject"] = descriptor
+	if strings.HasPrefix(item.WindowKey, "report://") && item.Resource != nil {
+		options["resourceRef"] = &identity.ResourceRef{URI: item.Resource.URI, Revision: item.Resource.Selector()}
+	}
 	options["waitForReady"] = item.RefreshOnOpen != nil && *item.RefreshOnOpen
 	params := map[string]interface{}{
 		"windowId": windowID, "windowKey": item.WindowKey,

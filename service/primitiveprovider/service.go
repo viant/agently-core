@@ -106,6 +106,9 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 	if in == nil || in.Method == "" {
 		return nil, errors.New("method is required")
 	}
+	if reportResourceCommand(in) {
+		return s.openReportResource(ctx, in)
+	}
 	timeout := 15 * time.Second
 	if in.TimeoutMs > 0 {
 		timeout = time.Duration(in.TimeoutMs) * time.Millisecond
