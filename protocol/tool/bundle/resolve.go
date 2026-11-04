@@ -115,10 +115,19 @@ func patternVariants(name string) []string {
 	if raw == "" {
 		return nil
 	}
+	canonical := canonicalKey(raw)
+	if strings.HasPrefix(raw, "mcp://") && !strings.ContainsAny(raw, "*?[]") {
+		// Discover the literal identity first. Its model alias is lossy and
+		// cannot be used to reconstruct a service URI.
+		result := []string{raw}
+		if canonical != "" && canonical != raw {
+			result = append(result, canonical)
+		}
+		return result
+	}
 	variants := map[string]struct{}{
 		raw: {},
 	}
-	canonical := canonicalKey(raw)
 	if canonical != "" {
 		variants[canonical] = struct{}{}
 		n := mcpname2.Name(canonical)

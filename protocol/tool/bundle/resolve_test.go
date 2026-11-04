@@ -1,12 +1,100 @@
 package bundle
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	asynccfg "github.com/viant/agently-core/protocol/async"
+	"github.com/viant/agently-core/protocol/mcpname"
 )
+
+func TestResolveLiteralMCPURIPatterns(t *testing.T) {
+	for _, name := range []string{
+		"mcp://catalog/source:Read",
+		" \tmcp://catalog/nested/source:Read\n",
+		"mcp://catalog/nested/source:tool.name",
+		"mcp://catalog/nested/source:nested/tool",
+		"mcp://catalog/nested/source:tool-with-hyphens",
+		"mcp://catalog/nested/source/Read",
+	} {
+		t.Run(strings.TrimSpace(name), func(t *testing.T) {
+			raw := strings.TrimSpace(name)
+			canonical := mcpname.Canonical(raw)
+			for _, supported := range []string{raw, canonical} {
+				t.Run(supported, func(t *testing.T) {
+					var calls []string
+					actual := ResolveDefinitions(&Bundle{Match: []llm.Tool{{Name: name}}}, func(pattern string) []*llm.ToolDefinition {
+						calls = append(calls, pattern)
+						if pattern == supported {
+							return []*llm.ToolDefinition{{Name: raw}}
+						}
+						return nil
+					})
+					require.Equal(t, []string{raw, canonical}, calls, "literal URI must be matched first without rebuilding a service from its alias")
+					require.Equal(t, []llm.ToolDefinition{{Name: raw}}, actual)
+				})
+			}
+		})
+	}
+}
+
+func TestResolveLiteralMCPURIExcludesAndMetadata(t *testing.T) {
+	const name = "mcp://catalog/source:Read"
+	const blocked = "mcp://catalog/source:Remove"
+	approval := &llm.ApprovalConfig{Mode: llm.ApprovalModePrompt}
+	async := &asynccfg.Config{Run: asynccfg.RunConfig{Tool: name, OperationIDPath: "id"}}
+	b := &Bundle{Match: []llm.Tool{
+		{Name: name, Exclude: []string{" " + blocked + " "}, AlwaysInclude: true, Tier: llm.ToolTierOnDemand, Approval: approval, Async: async},
+		{Name: name, Exclude: []string{blocked}, Tier: llm.ToolTierCritical},
+	}}
+	definition := &llm.ToolDefinition{Name: name, Parameters: map[string]interface{}{"type": "object"}}
+	before, err := json.Marshal([]interface{}{b, definition})
+	require.NoError(t, err)
+	var calls []string
+	result := ResolveDefinitionsWithOptions(b, func(pattern string) []*llm.ToolDefinition {
+		calls = append(calls, pattern)
+		switch pattern {
+		case name, mcpname.Canonical(name):
+			// Deliberately overlapping results exercise exclusion and de-duplication.
+			return []*llm.ToolDefinition{definition, {Name: blocked}}
+		case blocked, mcpname.Canonical(blocked):
+			return []*llm.ToolDefinition{{Name: blocked}}
+		}
+		return nil
+	})
+	require.Equal(t, []string{blocked, mcpname.Canonical(blocked), name, mcpname.Canonical(name), blocked, mcpname.Canonical(blocked), name, mcpname.Canonical(name)}, calls)
+	require.Len(t, result.Definitions, 1)
+	require.Equal(t, name, result.Definitions[0].Name)
+	require.True(t, result.Definitions[0].AlwaysInclude)
+	require.Equal(t, llm.ToolTierCritical, result.Definitions[0].Tier)
+	require.Equal(t, approval, result.ApprovalByID[normalizedApprovalKey(name)])
+	require.Equal(t, async, result.AsyncByID[normalizedApprovalKey(name)].Async)
+	after, err := json.Marshal([]interface{}{b, definition})
+	require.NoError(t, err)
+	require.JSONEq(t, string(before), string(after), "bundle rules and source definitions must remain unchanged")
+}
+
+func TestPatternVariantsLegacyCompatibility(t *testing.T) {
+	for _, name := range []string{"catalog:Read", "catalog.Read", "catalog/Read", "catalog-Read"} {
+		require.Equal(t, []string{"catalog-Read", "catalog.Read", "catalog/Read", "catalog:Read"}, patternVariants(name), name)
+	}
+	require.Equal(t, []string{"catalog/path.Read", "catalog/path/Read", "catalog/path:Read", "catalog_path-Read"}, patternVariants("catalog/path:Read"))
+	for _, wildcard := range []string{"*", "?", "[ab]", "[!a]", "[", "]"} {
+		name := "mcp://catalog/source:" + wildcard
+		require.Equal(t, []string{
+			"mcp///catalog/source." + wildcard,
+			"mcp///catalog/source/" + wildcard,
+			"mcp///catalog/source:" + wildcard,
+			name,
+			"mcp___catalog_source-" + wildcard,
+		}, patternVariants(name), "URI glob expansion remains compatible: %s", name)
+	}
+	require.Nil(t, patternVariants(" \n"))
+}
 
 func TestResolveDefinitions(t *testing.T) {
 	def := func(name string) *llm.ToolDefinition { return &llm.ToolDefinition{Name: name} }
