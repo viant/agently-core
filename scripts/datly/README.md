@@ -5,7 +5,6 @@ Endly owns orchestration. From `e2e/datly`:
 ```sh
 endly -r=build
 endly -r=transcribe
-endly -r=regeneration
 endly -r=run
 endly -r=core
 ```
@@ -17,14 +16,14 @@ stages the selected stock CLI sources in ignored `bin/_datly_cli` and adds only
 imports for Core predicate/codec types. The authoring CLI implementation remains
 stock; no framework sources or duplicate CLI parser are committed.
 
-`transcribe` invokes native `datly transcribe get|patch` commands for the ordinary
-contracts. `regeneration` snapshots `internal/datly`, transcribes again, and uses
-`diff -ru` to check every file, including authored hooks. Review the explicit
-contract commands when adding a DQL source. The relocation map remains the
-migration inventory; it is not a second compiler.
+`transcribe` invokes native `datly transcribe get|post|patch` commands for the
+registered contracts, including conversation audit read and count. Review the
+explicit contract commands when adding a DQL source. The relocation map remains
+the migration inventory; it is not a second compiler.
 
-`run` builds, transcribes all 65 contracts, checks byte-stable regeneration,
-and runs Go contract/store/native tests. Use `testPackages` and `testRun` parameters for a focused Endly check.
+`run` builds, transcribes the registered contracts, and runs Go
+contract/store/native tests. Use
+`testPackages` and `testRun` parameters for a focused Endly check.
 `core` runs the full Core Go suite. Native validation reports skipped checks;
 it does not establish database or HTTP behavior. Go and Endly fixtures supply
 those checks. There is no separate Python SQL lexer or reserved-word gate.
@@ -45,5 +44,5 @@ message, and schedule base readers; it is not an alternate transcription or
 validation framework. Its discovery connection opens the disposable schema
 read-only.
 
-Run generation and regeneration before starting runtime fixtures. Replacing
+Run transcription before starting runtime fixtures. Replacing
 source artifacts while a source-backed server is running invalidates its index.

@@ -2,20 +2,153 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
+	authctx "github.com/viant/agently-core/internal/auth"
+	toolregistry "github.com/viant/agently-core/internal/tool/registry"
 	"github.com/viant/agently-core/protocol/intent"
+	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
+	"github.com/viant/agently-core/protocol/mcp/manager"
+	"github.com/viant/agently-core/protocol/mcpname"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	toolservice "github.com/viant/agently-core/protocol/tool/service/llm/tools"
 	"github.com/viant/agently-core/runtime/toolselection"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/service/intake"
+	"github.com/viant/mcp"
+	mcpschema "github.com/viant/mcp-protocol/schema"
+	mcpclient "github.com/viant/mcp/client"
 	"gopkg.in/yaml.v3"
 )
+
+// This catalog is constructed locally and exercises the native manager/registry
+// path without any remote transport or producer-specific fixture.
+type retainedCatalogProvider struct {
+	options *mcpcfg.MCPClient
+}
+
+func (p *retainedCatalogProvider) Names(context.Context) ([]string, error) {
+	return []string{p.options.ResolvedIdentity.ResourceURI}, nil
+}
+
+func (p *retainedCatalogProvider) Options(_ context.Context, name string) (*mcpcfg.MCPClient, error) {
+	if name != p.options.ResolvedIdentity.ResourceURI && name != p.options.ResolvedIdentity.ServiceName {
+		return nil, fmt.Errorf("MCP definition not found: %s", name)
+	}
+	return p.options, nil
+}
+
+type retainedCatalogClient struct {
+	mcpclient.Interface
+	listErr   error
+	listCalls atomic.Int32
+}
+
+func (c *retainedCatalogClient) Initialize(context.Context, ...mcpclient.RequestOption) (*mcpschema.InitializeResult, error) {
+	return &mcpschema.InitializeResult{}, nil
+}
+
+func (c *retainedCatalogClient) ListTools(context.Context, *string, ...mcpclient.RequestOption) (*mcpschema.ListToolsResult, error) {
+	c.listCalls.Add(1)
+	if c.listErr != nil {
+		return nil, c.listErr
+	}
+	return &mcpschema.ListToolsResult{Tools: []mcpschema.Tool{
+		{Name: "Read", InputSchema: mcpschema.ToolInputSchema{Type: "object"}},
+		{Name: "Describe", InputSchema: mcpschema.ToolInputSchema{Type: "object"}},
+	}}, nil
+}
+
+func retainedCatalogService(t *testing.T, listErr error) (*Service, context.Context, *toolregistry.Registry, *retainedCatalogClient) {
+	t.Helper()
+	const uri = "mcp://catalog/source"
+	t.Setenv("AGENTLY_MCP_SERVERS", uri)
+	t.Setenv("AGENTLY_WORKSPACE", t.TempDir())
+	t.Setenv("AGENTLY_RUNTIME_ROOT", t.TempDir())
+	provider := &retainedCatalogProvider{options: &mcpcfg.MCPClient{
+		ClientOptions:       &mcp.ClientOptions{Name: "source"},
+		ToolsListVisibility: mcpcfg.ToolsListVisibilityPublic,
+		ResolvedIdentity:    &mcpcfg.ResolvedServiceIdentity{ServiceName: "source", ResourceURI: uri},
+	}}
+	peer := &retainedCatalogClient{listErr: listErr}
+	mgr, err := manager.New(provider, manager.WithClientFactory(func(_ context.Context, _, service string) (mcpclient.Interface, error) {
+		if service != "source" {
+			return nil, fmt.Errorf("unexpected catalog service %q", service)
+		}
+		return peer, nil
+	}))
+	require.NoError(t, err)
+	t.Cleanup(func() { mgr.CloseConversation("") })
+	reg, err := toolregistry.NewWithManager(mgr)
+	require.NoError(t, err)
+	s := &Service{registry: reg, toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+		return []*toolbundle.Bundle{{ID: "catalog", Match: []llm.Tool{
+			{Name: uri + ":Read", AlwaysInclude: true},
+			{Name: uri + ":Describe", AlwaysInclude: true},
+		}}}, nil
+	}}
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "synthetic-reader"})
+	return s, ctx, reg, peer
+}
+
+func TestRetainedMCPURIToolsUseNativeCatalog(t *testing.T) {
+	for _, path := range []string{"binding", "execution"} {
+		for _, warm := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/warm=%t", path, warm), func(t *testing.T) {
+				s, ctx, reg, peer := retainedCatalogService(t, nil)
+				if warm {
+					defs, err := reg.MatchDefinitionWithContextResult(ctx, "mcp://catalog/source:*")
+					require.NoError(t, err)
+					require.Len(t, defs, 2)
+				}
+				in := selectionInput(&intake.ToolSelection{Complete: true})
+				var defs []llm.ToolDefinition
+				if path == "binding" {
+					definitions, err := s.buildToolSignatures(ctx, in)
+					require.NoError(t, err)
+					for _, definition := range definitions {
+						defs = append(defs, *definition)
+					}
+				} else {
+					tools, err := s.resolveTools(ctx, in)
+					require.NoError(t, err)
+					defs = toolsToDefs(tools)
+				}
+				var names []string
+				for _, def := range defs {
+					names = append(names, mcpname.Canonical(def.Name))
+					require.True(t, def.AlwaysInclude)
+					require.Equal(t, "mcp://catalog/source", def.SourceMCPServer)
+				}
+				require.ElementsMatch(t, []string{mcpname.Canonical("mcp://catalog/source/Read"), mcpname.Canonical("mcp://catalog/source/Describe")}, names)
+				require.Positive(t, peer.listCalls.Load(), "the native discovery path must reach the local MCP peer")
+			})
+		}
+	}
+}
+
+func TestRetainedMCPURIToolsPropagateDiscoveryFailure(t *testing.T) {
+	for _, path := range []string{"binding", "execution"} {
+		t.Run(path, func(t *testing.T) {
+			cause := errors.New("synthetic catalog unavailable")
+			s, ctx, _, _ := retainedCatalogService(t, cause)
+			in := selectionInput(&intake.ToolSelection{Complete: true})
+			if path == "binding" {
+				_, err := s.buildToolSignatures(ctx, in)
+				require.ErrorIs(t, err, cause)
+			} else {
+				_, err := s.resolveTools(ctx, in)
+				require.ErrorIs(t, err, cause)
+			}
+		})
+	}
+}
 
 func TestRetainedToolSchemasRemainImmutableOnColdAndConcurrentReads(t *testing.T) {
 	for _, path := range []string{"binding", "execution"} {

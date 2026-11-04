@@ -2,12 +2,14 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/viant/agently-core/service/browsermcp"
 	"log"
 	"net/http"
 
 	callbackhttp "github.com/viant/agently-core/adapter/http/callback"
+	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
@@ -21,21 +23,22 @@ import (
 type HandlerOption func(*handlerConfig)
 
 type handlerConfig struct {
-	browserMCP              *browsermcp.Registry
-	authCfg                 *svcauth.Config
-	authSessions            *svcauth.Manager
-	authOpts                []svcauth.HandlerOption
-	speechHandler           *speech.Handler
-	schedulerHandler        *scheduler.Handler
-	schedulerSvc            *scheduler.Service
-	schedulerOpts           *SchedulerOptions
-	metadataHandler         *svcworkspace.MetadataHandler
-	fileBrowser             *svcworkspace.FileBrowserHandler
-	a2aHandler              *svca2a.Handler
-	callbackHandler         *callbackhttp.Handler
-	uiBridgeHandler         http.Handler
-	reportRunHandler        http.Handler
-	publishedWindowBindings *PublishedWindowBindings
+	browserMCP               *browsermcp.Registry
+	authCfg                  *svcauth.Config
+	authSessions             *svcauth.Manager
+	authOpts                 []svcauth.HandlerOption
+	speechHandler            *speech.Handler
+	schedulerHandler         *scheduler.Handler
+	schedulerSvc             *scheduler.Service
+	schedulerOpts            *SchedulerOptions
+	metadataHandler          *svcworkspace.MetadataHandler
+	fileBrowser              *svcworkspace.FileBrowserHandler
+	a2aHandler               *svca2a.Handler
+	callbackHandler          *callbackhttp.Handler
+	uiBridgeHandler          http.Handler
+	reportRunHandler         http.Handler
+	conversationAuditHandler http.Handler
+	publishedWindowBindings  *PublishedWindowBindings
 
 	mcpUIResourceReader        MCPUIResourceReader
 	mcpUIResourceContextBinder MCPUIResourceContextBinder
@@ -104,6 +107,12 @@ func WithUIBridgeHandler(h http.Handler) HandlerOption {
 // The route is not part of the tool registry or model-visible definitions.
 func WithReportRunHandler(h http.Handler) HandlerOption {
 	return func(c *handlerConfig) { c.reportRunHandler = h }
+}
+
+// WithConversationAuditHandler mounts a read-only host API with the same
+// server-resolved principal used by conversation routes.
+func WithConversationAuditHandler(h http.Handler) HandlerOption {
+	return func(c *handlerConfig) { c.conversationAuditHandler = h }
 }
 
 // WithPublishedWindowBindings enables the optional server-side cohort
@@ -286,6 +295,19 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 }
 
 func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {
+	if cfg.conversationAuditHandler != nil {
+		mux.Handle("/v1/api/conversation-audit/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Audit never promotes the unsigned local browser cookie to an identity.
+			if authctx.EffectiveUserID(r.Context()) == "" {
+				w.Header().Set("Cache-Control", "private, no-store")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "audit authentication required"})
+				return
+			}
+			cfg.conversationAuditHandler.ServeHTTP(w, r)
+		}))
+	}
 	if cfg.reportRunHandler != nil {
 		mux.Handle("/v1/api/report-runs", cfg.reportRunHandler)
 		mux.Handle("/v1/api/report-runs/", cfg.reportRunHandler)
