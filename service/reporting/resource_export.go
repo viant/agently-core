@@ -157,10 +157,10 @@ func (s *Service) validateExportResourcePinUnscoped(ctx context.Context, job *Ex
 			return identity.ErrResourceDenied
 		}
 		var definition registry.ReportEnvelope
-		if json.Unmarshal(raw, &definition) != nil || len(definition.DataSourceResources) != 0 {
+		if json.Unmarshal(raw, &definition) != nil {
 			return identity.ErrResourceDenied
 		}
-		return nil
+		return s.verifyDependencies(ctx, *current, definition, job.DependencyPins, job.DependencyToken)
 	}
 	var raw json.RawMessage
 	var fresh *identity.ResolvedResource

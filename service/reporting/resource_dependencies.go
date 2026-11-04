@@ -7,6 +7,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	sharedengine "github.com/viant/forge/backend/reporting/engine"
 	"github.com/viant/forge/backend/reporting/registry"
+	publishedidentity "github.com/viant/forge/backend/resource"
 	"github.com/viant/forge/backend/types"
 )
 
@@ -61,6 +62,14 @@ func (s *Service) bindOperationDependencies(ctx context.Context, originalParent,
 }
 
 func (s *Service) bindDependencies(ctx context.Context, parent *identity.ResolvedResource, definition registry.ReportEnvelope, original map[string]identity.ResolvedResource, token string) (map[string]identity.ResolvedResource, string, error) {
+	// Match the shared execution engine: an admitted published root already
+	// closes its embedded descriptors. Request-supplied child authority is invalid.
+	if parent != nil && parent.Kind == publishedidentity.PublishedCandidate {
+		if len(original) != 0 || token != "" {
+			return nil, "", identity.ErrResourceDenied
+		}
+		return nil, "", nil
+	}
 	if len(definition.DataSourceResources) == 0 {
 		if len(original) > 0 || token != "" {
 			return nil, "", identity.ErrResourceDenied

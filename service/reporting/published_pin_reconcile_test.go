@@ -16,6 +16,8 @@ import (
 	"github.com/viant/forge/backend/reporting/registry"
 	identity "github.com/viant/forge/backend/resource"
 	resources "github.com/viant/forge/backend/resourcehost"
+	"github.com/viant/forge/backend/types"
+	iauth "github.com/viant/mcp/client/auth/link"
 )
 
 type publishedPinCaller struct{ publisher *artifactcohort.Publisher }
@@ -70,8 +72,22 @@ func newPublishedPinFixture(t *testing.T, account string) *publishedPinFixture {
 	t.Cleanup(gateway.Close)
 	require.NoError(t, gateway.RegisterPublishedMetadataSource(resources.Connection{Name: "catalog", ProviderIdentity: "publisher"}, []string{"example"}, source))
 	catalog := &resources.ReportGatewayCatalog{Gateway: gateway}
-	f.service = New(Options{Store: NewMemoryStore(), Compiler: NewReportSpecCompiler(nil), ReportCatalog: catalog})
+	f.service = New(Options{Store: NewMemoryStore(), Compiler: NewReportSpecCompiler(nil), Exporter: NewForgeExporter(nil), ReportCatalog: catalog})
 	f.service.SetResourceReaderFactory(catalog.Reader)
+
+	signer, err := types.NewWindowTargetHMAC(make([]byte, 32))
+	require.NoError(t, err)
+	f.service.SetResourceDependencies(func(ctx context.Context, pin identity.ResolvedResource, refs map[string]primitive.DataSourceReference, descriptors map[string]json.RawMessage, original map[string]identity.ResolvedResource) (map[string]identity.ResolvedResource, error) {
+		parsed, err := identity.ParseResourceURI(pin.URI)
+		if err != nil {
+			return nil, err
+		}
+		parent, err := gateway.ConnectionForResource(ctx, parsed, pin.ProviderIdentity)
+		if err != nil {
+			return nil, err
+		}
+		return gateway.ResolveDependencyPins(ctx, parent, pin, refs, descriptors, original)
+	}, signer)
 	f.service.SetResourceDatasetExecutor(NewResourceDatasetExecutor(reportFixtureTransport(func(context.Context, string, map[string]interface{}) (string, error) {
 		f.calls++
 		return `{"data":[{"label":"Example","value":7}]}`, nil
@@ -195,4 +211,60 @@ func TestPublishedGetReportPinReplaysAfterUnchangedReconnect(t *testing.T) {
 	require.NoError(t, f.replica.Sync(ctx))
 	require.Error(t, f.run(ctx, changed))
 	require.Equal(t, before, f.calls)
+}
+
+// This exercises the public reporting tool contract with an independently
+// published closed report and an ordinary reader admitted by its producer.
+func TestPublishedClosedRootReaderExportsCSV(t *testing.T) {
+	f := newPublishedPinFixture(t, "account-one")
+	ctx := iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "reader"), "reader")
+	pin := f.get(t, ctx)
+	require.NoError(t, f.run(ctx, pin), "the same reader can render this closed report")
+	before := f.calls
+	submit, err := f.service.Method("submit_export")
+	require.NoError(t, err)
+	var job ExportJobStatus
+	err = submit(ctx, &SubmitExportRequest{Resource: &identity.ResourceRef{URI: pin.URI}, ResolvedResource: pin, Format: ExportFormatCSV, TableBlockID: "details"}, &job)
+	require.NoError(t, err, "an admitted closed root must use its embedded datasource contract")
+	require.Greater(t, f.calls, before, "export must execute producer data")
+	require.NotEmpty(t, job.JobID)
+
+	completed, err := f.service.RunExport(ctx, job.JobID)
+	require.NoError(t, err)
+	require.Equal(t, JobStatusSucceeded, completed.Status)
+	artifact, err := f.service.GetArtifact(ctx, completed.ArtifactID)
+	require.NoError(t, err)
+	require.Equal(t, "Label,Value\nExample,7\n", string(artifact.Data))
+
+	for _, scenario := range []string{"child pins", "child proof", "expired pin", "foreign provider"} {
+		t.Run(scenario, func(t *testing.T) {
+			changed := *pin
+			request := &SubmitExportRequest{Resource: &identity.ResourceRef{URI: pin.URI}, ResolvedResource: &changed, Format: ExportFormatCSV, TableBlockID: "details"}
+			switch scenario {
+			case "child pins":
+				request.DependencyPins = map[string]identity.ResolvedResource{"rows": *pin}
+			case "child proof":
+				request.DependencyToken = "forged"
+			case "expired pin":
+				changed.ValidUntil = time.Now().Add(-time.Minute)
+			case "foreign provider":
+				changed.ProviderIdentity = "foreign"
+			}
+			before := f.calls
+			_, err := f.service.SubmitExport(ctx, request)
+			require.Error(t, err)
+			require.Equal(t, before, f.calls, "denied export must not execute data")
+		})
+	}
+	foreign := iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "other-reader"), "other-reader")
+	_, err = f.service.GetArtifact(foreign, completed.ArtifactID)
+	require.ErrorIs(t, err, ErrNotFound)
+	f.policies[0].Revision++
+	f.policies[0].Policies[artifactcohort.PolicyAction] = authz.Policy{Mode: "protected", Rule: &authz.Rule{Kind: "role", Value: "administrator"}}
+	f.replace(t)
+	require.NoError(t, f.replica.Sync(ctx))
+	_, err = f.service.GetArtifact(ctx, completed.ArtifactID)
+	require.ErrorIs(t, err, ErrNotFound, "producer revocation must deny completed download")
+	_, err = f.service.SubmitExport(ctx, &SubmitExportRequest{Resource: &identity.ResourceRef{URI: pin.URI}, ResolvedResource: pin, Format: ExportFormatCSV, TableBlockID: "details"})
+	require.Error(t, err, "producer revocation must deny a new export")
 }
