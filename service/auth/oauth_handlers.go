@@ -125,7 +125,10 @@ func (a *authExtension) handleOAuthOOB() http.HandlerFunc {
 			return
 		}
 		scopes := normalizeScopes(in.Scopes)
-		if len(scopes) == 0 {
+		if len(configuredOAuthScopeSets(a.cfg.OAuth.Client)) > 0 {
+			// Caller scopes may extend the configured headless grant, never reduce it.
+			scopes = normalizeScopes(append(OAuthScopesForHeadless(a.cfg.OAuth.Client), scopes...))
+		} else if len(scopes) == 0 {
 			scopes = OAuthScopesForHeadless(a.cfg.OAuth.Client)
 		}
 		oauthCfg, err := loadOAuthClientConfig(r.Context(), configURL)
