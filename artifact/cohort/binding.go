@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/app/executor"
+	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	identity "github.com/viant/agently-core/protocol/resource"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
 	"github.com/viant/forge/backend/artifactcohort"
 	artifactcache "github.com/viant/forge/backend/artifactcohort/cache"
+	primitive "github.com/viant/forge/backend/provider/contract"
 )
 
 // Registration is an operator-owned bridge from one configured
@@ -26,6 +28,23 @@ type Registration struct {
 	Namespace                                                 string
 	Client                                                    artifactcohort.ToolClient
 	Notifications                                             *artifactcohort.NotificationHandler
+}
+
+// Metadata synchronization owns a dedicated host client. Interactive menu reads
+// use the configured connection's ordinary per-request credential and pool.
+type cohortCaller struct {
+	artifactcohort.NamespaceCaller
+	manager    *mcpmgr.Manager
+	connection string
+}
+
+func (c cohortCaller) ResolveMenu(ctx context.Context, ref artifactcohort.RootRef, parameters map[string]any) (*primitive.GetResult, error) {
+	ctx = c.manager.WithAuthTokenContext(ctx, c.connection)
+	client, err := c.manager.Get(ctx, "", c.connection)
+	if err != nil {
+		return nil, err
+	}
+	return (artifactcohort.NamespaceCaller{Client: client, Namespace: c.Namespace}).ResolveMenu(ctx, ref, parameters)
 }
 
 type verifiedCohortFacts struct {
@@ -89,7 +108,8 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 		chosen := registration.Cohort
 		selectedCohort = func(context.Context) (string, error) { return chosen, nil }
 	}
-	replica, err := artifactcohort.NewReplica(artifactcohort.Config{Enabled: true, Source: registration.ProviderIdentity, Tenant: registration.Tenant, Account: registration.Account, Cohort: selectedCohort, Caller: artifactcohort.NamespaceCaller{Client: registration.Client, Namespace: namespace}, Facts: verifiedCohortFacts{source: rt.VerifiedPrincipalResolver, tenant: registration.Tenant}, SessionKey: verifiedCohortSession, Store: store, ManifestStore: artifactcache.FileManifestStore{Directory: filepath.Join(stateDir, "manifests")}})
+	caller := cohortCaller{NamespaceCaller: artifactcohort.NamespaceCaller{Client: registration.Client, Namespace: namespace}, manager: rt.MCPManager, connection: registration.ConnectionName}
+	replica, err := artifactcohort.NewReplica(artifactcohort.Config{Enabled: true, Source: registration.ProviderIdentity, Tenant: registration.Tenant, Account: registration.Account, Cohort: selectedCohort, Caller: caller, Facts: verifiedCohortFacts{source: rt.VerifiedPrincipalResolver, tenant: registration.Tenant}, SessionKey: verifiedCohortSession, Store: store, ManifestStore: artifactcache.FileManifestStore{Directory: filepath.Join(stateDir, "manifests")}})
 	if err != nil {
 		_ = store.Close()
 		return Binding{}, err
