@@ -512,7 +512,8 @@ func validateMenus(menus []LayoutMenu, seen map[string]bool, providers map[strin
 		if providers != nil && menu.Action != nil && menu.Action.Provider != "" && menu.Action.Provider != "workspace" && !providers[menu.Action.Provider] {
 			return fmt.Errorf("menu %s references unknown provider", menu.ID)
 		}
-		if err := validateMenus(menu.Children, seen, providers); err != nil {
+		// Descendants have their own parent path; duplicate IDs are sibling-local.
+		if err := validateMenus(menu.Children, map[string]bool{}, providers); err != nil {
 			return err
 		}
 	}
