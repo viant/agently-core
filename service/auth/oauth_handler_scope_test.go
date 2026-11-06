@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,10 +17,12 @@ import (
 )
 
 type staticOOBAuthorizer struct {
-	token *oauth2.Token
+	token   *oauth2.Token
+	command *authorizer.Command
 }
 
-func (s *staticOOBAuthorizer) Authorize(context.Context, *authorizer.Command) (*oauth2.Token, error) {
+func (s *staticOOBAuthorizer) Authorize(_ context.Context, command *authorizer.Command) (*oauth2.Token, error) {
+	s.command = command
 	return s.token, nil
 }
 
@@ -407,4 +410,59 @@ func oauthCallbackScopeHTTPClient(responseBody string) *http.Client {
 			Request:    req,
 		}, nil
 	})}
+}
+
+func TestAuthExtensionOAuthOOB_ConfiguredScopesCannotBeReduced(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		client    OAuthClient
+		requested []string
+		granted   string
+		expected  []string
+		status    int
+	}{
+		{"reject missing base scope", OAuthClient{Scopes: []string{"openid", "workspace:read"}}, []string{"openid"}, "openid", []string{"openid", "workspace:read"}, http.StatusUnauthorized},
+		{"add caller scopes and deduplicate", OAuthClient{Scopes: []string{"openid", "workspace:read"}}, []string{" openid ", "extra:read", "extra:read"}, "openid workspace:read extra:read", []string{"openid", "workspace:read", "extra:read"}, http.StatusOK},
+		{"reject missing caller scope", OAuthClient{Scopes: []string{"workspace:read"}}, []string{"extra:read"}, "workspace:read", []string{"workspace:read", "extra:read"}, http.StatusUnauthorized},
+		{"CLI scope remains required", OAuthClient{Scopes: []string{"openid"}, CLIScopes: []string{"cli:read"}, WebUIScopes: []string{"web:read"}}, []string{"openid"}, "openid", []string{"openid", "cli:read"}, http.StatusUnauthorized},
+		{"web fallback", OAuthClient{Scopes: []string{"openid"}, WebUIScopes: []string{"web:read"}}, []string{"extra:read"}, "openid web:read extra:read", []string{"openid", "web:read", "extra:read"}, http.StatusOK},
+		{"mobile fallback", OAuthClient{MobileUIScopes: []string{"mobile:read"}}, []string{"extra:read"}, "mobile:read extra:read", []string{"mobile:read", "extra:read"}, http.StatusOK},
+		{"configured defaults", OAuthClient{Scopes: []string{"workspace:read"}}, nil, "workspace:read", []string{"workspace:read"}, http.StatusOK},
+		{"no configured scopes preserves caller", OAuthClient{}, []string{"extra:read"}, "extra:read", []string{"extra:read"}, http.StatusOK},
+		{"blank configured scopes preserves caller", OAuthClient{Scopes: []string{" "}, CLIScopes: []string{""}}, []string{"extra:read"}, "extra:read", []string{"extra:read"}, http.StatusOK},
+		{"no configuration or request preserves default", OAuthClient{}, nil, "openid", []string{"openid"}, http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.client.ConfigURL = writeOAuthClientConfig(t)
+			sessions := NewManager(0, nil)
+			store := newScopeRejectTokenStore()
+			ext := newAuthExtension(&Config{CookieName: "test_session", OAuth: &OAuth{Name: "oauth", Client: &tc.client}}, sessions, "", store, nil)
+			authorizer := &staticOOBAuthorizer{token: (&oauth2.Token{AccessToken: "synthetic-access", Expiry: time.Now().Add(time.Hour)}).WithExtra(map[string]interface{}{"scope": tc.granted})}
+			ext.oauthOOB = authorizer
+			body, err := json.Marshal(map[string]interface{}{"secretsURL": "inlined://base64/e30=", "scopes": tc.requested})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := httptest.NewRecorder()
+			ext.handleOAuthOOB().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/api/auth/oob", strings.NewReader(string(body))))
+			if authorizer.command == nil {
+				t.Fatal("authorization was not called")
+			}
+			if !slices.Equal(authorizer.command.Scopes, tc.expected) || !slices.Equal(authorizer.command.OAuthConfig.Config.Scopes, tc.expected) {
+				t.Fatalf("requested scopes = %v, OAuth config scopes = %v; want %v", authorizer.command.Scopes, authorizer.command.OAuthConfig.Config.Scopes, tc.expected)
+			}
+			if rec.Code != tc.status {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tc.status, rec.Body.String())
+			}
+			if tc.status == http.StatusUnauthorized {
+				assertNoRejectedTokenPersistence(t, sessions, store, rec)
+			}
+			if tc.status == http.StatusOK {
+				active := sessions.ActiveSessions()
+				if len(active) != 1 || !slices.Equal(active[0].Scopes, tc.expected) {
+					t.Fatal("session did not retain the combined scopes")
+				}
+			}
+		})
+	}
 }

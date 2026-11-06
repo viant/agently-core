@@ -65,8 +65,6 @@ func (a *authExtension) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/api/auth/oob", a.handleOAuthOOB())
 	mux.HandleFunc("POST /v1/api/auth/idp/delegate", a.handleIDPDelegate())
 	mux.HandleFunc("GET /v1/api/auth/idp/login", a.handleIDPLogin())
-	mux.HandleFunc("POST /v1/api/auth/jwt/keypair", a.handleJWTKeyPair())
-	mux.HandleFunc("POST /v1/api/auth/jwt/mint", a.handleJWTMint())
 	a.registerMCPLinkRoutes(mux)
 }
 
