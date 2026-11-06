@@ -222,6 +222,12 @@ func writeDatasourceFetchError(w http.ResponseWriter, err error, resource *ident
 		(errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale)) {
 		uri, parseErr := identity.ParseResourceURI(resource.URI)
 		if parseErr == nil && uri.Kind == "window" {
+			if errors.Is(err, identity.ErrResourceStale) && !errors.Is(err, identity.ErrResourceDenied) {
+				httpJSON(w, http.StatusForbidden, map[string]string{
+					"error": "window binding required", "code": "window_binding_required", "scope": "window",
+				})
+				return
+			}
 			httpJSON(w, http.StatusForbidden, map[string]string{
 				"error": "window artifact access denied", "code": "resource_denied", "scope": "window",
 			})

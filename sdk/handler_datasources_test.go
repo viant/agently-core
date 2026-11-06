@@ -503,7 +503,8 @@ func TestFetchDatasourceErrorSeparatesWindowArtifactFromManagingData(t *testing.
 		status                 int
 	}{
 		{"artifact", "window://team/detail", "resource_denied", "window", identity.ErrResourceDenied, 403},
-		{"stale artifact", "window://team/detail", "resource_denied", "window", identity.ErrResourceStale, 403},
+		{"stale artifact", "window://team/detail", "window_binding_required", "window", identity.ErrResourceStale, 403},
+		{"denial beats stale binding", "window://team/detail", "resource_denied", "window", errors.Join(identity.ErrResourceDenied, identity.ErrResourceStale), 403},
 		{"artifact beats local denial", "window://team/detail", "resource_denied", "window", errors.Join(identity.ErrResourceDenied, dsproto.ErrDatasourceDenied), 403},
 		{"managed dataset", "window://team/detail", "datasource_denied", "dataset", dsproto.ErrDatasourceDenied, 403},
 		{"unclassified managing denial", "window://team/detail", "", "", &dsproto.UpstreamAuthorizationError{Status: 403}, 403},

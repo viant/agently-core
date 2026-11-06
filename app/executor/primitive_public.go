@@ -432,5 +432,7 @@ func (p publicDefinitionRevision) SelectRevision(ctx context.Context, ref identi
 	if ref.URI != p.uri || ref.Revision != "" && ref.Revision != identity.WorkingCandidate || len(candidates) != 1 || candidates[0].Kind != identity.WorkingCandidate {
 		return identity.ResourceDecision{}, identity.ErrResourceDenied
 	}
-	return identity.ResourceDecision{Candidate: candidates[0], AuthorityBinding: "public-local-definition", ValidUntil: p.actor.ValidUntil}, nil
+	// Public presentation metadata follows its source fingerprint, not the
+	// lifetime of the credential used to read it.
+	return identity.ResourceDecision{Candidate: candidates[0], AuthorityBinding: "public-local-definition"}, nil
 }
