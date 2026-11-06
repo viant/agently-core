@@ -190,7 +190,16 @@ func (h *MetadataHandler) SetLayoutDefault(data []byte) {
 func (h *MetadataHandler) handleLayout() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "private, no-store")
-		result, err := h.Layout(r.Context(), &LayoutRequest{})
+		input := &LayoutRequest{ApplicationID: r.URL.Query().Get("applicationId"), ProviderIdentity: r.URL.Query().Get("providerIdentity")}
+		if raw := r.URL.Query().Get("parameters"); raw != "" {
+			decoder := json.NewDecoder(strings.NewReader(raw))
+			decoder.UseNumber()
+			if err := decoder.Decode(&input.Parameters); err != nil || decoder.Decode(new(any)) != io.EOF {
+				writeMetadataError(w, metadataFailure(http.StatusBadRequest, "invalid layout parameters", nil))
+				return
+			}
+		}
+		result, err := h.Layout(r.Context(), input)
 		if err != nil {
 			writeMetadataError(w, err)
 			return
@@ -203,11 +212,18 @@ func (h *MetadataHandler) handleLayout() http.HandlerFunc {
 // LayoutResponse retains the exact version/revision/catalog envelope.
 type LayoutResponse = layoutResponse
 
-// LayoutRequest reserves the typed request boundary; current layout policy is
-// entirely supplied by authenticated context, as on the native GET endpoint.
-type LayoutRequest struct{}
+// LayoutRequest carries transient presentation inputs. Authorization and menu
+// source selection remain supplied by the authenticated backend context.
+type LayoutRequest struct {
+	ApplicationID    string         `json:"applicationId,omitempty"`
+	ProviderIdentity string         `json:"providerIdentity,omitempty"`
+	Parameters       map[string]any `json:"parameters,omitempty"`
+}
 
-func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*LayoutResponse, error) {
+func (h *MetadataHandler) Layout(ctx context.Context, request *LayoutRequest) (*LayoutResponse, error) {
+	if request != nil {
+		ctx = context.WithValue(ctx, layoutMenuParametersKey{}, *request)
+	}
 	root := ws.Root()
 	var data []byte
 	var source string

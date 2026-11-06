@@ -87,7 +87,8 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 			}
 			connectionName = connection.Name
 			stage = "definition_read"
-			got, err := resources.GetWithCodec[json.RawMessage](ctx, gateway, connection, source.Resource, nil, resources.DefinitionCodec[json.RawMessage]{
+			readContext := layoutMenuReadContext(ctx, source.ProviderIdentity, source.ApplicationID)
+			got, err := resources.GetWithCodec[json.RawMessage](readContext, gateway, connection, source.Resource, nil, resources.DefinitionCodec[json.RawMessage]{
 				ID: "agently.navigation.layout.v1",
 				Parse: func(raw json.RawMessage) (json.RawMessage, error) {
 					definition, parseErr := validateNavigationDefinition(raw)

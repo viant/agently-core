@@ -1,9 +1,11 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"github.com/viant/agently-core/service/browsermcp"
 	workspace "github.com/viant/agently-core/service/workspace"
@@ -32,7 +34,18 @@ func dispatchAGUIWorkspaceMetadata(ctx context.Context, operation string, payloa
 	case "workspace.publicagents.list":
 		return bindings.Metadata.PublicAgents(ctx)
 	case "workspace.layout.get":
-		return bindings.Metadata.Layout(ctx, &workspace.LayoutRequest{})
+		input := &workspace.LayoutRequest{}
+		if len(payload) > 0 {
+			decoder := json.NewDecoder(bytes.NewReader(payload))
+			decoder.UseNumber()
+			if err := decoder.Decode(input); err != nil {
+				return nil, err
+			}
+			if decoder.Decode(new(any)) != io.EOF {
+				return nil, fmt.Errorf("invalid layout request")
+			}
+		}
+		return bindings.Metadata.Layout(ctx, input)
 	case "workspace.tools.list":
 		var input struct {
 			Pattern string `json:"pattern"`

@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	shared "github.com/viant/forge/backend/resourcehost"
 )
 
 // LayoutMenuRead contains already authorized visible applications and a final
@@ -24,4 +25,17 @@ func (h *MetadataHandler) SetLayoutMenuReader(reader LayoutMenuReader) {
 	if h != nil {
 		h.layoutMenuReader = reader
 	}
+}
+
+// The selector matches configured source ownership; it is never an authority
+// claim or a browser-selected connection. Other applications receive no values.
+type layoutMenuParametersKey struct{}
+
+func layoutMenuReadContext(ctx context.Context, owner, application string) context.Context {
+	input, _ := ctx.Value(layoutMenuParametersKey{}).(LayoutRequest)
+	var parameters map[string]any
+	if application != "" && input.ApplicationID == application && input.ProviderIdentity == owner {
+		parameters = input.Parameters
+	}
+	return shared.WithMenuParameters(ctx, parameters)
 }
