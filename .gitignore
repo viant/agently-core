@@ -118,3 +118,6 @@ __pycache__/
 # Private local captures and runtime state.
 /.LOCAL/
 /e2e/query/db/
+
+# Local design, planning, and execution notes.
+/lookups-test.mjs

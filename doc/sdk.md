@@ -346,4 +346,4 @@ Compile-time assertions enforce symmetry on Go; the other three languages rely o
 
 - [doc/streaming-events.md](streaming-events.md)
 - [doc/auth-system.md](auth-system.md) — session / token handling is transparent to the SDK caller.
-- [doc/lookups.md](lookups.md) §13 — a worked example of extending the SDK end-to-end.
+- [Datasource and lookup contracts](lookups.md).

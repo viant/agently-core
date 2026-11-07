@@ -313,7 +313,7 @@ Important contract:
 
 This matches progressive disclosure and keeps the full skill body out of the
 prompt until needed. There is deliberately no install/load tool at the LLM
-surface: the filesystem watcher (Phase 1) handles new-skill pickup, and the
+surface: the filesystem watcher handles new-skill pickup, and the
 agentskills.io spec itself does not define such a tool.
 
 ## 10. Prompt strategy
