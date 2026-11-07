@@ -271,10 +271,13 @@ func optionalGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(co
 		for _, source := range configured {
 			read, err := newGatewayLayoutMenuReader(gateway, func(context.Context) ([]GatewayMenuSource, error) { return []GatewayMenuSource{source}, nil }, false)(ctx)
 			if err != nil {
-				if optionalApplicationDenied(err) {
-					continue
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
 				}
-				return nil, err
+				if !optionalApplicationDenied(err) {
+					logOptionalMenuFailure("optional_menu_read", err)
+				}
+				continue
 			}
 			held = append(held, read)
 			var apps []json.RawMessage
@@ -293,17 +296,9 @@ func optionalGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(co
 			return nil, err
 		}
 		success = true
-		return &LayoutMenuRead{Applications: raw, Revision: identity.ContentFingerprint(version), ProviderOwnedApplications: true, Close: closeReads, Revalidate: func(ctx context.Context) error {
-			if ctx == nil || ctx.Err() != nil {
-				return identity.ErrResourceDenied
-			}
-			for _, read := range held {
-				if err := read.Revalidate(ctx); err != nil {
-					return err
-				}
-			}
-			return closeReads()
-		}}, nil
+		result := &LayoutMenuRead{Applications: raw, Revision: identity.ContentFingerprint(version), ProviderOwnedApplications: true, Close: closeReads}
+		result.Revalidate = func(ctx context.Context) error { return revalidateOptionalMenus(ctx, result, held) }
+		return result, nil
 	}
 }
 
@@ -321,4 +316,41 @@ func applyNavigationStylePreference(raw json.RawMessage, allow bool) (json.RawMe
 		delete(app, "styleResources")
 	}
 	return json.Marshal(app)
+}
+
+func revalidateOptionalMenus(ctx context.Context, result *LayoutMenuRead, held []*LayoutMenuRead) error {
+	if ctx == nil {
+		return identity.ErrResourceDenied
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	accepted := []json.RawMessage{}
+	versions := []string{}
+	for _, read := range held {
+		if err := read.Revalidate(ctx); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			logOptionalMenuFailure("optional_revalidate", err)
+			continue
+		}
+		var apps []json.RawMessage
+		if err := json.Unmarshal(read.Applications, &apps); err != nil {
+			return err
+		}
+		accepted = append(accepted, apps...)
+		versions = append(versions, read.Revision)
+	}
+	raw, err := json.Marshal(accepted)
+	result.Applications = raw
+	if err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(versions)
+	if err != nil {
+		return err
+	}
+	result.Revision = identity.ContentFingerprint(encoded)
+	return nil
 }

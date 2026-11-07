@@ -65,10 +65,13 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 			for cursor := ""; ; {
 				page, err := resources.ListPageFrom[json.RawMessage](ctx, gateway, []resources.Connection{root}, "navigation", resources.CatalogQuery{Limit: 100, Cursor: cursor}, false)
 				if err != nil {
-					if optionalApplicationDenied(err) {
-						break
+					if ctx.Err() != nil {
+						return nil, ctx.Err()
 					}
-					return nil, markLayoutMenuFailure("source_list", root.Name, "", err)
+					if !optionalApplicationDenied(err) {
+						logOptionalMenuFailure("source_list", markLayoutMenuFailure("source_list", root.Name, "", err))
+					}
+					break
 				}
 				providerRows = append(providerRows, page.Items...)
 				if page.NextCursor == "" {
@@ -79,7 +82,8 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 					break
 				}
 				if page.NextCursor == cursor {
-					return nil, markLayoutMenuFailure("source_list", root.Name, "", fmt.Errorf("navigation pagination made no progress"))
+					logOptionalMenuFailure("source_list", markLayoutMenuFailure("source_list", root.Name, "", fmt.Errorf("navigation pagination made no progress")))
+					break
 				}
 				cursor = page.NextCursor
 			}

@@ -194,9 +194,9 @@ func TestOptionalApplicationReadDenialDoesNotHideOtherProviders(t *testing.T) {
 	}{
 		{"unauthorized", jsonrpc.NewUnauthorizedError(401, nil), false, true},
 		{"forbidden", applicationStatusError(403), false, true},
-		{"server", applicationStatusError(500), false, false},
-		{"invalid-publication", nil, true, false},
-		{"integrity", identity.ErrResourceStale, false, false},
+		{"server", applicationStatusError(500), false, true},
+		{"invalid-publication", nil, true, true},
+		{"integrity", identity.ErrResourceStale, false, true},
 	} {
 		for _, deniedFirst := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s/deniedFirst=%v", tc.name, deniedFirst), func(t *testing.T) {
@@ -238,7 +238,7 @@ func TestOptionalApplicationReadDenialDoesNotHideOtherProviders(t *testing.T) {
 				strict := NewGatewayLayoutMenuReader(gateway, []GatewayMenuSource{{Resource: identity.ResourceRef{URI: "navigation://optional/main"}, ProviderIdentity: "optional"}})
 				_, err = strict(ctx)
 				require.Error(t, err)
-				require.False(t, errors.Is(err, identity.ErrResourceStale))
+				require.Equal(t, errors.Is(tc.failure, identity.ErrResourceStale), errors.Is(err, identity.ErrResourceStale))
 			})
 		}
 	}
@@ -302,4 +302,29 @@ func (c *parameterCheckingMenuClient) CallTool(ctx context.Context, p *schema.Ca
 		}
 	}
 	return c.Interface.CallTool(ctx, p, options...)
+}
+
+func TestOptionalMenuRevalidationDropsOnlyFailedProducer(t *testing.T) {
+	for _, failure := range []error{applicationStatusError(500), identity.ErrResourceStale, identity.ErrResourceDenied} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			broken := &LayoutMenuRead{Applications: json.RawMessage(`[{"id":"broken","title":"Broken","menus":[]}]`), Revision: "broken", Revalidate: func(context.Context) error { return failure }}
+			healthy := &LayoutMenuRead{Applications: json.RawMessage(`[{"id":"healthy","title":"Healthy","menus":[{"id":"open","title":"Open","action":{"type":"window","windowKey":"records"}}]}]`), Revision: "healthy", Revalidate: func(context.Context) error { return nil }}
+			result := &LayoutMenuRead{Applications: json.RawMessage(`[{"id":"broken","title":"Broken","menus":[]},{"id":"healthy","title":"Healthy","menus":[{"id":"open","title":"Open","action":{"type":"window","windowKey":"records"}}]}]`), Revision: "initial", ProviderOwnedApplications: true}
+			result.Revalidate = func(ctx context.Context) error {
+				return revalidateOptionalMenus(ctx, result, []*LayoutMenuRead{broken, healthy})
+			}
+			handler := NewMetadataHandler(nil, nil, "test")
+			handler.SetAuthorizationRuntimes(nil, nil)
+			handler.SetLayoutDefault([]byte(menuShell))
+			handler.SetLayoutMenuReader(func(context.Context) (*LayoutMenuRead, error) { return result, nil })
+			got, err := handler.Layout(context.Background(), &LayoutRequest{})
+			require.NoError(t, err)
+			require.Len(t, got.Layout.Applications, 1)
+			require.Equal(t, "healthy", got.Layout.Applications[0].ID)
+			require.NotEqual(t, "initial", result.Revision)
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			require.ErrorIs(t, revalidateOptionalMenus(ctx, result, []*LayoutMenuRead{healthy}), context.Canceled)
+		})
+	}
 }

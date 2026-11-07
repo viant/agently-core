@@ -296,6 +296,13 @@ func (h *MetadataHandler) Layout(ctx context.Context, request *LayoutRequest) (*
 			logLayoutMenuFailure("menu_read", err)
 			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
 		}
+		if err = menuRead.Revalidate(ctx); err != nil || ctx.Err() != nil {
+			if err == nil {
+				err = ctx.Err()
+			}
+			logLayoutMenuFailure("revalidate", err)
+			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
+		}
 		var applications []LayoutApplication
 		if err = json.Unmarshal(menuRead.Applications, &applications); err != nil || applications == nil {
 			logLayoutMenuFailure("menu_decode", err)
@@ -340,15 +347,9 @@ func (h *MetadataHandler) Layout(ctx context.Context, request *LayoutRequest) (*
 		revisionBytes = append(append(revisionBytes, 0), decorated...)
 	}
 	if menuRead != nil {
-		if err = menuRead.Revalidate(ctx); err != nil || ctx.Err() != nil {
-			if err == nil {
-				err = ctx.Err()
-			}
-			logLayoutMenuFailure("revalidate", err)
-			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
-		}
 		revisionBytes = append(append(revisionBytes, 0), menuRead.Revision...)
 	}
+
 	digest := sha256.Sum256(revisionBytes)
 	catalogRevisions := permitted.CatalogRevisions
 	permitted.CatalogRevisions = nil

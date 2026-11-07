@@ -69,11 +69,20 @@ func layoutFailureCategory(err error) string {
 }
 
 func logLayoutMenuFailure(stage string, err error) {
+	logLayoutFailure("layout.menu.failed", http.StatusServiceUnavailable, stage, err)
+}
+
+func logOptionalMenuFailure(stage string, err error) {
+	logLayoutFailure("layout.menu.omitted", http.StatusOK, stage, err)
+}
+
+func logLayoutFailure(event string, status int, stage string, err error) {
 	connection, resource := "", ""
 	var failure *layoutMenuFailure
 	if errors.As(err, &failure) {
 		stage, connection, resource = failure.stage, failure.connection, failure.resource
 	}
-	logx.OperationalWarnf("workspace-navigation", "layout.menu.failed stage=%q connection=%q resource=%q category=%q httpStatus=%d",
-		stage, logx.SafeResourceIdentifier(connection), logx.SafeResourceIdentifier(resource), layoutFailureCategory(err), http.StatusServiceUnavailable)
+	logx.OperationalWarnf("workspace-navigation", "%s stage=%q connection=%q resource=%q category=%q httpStatus=%d",
+		event,
+		stage, logx.SafeResourceIdentifier(connection), logx.SafeResourceIdentifier(resource), layoutFailureCategory(err), status)
 }

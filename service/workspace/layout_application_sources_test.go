@@ -137,10 +137,10 @@ func TestApplicationSourcesIsolateOnlyExpectedProviderAuthorization(t *testing.T
 		{"protocol-auth-required", &jsonrpc.Error{Code: schema.Unauthorized, Message: "authentication required"}, true},
 		{"link-required", &authcfg.OAuthLinkRequiredError{ServerName: "optional", ProviderRef: "fixture"}, true},
 		{"headless-required", &integrate.HeadlessAuthRequiredError{Origin: "fixture.invalid"}, true},
-		{"server-error", applicationStatusError(500), false},
-		{"transport-error", errors.New("connection unavailable"), false},
-		{"mixed", errors.Join(applicationStatusError(403), errors.New("transport unavailable")), false},
-		{"host-identity", identity.ErrResourceDenied, false},
+		{"server-error", applicationStatusError(500), true},
+		{"transport-error", errors.New("connection unavailable"), true},
+		{"mixed", errors.Join(applicationStatusError(403), errors.New("transport unavailable")), true},
+		{"host-identity", identity.ErrResourceDenied, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -210,10 +210,6 @@ func TestApplicationSourcesHTTPDenialDoesNotPromptOrBreakLayout(t *testing.T) {
 			got, err := handler.Layout(ctx, &LayoutRequest{})
 			require.Positive(t, requests.Load())
 			require.Zero(t, prompts.Load())
-			if status == 500 {
-				require.Error(t, err)
-				return
-			}
 			require.NoError(t, err)
 			require.Len(t, got.Layout.Applications, 1)
 			require.Equal(t, "internal", got.Layout.Applications[0].ProviderIdentity)
