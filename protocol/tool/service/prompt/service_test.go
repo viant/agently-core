@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -83,6 +84,7 @@ func (f *promptTestFinder) Find(context.Context, string) (*agentmdl.Agent, error
 type promptTestConversationClient struct {
 	conversation *apiconv.Conversation
 	messages     []*apiconv.MutableMessage
+	patchError   error
 }
 
 func (c *promptTestConversationClient) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
@@ -106,6 +108,9 @@ func (c *promptTestConversationClient) PatchPayload(context.Context, *apiconv.Mu
 }
 
 func (c *promptTestConversationClient) PatchMessage(_ context.Context, message *apiconv.MutableMessage) error {
+	if c.patchError != nil {
+		return c.patchError
+	}
 	c.messages = append(c.messages, message)
 	return nil
 }
@@ -192,11 +197,17 @@ func TestService_get_InjectsRolePreservingMessages(t *testing.T) {
 	err := service.get(ctx, &GetInput{ID: "performance_analysis", IncludeDocument: &include}, out)
 	require.NoError(t, err)
 	assert.True(t, out.Injected)
-	require.NotNil(t, out.EvidenceContract)
-	assert.Equal(t, []string{"hierarchy", "performance_summary"}, out.EvidenceContract.Required)
-	assert.Equal(t, []string{"emit DATA:hierarchy", "emit at least one performance block"}, out.EvidenceContract.Completion)
-	require.Len(t, out.Messages, 2)
+	require.Nil(t, out.EvidenceContract)
+	require.Empty(t, out.Messages)
 	require.Len(t, client.messages, 2)
+	require.Equal(t, []string{client.messages[0].Id, client.messages[1].Id}, out.MessageIDs)
+	receipt, err := json.Marshal(out)
+	require.NoError(t, err)
+	var fields map[string]any
+	require.NoError(t, json.Unmarshal(receipt, &fields))
+	require.Len(t, fields, 3, "activation returns only identity, status and message IDs")
+	require.NotContains(t, string(receipt), "systems analyst")
+	require.NotContains(t, string(receipt), "Analyze the resource")
 
 	assert.Equal(t, "system", client.messages[0].Role)
 	assert.Equal(t, "system_document", valueOrEmpty(client.messages[0].Mode))
@@ -207,6 +218,15 @@ func TestService_get_InjectsRolePreservingMessages(t *testing.T) {
 	assert.Empty(t, valueOrEmpty(client.messages[1].Mode))
 	assert.Empty(t, valueOrEmpty(client.messages[1].Tags))
 	assert.Equal(t, "Analyze the resource hierarchy.", valueOrEmpty(client.messages[1].Content))
+
+	include = false
+	inspection := &GetOutput{}
+	require.NoError(t, service.get(ctx, &GetInput{ID: "performance_analysis", IncludeDocument: &include}, inspection))
+	require.Len(t, inspection.Messages, 2)
+	require.NotNil(t, inspection.EvidenceContract)
+	require.False(t, inspection.Injected)
+	require.Empty(t, inspection.MessageIDs)
+	require.Len(t, client.messages, 2, "inspection must not inject")
 }
 
 func valueOrEmpty(value *string) string {
@@ -214,4 +234,21 @@ func valueOrEmpty(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func TestPlaybookInjectionRequiresStorageAndTurn(t *testing.T) {
+	msgs := []intent.Message{{Role: "system", Text: "Follow the procedure."}}
+	s := New(nil)
+	_, err := s.injectMessages(context.Background(), msgs)
+	require.ErrorContains(t, err, "conversation storage")
+	client := &promptTestConversationClient{}
+	s.conv = client
+	_, err = s.injectMessages(context.Background(), msgs)
+	require.ErrorContains(t, err, "current conversation turn")
+	require.Empty(t, client.messages)
+	ctx := runtimerequestctx.WithTurnMeta(context.Background(), runtimerequestctx.TurnMeta{ConversationID: "conversation", TurnID: "turn"})
+	client.patchError = errors.New("storage unavailable")
+	ids, err := s.injectMessages(ctx, msgs)
+	require.ErrorIs(t, err, client.patchError)
+	require.Empty(t, ids)
 }

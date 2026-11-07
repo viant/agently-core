@@ -30,14 +30,14 @@ type ListOutput struct {
 // GetInput is the request payload for prompt:get.
 type GetInput struct {
 	ID              string `json:"id"`
-	IncludeDocument *bool  `json:"includeDocument,omitempty"`
+	IncludeDocument *bool  `json:"includeDocument,omitempty" description:"Set true when following this playbook: inject its authored messages into the current conversation preserving system/user roles. False or omitted is inspection only."`
 }
 
 // GetOutput is the response payload for prompt:get.
-// Messages are always returned regardless of includeDocument.
-// includeDocument controls only whether messages are also injected into the
-// current conversation via AddMessage().
+// Inspection returns messages. Activation injects the authored messages and
+// returns only their IDs so instruction text is not duplicated in tool output.
 type GetOutput struct {
+	MessageIDs       []string                `json:"messageIds,omitempty"`
 	ID               string                  `json:"id"`
 	Name             string                  `json:"name,omitempty"`
 	Description      string                  `json:"description,omitempty"`

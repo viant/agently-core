@@ -66,8 +66,8 @@ func (s *Service) Name() string {
 
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
-		{Name: "list", Description: "List available intake profiles by id and description for scenario selection", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
-		{Name: "get", Description: "Get a intake profile by id, returning rendered messages and metadata. Use includeDocument:true to inject instructions into the current conversation.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
+		{Name: "list", Description: "Discover available playbook summaries by id and description without loading instructions into the conversation. After selecting a playbook to follow, call get with includeDocument:true.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
+		{Name: "get", Description: "Get a playbook by id. When selecting it to guide the current task, set includeDocument:true: this injects its authored system/user messages in order. Omit or set false only to inspect the playbook without activating it. Check injected in the result.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
 	}
 }
 
@@ -170,7 +170,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	go_.Resources = selected.Resources
 	go_.Knowledge = append([]intent.KnowledgeMatch(nil), selected.Knowledge...)
 
-	// Always render and return messages in the response body.
+	// Render the selected messages for inspection or role-preserving activation.
 	// Render supports local text/URI messages and MCP-sourced messages.
 	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	renderOpts := &intent.RenderOptions{ConversationID: convID}
@@ -186,10 +186,13 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 
 	// Optionally inject into the conversation.
 	if gi.IncludeDocument != nil && *gi.IncludeDocument {
-		if err := s.injectMessages(ctx, msgs); err != nil {
+		ids, err := s.injectMessages(ctx, msgs)
+		if err != nil {
 			return err
 		}
-		go_.Injected = true
+		// Instructions are already role-preserving conversation messages. Return
+		// only their receipt, not a second copy in the tool response.
+		*go_ = GetOutput{ID: go_.ID, Injected: true, MessageIDs: ids}
 	}
 	return nil
 }
@@ -198,14 +201,15 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 // authored role.  System messages are stored as system documents
 // (SystemDocumentMode + SystemDocumentTag); user and assistant messages are
 // stored with their natural roles only.
-func (s *Service) injectMessages(ctx context.Context, msgs []intent.Message) error {
-	if s == nil || s.conv == nil || len(msgs) == 0 {
-		return nil
+func (s *Service) injectMessages(ctx context.Context, msgs []intent.Message) ([]string, error) {
+	if s == nil || s.conv == nil {
+		return nil, fmt.Errorf("playbook activation requires conversation storage")
 	}
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok || strings.TrimSpace(turn.ConversationID) == "" || strings.TrimSpace(turn.TurnID) == "" {
-		return nil
+		return nil, fmt.Errorf("playbook activation requires a current conversation turn")
 	}
+	ids := make([]string, 0, len(msgs))
 	for i, msg := range msgs {
 		text := strings.TrimSpace(msg.Text)
 		if text == "" {
@@ -226,11 +230,13 @@ func (s *Service) injectMessages(ctx context.Context, msgs []intent.Message) err
 				apiconv.WithTags(toolexec.SystemDocumentTag),
 			)
 		}
-		if _, err := apiconv.AddMessage(ctx, s.conv, &turn, opts...); err != nil {
-			return err
+		message, err := apiconv.AddMessage(ctx, s.conv, &turn, opts...)
+		if err != nil {
+			return ids, err
 		}
+		ids = append(ids, message.Id)
 	}
-	return nil
+	return ids, nil
 }
 
 // allowedProfiles returns all profiles visible to the current agent.
