@@ -560,7 +560,25 @@ func (c *Client) marshalChatCompletionApiRequestBody(req *Request) ([]byte, erro
 	if hasUploadedImageInput(req) {
 		return nil, fmt.Errorf("uploaded image file IDs require a Responses-capable endpoint; enable the configured Responses capability or use inline image attachments")
 	}
-	data, err := json.Marshal(req)
+	chat := *req
+	chat.Text = nil
+	chat.Reasoning = nil
+	chat.Instructions = ""
+	chat.PromptCacheKey = ""
+	chat.PreviousResponseID = ""
+	var format any
+	if req.Text != nil && req.Text.Format != nil {
+		f := req.Text.Format
+		if f.Type == "json_schema" {
+			format = map[string]any{"type": f.Type, "json_schema": map[string]any{"name": f.Name, "strict": f.Strict, "schema": f.Schema}}
+		} else {
+			format = map[string]any{"type": f.Type}
+		}
+	}
+	data, err := json.Marshal(struct {
+		*Request
+		ResponseFormat any `json:"response_format,omitempty"`
+	}{Request: &chat, ResponseFormat: format})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal chat/completions request: %w", err)
 	}
@@ -659,7 +677,6 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 	req.StreamOptions = nil
 	req.Instructions = ""
 	req.PromptCacheKey = ""
-	req.Text = nil
 
 	payload, err := c.marshalChatCompletionApiRequestBody(req)
 	if err != nil {
@@ -899,7 +916,6 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if !shouldUseResponsesAPI(c, req) {
 		req.Instructions = ""
 		req.PromptCacheKey = ""
-		req.Text = nil
 	}
 	payload, err := c.marshalRequestBody(req)
 	if err != nil {
