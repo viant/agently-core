@@ -894,6 +894,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			intakesvc.WithProfileRepo(promptRepo),
 			intakesvc.WithTemplateRepo(templateRepo),
 			intakesvc.WithBundleRepo(bundleRepo),
+			intakesvc.WithRoutingGuideReader(func(ctx context.Context, ref string) (string, error) {
+				return resourcesvc.ReadRoutingGuide(ctx, out.PrimitiveProviders, ref)
+			}),
 		)
 		agentOpts = append(agentOpts, agentsvc.WithIntakeService(intakeSvc))
 		templateBundles := tplbundlerepo.NewWithStore(out.Store)

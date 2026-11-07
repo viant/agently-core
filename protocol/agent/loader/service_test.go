@@ -425,6 +425,8 @@ intake:
   prompt:
     uri: intake/intake.tmpl
   scope: [intent]
+  routingGuides:
+    - routing://example/records
 `), 0o644))
 
 	service := New(WithMetaService(meta.New(afs.New(), root)))
@@ -433,6 +435,7 @@ intake:
 	require.NotNil(t, got)
 	assert.Equal(t, "intake/intake.tmpl", got.Intake.Prompt.URI)
 	assert.Empty(t, got.Intake.Prompt.Text)
+	assert.Equal(t, []string{"routing://example/records"}, got.Intake.RoutingGuides)
 }
 
 func TestService_Load_IntakeActivationRules(t *testing.T) {

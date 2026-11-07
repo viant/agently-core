@@ -528,6 +528,9 @@ func (a *Agent) Validate() error {
 	if a == nil {
 		return fmt.Errorf("agent is nil")
 	}
+	if err := a.Intake.validateRoutingGuides(); err != nil {
+		return err
+	}
 	for i, item := range a.Tool.Items {
 		if item != nil {
 			if err := item.Tier.Validate(); err != nil {

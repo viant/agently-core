@@ -7,6 +7,8 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/binding"
+	identity "github.com/viant/agently-core/protocol/resource"
+	primitive "github.com/viant/forge/backend/provider/contract"
 	"gopkg.in/yaml.v3"
 )
 
@@ -83,6 +85,10 @@ type Intake struct {
 	// prompt. Use this to tune routing/clarification behavior for a workspace
 	// without forking the generic classifier instructions.
 	Prompt IntakePrompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+
+	// RoutingGuides selects published guidance by logical URI in prompt order.
+	// The configured cohort must admit each guide for the current session.
+	RoutingGuides []string `yaml:"routingGuides,omitempty" json:"routingGuides,omitempty"`
 
 	// ActivationRules declare deterministic workspace-owned intake actions for
 	// exact operational asks. Core only evaluates the generic matching and
@@ -168,6 +174,21 @@ type Intake struct {
 
 	// TimeoutSec caps the sidecar call. Default: 15.
 	TimeoutSec int `yaml:"timeoutSec,omitempty" json:"timeoutSec,omitempty"`
+}
+
+func (in Intake) validateRoutingGuides() error {
+	if len(in.RoutingGuides) > 4 {
+		return fmt.Errorf("intake.routingGuides supports at most four guides")
+	}
+	seen := map[string]bool{}
+	for i, ref := range in.RoutingGuides {
+		uri, err := identity.ParseResourceURI(ref)
+		if err != nil || uri.Kind != primitive.RoutingKind || seen[ref] {
+			return fmt.Errorf("intake.routingGuides[%d] must be a unique routing guide URI", i)
+		}
+		seen[ref] = true
+	}
+	return nil
 }
 
 type ModelDirectActionPolicy struct {

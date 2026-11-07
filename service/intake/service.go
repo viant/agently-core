@@ -25,6 +25,7 @@ import (
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
+	primitive "github.com/viant/forge/backend/provider/contract"
 )
 
 // Service runs the intake sidecar LLM call and returns an intake Context.
@@ -34,12 +35,13 @@ type HostDocumentReader interface {
 }
 
 type Service struct {
-	hostDocuments HostDocumentReader
-	llm           *core.Service
-	conversation  apiconv.Client
-	profileRepo   *intakerepo.Repository
-	templateRepo  *tplrepo.Repository
-	bundleRepo    *toolbundlerepo.Repository
+	hostDocuments    HostDocumentReader
+	readRoutingGuide func(context.Context, string) (string, error)
+	llm              *core.Service
+	conversation     apiconv.Client
+	profileRepo      *intakerepo.Repository
+	templateRepo     *tplrepo.Repository
+	bundleRepo       *toolbundlerepo.Repository
 }
 
 // TranscriptMessage is a compact, generic transcript row provided to intent.
@@ -123,6 +125,10 @@ func WithBundleRepo(r *toolbundlerepo.Repository) func(*Service) {
 
 func WithConversationClient(c apiconv.Client) func(*Service) {
 	return func(s *Service) { s.conversation = c }
+}
+
+func WithRoutingGuideReader(read func(context.Context, string) (string, error)) func(*Service) {
+	return func(s *Service) { s.readRoutingGuide = read }
 }
 
 // Run executes the intake sidecar for the given user message and agent config.
@@ -550,6 +556,24 @@ func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (
 	if extra = strings.TrimSpace(extra); extra != "" {
 		b.WriteString("\n\nWorkspace-specific intake guidance:\n")
 		b.WriteString(extra)
+	}
+	if s.readRoutingGuide != nil {
+		var guides strings.Builder
+		for _, ref := range cfg.RoutingGuides {
+			body, err := s.readRoutingGuide(ctx, ref)
+			if err != nil || strings.TrimSpace(body) == "" {
+				continue
+			}
+			if guides.Len()+len(body)+2 > primitive.MaxRoutingGuideBytes {
+				break
+			}
+			guides.WriteString(body)
+			guides.WriteString("\n\n")
+		}
+		if guides.Len() > 0 {
+			b.WriteString("\n\nPublished routing guidance:\n")
+			b.WriteString(guides.String())
+		}
 	}
 
 	hasProfile := cfg.HasScope(agentmdl.IntakeScopeProfile)

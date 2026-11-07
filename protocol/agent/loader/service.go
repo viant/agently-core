@@ -726,6 +726,10 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 					if err := (*yaml.Node)(v).Decode(&agent.Intake.Prompt); err != nil {
 						return fmt.Errorf("invalid intake.prompt: %w", err)
 					}
+				case "routingguides":
+					if err := (*yaml.Node)(v).Decode(&agent.Intake.RoutingGuides); err != nil {
+						return fmt.Errorf("invalid intake.routingGuides: %w", err)
+					}
 				case "activationrules":
 					if err := (*yaml.Node)(v).Decode(&agent.Intake.ActivationRules); err != nil {
 						return fmt.Errorf("invalid intake.activationRules: %w", err)
