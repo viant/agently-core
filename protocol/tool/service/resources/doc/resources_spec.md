@@ -58,6 +58,12 @@ components. Components describe connections, relations, fields, calculations,
 parameters, filters, worksheets, marks, dashboards, actions, and tabs. Use
 `parentId` to follow nesting and `nextCursor` to get the next inspection page.
 Formula references retain source spelling as descriptive metadata.
+Datasource groups, aliases, manual-sort order, and formatted text in ordinary
+titles, labels, tooltips and dashboard zones are also retained. Styled text keeps
+run order and whitespace. Credential detection covers the full formatted block,
+including values split across runs; a matching block's text is omitted while
+its structure remains available. Device-layout and style-rule formatting are
+not modeled and remain reflected in the coverage counts.
 
 ```json
 {"uri":"scratchpad://artifact/a123","representation":"metadata","select":{"componentId":"tableau-1"},"limits":{"maxRows":20},"expectedVersion":"<inspect version>"}

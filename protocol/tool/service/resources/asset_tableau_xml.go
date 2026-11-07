@@ -48,6 +48,9 @@ var tableauElements = map[string]tableauElement{
 	"column":                  {"field", "name caption datatype role type aggregation default-format param-domain-type", ""},
 	"column-instance":         {"fieldInstance", "name column derivation type", ""},
 	"calculation":             {"calculation", "class", ""},
+	"group":                   {"datasourceGroup", "name caption hidden auto-column name-style ui-vit-column", ""},
+	"aliases":                 {"aliases", "enabled", ""},
+	"alias":                   {"alias", "key value", ""},
 	"table-calc":              {"tableCalculation", "type aggregation ordering-type ordering-field restart", ""},
 	"partition":               {"partition", "field column type", ""},
 	"addressing":              {"addressing", "field column type", ""},
@@ -63,6 +66,14 @@ var tableauElements = map[string]tableauElement{
 	"pane":                    {"pane", "id x-axis-name y-axis-name x-index y-index", ""},
 	"mark":                    {"mark", "class", ""},
 	"shelf-sort-v2":           {"shelfSort", "dimension-to-sort measure-to-sort-by direction shelf is-on-innermost-dimension", ""},
+	"manual-sort":             {"manualSort", "column direction", ""},
+	"bucket":                  {"sortBucket", "", "value"},
+	"customized-tooltip":      {"tooltip", "enabled show-buttons", ""},
+	"customized-label":        {"label", "", ""},
+	"layout-options":          {"layoutOptions", "", ""},
+	"title":                   {"title", "", ""},
+	"formatted-text":          {"formattedText", "", ""},
+	"run":                     {"textRun", "bold italic underline fontalignment fontcolor fontname fontsize", "text"},
 	"dashboard":               {"dashboard", "name", ""},
 	"zone":                    {"zone", "id name type-v2 param x y w h", ""},
 	"size":                    {"layoutSize", "sizing-mode minwidth minheight maxwidth maxheight", ""},
@@ -91,6 +102,12 @@ type tableauFrame struct {
 	ignored   bool
 	textKey   string
 	text      []byte
+	runs      []tableauTextRun
+}
+
+type tableauTextRun struct {
+	component  int
+	start, end int
 }
 
 type tableauDefinitionReader struct {
@@ -159,6 +176,14 @@ func parseTableauMetadata(ctx context.Context, source io.Reader, name string, ha
 				case tag == "column" && tableauAttribute(value.Attr, "param-domain-type") != "":
 					element.kind = "parameter"
 					element.attributes += " value"
+				case tag == "group":
+					found = parent.tag == "datasource"
+				case tag == "alias":
+					found = parent.tag == "aliases"
+				case tag == "bucket":
+					found = parent.tag == "dictionary" && result.componentKind(parent.parent) == "manualSort"
+				case tag == "run":
+					found = parent.tag == "formatted-text"
 				case tag == "param":
 					found = parent.tag == "command"
 					switch tableauAttribute(value.Attr, "name") {
@@ -227,7 +252,9 @@ func parseTableauMetadata(ctx context.Context, source io.Reader, name string, ha
 						}
 					}
 				} else {
-					frame.ignored = !tableauContainers[tag]
+					knownContainer := tableauContainers[tag] || tag == "dictionary" && parent.tag == "manual-sort" ||
+						tag == "default-sorts" && parent.tag == "datasource"
+					frame.ignored = !knownContainer
 					if frame.ignored {
 						unmodeled++
 					}
@@ -251,6 +278,18 @@ func parseTableauMetadata(ctx context.Context, source io.Reader, name string, ha
 			}
 			frame := frames[len(frames)-1]
 			frames = frames[:len(frames)-1]
+			if frame.tag == "run" && frame.textKey == "text" {
+				formatted := &frames[len(frames)-1]
+				start := len(formatted.text)
+				formatted.text = append(formatted.text, frame.text...)
+				formatted.runs = append(formatted.runs, tableauTextRun{component: frame.component, start: start, end: len(formatted.text)})
+				continue
+			}
+			if len(frame.runs) != 0 {
+				if err := result.setFormattedText(ctx, frame); err != nil {
+					return nil, err
+				}
+			}
 			if frame.textKey != "" {
 				if err := result.setText(ctx, frame.component, frame.textKey, string(frame.text)); err != nil {
 					return nil, err
@@ -330,6 +369,38 @@ func (m *tableauMetadata) setText(ctx context.Context, component int, key, value
 	return nil
 }
 
+func (m *tableauMetadata) setFormattedText(ctx context.Context, frame tableauFrame) error {
+	// Style changes can split a credential marker from its value, or split
+	// the marker itself. Check the whole display text before releasing any run.
+	redact := tableauCredentialText.Match(frame.text)
+	for _, run := range frame.runs {
+		if redact {
+			break
+		}
+		redact = tableauCredentialText.Match(frame.text[run.start:run.end])
+	}
+	if redact {
+		m.components[frame.component].Metadata["omitted-text"] = "credential-like value"
+	}
+	for _, run := range frame.runs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if redact {
+			m.components[run.component].Metadata["omitted-text"] = "credential-like value"
+			continue
+		}
+		text := string(frame.text[run.start:run.end])
+		if err := m.setText(ctx, run.component, "text", text); err != nil {
+			return err
+		}
+		if err := m.setText(ctx, run.component, "references", tableauTextReferences(text)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *tableauMetadata) componentKind(id string) string {
 	index, err := strconv.Atoi(strings.TrimPrefix(id, "tableau-"))
 	if err != nil || index < 1 || index > len(m.components) {
@@ -345,6 +416,27 @@ func (m *tableauMetadata) filterScope(parent string) string {
 	default:
 		return "other"
 	}
+}
+
+var tableauTextPlaceholder = regexp.MustCompile(`<\[[^\[\]<>\r\n]+\](?:\.\[[^\[\]<>\r\n]+\])*>`)
+
+// Only angle-delimited Tableau field spellings are references in display text.
+func tableauTextReferences(text string) string {
+	seen := map[string]bool{}
+	var references []string
+	for {
+		match := tableauTextPlaceholder.FindStringIndex(text)
+		if match == nil {
+			break
+		}
+		reference := text[match[0]+1 : match[1]-1]
+		if !seen[reference] {
+			seen[reference] = true
+			references = append(references, reference)
+		}
+		text = text[match[1]:]
+	}
+	return strings.Join(references, ", ")
 }
 
 // A formula's bracket references are descriptive, not resolved fields.

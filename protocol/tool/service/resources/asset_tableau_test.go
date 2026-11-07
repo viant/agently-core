@@ -288,6 +288,230 @@ func TestTableauDatasourceReferencesAndFilterScopes(t *testing.T) {
 	})
 }
 
+func TestTableauGroupSortAliasAndFormattedText(t *testing.T) {
+	ctx := assetContext(t)
+	workbook := `<workbook>
+  <datasources><datasource name="inventory">
+    <aliases enabled="no"/>
+    <column name="[Grade]" caption="Quality grade">
+      <aliases enabled="yes"><alias key="&quot;A&quot;" value="First grade"/></aliases>
+    </column>
+    <group name="[Priority]" caption="Priority stock" auto-column="no" name-style="unqualified" ui-vit-column="[Grade]">
+      <groupfilter function="union">
+        <groupfilter function="member" level="[Grade]" member="&quot;A&quot;"/>
+        <groupfilter function="member" level="[Grade]" member="&quot;B&quot;"/>
+      </groupfilter>
+    </group>
+    <default-sorts><manual-sort column="[Grade]" direction="DESC"><dictionary>
+      <bucket>"A"</bucket><bucket>"B"</bucket>
+    </dictionary></manual-sort></default-sorts>
+  </datasource></datasources>
+  <worksheets><worksheet name="Stock">
+    <layout-options><title><formatted-text><run>Stock by grade</run></formatted-text></title></layout-options>
+    <table>
+    <view><manual-sort column="[Grade]" direction="ASC"><dictionary>
+      <bucket>"B"</bucket><bucket>"A"</bucket>
+    </dictionary></manual-sort></view>
+    <panes><pane id="1"><customized-tooltip enabled="true" show-buttons="false">
+      <formatted-text>
+        <run bold="true" fontsize="12" fontcolor="#123456">Quality: </run>
+        <run italic="true">&#10;  &lt;[inventory].[Grade]&gt;</run>
+        <script>unmodeled-script-value</script>
+      </formatted-text>
+    </customized-tooltip>
+    <customized-label><formatted-text><run>&lt;[Grade]&gt;</run></formatted-text></customized-label>
+    </pane></panes>
+  </table></worksheet></worksheets>
+  <dashboards><dashboard name="Overview"><zones><zone id="1">
+    <formatted-text><run italic="true">Grade summary</run></formatted-text>
+  </zone></zones></dashboard></dashboards>
+</workbook>`
+	uri := publishFixture(t, ctx, "metadata-coverage.twb", "application/xml", []byte(workbook))
+	var inspected InspectOutput
+	require.NoError(t, New(nil).inspect(ctx, &InspectInput{URI: uri}, &inspected))
+	require.True(t, inspected.Complete)
+	byKind := map[string][]ResourceComponent{}
+	children := map[string][]ResourceComponent{}
+	for _, component := range inspected.Components {
+		byKind[component.Kind] = append(byKind[component.Kind], component)
+		children[component.ParentID] = append(children[component.ParentID], component)
+	}
+
+	t.Run("datasource group membership", func(t *testing.T) {
+		groups := byKind["datasourceGroup"]
+		require.Len(t, groups, 1)
+		require.Equal(t, byKind["datasource"][0].ID, groups[0].ParentID)
+		require.Equal(t, "[Priority]", groups[0].Metadata["name"])
+		require.Equal(t, "Priority stock", groups[0].Metadata["caption"])
+		require.Equal(t, "no", groups[0].Metadata["auto-column"])
+		require.Equal(t, "unqualified", groups[0].Metadata["name-style"])
+		require.Equal(t, "[Grade]", groups[0].Metadata["ui-vit-column"])
+		members := byKind["filterGroup"]
+		require.Len(t, members, 3)
+		require.Equal(t, groups[0].ID, members[0].ParentID)
+		require.Equal(t, "union", members[0].Metadata["function"])
+		for i, value := range []string{`"A"`, `"B"`} {
+			require.Equal(t, members[0].ID, members[i+1].ParentID)
+			require.Equal(t, "member", members[i+1].Metadata["function"])
+			require.Equal(t, "[Grade]", members[i+1].Metadata["level"])
+			require.Equal(t, value, members[i+1].Metadata["member"])
+		}
+	})
+	t.Run("manual sort ordering", func(t *testing.T) {
+		sorts := byKind["manualSort"]
+		require.Len(t, sorts, 2)
+		for i, want := range []struct {
+			parent, direction string
+			members           []string
+		}{
+			{byKind["datasource"][0].ID, "DESC", []string{`"A"`, `"B"`}},
+			{byKind["worksheet"][0].ID, "ASC", []string{`"B"`, `"A"`}},
+		} {
+			require.Equal(t, want.parent, sorts[i].ParentID)
+			require.Equal(t, "[Grade]", sorts[i].Metadata["column"])
+			require.Equal(t, want.direction, sorts[i].Metadata["direction"])
+			buckets := children[sorts[i].ID]
+			require.Len(t, buckets, len(want.members))
+			for j, value := range want.members {
+				require.Equal(t, "sortBucket", buckets[j].Kind)
+				require.Equal(t, value, buckets[j].Metadata["value"])
+			}
+		}
+	})
+	t.Run("field alias", func(t *testing.T) {
+		aliases := byKind["aliases"]
+		require.Len(t, aliases, 2)
+		require.Equal(t, byKind["datasource"][0].ID, aliases[0].ParentID)
+		require.Equal(t, "no", aliases[0].Metadata["enabled"])
+		require.Equal(t, byKind["field"][0].ID, aliases[1].ParentID)
+		require.Equal(t, "yes", aliases[1].Metadata["enabled"])
+		alias := byKind["alias"]
+		require.Len(t, alias, 1)
+		require.Equal(t, aliases[1].ID, alias[0].ParentID)
+		require.Equal(t, `"A"`, alias[0].Metadata["key"])
+		require.Equal(t, "First grade", alias[0].Metadata["value"])
+	})
+	t.Run("tooltip runs", func(t *testing.T) {
+		tooltips := byKind["tooltip"]
+		require.Len(t, tooltips, 1)
+		require.Equal(t, byKind["pane"][0].ID, tooltips[0].ParentID)
+		require.Equal(t, "true", tooltips[0].Metadata["enabled"])
+		require.Equal(t, "false", tooltips[0].Metadata["show-buttons"])
+		formatted := children[tooltips[0].ID]
+		require.Len(t, formatted, 1)
+		require.Equal(t, "formattedText", formatted[0].Kind)
+		runs := children[formatted[0].ID]
+		require.Len(t, runs, 2)
+		for _, run := range runs {
+			require.Equal(t, "textRun", run.Kind)
+		}
+		require.Equal(t, "Quality: ", runs[0].Metadata["text"])
+		require.Equal(t, "true", runs[0].Metadata["bold"])
+		require.Equal(t, "12", runs[0].Metadata["fontsize"])
+		require.Equal(t, "#123456", runs[0].Metadata["fontcolor"])
+		require.Equal(t, "\n  <[inventory].[Grade]>", runs[1].Metadata["text"])
+		require.Equal(t, "[inventory].[Grade]", runs[1].Metadata["references"])
+		require.Equal(t, "true", runs[1].Metadata["italic"])
+	})
+	t.Run("formatted titles labels and zones", func(t *testing.T) {
+		for _, want := range []struct{ owner, text string }{
+			{"title", "Stock by grade"}, {"label", "<[Grade]>"}, {"zone", "Grade summary"},
+		} {
+			require.Len(t, byKind[want.owner], 1)
+			formatted := children[byKind[want.owner][0].ID]
+			require.Len(t, formatted, 1)
+			require.Equal(t, "formattedText", formatted[0].Kind)
+			runs := children[formatted[0].ID]
+			require.Len(t, runs, 1)
+			require.Equal(t, "textRun", runs[0].Kind)
+			require.Equal(t, want.text, runs[0].Metadata["text"])
+		}
+	})
+	require.Equal(t, "1", inspected.Metadata["unmodeledElements"])
+	encoded, err := json.Marshal(inspected)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "unmodeled-script-value")
+}
+
+func TestTableauFormattedTextRedactsAcrossRunBoundaries(t *testing.T) {
+	ctx := assetContext(t)
+	for _, tc := range []struct {
+		name, runs string
+	}{
+		{"split value", `<run>password=</run><run bold="true">synthetic-marker</run>`},
+		{"split keyword", `<run>access_</run><run bold="true">token=synthetic-marker</run>`},
+		{"long split value", `<run>password=</run><run bold="true">synthetic-marker` + strings.Repeat("雪", 2000) + `</run>`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workbook := "<workbook><worksheets><worksheet><table><panes><pane><customized-tooltip><formatted-text>" +
+				tc.runs + "</formatted-text></customized-tooltip></pane></panes></table></worksheet></worksheets></workbook>"
+			uri := publishFixture(t, ctx, "redacted-text.twb", "application/xml", []byte(workbook))
+			var output InspectOutput
+			require.NoError(t, New(nil).inspect(ctx, &InspectInput{URI: uri}, &output))
+			require.True(t, output.Complete)
+			for _, component := range output.Components {
+				require.NotEqual(t, "metadataText", component.Kind)
+				if component.Kind == "formattedText" || component.Kind == "textRun" {
+					require.Equal(t, "credential-like value", component.Metadata["omitted-text"])
+					require.Empty(t, component.Metadata["text"])
+					require.Empty(t, component.Metadata["references"])
+				}
+				if component.Kind == "textRun" && component.Metadata["bold"] != "" {
+					require.Equal(t, "true", component.Metadata["bold"])
+				}
+			}
+			encoded, err := json.Marshal(output)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), "synthetic-marker")
+		})
+	}
+}
+
+func TestTableauLongFormattedRunPreservesTextThroughPaging(t *testing.T) {
+	ctx := assetContext(t)
+	text := "  " + strings.Repeat("雪", 2000) + "\n<[Grade]> "
+	var escaped bytes.Buffer
+	require.NoError(t, xml.EscapeText(&escaped, []byte(text)))
+	workbook := "<workbook><worksheets><worksheet><table><panes><pane><customized-tooltip><formatted-text><run bold='true'>" +
+		escaped.String() + "</run></formatted-text></customized-tooltip></pane></panes></table></worksheet></worksheets></workbook>"
+	uri := publishFixture(t, ctx, "long-tooltip.twb", "application/xml", []byte(workbook))
+	service := New(nil)
+	var inspected InspectOutput
+	require.NoError(t, service.inspect(ctx, &InspectInput{URI: uri}, &inspected))
+	var run ResourceComponent
+	for _, component := range inspected.Components {
+		if component.Kind == "textRun" {
+			run = component
+		}
+	}
+	require.NotEmpty(t, run.ID)
+	require.Equal(t, "[Grade]", run.Metadata["references"])
+	require.Equal(t, "2", run.Metadata["text-chunks"])
+	input := &ReadInput{URI: uri, Representation: "metadata", ExpectedVersion: inspected.Version,
+		Select: &ResourceSelection{ComponentID: run.ID}, Limits: &ResourceLimits{MaxRows: 1}}
+	var output ReadOutput
+	var reconstructed strings.Builder
+	part := 0
+	for {
+		require.NoError(t, service.read(ctx, input, &output))
+		require.Len(t, output.Components, 1)
+		component := output.Components[0]
+		if component.Kind == "metadataText" {
+			part++
+			require.Equal(t, run.ID, component.ParentID)
+			require.Equal(t, "text", component.Name)
+			require.Equal(t, strconv.Itoa(part), component.Metadata["part"])
+			reconstructed.WriteString(component.Metadata["text"])
+		}
+		if output.Cursor == "" {
+			break
+		}
+		input.Cursor = output.Cursor
+	}
+	require.Equal(t, 2, part)
+	require.Equal(t, text, reconstructed.String())
+}
+
 func TestTableauLongSQLPagedWithoutLosingText(t *testing.T) {
 	ctx := assetContext(t)
 	sql := "SELECT '" + strings.Repeat("雪", 5000) + "' AS name"
