@@ -166,7 +166,7 @@ func dedupeToolDefinitions(defs []*llm.ToolDefinition) []*llm.ToolDefinition {
 		if def == nil {
 			continue
 		}
-		key := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(def.Name)))
+		key := strings.ToLower(modelDefinitionName(*def))
 		if key == "" {
 			continue
 		}
@@ -519,7 +519,9 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 		always, err = s.prepareRetainedToolDefinitions(ctx, input, always)
 		return toolDefinitionPointers(always), err
 	}
+	preparationStarted = time.Now()
 	control, err := s.resolveToolControl(ctx, input)
+	writeBindingToolStage(ctx, "control_resolution", preparationStarted, len(control.Tools), false, err)
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +529,7 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 		return nil, nil
 	}
 	preparationStarted = time.Now()
-	defs, err := s.resolveTurnToolDefinitions(ctx, input, control)
+	defs, candidates, err := s.resolveTurnToolDefinitions(ctx, input, control)
 	writeBindingToolStage(ctx, "structured_resolution", preparationStarted, len(defs), false, err)
 	if err != nil {
 		return nil, err
@@ -541,18 +543,25 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 		return nil, fmt.Errorf("requested tool bundles resolved zero tool definitions: %s", strings.Join(unresolved, ", "))
 	}
 	defs = annotateAgentToolRules(input, dedupeDefinitions(append(defs, always...)))
+	preparationStarted = time.Now()
 	defs, err = s.callerScopedToolDefinitions(ctx, input, defs)
+	writeBindingToolStage(ctx, "final_caller_scope", preparationStarted, len(defs), false, err)
 	if err != nil {
 		return nil, err
 	}
+	preparationStarted = time.Now()
 	defs, err = s.modelVisibleDefinitions(ctx, defs)
+	writeBindingToolStage(ctx, "final_model_visibility", preparationStarted, len(defs), false, err)
 	if err != nil {
 		return nil, err
 	}
-	defs, err = s.selectIntakeTools(ctx, input, defs)
+	preparationStarted = time.Now()
+	defs, err = s.selectIntakeTools(ctx, input, defs, candidates)
+	writeBindingToolStage(ctx, "selected_surface", preparationStarted, len(defs), false, err)
 	if err != nil {
 		return nil, err
 	}
+	preparationStarted = time.Now()
 	out := make([]*llm.ToolDefinition, 0, len(defs))
 	for _, def := range defs {
 		cloned := def
@@ -560,6 +569,7 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 		out = append(out, &cloned)
 	}
 	out = dedupeToolDefinitions(out)
+	writeBindingToolStage(ctx, "schema_normalization", preparationStarted, len(out), false, nil)
 	if logx.Enabled() {
 		names := make([]string, 0, len(out))
 		for _, item := range out {

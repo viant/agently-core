@@ -35,12 +35,12 @@ require (
 	github.com/viant/bindly v0.4.1
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.7
-	github.com/viant/forge v0.3.47-0.20261107022137-bacc992f8cc0
+	github.com/viant/forge v0.3.47-0.20261107202406-eb3c048c232d
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.1
 	github.com/viant/jsonrpc v0.25.1
 	github.com/viant/linager v0.1.0
-	github.com/viant/mcp v0.24.2-0.20261102190820-5de8e399ba0e
+	github.com/viant/mcp v0.24.2-0.20261107201957-8748c0cb8ca8
 	github.com/viant/mcp-protocol v0.19.2-0.20261101165444-1c2b609f8dbf
 	github.com/viant/mcp-tasks v0.1.0
 	github.com/viant/mcp-ui v0.2.1
@@ -168,7 +168,7 @@ require (
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.2.0 // indirect
 	github.com/viant/xreflect v0.7.5 // indirect
-	github.com/viant/xunsafe v0.11.0 // indirect
+	github.com/viant/xunsafe v0.11.1 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/xuri/efp v0.0.1 // indirect

@@ -107,7 +107,14 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	var bootstrap, client, capabilities string
 	var intakeToolNames, intakeNamespaces []string
 	var capabilityErr error
+	var transcript []intakesvc.TranscriptMessage
 	group, metadataCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		started := time.Now()
+		transcript = s.recentVisibleTranscriptForIntake(metadataCtx, &metadataInput)
+		writeIntakeStage(metadataCtx, &metadataInput, "recent_visible_transcript", started)
+		return nil
+	})
 	group.Go(func() error {
 		started := time.Now()
 		bootstrap = s.workspaceUIBootstrap(metadataCtx, metadataInput.ConversationID)
@@ -143,9 +150,6 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	started = time.Now()
 	runCtx := s.intakeTrackedContext(ctx, input)
 	writeIntakeStage(ctx, input, "tracked_context", started)
-	started = time.Now()
-	transcript := s.recentVisibleTranscriptForIntake(ctx, input)
-	writeIntakeStage(ctx, input, "recent_visible_transcript", started)
 	started = time.Now()
 	tc := s.intakeSvc.Run(runCtx, userMessage, &runCfg, strings.TrimSpace(input.UserId),
 		intakesvc.WithTranscript(transcript),

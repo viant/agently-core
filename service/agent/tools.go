@@ -112,7 +112,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 	if len(control.Tools) == 0 && len(control.Bundles) == 0 && !hasToolDiscoverySelection(ctx, qi) && len(always) == 0 {
 		return nil, nil
 	}
-	defs, err := s.resolveTurnToolDefinitions(ctx, qi, control)
+	defs, candidates, err := s.resolveTurnToolDefinitions(ctx, qi, control)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 		return nil, err
 	}
 	visibilityChecked = true
-	defs, err = s.selectIntakeTools(ctx, qi, defs)
+	defs, err = s.selectIntakeTools(ctx, qi, defs, candidates)
 	if err != nil {
 		return nil, err
 	}
@@ -243,6 +243,13 @@ func (s *Service) hasVisibleSkills(ctx context.Context, agent *agentmdl.Agent) (
 	}
 	if agent == nil || len(agent.Skills) == 0 || !s.skillSvc.HasMCPSource() {
 		return false, nil
+	}
+	// An explicitly selected remote skill already has an owning identity.
+	// Resolve that identity through the normal scoped reader rather than
+	// discovering unrelated producers just to enable its controls.
+	if len(agent.Skills) == 1 && strings.HasPrefix(agent.Skills[0], "skill://") && !strings.ContainsAny(agent.Skills[0], "*?[]") {
+		item, err := s.skillSvc.GetVisible(ctx, agent, agent.Skills[0])
+		return item != nil && err == nil, err
 	}
 	// A primitive connection may publish windows or datasources without skills.
 	// Use the owning producers' existing visible catalog, not connection presence.
@@ -375,7 +382,7 @@ func (s *Service) resolveStructuredToolDefinitionsWithMatcher(ctx context.Contex
 	if err != nil {
 		return nil, err
 	}
-	entry.Definitions = dedupeDefinitions(entry.Definitions)
+	normalizeToolSurfaceDefinitions(entry)
 	entry.Definitions = augmentPromptApprovalReviewDefinitions(entry.Definitions, entry.ApprovalByID)
 	// Assemble bundle/approval metadata from independently cached catalog
 	// components. A whole-selection cache can leak private tools across users
@@ -495,7 +502,7 @@ func (s *Service) resolveBundleResultWithMatcher(ctx context.Context, bundleIDs 
 		}
 		entry.Definitions = append(entry.Definitions, res.Definitions...)
 	}
-	entry.Definitions = dedupeDefinitions(entry.Definitions)
+	normalizeToolSurfaceDefinitions(entry)
 	return entry, nil
 }
 
@@ -594,6 +601,17 @@ func indexBundlesByID(in []*toolbundle.Bundle) map[string]*toolbundle.Bundle {
 	return out
 }
 
+// modelDefinitionName uses the known source boundary rather than interpreting
+// the URI scheme colon as the tool separator. Dispatch aliases remain unchanged.
+func modelDefinitionName(def llm.ToolDefinition) string {
+	name := strings.TrimSpace(def.Name)
+	server := strings.TrimSpace(def.SourceMCPServer)
+	if server != "" && strings.HasPrefix(name, server+"/") {
+		name = server + ":" + strings.TrimPrefix(name, server+"/")
+	}
+	return mcpname2.Canonical(name)
+}
+
 func dedupeDefinitions(in []llm.ToolDefinition) []llm.ToolDefinition {
 	if len(in) == 0 {
 		return nil
@@ -601,7 +619,7 @@ func dedupeDefinitions(in []llm.ToolDefinition) []llm.ToolDefinition {
 	seen := map[string]int{}
 	out := make([]llm.ToolDefinition, 0, len(in))
 	for _, d := range in {
-		key := strings.ToLower(mcpname2.Canonical(strings.TrimSpace(d.Name)))
+		key := strings.ToLower(modelDefinitionName(d))
 		if key == "" {
 			continue
 		}
@@ -611,10 +629,29 @@ func dedupeDefinitions(in []llm.ToolDefinition) []llm.ToolDefinition {
 			continue
 		}
 		seen[key] = len(out)
-		d.Name = mcpname2.Canonical(d.Name)
+		d.Name = modelDefinitionName(d)
 		out = append(out, d)
 	}
 	return out
+}
+
+// Keep existing approval and execution metadata attached when model aliases
+// are normalized. Original keys remain valid for compatibility callers.
+func normalizeToolSurfaceDefinitions(entry *resolvedToolSurface) {
+	for _, def := range entry.Definitions {
+		prior := strings.ToLower(mcpname2.Canonical(strings.TrimSpace(def.Name)))
+		next := strings.ToLower(modelDefinitionName(def))
+		if prior == next {
+			continue
+		}
+		if cfg := entry.ApprovalByID[prior]; cfg != nil {
+			entry.ApprovalByID[next] = cfg
+		}
+		if cfg := entry.AsyncByID[prior]; cfg != nil {
+			entry.AsyncByID[next] = cfg
+		}
+	}
+	entry.Definitions = dedupeDefinitions(entry.Definitions)
 }
 
 func (s *Service) applyResolvedToolSurfaceMetadata(ctx context.Context, entry *resolvedToolSurface) {

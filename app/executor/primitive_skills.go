@@ -401,6 +401,9 @@ func (d *primitiveSkillDelivery) ReadRemoteResource(ctx context.Context, item *p
 	if item == nil || item.CatalogURI == "" || strings.Contains(item.CatalogURI, "?") {
 		return nil, false, nil
 	}
+	if ref, err := proto.ParseRef(item.CatalogURI); err == nil && ref.ResourceURI != "" {
+		return nil, false, nil
+	}
 	selected, err := d.selectSkill(ctx, item.CatalogURI)
 	if err != nil {
 		return nil, true, err

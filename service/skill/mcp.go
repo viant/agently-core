@@ -329,6 +329,7 @@ func (s *Service) remoteClient(ctx context.Context, server string, cfg *mcpcfg.M
 		return ctx, nil, nil, errSkillCapabilityUnavailable
 	}
 	if _, advertised := initialized.Capabilities.Extensions[schema.SkillsExtension]; !advertised {
+		debugtrace.Write("skill", "extension_unavailable", map[string]any{"server": server, "protocol": initialized.ProtocolVersion, "clientType": fmt.Sprintf("%T", cli), "extensionCount": len(initialized.Capabilities.Extensions), "requestTokenPresent": mcpclient.NewRequestOptions(opts).StringToken != "", "useIDToken": s.mcpSource.UseIDToken(ctx, server), "configuredAuth": cfg.ClientOptions != nil && cfg.ClientOptions.Auth != nil, "delegatedAuth": cfg.IsDelegatedAuth()})
 		return ctx, nil, nil, errSkillCapabilityUnavailable
 	}
 	if _, ok := cli.(manager.SkillsClient); !ok {
@@ -479,6 +480,7 @@ func logSkillCatalogFailure(ctx context.Context, stage string, err error) {
 // GetVisible always re-resolves remote identity using the caller's server list.
 // A URI is a reference, never an authorization grant or an upstream locator.
 func (s *Service) GetVisible(ctx context.Context, agent *agentmdl.Agent, name string) (*skillproto.Skill, error) {
+	ctx = manager.WithNamesMemo(ctx)
 	if state, ok := RuntimeStateFromContext(ctx); ok && !state.allowsSkillRead(name) {
 		return nil, fmt.Errorf("cross-origin skill read requires approval")
 	}

@@ -93,3 +93,30 @@ func TestNativePresentationBindsServerAdmittedSnapshotWithoutReload(t *testing.T
 		t.Fatalf("UI observation lost the delivered window or included an undeclared source: %s", filtered)
 	}
 }
+
+func TestRestoredReportBindsExactInstanceWithoutWindowTarget(t *testing.T) {
+	svc, ctx, _ := feedOwnershipFixture(t)
+	svc.hub.httpStreamable()
+	bridge := svc.hub.httpBridge
+	bridge.bindSession(context.WithValue(ctx, jsonrpc.SessionKey, &base.Session{Id: "restore-session"}), "client-a", "alice", nil, svc.hub.clients["alice"]["client-a"])
+	ctx = requestctx.WithUIBridgeSessionID(ctx, "restore-session")
+	pin := identity.ResolvedResource{URI: "report://example/summary", ProviderIdentity: "example", AuthorityBinding: "selected", ResourceCandidate: identity.ResourceCandidate{Kind: identity.WorkingCandidate, ContentFingerprint: identity.ContentFingerprint([]byte(`{}`))}}
+	admitted := &types.Window{Resource: &pin}
+	handled, err := svc.BindAdmittedNativePresentationWindow(ctx, "client-a", "restored-report", pin.URI, admitted)
+	if !handled || err != nil {
+		t.Fatalf("report restore: handled=%v err=%v", handled, err)
+	}
+	held, ok := svc.getWindowPin(windowPinKey{Namespace: "alice", ClientID: "client-a", WindowID: "restored-report"})
+	if !ok || held.Resource != pin || held.Target != nil {
+		t.Fatal("report pin lost")
+	}
+	for _, input := range []struct{ client, key string }{{"foreign", pin.URI}, {"client-a", "report://example/other"}} {
+		if _, err := svc.BindAdmittedNativePresentationWindow(ctx, input.client, "restored-report", input.key, admitted); err == nil {
+			t.Fatal("foreign binding accepted")
+		}
+	}
+	foreign := requestctx.WithUIBridgeSessionID(context.WithValue(context.Background(), feedOwnerKey{}, "bob"), "restore-session")
+	if _, err := svc.BindAdmittedNativePresentationWindow(foreign, "client-a", "restored-report", pin.URI, admitted); err == nil {
+		t.Fatal("foreign user bound report")
+	}
+}

@@ -735,7 +735,7 @@ func (r *Registry) rawMatchDefinitionWithContextResult(ctx context.Context, patt
 			return result, nil
 		}
 		injectTimeoutMs := r.shouldInjectTimeoutMs(svc)
-		tools, err := r.listServerTools(ctx, svc)
+		tools, err := r.selectedServerTools(ctx, svc, literalMethod)
 		if err != nil {
 			if !shouldSuppressMissingMCPConfigWarning(svc, err) {
 				r.warnf("list tools failed for %s: %v", svc, err)
@@ -849,7 +849,7 @@ func (r *Registry) GetRawDefinitionWithContext(ctx context.Context, name string)
 			cancel()
 		}
 	}()
-	tools, err := r.listServerTools(discoveryCtx, svc)
+	tools, err := r.selectedServerTools(discoveryCtx, svc, literalMethod)
 	if err != nil {
 		r.warnf("list tools failed for %s: %v", svc, err)
 		return nil, false

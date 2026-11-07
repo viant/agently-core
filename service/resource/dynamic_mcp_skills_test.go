@@ -144,6 +144,31 @@ func TestStudioPublishedMCPDefinitionDiscoversSkillsAndChangesWithoutRestart(t *
 	selected, err := service.GetVisible(alice, a, chosen)
 	require.NoError(t, err)
 	require.Contains(t, selected.Body, "later-procedure instructions")
+	initialGets, initialReads := endpoint.gets.Load(), endpoint.reads.Load()
+	metadata.mu.Lock()
+	initialCatalogGets, initialCatalogLists := metadata.gets, metadata.lists
+	metadata.mu.Unlock()
+	selected.Body = "caller mutation"
+	for i := 0; i < 100; i++ {
+		visible, err := service.ListVisiblePage(alice, a, primitive.CatalogQuery{Limit: 1})
+		require.NoError(t, err)
+		require.Len(t, visible.Items, 1)
+		warm, err := service.GetVisible(alice, a, chosen)
+		require.NoError(t, err)
+		require.Contains(t, warm.Body, "later-procedure instructions")
+	}
+	require.Equal(t, initialGets, endpoint.gets.Load(), "warm skill binding must not repeat skills/get")
+	require.Equal(t, initialReads, endpoint.reads.Load(), "warm skill binding must not reread the document")
+	metadata.mu.Lock()
+	catalogGets, catalogLists := metadata.gets, metadata.lists
+	metadata.mu.Unlock()
+	require.Equal(t, initialCatalogGets, catalogGets, "warm skill reads must not fetch provider definitions again")
+	require.Equal(t, initialCatalogLists, catalogLists, "warm skill reads must not relist provider metadata")
+	endpoint.publish(t, "third-procedure")
+	_, err = service.GetVisible(alice, a, chosen)
+	require.NoError(t, err)
+	require.Equal(t, initialGets+1, endpoint.gets.Load(), "native skill notifications must invalidate held documents")
+
 	require.EqualValues(t, 1, opened.Load(), "publication uses the same pooled connection")
 	bob := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "bob"})
 	hidden, err := service.ListVisiblePage(bob, a, primitive.CatalogQuery{})
@@ -151,4 +176,12 @@ func TestStudioPublishedMCPDefinitionDiscoversSkillsAndChangesWithoutRestart(t *
 	require.Empty(t, hidden.Items)
 	_, err = service.GetVisible(bob, a, chosen)
 	require.Error(t, err)
+	metadata.mu.Lock()
+	delete(metadata.rows["alice"], "new-producer")
+	metadata.mu.Unlock()
+	metadata.changes.Publish(alice)
+	removed, err := service.GetVisible(alice, a, chosen)
+	require.Error(t, err, "withdrawn producer visibility must invalidate warmed skill documents")
+	require.Nil(t, removed)
+
 }

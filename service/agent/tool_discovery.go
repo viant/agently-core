@@ -209,8 +209,9 @@ func (s *Service) callerScopedToolDefinitions(ctx context.Context, input *QueryI
 	}
 	result := make([]llm.ToolDefinition, 0, len(definitions))
 	for _, definition := range definitions {
-		definition.Name = mcpname.Canonical(definition.Name)
-		if allowed == nil || allowed[definition.Name] {
+		priorName := mcpname.Canonical(definition.Name)
+		definition.Name = modelDefinitionName(definition)
+		if allowed == nil || allowed[priorName] || allowed[definition.Name] {
 			result = append(result, definition)
 		}
 	}

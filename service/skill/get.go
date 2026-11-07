@@ -9,9 +9,9 @@ import (
 
 type GetInput struct {
 	Name   string `json:"name,omitempty"`
-	URI    string `json:"uri,omitempty"`
+	URI    string `json:"uri,omitempty" description:"Qualified skill URI returned by discovery or supplied in the skill handoff."`
 	Server string `json:"server,omitempty"`
-	Path   string `json:"path,omitempty"`
+	Path   string `json:"path,omitempty" description:"Optional supporting-file path relative to the selected skill, such as references/methodology.md. Keep uri set to the skill URI; do not use the file path as the skill name."`
 }
 type GetOutput struct {
 	Files          []string `json:"files,omitempty"`

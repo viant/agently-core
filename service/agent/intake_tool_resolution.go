@@ -18,11 +18,11 @@ type automaticToolPolicyKey struct{}
 // Automatic/default bundle policies match the authorized candidate catalog.
 // Explicit workflow/runtime requirements and valid complete selections still
 // resolve their schemas through the source; unrelated discovery cannot gate them.
-func (s *Service) resolveTurnToolDefinitions(ctx context.Context, input *QueryInput, control agenttool.Selection) ([]llm.ToolDefinition, error) {
+func (s *Service) resolveTurnToolDefinitions(ctx context.Context, input *QueryInput, control agenttool.Selection) ([]llm.ToolDefinition, []llm.ToolDefinition, error) {
 	selection := intakeSelection(input)
 	candidates, err := s.discoverableToolDefinitions(ctx, input)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	available := map[string]bool{}
 	for _, definition := range candidates {
@@ -44,7 +44,7 @@ func (s *Service) resolveTurnToolDefinitions(ctx context.Context, input *QueryIn
 	}
 	profile, err := s.selectedPromptProfileAny(ctx, input)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	required := agenttool.Merge(agenttool.FromPromptProfile(profile), runtimeToolRequirements(input), agenttool.Selection{Tools: selectedNames})
 	if state, ok := toolselection.FromContext(ctx); ok {
@@ -58,14 +58,14 @@ func (s *Service) resolveTurnToolDefinitions(ctx context.Context, input *QueryIn
 	strictCtx = context.WithValue(strictCtx, selectedSourceResolutionKey{}, true)
 	explicit, err := s.resolveStructuredToolDefinitions(strictCtx, required)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Fresh required definitions take precedence over advisory catalog copies.
 	candidates = dedupeDefinitions(append(explicit, candidates...))
 	// Exact promotion also applies policies owned by unselected discovery bundles.
 	promoted, err := s.promoteDiscoveredTools(ctx, nil, candidates, selectedNames)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	candidates = dedupeDefinitions(append(promoted, candidates...))
 	matched, err := s.resolveStructuredToolDefinitionsWithMatcher(context.WithValue(ctx, automaticToolPolicyKey{}, true), control, func(_ context.Context, pattern string) ([]*llm.ToolDefinition, error) {
@@ -78,7 +78,7 @@ func (s *Service) resolveTurnToolDefinitions(ctx context.Context, input *QueryIn
 		return result, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return dedupeDefinitions(append(append(matched, promoted...), explicit...)), nil
+	return dedupeDefinitions(append(append(matched, promoted...), explicit...)), candidates, nil
 }

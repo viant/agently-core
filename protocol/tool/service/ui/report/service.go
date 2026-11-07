@@ -125,9 +125,13 @@ func (s *Service) MethodRetryable(method string) (bool, bool) {
 func (s *Service) Methods() svc.Signatures {
 	input := reflect.TypeOf(&WindowInput{})
 	output := reflect.TypeOf(&ActionOutput{})
+	runDescription := "Run the predefined report or report-builder currently shown in a live window with its current filter values. This executes report data; do not use it for read-only inspection. When opening a report specifically to run it with this action, set ui/view:open parameters.executeOnOpen=false to avoid a duplicate automatic run."
+	if s.orchestration {
+		runDescription += " Waits for the matching execution to finish and returns its completion receipt; do not poll getCurrent through additional model turns while this call is running."
+	}
 	return []svc.Signature{
 		{Name: "getCurrent", Description: "Inspect the report currently shown in a live predefined-report or report-builder window: identity, applied and draft filters, execution status, and available UI actions. Predefined reports include reportSpec and reportFill for their completed current run, so existing output can be interpreted without rerunning it. This read does not run, save, or change the report.", Input: input, Output: output},
-		{Name: "run", Description: "Run the canonical report currently shown in a live report-builder window with its current filter values.", Input: input, Output: output},
+		{Name: "run", Description: runDescription, Input: input, Output: output},
 		{Name: "save", Description: "Persist the canonical report currently shown in a live report-builder window and return its stable reportId and artifactId.", Input: input, Output: output},
 	}
 }

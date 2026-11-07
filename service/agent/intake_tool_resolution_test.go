@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -16,8 +17,14 @@ import (
 
 type selectedSchemaRegistry struct {
 	fakeRegistry
-	broken   error
-	patterns []string
+	broken       error
+	patterns     []string
+	catalogReads int
+}
+
+func (r *selectedSchemaRegistry) Definitions() []llm.ToolDefinition {
+	r.catalogReads++
+	return r.fakeRegistry.Definitions()
 }
 
 func (r *selectedSchemaRegistry) MatchDefinitionWithContextResult(_ context.Context, pattern string) ([]*llm.ToolDefinition, error) {
@@ -60,6 +67,7 @@ func TestCompleteIntakeResolvesSelectedSchemasBeforeAutomaticWildcards(t *testin
 					definitions = append(definitions, *definition)
 				}
 			}
+			require.Equal(t, 1, registry.catalogReads, "selection must reuse the catalog already resolved for this invocation")
 			require.Len(t, definitions, 2)
 			for _, definition := range definitions {
 				if definition.Name == "local-run" {
@@ -158,4 +166,53 @@ func TestAbsentIntakeStillRequiresExplicitBundleAndProfileSchemas(t *testing.T) 
 			require.ErrorIs(t, err, registry.broken)
 		})
 	}
+}
+
+func TestTurnToolCandidateReuseDoesNotRetainRemovedTools(t *testing.T) {
+	service, registry := selectedSchemaService()
+	input := selectionInput(&intake.ToolSelection{Names: []string{"local:run"}, Complete: true})
+	first, err := service.buildToolSignatures(context.Background(), input)
+	require.NoError(t, err)
+	require.Len(t, first, 2)
+	require.Equal(t, 1, registry.catalogReads)
+	registry.defs = []llm.ToolDefinition{{Name: "local:keep", Description: "updated catalog"}}
+	second, err := service.buildToolSignatures(context.Background(), input)
+	require.NoError(t, err)
+	require.Equal(t, 2, registry.catalogReads, "each invocation must obtain its own current catalog")
+	require.Len(t, second, 1)
+	require.Equal(t, "local-keep", second[0].Name)
+	require.Equal(t, "updated catalog", second[0].Description)
+}
+
+func TestPublishedToolCanBeSelectedWithoutBundleMembership(t *testing.T) {
+	service, registry := selectedSchemaService()
+	initial := selectionInput(&intake.ToolSelection{Names: []string{"local:run"}, Complete: true})
+	_, err := service.buildToolSignatures(context.Background(), initial)
+	require.NoError(t, err)
+	// The source publishes a new tool; no authored bundle is changed.
+	registry.defs = append(registry.defs, llm.ToolDefinition{Name: "newsource:lookup", Description: "Newly published lookup", Parameters: map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}}}})
+	selected := selectionInput(&intake.ToolSelection{Names: []string{"newsource:lookup"}, Complete: true})
+	definitions, err := service.buildToolSignatures(context.Background(), selected)
+	require.NoError(t, err)
+	names := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		names = append(names, definition.Name)
+	}
+	require.ElementsMatch(t, []string{"newsource-lookup", "local-keep"}, names)
+	for _, pattern := range registry.patterns {
+		require.NotContains(t, pattern, "remote", "unselected providers must not be contacted")
+	}
+}
+
+func TestLargeCandidateCatalogDoesNotBecomeModelToolSurface(t *testing.T) {
+	service, registry := selectedSchemaService()
+	for i := len(registry.defs); i < 500; i++ {
+		registry.defs = append(registry.defs, llm.ToolDefinition{Name: fmt.Sprintf("extra:tool_%d", i), Parameters: map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}}}})
+	}
+	input := selectionInput(&intake.ToolSelection{Names: []string{"local:run"}, Complete: true})
+	signatures, err := service.buildToolSignatures(context.Background(), input)
+	require.NoError(t, err)
+	require.Len(t, registry.defs, 500)
+	require.ElementsMatch(t, []string{"local-run", "local-keep"}, signatureNames(signatures))
+	require.Equal(t, 1, registry.catalogReads)
 }

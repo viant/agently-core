@@ -565,6 +565,9 @@ func (c *Client) ToRequestContext(ctx context.Context, request *llm.GenerateRequ
 		//req.Messages[i] = message
 	}
 
+	if c.MergeConsecutiveSystemMessages && !isContextContinuationEnabled(c) {
+		req.Messages = mergeConsecutiveSystemMessages(req.Messages)
+	}
 	return req, nil
 }
 

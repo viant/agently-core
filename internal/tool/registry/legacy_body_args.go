@@ -33,7 +33,7 @@ func (r *Registry) cachedMCPInputProperties(ctx context.Context, server, method 
 		if r.mgr == nil {
 			return nil, false
 		}
-		snapshot, tools, err := r.cachedManagerCatalog(ctx, server)
+		snapshot, tools, err := r.cachedManagerCatalogSelection(ctx, server, []string{method}, false)
 		if err != nil || snapshot == "" {
 			return nil, false
 		}

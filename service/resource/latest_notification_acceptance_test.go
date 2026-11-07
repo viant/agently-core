@@ -21,7 +21,7 @@ import (
 	mcpclient "github.com/viant/mcp/client"
 )
 
-func TestDefaultSDKManagerReceivesAdvertisedResourceChangesAfterFirstRequest(t *testing.T) {
+func TestCurrentProtocolSDKManagerReceivesAdvertisedResourceChangesAfterFirstRequest(t *testing.T) {
 	ctx := context.Background()
 	root := configuredSnapshotRoot(t)
 	definition := configuredSnapshotDefinition()
@@ -64,7 +64,7 @@ func TestDefaultSDKManagerReceivesAdvertisedResourceChangesAfterFirstRequest(t *
 	require.NoError(t, err)
 	server := httptest.NewServer(handler)
 	defer server.Close()
-	mgr, err := manager.New(fixtureOptions{"latest": {ClientOptions: &mcp.ClientOptions{Name: "default-event-test", Version: "1", Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: server.URL + "/mcp"}}}, PrimitiveProviderIdentity: "latest-source", ResourceCacheScopes: map[string]string{"studio": "public"}}})
+	mgr, err := manager.New(fixtureOptions{"latest": {ClientOptions: &mcp.ClientOptions{Name: "current-event-test", Version: "1", ProtocolVersion: schema.LatestProtocolVersion, Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: server.URL + "/mcp"}}}, PrimitiveProviderIdentity: "latest-source", ResourceCacheScopes: map[string]string{"studio": "public"}}})
 	require.NoError(t, err)
 	defer mgr.CloseConversation("")
 	g := NewGateway(mgr, actor, verify, "consumer")
@@ -74,7 +74,7 @@ func TestDefaultSDKManagerReceivesAdvertisedResourceChangesAfterFirstRequest(t *
 	require.NoError(t, err)
 	require.Len(t, first.Items, 1)
 	cancelRequest() // stream lifetime belongs to the managed client, not this request
-	require.Greater(t, latest.Load(), int32(0), "default SDK negotiates current protocol")
+	require.Greater(t, latest.Load(), int32(0), "explicit current protocol uses its standard subscription transport")
 	client, err := mgr.Get(ctx, "", "latest")
 	require.NoError(t, err)
 	discovery, err := client.(mcpclient.DiscoveryInterface).Discover(ctx)

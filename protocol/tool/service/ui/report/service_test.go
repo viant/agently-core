@@ -347,3 +347,25 @@ func TestTypedActionResultPreservesForwardCompatibleRawFields(t *testing.T) {
 	require.Equal(t, true, output.Result["materialized"])
 	require.Equal(t, "completed", output.Result["status"])
 }
+
+func TestRunDiscoveryDescribesPredefinedReportsAndConfiguredWait(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		service := &Service{orchestration: enabled}
+		found := false
+		for _, method := range service.Methods() {
+			if method.Name != "run" {
+				continue
+			}
+			found = true
+			require.Contains(t, method.Description, "predefined report")
+			require.Contains(t, method.Description, "executeOnOpen=false")
+			require.Contains(t, method.Description, "read-only inspection")
+			if enabled {
+				require.Contains(t, method.Description, "matching execution")
+			} else {
+				require.NotContains(t, method.Description, "Waits for")
+			}
+		}
+		require.True(t, found)
+	}
+}

@@ -79,3 +79,40 @@ func TestSkillResolutionPreservesEmptyBodyError(t *testing.T) {
 	_, _, err := svc.activateResolvedWithContext(context.Background(), &skillproto.Skill{Frontmatter: skillproto.Frontmatter{Name: "empty", AllowedTools: "lookup"}}, "")
 	require.ErrorContains(t, err, "empty body")
 }
+
+type preparedSkillRegistry struct {
+	constraintRegistry
+	matches int
+}
+
+func (r *preparedSkillRegistry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
+	r.matches++
+	return r.MatchDefinition(pattern)
+}
+func TestExactSkillConstraintReusesPreparedDefinition(t *testing.T) {
+	registry := &preparedSkillRegistry{}
+	prepared := &llm.ToolDefinition{Name: "alpha-lookup", Parameters: map[string]interface{}{"type": "object"}}
+	got, missing := ExpandDefinitionsForConstraintsWithContext(context.Background(), []*llm.ToolDefinition{prepared}, registry, &Constraints{ToolPatterns: []string{"alpha:lookup"}})
+	require.Empty(t, missing)
+	require.Len(t, got, 1)
+	require.Same(t, prepared, got[0])
+	require.Zero(t, registry.matches, "already resolved exact tools must not be rediscovered through alias variants")
+}
+
+type provenanceSkillRegistry struct {
+	constraintRegistry
+	resolutions int
+}
+
+func (r *provenanceSkillRegistry) ResolveMCPIdentity(context.Context, string) (string, string, bool, error) {
+	r.resolutions++
+	return "", "", false, nil
+}
+func TestRemoteSkillSurfaceUsesPreparedHostProvenance(t *testing.T) {
+	reg := &provenanceSkillRegistry{}
+	allowed := &llm.ToolDefinition{Name: "source-lookup", SourceMCPServer: "source"}
+	other := &llm.ToolDefinition{Name: "source-lookalike", SourceMCPServer: "other"}
+	got, _ := ExpandDefinitionsForConstraintsWithContext(context.Background(), []*llm.ToolDefinition{allowed, other}, reg, &Constraints{RemoteServers: []string{"source"}})
+	require.Equal(t, []*llm.ToolDefinition{allowed}, got)
+	require.Zero(t, reg.resolutions, "host-prepared provenance must not be resolved again for presentation")
+}

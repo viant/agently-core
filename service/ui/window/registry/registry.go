@@ -487,7 +487,7 @@ func (r *Registry) listByConversation(ctx context.Context, conversationID string
 		result := make([]ClientSnapshot, 0, len(items))
 		for _, item := range items {
 			if requireServiceable {
-				if isFreshSnapshot(item, now) && isServiceableClient(item, now) {
+				if isAttachedClient(item, now) && isServiceableClient(item, now) {
 					result = append(result, item)
 				}
 				continue
@@ -501,7 +501,7 @@ func (r *Registry) listByConversation(ctx context.Context, conversationID string
 	result := make([]ClientSnapshot, 0, len(items))
 	for _, item := range items {
 		if requireServiceable {
-			if !isFreshSnapshot(item, now) {
+			if !isAttachedClient(item, now) {
 				continue
 			}
 			if !isServiceableClient(item, now) {

@@ -2,6 +2,8 @@ package skill
 
 import (
 	"context"
+	"errors"
+	schema "github.com/viant/mcp-protocol/schema"
 	"testing"
 	"testing/fstest"
 
@@ -19,6 +21,15 @@ import (
 type publishedWireSource struct {
 	wireSource
 	options *cfg.MCPClient
+}
+
+type failingSupportingDelivery struct {
+	fixedNativeSkillDelivery
+	failure error
+}
+
+func (d *failingSupportingDelivery) ReadRemoteResource(context.Context, *proto.Skill, string) (*schema.ReadResourceResult, bool, error) {
+	return nil, true, d.failure
 }
 
 type fixedNativeSkillDelivery struct{ rows []proto.Metadata }
@@ -82,6 +93,29 @@ func TestPublishedMCPDefinitionNegotiatesSkillsAndReadsSelectedSupport(t *testin
 	text, _, _, err := s.readSupporting(ctx, item, "refs/note.txt")
 	require.NoError(t, err)
 	require.Equal(t, "producer support", text)
+	countLists := func() int {
+		count := 0
+		for _, method := range wire.methods {
+			if method == "skills/list" {
+				count++
+			}
+		}
+		return count
+	}
+	beforeChildLists := countLists()
+	child := deriveDynamicSkillAgent(a, item, item.Body)
+	require.Contains(t, child.SystemPrompt.Text, "llm/skills:get")
+	require.Contains(t, child.SystemPrompt.Text, `"path":"refs/note.txt"`)
+	require.Contains(t, child.SystemPrompt.Text, item.Identity())
+	require.Empty(t, a.Tool.Items, "child support reader must not mutate the parent")
+	require.Equal(t, "llm/skills:get", child.Tool.Items[len(child.Tool.Items)-1].Name)
+	require.True(t, child.Tool.Items[len(child.Tool.Items)-1].AlwaysInclude)
+	childCtx := WithRuntimeState(ctx, s, child, nil)
+	got := &GetOutput{}
+	require.NoError(t, s.get(childCtx, &GetInput{URI: item.Identity(), Path: "refs/note.txt"}, got))
+	require.Equal(t, "producer support", got.Body)
+	require.Equal(t, beforeChildLists, countLists(), "supporting-file reads must not rediscover the skill catalog")
+
 	count := 0
 	for _, method := range wire.methods {
 		if method == "initialize" || method == "server/discover" {
@@ -90,6 +124,11 @@ func TestPublishedMCPDefinitionNegotiatesSkillsAndReadsSelectedSupport(t *testin
 	}
 	require.Equal(t, 1, count, "capability negotiation reuses the initialized native client")
 	require.Nil(t, source.options.SkillDiscovery, "default federation must not mutate the published definition")
+	sourceFailure := errors.New("synthetic supporting resource failure")
+	s.delivery = &failingSupportingDelivery{failure: sourceFailure}
+	_, _, _, err = s.readSupporting(ctx, item, "refs/note.txt")
+	require.ErrorIs(t, err, sourceFailure, "supporting reads must preserve the producer cause")
+	s.delivery = nil
 	source.options.SkillDiscovery = &cfg.SkillDiscovery{Enabled: false}
 	hidden, err := s.ListVisible(ctx, a)
 	require.NoError(t, err)

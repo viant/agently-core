@@ -83,13 +83,17 @@ func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (serv
 			if owner, ok := r.mgr.(interface{ MayHaveToolCatalogAlias(string, string) bool }); ok && !owner.MayHaveToolCatalogAlias(server, name) {
 				continue
 			}
-			if r.isInternalServer(server) || r.isPublicToolCatalog(ctx, server) {
+			if r.isInternalServer(server) {
 				continue
 			}
+			public := r.isPublicToolCatalog(ctx, server)
 			if !r.hasObservedCatalog(ctx, server) {
 				continue
 			}
-			snapshot, tools, listErr := r.cachedManagerCatalog(ctx, server)
+			snapshot, tools, listErr := r.cachedManagerCatalogSelection(ctx, server, []string{name}, true)
+			if public && snapshot == "" && listErr == nil {
+				continue
+			}
 			if snapshot != "" {
 				candidate := false
 				for _, tool := range tools {

@@ -1128,10 +1128,11 @@ func (s *Service) failChildConversationShell(ctx context.Context, conversationID
 }
 
 func turnMetaFromContext(ctx context.Context) runtimerequestctx.TurnMeta {
-	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
-		return tm
+	tm, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	if strings.TrimSpace(tm.ConversationID) == "" {
+		tm.ConversationID = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	}
-	return runtimerequestctx.TurnMeta{}
+	return tm
 }
 
 func (s *Service) agentConversationScope(ctx context.Context, agentID string) string {

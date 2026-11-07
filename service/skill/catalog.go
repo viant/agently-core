@@ -13,6 +13,7 @@ import (
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/protocol/mcp/manager"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/runtime/capability"
@@ -36,6 +37,7 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	ctx = manager.WithNamesMemo(ctx)
 	ctx, discovery := withDiscoveryDiagnostics(ctx)
 	names := []string{}
 	if s.mcpSource != nil && authctx.EffectiveUserID(ctx) != "" {

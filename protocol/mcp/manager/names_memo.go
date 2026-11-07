@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	shared "github.com/viant/forge/backend/clientpool"
+	shared "github.com/viant/mcp/client/pool"
 	"net/http"
 	"sync"
 

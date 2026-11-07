@@ -94,7 +94,7 @@ func (r *Registry) MCPToolsVisible(ctx context.Context, names []string, audience
 					continue
 				}
 			}
-			snapshot, tools, err := r.cachedManagerCatalog(ctx, server)
+			snapshot, tools, err := r.cachedManagerCatalogSelection(ctx, server, names, true)
 			if snapshot == "" && err == nil {
 				tools, err = r.listServerTools(ctx, server)
 			}

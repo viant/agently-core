@@ -11,7 +11,7 @@ import (
 	authsvc "github.com/viant/agently-core/service/auth"
 	"github.com/viant/authz"
 	"github.com/viant/forge/backend/artifactcohort"
-	manager "github.com/viant/forge/backend/clientpool"
+	manager "github.com/viant/mcp/client/pool"
 	primitive "github.com/viant/forge/backend/provider/contract"
 	"github.com/viant/forge/backend/reporting/registry"
 	identity "github.com/viant/forge/backend/resource"

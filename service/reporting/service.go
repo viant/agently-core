@@ -334,7 +334,7 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "list_reports",
-			Description: "List persisted report records visible to the current principal.",
+			Description: "List visible saved and published report catalog summaries, including names and resource URIs. Use this to identify a report by title before reading its definition or invoking its producer. Supports namespace and cursor filtering; does not execute report data.",
 			Input:       reflect.TypeOf(&ListReportsInput{}),
 			Output:      reflect.TypeOf(&ListReportsResult{}),
 		},

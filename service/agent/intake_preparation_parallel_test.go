@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/service/core"
@@ -45,10 +46,34 @@ func intakePreparationInput() *QueryInput {
 	return &QueryInput{Query: "Explain available records", Agent: &agentmdl.Agent{Intake: agentmdl.Intake{Enabled: true, Model: "synthetic-model", Scope: []string{agentmdl.IntakeScopeTools}}}}
 }
 
+type intakeTranscriptBarrier struct {
+	*followupStubConversationClient
+	entered chan string
+	release chan struct{}
+	once    sync.Once
+}
+
+func (c *intakeTranscriptBarrier) GetConversation(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Conversation, error) {
+	input := &apiconv.Input{}
+	for _, option := range options {
+		option(input)
+	}
+	if input.IncludeTranscript {
+		c.once.Do(func() {
+			c.entered <- "transcript"
+			select {
+			case <-c.release:
+			case <-ctx.Done():
+			}
+		})
+	}
+	return &apiconv.Conversation{Id: id}, ctx.Err()
+}
+
 func TestIntakePreparationOverlapsMetadataAndPreservesParentContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	entered := make(chan string, 2)
+	entered := make(chan string, 3)
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	defer releaseOnce.Do(func() { close(release) })
@@ -64,20 +89,21 @@ func TestIntakePreparationOverlapsMetadataAndPreservesParentContext(t *testing.T
 	}}})
 	model := &intakePreparationModel{}
 	llmSvc := core.New(&plannerRoutingFinder{model: model}, nil, nil)
-	svc := &Service{registry: reg, intakeSvc: intakesvc.New(llmSvc), uiBridge: bridge}
+	svc := &Service{registry: reg, intakeSvc: intakesvc.New(llmSvc), uiBridge: bridge, conversation: &intakeTranscriptBarrier{followupStubConversationClient: &followupStubConversationClient{}, entered: entered, release: release}}
 	input := intakePreparationInput()
+	input.ConversationID = "parent"
 	done := make(chan struct{})
 	go func() { defer close(done); svc.maybeRunIntakeSidecar(ctx, input) }()
 	seen := []string{}
-	for range 2 {
+	for range 3 {
 		select {
 		case stage := <-entered:
 			seen = append(seen, stage)
 		case <-ctx.Done():
-			t.Fatal("UI and capability metadata did not start before either completed")
+			t.Fatal("UI, capability metadata, and transcript did not start before any completed")
 		}
 	}
-	require.ElementsMatch(t, []string{"ui", "tools"}, seen)
+	require.ElementsMatch(t, []string{"ui", "tools", "transcript"}, seen)
 	releaseOnce.Do(func() { close(release) })
 	select {
 	case <-done:

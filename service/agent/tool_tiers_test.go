@@ -72,7 +72,7 @@ func retainedCatalogService(t *testing.T, listErr error) (*Service, context.Cont
 	t.Setenv("AGENTLY_WORKSPACE", t.TempDir())
 	t.Setenv("AGENTLY_RUNTIME_ROOT", t.TempDir())
 	provider := &retainedCatalogProvider{options: &mcpcfg.MCPClient{
-		ClientOptions:       &mcp.ClientOptions{Name: "source"},
+		ClientOptions:       &mcp.ClientOptions{Name: "source", Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: "https://example.test/mcp"}}},
 		ToolsListVisibility: mcpcfg.ToolsListVisibilityPublic,
 		ResolvedIdentity:    &mcpcfg.ResolvedServiceIdentity{ServiceName: "source", ResourceURI: uri},
 	}}
@@ -126,7 +126,12 @@ func TestRetainedMCPURIToolsUseNativeCatalog(t *testing.T) {
 					require.True(t, def.AlwaysInclude)
 					require.Equal(t, "mcp://catalog/source", def.SourceMCPServer)
 				}
-				require.ElementsMatch(t, []string{mcpname.Canonical("mcp://catalog/source/Read"), mcpname.Canonical("mcp://catalog/source/Describe")}, names)
+				require.ElementsMatch(t, []string{mcpname.Canonical("mcp://catalog/source:Read"), mcpname.Canonical("mcp://catalog/source:Describe")}, names)
+				legacyServer, method, found, err := reg.ResolveMCPIdentity(ctx, mcpname.Canonical("mcp://catalog/source/Read"))
+				require.NoError(t, err)
+				require.True(t, found)
+				require.Equal(t, "mcp://catalog/source", legacyServer)
+				require.Equal(t, "Read", method)
 				require.Positive(t, peer.listCalls.Load(), "the native discovery path must reach the local MCP peer")
 			})
 		}

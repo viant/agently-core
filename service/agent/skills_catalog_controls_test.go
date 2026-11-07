@@ -74,7 +74,39 @@ func TestSkillControlsUseOwningVisibleCatalogNotPrimitiveConnectionPresence(t *t
 			visible, err := service.hasVisibleSkills(ctx, &agentmdl.Agent{Skills: tc.selection})
 			require.Equal(t, tc.visible, visible)
 			require.Equal(t, tc.denied, err != nil)
-			require.Equal(t, ctx, owner.observed)
+			require.Equal(t, "caller", owner.observed.Value(marker{}))
 		})
+	}
+}
+
+type exactSkillControlCatalog struct {
+	skillControlCatalog
+	item    *proto.Skill
+	readErr error
+	reads   int
+}
+
+func (*exactSkillControlCatalog) OwnsReference(string) bool { return true }
+func (*exactSkillControlCatalog) List(context.Context) ([]proto.Metadata, error) {
+	panic("exact skill control must not enumerate producers")
+}
+func (d *exactSkillControlCatalog) Read(context.Context, string) (*proto.Skill, bool, error) {
+	d.reads++
+	return d.item, true, d.readErr
+}
+func TestExactSkillControlsUseOwningReadAndPreserveDenial(t *testing.T) {
+	const uri = "skill://team/review/SKILL.md"
+	for _, denied := range []bool{false, true} {
+		owner := &exactSkillControlCatalog{item: &proto.Skill{CatalogURI: uri, ServerID: "team", Frontmatter: proto.Frontmatter{Name: "review"}}}
+		if denied {
+			owner.readErr = fmt.Errorf("owner denied")
+		}
+		skillService := skills.New(nil, nil, nil)
+		skillService.SetDelivery(skillControlSources{}, owner)
+		service := &Service{skillSvc: skillService}
+		visible, err := service.hasVisibleSkills(context.Background(), &agentmdl.Agent{Skills: []string{uri}})
+		require.Equal(t, !denied, visible)
+		require.Equal(t, denied, err != nil)
+		require.Equal(t, 1, owner.reads)
 	}
 }

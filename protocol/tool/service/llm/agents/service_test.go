@@ -2621,3 +2621,48 @@ func TestService_Start_AsyncChildConversationMarkedRunning(t *testing.T) {
 
 	close(release)
 }
+
+func TestService_Start_WithConversationContextReturnsChildHandle(t *testing.T) {
+	conv := convmem.New()
+	ctx := context.Background()
+
+	parentConv := convcli.NewConversation()
+	parentConv.SetId("parent-conv")
+	require.NoError(t, conv.PatchConversations(ctx, parentConv))
+
+	runCtx := memory.WithConversationID(ctx, "parent-conv")
+
+	release := make(chan struct{})
+	defer close(release)
+	fake := &fakeAgentRuntime{
+		finder: &fakeFinder{agents: map[string]*agentmdl.Agent{
+			"worker": {Identity: agentmdl.Identity{ID: "worker"}},
+		}},
+		queryFn: func(ctx context.Context, in *agentsvc.QueryInput, out *agentsvc.QueryOutput) error {
+			<-release
+			if out != nil {
+				out.Content = "done"
+				out.ConversationID = in.ConversationID
+			}
+			return nil
+		},
+	}
+	s := New(nil, WithConversationClient(conv))
+	s.agent = fake
+
+	var out StartOutput
+	err := s.start(runCtx, &StartInput{
+		AgentID:   "worker",
+		Objective: "work",
+	}, &out)
+	require.NoError(t, err)
+	require.NotEmpty(t, out.ConversationID)
+	assert.Equal(t, "running", out.Status)
+
+	child, getErr := conv.GetConversation(ctx, out.ConversationID)
+	require.NoError(t, getErr)
+	require.NotNil(t, child)
+	require.NotNil(t, child.Status)
+	assert.Equal(t, "running", strings.TrimSpace(*child.Status))
+
+}

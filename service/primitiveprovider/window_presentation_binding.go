@@ -20,7 +20,7 @@ func (s *Service) BindAdmittedNativePresentationWindow(ctx context.Context, clie
 	}
 	windowID, clientID = strings.TrimSpace(windowID), strings.TrimSpace(clientID)
 	uri, uriErr := identity.ParseResourceURI(admitted.Resource.URI)
-	if windowID == "" || clientID == "" || uriErr != nil || uri.Kind != "window" || admitted.ResourceTarget == nil {
+	if windowID == "" || clientID == "" || uriErr != nil || (uri.Kind != "window" && uri.Kind != "report") || (uri.Kind == "window" && admitted.ResourceTarget == nil) || (uri.Kind == "report" && windowKey != admitted.Resource.URI) {
 		return true, identity.ErrResourceDenied
 	}
 	bridge, session, err := s.nativePresentationSession(ctx)

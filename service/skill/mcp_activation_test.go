@@ -13,10 +13,20 @@ import (
 	"testing"
 )
 
-func TestMCPActivationModesPreserveOrigin(t *testing.T) {
+func TestMCPActivationModesPreserveOrigin(t *testing.T) { testMCPActivationModes(t, false) }
+func TestMCPActivationModeOverrideUsesQualifiedIdentity(t *testing.T) {
+	testMCPActivationModes(t, true)
+}
+
+func testMCPActivationModes(t *testing.T, override bool) {
+	t.Helper()
 	for _, mode := range []string{"inline", "fork", "detach"} {
 		t.Run(mode, func(t *testing.T) {
-			f := &skillMCPFixture{body: fmt.Sprintf("---\nname: review\ndescription: Review\nmetadata:\n  agently-context: %s\n---\nRead carefully.", mode)}
+			declaredMode, requestedMode := mode, ""
+			if override {
+				declaredMode, requestedMode = "inline", mode
+			}
+			f := &skillMCPFixture{body: fmt.Sprintf("---\nname: review\ndescription: Review\nmetadata:\n  agently-context: %s\n---\nRead carefully.", declaredMode)}
 			agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "parent"}, Skills: []string{"*"}}
 			id := "parent"
 			s := &Service{mcpSource: &skillSourceFixture{f: f}, registry: proto.NewRegistry(), agentFinder: &testFinder{agent: agent}, conv: &testConversationClient{conv: &conv.Conversation{Id: "conversation", AgentId: &id}}}
@@ -38,7 +48,7 @@ func TestMCPActivationModesPreserveOrigin(t *testing.T) {
 				return `{"conversationId":"child","status":"completed","terminal":true,"message":"done","messageKind":"response"}`, nil
 			}
 			out := &ActivateOutput{}
-			require.NoError(t, s.activate(ctx, &ActivateInput{Name: "github/review", Args: "review"}, out))
+			require.NoError(t, s.activate(ctx, &ActivateInput{Name: "github/review", Args: "review", Mode: requestedMode}, out))
 			require.Contains(t, out.Name, "skill://github/review~")
 			require.Equal(t, mode, out.Mode)
 			if mode == "inline" {
@@ -50,4 +60,12 @@ func TestMCPActivationModesPreserveOrigin(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestActivationModeOverrideDoesNotCrossSkillOrigins(t *testing.T) {
+	selected := &proto.Skill{Frontmatter: proto.Frontmatter{Name: "review"}, CatalogURI: "skill://first/review"}
+	other := &proto.Skill{Frontmatter: proto.Frontmatter{Name: "review"}, CatalogURI: "skill://second/review"}
+	ctx := WithActivationModeOverride(context.Background(), selected.Identity(), "fork")
+	require.Equal(t, "fork", effectiveActivationMode(ctx, selected))
+	require.Equal(t, "inline", effectiveActivationMode(ctx, other))
 }

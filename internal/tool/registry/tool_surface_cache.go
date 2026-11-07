@@ -9,6 +9,7 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
+	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcpschema "github.com/viant/mcp-protocol/schema"
@@ -58,10 +59,11 @@ func (r *Registry) ToolSurfaceCacheIdentity(ctx context.Context, pattern string)
 		}
 	}
 	catalog := map[string]llm.ToolDefinition{}
+	match := toolmatcher.Prepare(pattern)
 	r.mu.RLock()
 	if kind == "public" {
 		for _, entry := range r.cache {
-			if entry != nil && strings.HasPrefix(entry.def.Name, server+"/") {
+			if entry != nil && strings.HasPrefix(entry.def.Name, server+"/") && match.MatchCanonical(toolmatcher.Canon(entry.def.Name)) {
 				catalog[entry.def.Name] = entry.def
 			}
 		}
@@ -94,6 +96,33 @@ func (r *Registry) cachedManagerCatalog(ctx context.Context, server string) (str
 		return "", nil, nil
 	}
 	return owner.ToolCatalogSnapshot(ctx, conversation, server, opts...)
+}
+
+// cachedManagerCatalogSelection uses the owning manager's prepared index when
+// available. Older managers retain their original catalog behavior.
+func (r *Registry) cachedManagerCatalogSelection(ctx context.Context, server string, names []string, metadataOnly bool) (string, []mcpschema.Tool, error) {
+	if owner, ok := r.mgr.(interface {
+		ToolCatalogSelect(context.Context, string, string, []string, bool, ...mcpclient.RequestOption) (string, []mcpschema.Tool, error)
+	}); ok {
+		ctx, conversation, opts, available := r.managerCatalogRequest(ctx, server)
+		if !available {
+			return "", nil, nil
+		}
+		return owner.ToolCatalogSelect(ctx, conversation, server, names, metadataOnly, opts...)
+	}
+	return r.cachedManagerCatalog(ctx, server)
+}
+
+// Exact schema resolution reuses the current scoped catalog page. Wildcards
+// and cold discovery keep the existing listing path.
+func (r *Registry) selectedServerTools(ctx context.Context, server, method string) ([]mcpschema.Tool, error) {
+	if method != "" {
+		identity, tools, err := r.cachedManagerCatalogSelection(ctx, server, []string{method}, false)
+		if err != nil || identity != "" {
+			return tools, err
+		}
+	}
+	return r.listServerTools(ctx, server)
 }
 
 // Cache identities need only the manager's existing page revisions. Alternate

@@ -81,7 +81,7 @@ func intakeNeedsNoTools(ctx context.Context, input *QueryInput) bool {
 
 // Selection narrows model exposure, never execution authority. Definitions have
 // already passed the existing bundle/visibility resolution; keep their metadata.
-func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, definitions []llm.ToolDefinition) (result []llm.ToolDefinition, err error) {
+func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, definitions []llm.ToolDefinition, prepared ...[]llm.ToolDefinition) (result []llm.ToolDefinition, err error) {
 	selectionStarted := time.Now()
 	defer func() { writeBindingToolStage(ctx, "candidate_selection", selectionStarted, len(result), false, err) }()
 	state, hasState := toolselection.FromContext(ctx)
@@ -112,9 +112,17 @@ func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, defi
 		if err != nil {
 			return nil, err
 		}
-		discoverable, discoveryErr := s.discoverableToolDefinitions(ctx, input)
-		if discoveryErr != nil {
-			return nil, discoveryErr
+		var discoverable []llm.ToolDefinition
+		if len(prepared) > 0 {
+			// The resolver passes its current invocation's catalog directly; no
+			// candidate state is retained across bindings, callers or turns.
+			discoverable = append([]llm.ToolDefinition(nil), prepared[0]...)
+		} else {
+			var discoveryErr error
+			discoverable, discoveryErr = s.discoverableToolDefinitions(ctx, input)
+			if discoveryErr != nil {
+				return nil, discoveryErr
+			}
 		}
 		discoverable = dedupeDefinitions(append(discoverable, definitions...))
 		if hasState {

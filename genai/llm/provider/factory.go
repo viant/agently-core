@@ -177,6 +177,7 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 		}
 		// Pass through continuation flag; nil means default enabled.
 		opts = append(opts, openai.WithContextContinuation(options.ContextContinuation))
+		opts = append(opts, openai.WithMergeConsecutiveSystemMessages(options.MergeConsecutiveSystemMessages))
 		return openai.NewClient(apiKey, options.Model, opts...), nil
 	case ProviderOllama:
 		ollamaOptions := []ollama.ClientOption{

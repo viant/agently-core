@@ -557,3 +557,26 @@ func TestBuildWindowSurface_PreservesQuickSearchDatasource(t *testing.T) {
 		t.Fatalf("quick-search binding was lost: %+v", control)
 	}
 }
+
+func TestFindWindowKeepsUnchangedSnapshotWithLiveTransport(t *testing.T) {
+	if testing.Short() {
+		t.Skip("exercises the real snapshot freshness interval")
+	}
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "stable-client"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{"clientId": "stable-client", "data": map[string]interface{}{"conversationId": "chat", "windows": []interface{}{map[string]interface{}{"windowId": "stable-report", "windowKey": "report://example/summary", "conversationId": "chat", "presentation": "hosted"}}}})
+	before := bridge.Hub().SnapshotEntries()[0].UpdatedAt
+	time.Sleep(defaultSnapshotFreshness + 50*time.Millisecond)
+	postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "stable-client", "timeoutMs": 1})
+	reg := New(bridge)
+	_, _, _, win, err := reg.FindWindow(context.Background(), "chat", "stable-client", "stable-report", "")
+	if err != nil || win == nil {
+		t.Fatalf("unchanged connected report disappeared: %v", err)
+	}
+	if !bridge.Hub().SnapshotEntries()[0].UpdatedAt.Equal(before) {
+		t.Fatal("test republished snapshot")
+	}
+	if _, _, _, _, err = reg.FindWindow(context.Background(), "foreign-chat", "stable-client", "stable-report", ""); err == nil {
+		t.Fatal("foreign conversation saw report")
+	}
+}

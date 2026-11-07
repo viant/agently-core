@@ -46,7 +46,16 @@ type ClickInput struct {
 	DataSourceRef    string                `json:"dataSourceRef,omitempty"`
 }
 
+// ActionReceipt contains outcome identifiers, never artifact bytes or credentials.
+type ActionReceipt struct {
+	Status     string `json:"status,omitempty"`
+	ArtifactID string `json:"artifactId,omitempty"`
+	JobID      string `json:"jobId,omitempty"`
+	Format     string `json:"format,omitempty"`
+}
+
 type CommandOutput struct {
+	Receipt             *ActionReceipt                   `json:"receipt,omitempty"`
 	PendingInteraction  *uicontext.ControlOperationState `json:"pendingInteraction,omitempty"`
 	PendingConfirmation bool                             `json:"pendingConfirmation,omitempty"`
 	Status              string                           `json:"status,omitempty"`
@@ -74,7 +83,7 @@ func (s *Service) Methods() svc.Signatures {
 		{Name: "focus", Description: "Focus a registered visible enabled UI control using its normal native focus handler, including lazy option loading.", Input: reflect.TypeOf(&ClickInput{}), Output: reflect.TypeOf(&CommandOutput{})},
 		{Name: "get", Description: "Read one live mounted control value, validation constraints, flags, supported actions and operation revision without fetching datasets or executing handlers.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&ReadOutput{})},
 		{Name: "list", Description: "Read a bounded page of current live controls and operation availability without fetching datasets or executing handlers.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ReadOutput{})},
-		{Name: "click", Description: "Invoke a registered visible enabled UI action with normal validation and confirmation; use expectedRevision from current UI Read.", Input: reflect.TypeOf(&ClickInput{}), Output: reflect.TypeOf(&CommandOutput{})},
+		{Name: "click", Description: "Invoke a registered visible enabled UI action with normal validation and confirmation; use expectedRevision from current UI Read. A succeeded receipt confirms the completed output and provides its identifiers; do not rediscover or poll a completed export.", Input: reflect.TypeOf(&ClickInput{}), Output: reflect.TypeOf(&CommandOutput{})},
 		{Name: "setValue", Description: "Change a registered visible enabled UI control through its normal handler; use expectedRevision from current UI Read.", Input: reflect.TypeOf(&SetValueInput{}), Output: reflect.TypeOf(&CommandOutput{})},
 	}
 }
@@ -193,6 +202,7 @@ func (s *Service) operate(ctx context.Context, input *SetValueInput, output *Com
 		output.Resource = &identity.ResourceRef{URI: win.Resource.URI, Revision: win.Resource.Selector()}
 	}
 	var liveResult struct {
+		Receipt             *ActionReceipt                   `json:"receipt"`
 		PendingInteraction  *uicontext.ControlOperationState `json:"pendingInteraction"`
 		PendingConfirmation bool                             `json:"pendingConfirmation"`
 		Status              string                           `json:"status"`
@@ -202,6 +212,7 @@ func (s *Service) operate(ctx context.Context, input *SetValueInput, output *Com
 	if len(resp.Result) > 0 {
 		_ = json.Unmarshal(resp.Result, &liveResult)
 	}
+	output.Receipt = liveResult.Receipt
 	output.OperationRevision = liveResult.OperationRevision
 	output.Status = liveResult.Status
 	output.PendingInteraction = liveResult.PendingInteraction

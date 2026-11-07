@@ -95,3 +95,8 @@ func WithCodexBetaFeatures(features string) ClientOption {
 func WithLoggingEnabled(enabled bool) ClientOption {
 	return func(c *Client) { c.EnableLogging = enabled }
 }
+
+// WithMergeConsecutiveSystemMessages enables ordered adjacent system-message normalization.
+func WithMergeConsecutiveSystemMessages(enabled bool) ClientOption {
+	return func(c *Client) { c.MergeConsecutiveSystemMessages = enabled }
+}

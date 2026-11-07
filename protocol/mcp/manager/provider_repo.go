@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	shared "github.com/viant/forge/backend/clientpool"
+	shared "github.com/viant/mcp/client/pool"
 	"log"
 	"os"
 	"path/filepath"

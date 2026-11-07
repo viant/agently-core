@@ -43,6 +43,13 @@ Those are internal. Nothing outside the provider package imports them.
 
 ## Translation contract
 
+For OpenAI-compatible Chat Completions endpoints that restrict system-message
+count, model `options.mergeConsecutiveSystemMessages: true` combines adjacent,
+unnamed system messages in their original order. Use it with
+`options.contextContinuation: false`. It defaults to false and does not affect
+Responses requests. User, assistant, tool, named, and separated system messages
+retain their boundaries; this option does not move instructions across turns.
+
 ```
 generic                                 native
                                         

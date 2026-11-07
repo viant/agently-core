@@ -194,9 +194,16 @@ func TestClickUsesScopedNormalActionAndReturnsCurrentRevision(t *testing.T) {
 	if command["method"] != "ui.control.click" || params["conversationId"] != "current-chat" || params["expectedRevision"] != float64(17) {
 		t.Fatalf("lost scoped operation: %#v", command)
 	}
-	postUIRPC(t, bridge, "ui.response", map[string]interface{}{"id": command["id"], "ok": true, "result": map[string]interface{}{"ok": true, "operationRevision": 18}})
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{"id": command["id"], "ok": true, "result": map[string]interface{}{"ok": true, "operationRevision": 18, "receipt": map[string]any{"status": "succeeded", "artifactId": "artifact-1", "jobId": "job-1", "format": "xlsx", "data": "must-not-leak"}}})
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+	if output.Receipt == nil || output.Receipt.ArtifactID != "artifact-1" || output.Receipt.JobID != "job-1" || output.Receipt.Status != "succeeded" || output.Receipt.Format != "xlsx" {
+		t.Fatalf("lost compact receipt: %+v", output.Receipt)
+	}
+	raw, err := json.Marshal(output)
+	if err != nil || strings.Contains(string(raw), "must-not-leak") {
+		t.Fatalf("receipt included unsupported data: %s %v", raw, err)
 	}
 	if !output.OK || output.OperationRevision != 18 {
 		t.Fatalf("lost live operation result: %+v", output)

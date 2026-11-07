@@ -89,6 +89,9 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 			http.Error(w, "window key is required", http.StatusBadRequest)
 			return
 		}
+		if bindHTTPReport(w, r, settings.windows, strings.Join(pathParts, "/")) {
+			return
+		}
 		if tryPublishedWindow(w, r, settings.published, pathParts) {
 			return
 		}

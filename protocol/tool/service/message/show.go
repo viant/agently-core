@@ -20,7 +20,7 @@ type ShowInput struct {
 	MessageID string             `json:"messageId"`
 	ByteRange *textutil.IntRange `json:"byteRange,omitempty" description:"Optional byte range [from,to) over the selected content."`
 	Sed       []string           `json:"sed,omitempty" description:"List of sed programs applied in order to the selected content."`
-	Transform *TransformSpec     `json:"transform,omitempty" description:"Transform with selector+fields or queryLanguage+query, then format as csv or ndjson."`
+	Transform *TransformSpec     `json:"transform,omitempty" description:"Select a JSON subtree with selector, then format as csv or ndjson. Use fields to select CSV columns. Applied to the full original payload before byte-range clipping."`
 }
 
 type ShowOutput struct {

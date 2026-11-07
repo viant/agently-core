@@ -22,6 +22,7 @@ type ChatGPTAccountIDProvider func(ctx context.Context) (string, error)
 
 // Client represents an OpenAI API client
 type Client struct {
+	MergeConsecutiveSystemMessages bool
 	basecfg.Config
 	APIKey string
 	// APIKeyProvider resolves the API key at call time (e.g., from OAuth token exchange).

@@ -73,8 +73,14 @@ func (s *Service) readSupporting(ctx context.Context, item *proto.Skill, relativ
 		}
 		result, err = cli.ReadResource(ctx, &schema.ReadResourceRequestParams{Uri: target}, opts...)
 	}
-	if err != nil || result == nil || len(result.Contents) != 1 {
-		return "", "", "", fmt.Errorf("skill file unavailable")
+	if err != nil {
+		return "", "", "", fmt.Errorf("read skill supporting file: %w", err)
+	}
+	if result == nil {
+		return "", "", "", fmt.Errorf("skill supporting-file read returned no response")
+	}
+	if len(result.Contents) != 1 {
+		return "", "", "", fmt.Errorf("skill supporting-file read returned %d contents; expected one", len(result.Contents))
 	}
 	c := result.Contents[0]
 	data := []byte(c.Text)

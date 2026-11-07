@@ -10,8 +10,8 @@ import (
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/workspace"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
-	shared "github.com/viant/forge/backend/clientpool"
 	authcfg "github.com/viant/mcp/client/auth/config"
+	shared "github.com/viant/mcp/client/pool"
 )
 
 type (

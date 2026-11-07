@@ -219,7 +219,25 @@ func ExpandDefinitionsForConstraintsWithContext(ctx context.Context, defs []*llm
 	if c != nil && len(c.RemoteServers) > 0 {
 		filtered := make([]*llm.ToolDefinition, 0, len(defs))
 		for _, def := range defs {
-			if def != nil && remoteToolAllowedWithRegistry(ctx, reg, def.Name, c.RemoteServers) {
+			if def == nil {
+				continue
+			}
+			allowed := false
+			if def.SourceMCPServer != "" {
+				// SourceMCPServer is assigned by host discovery and cannot be
+				// supplied through producer schemas or workspace configuration.
+				for _, server := range c.RemoteServers {
+					if def.SourceMCPServer == server {
+						allowed = true
+						break
+					}
+				}
+				canonical := mcpname2.Canonical(def.Name)
+				allowed = allowed || canonical == mcpname2.Canonical("llm/skills:get") || canonical == mcpname2.Canonical("llm/skills:list")
+			} else {
+				allowed = remoteToolAllowedWithRegistry(ctx, reg, def.Name, c.RemoteServers)
+			}
+			if allowed {
 				filtered = append(filtered, def)
 			}
 		}
@@ -257,6 +275,20 @@ func ExpandDefinitionsForConstraintsWithContext(ctx context.Context, defs []*llm
 	unmatched = make([]string, 0)
 	for _, pattern := range c.ToolPatterns {
 		matchedAny := false
+		// Exact definitions already resolved for this binding are authoritative.
+		// Wildcards and unqualified methods still need full source matching.
+		if !strings.ContainsAny(pattern, "*?[]|") && strings.ContainsAny(pattern, ":/-") {
+			wanted := mcpname2.Canonical(pattern)
+			for _, def := range out {
+				if mcpname2.Canonical(def.Name) == wanted {
+					matchedAny = true
+					break
+				}
+			}
+		}
+		if matchedAny {
+			continue
+		}
 		for _, variant := range toolPatternVariants(pattern) {
 			for _, def := range matchSkillTool(ctx, reg, variant) {
 				appendDef(def)

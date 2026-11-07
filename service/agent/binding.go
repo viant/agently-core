@@ -442,7 +442,9 @@ func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryI
 	if s == nil || s.skillSvc == nil || input == nil || input.Agent == nil || b == nil {
 		return nil
 	}
+	stageStart := time.Now()
 	state := resolveActiveInlineSkillState(&b.History, input, s.skillSvc, input.Agent, ctx)
+	writeBindingToolStage(ctx, "active_skill_load", stageStart, len(state.Skills), false, nil)
 	if len(state.Skills) == 0 {
 		return nil
 	}
@@ -456,7 +458,9 @@ func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryI
 			definitions = append(definitions, *definition)
 		}
 	}
+	stageStart = time.Now()
 	selected, _, err := s.independentlySelectedToolDefinitions(ctx, input, definitions, profile, intakeSelectedToolNames(input, b.Tools.Signatures))
+	writeBindingToolStage(ctx, "active_skill_selection", stageStart, len(selected), false, err)
 	if err != nil {
 		return err
 	}
@@ -467,7 +471,9 @@ func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryI
 		selectedDefinitions = append(selectedDefinitions, &selected[i])
 	}
 	ctx = tool.WithResolvedToolDefinitions(ctx, selectedDefinitions)
+	stageStart = time.Now()
 	b.Tools.Signatures, _ = skillsvc.ExpandDefinitionsForConstraintsWithContext(ctx, b.Tools.Signatures, s.registry, skillsvc.BuildConstraints(state.Skills))
+	writeBindingToolStage(ctx, "active_skill_expansion", stageStart, len(b.Tools.Signatures), false, nil)
 	return nil
 }
 

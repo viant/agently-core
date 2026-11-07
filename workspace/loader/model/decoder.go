@@ -217,6 +217,15 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 				}
 				config.Options.CachedTokenPrice = price
 			}
+		case "mergeconsecutivesystemmessages":
+			if valueNode.Kind == yaml.ScalarNode {
+				switch v := valueNode.Interface().(type) {
+				case bool:
+					config.Options.MergeConsecutiveSystemMessages = v
+				case string:
+					config.Options.MergeConsecutiveSystemMessages = v == "true" || v == "1"
+				}
+			}
 		case "contextcontinuation":
 			if valueNode.Kind == yaml.ScalarNode {
 				var enabled bool
