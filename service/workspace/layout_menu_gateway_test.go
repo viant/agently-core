@@ -23,6 +23,7 @@ import (
 	producer "github.com/viant/agently-core/service/resource/provider"
 	"github.com/viant/agently-core/service/ui/layoutgate"
 	"github.com/viant/agently-core/service/ui/permittedview"
+	sharedmenu "github.com/viant/forge/backend/resourcehost"
 	"github.com/viant/jsonrpc/transport"
 	"github.com/viant/mcp"
 	mcpclient "github.com/viant/mcp/client"
@@ -241,4 +242,64 @@ func TestOptionalApplicationReadDenialDoesNotHideOtherProviders(t *testing.T) {
 			})
 		}
 	}
+}
+
+// A menu projection must be rechecked using the same opaque presentation inputs.
+func TestGatewayLayoutRevalidationRetainsSelectedParameters(t *testing.T) {
+	ctx := context.WithValue(context.Background(), layoutMenuParametersKey{}, LayoutRequest{ApplicationID: "primary", ProviderIdentity: "fixture", Parameters: map[string]any{"entityId": 17}})
+	actor, verify := resources.PublicReadActors()
+	mgr, err := manager.New(nil)
+	require.NoError(t, err)
+	defer mgr.CloseConversation("")
+	var client *parameterCheckingMenuClient
+	registerApplicationFixture(t, mgr, "fixture", func(inner mcpclient.Interface) mcpclient.Interface {
+		client = &parameterCheckingMenuClient{Interface: inner}
+		return client
+	})
+	gateway := resources.NewGateway(mgr, actor, verify, "host")
+	defer gateway.Close()
+	reader := NewGatewayLayoutMenuReader(gateway, []GatewayMenuSource{{Resource: identity.ResourceRef{URI: "navigation://fixture/main"}, ProviderIdentity: "fixture", ApplicationID: "primary"}})
+	read, err := reader(ctx)
+	require.NoError(t, err)
+	defer read.Close()
+	require.NoError(t, read.Revalidate(ctx))
+	require.NotNil(t, client)
+	require.GreaterOrEqual(t, client.reads, 1)
+	require.Zero(t, client.missing, "revalidation must not read an unscoped projection")
+	handler := NewMetadataHandler(nil, nil, "test")
+	handler.SetAuthorizationRuntimes(nil, nil)
+	handler.SetLayoutDefault([]byte(menuShell))
+	handler.SetLayoutMenuReader(reader)
+	for _, entity := range []int{17, 17, 23, 23} {
+		result, layoutErr := handler.Layout(context.Background(), &LayoutRequest{ApplicationID: "primary", ProviderIdentity: "fixture", Parameters: map[string]any{"entityId": entity}})
+		require.NoError(t, layoutErr, "initial, repeated, and changed-context reads must all succeed")
+		require.Len(t, result.Layout.Applications, 1)
+	}
+	require.Zero(t, client.missing)
+
+}
+
+type parameterCheckingMenuClient struct {
+	mcpclient.Interface
+	reads, missing int
+}
+
+func (c *parameterCheckingMenuClient) ReadResource(ctx context.Context, p *schema.ReadResourceRequestParams, options ...mcpclient.RequestOption) (*schema.ReadResourceResult, error) {
+	c.reads++
+	if sharedmenu.MenuParameters(ctx)["entityId"] == nil {
+		c.missing++
+		return nil, errors.New("missing projection context")
+	}
+	return c.Interface.ReadResource(ctx, p, options...)
+}
+
+func (c *parameterCheckingMenuClient) CallTool(ctx context.Context, p *schema.CallToolRequestParams, options ...mcpclient.RequestOption) (*schema.CallToolResult, error) {
+	if p.Name == "navigations/get" {
+		c.reads++
+		if sharedmenu.MenuParameters(ctx)["entityId"] == nil {
+			c.missing++
+			return nil, errors.New("missing projection context")
+		}
+	}
+	return c.Interface.CallTool(ctx, p, options...)
 }

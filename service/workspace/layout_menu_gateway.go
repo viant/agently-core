@@ -62,9 +62,10 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 			return nil, err
 		}
 		type held struct {
-			connection resources.Connection
-			pin        identity.ResolvedResource
-			projection string
+			connection  resources.Connection
+			pin         identity.ResolvedResource
+			projection  string
+			readContext context.Context
 		}
 		selected := make([]held, 0, len(configured))
 		applications := make([]json.RawMessage, 0)
@@ -135,7 +136,7 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 				applications = append(applications, bound)
 			}
 			pin := *got.ResolvedResource
-			selected = append(selected, held{connection, pin, projection})
+			selected = append(selected, held{connection, pin, projection, readContext})
 			revisions = append(revisions, pin.ProviderIdentity+"\x00"+pin.URI+"\x00"+pin.Selector()+"\x00"+pin.ContentFingerprint+"\x00"+projection+"\x00"+source.ApplicationID+fmt.Sprintf("\x00styles:%t", source.AllowStyleOverrides))
 		}
 		stage, connectionName, resourceURI = "projection_encoding", "", ""
@@ -159,7 +160,7 @@ func newGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context
 					}
 					continue
 				}
-				got, err := resources.Get[json.RawMessage](ctx, gateway, hold.connection, identity.ResourceRef{URI: hold.pin.URI, Revision: hold.pin.Selector()}, &hold.pin)
+				got, err := resources.Get[json.RawMessage](hold.readContext, gateway, hold.connection, identity.ResourceRef{URI: hold.pin.URI, Revision: hold.pin.Selector()}, &hold.pin)
 				if err != nil {
 					return markLayoutMenuFailure("revalidate_read", hold.connection.Name, hold.pin.URI, err)
 				}
