@@ -61,17 +61,19 @@ type ReadInput struct {
 
 // ReadOutput contains the resolved URI, relative path and optionally truncated content.
 type ReadOutput struct {
-	Warnings  []string          `json:"warnings,omitempty"`
-	Version   string            `json:"version,omitempty"`
-	Table     *ResourceTable    `json:"table,omitempty"`
-	Native    *NativeResource   `json:"native,omitempty"`
-	Coverage  *ResourceCoverage `json:"coverage,omitempty"`
-	Cursor    string            `json:"cursor,omitempty"`
-	URI       string            `json:"uri"`
-	Path      string            `json:"path"`
-	Content   string            `json:"content"`
-	SkillName string            `json:"skillName,omitempty"`
-	Size      int               `json:"size"`
+	Warnings   []string            `json:"warnings,omitempty"`
+	Version    string              `json:"version,omitempty"`
+	Table      *ResourceTable      `json:"table,omitempty"`
+	Components []ResourceComponent `json:"components,omitempty"`
+	Metadata   map[string]string   `json:"metadata,omitempty"`
+	Native     *NativeResource     `json:"native,omitempty"`
+	Coverage   *ResourceCoverage   `json:"coverage,omitempty"`
+	Cursor     string              `json:"cursor,omitempty"`
+	URI        string              `json:"uri"`
+	Path       string              `json:"path"`
+	Content    string              `json:"content"`
+	SkillName  string              `json:"skillName,omitempty"`
+	Size       int                 `json:"size"`
 	// Returned and Remaining describe how much of the original payload was
 	// returned after applying caps/ranges.
 	Returned  int `json:"returned,omitempty"`
@@ -142,13 +144,17 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	if input.Representation != "" {
 		return s.readAsset(ctx, input, output)
 	}
-	if input.Select != nil || input.Options != nil || input.Cursor != "" {
-		return fmt.Errorf("specify a representation for structured selection/options")
-	}
 	target, err := s.resolveReadTargetWithOwnedSkill(ctx, input, s.agentAllowed(ctx), true)
 	if err != nil {
 		logx.Debugf("resources", "read resolve error rootId=%q root=%q uri=%q err=%v", input.RootID, input.RootURI, input.URI, err)
 		return err
+	}
+	if tableauExtension(pathpkg.Base(target.fullURI)) != "" {
+		return s.readAsset(ctx, input, output)
+	}
+	structuredSelection := input.Select != nil || input.Options != nil || input.Cursor != ""
+	if structuredSelection && !strings.HasPrefix(target.fullURI, "scratchpad://") {
+		return fmt.Errorf("specify a representation for structured selection/options")
 	}
 	if s.skillSvc != nil {
 		if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
@@ -190,6 +196,12 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 			return err
 		}
 		defer a.close()
+		if a.kind == tableauKind {
+			return a.readAsset(ctx, input, output)
+		}
+		if structuredSelection {
+			return fmt.Errorf("specify a representation for structured selection/options")
+		}
 		if a.size > maxReadOutputBytes {
 			return a.readStreamText(ctx, input, output, input.MaxBytes)
 		}

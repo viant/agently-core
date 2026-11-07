@@ -216,7 +216,7 @@ func (a *asset) tablePage(ctx context.Context, sel *ResourceSelection, options *
 	return result, nil
 }
 func (a *asset) text(ctx context.Context, sel *ResourceSelection, options *ResourceOptions) (string, error) {
-	if a.kind == "text" || a.kind == "csv" {
+	if a.isText() {
 		if sel != nil {
 			return "", fmt.Errorf("use byte/line ranges for text")
 		}

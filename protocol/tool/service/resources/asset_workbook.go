@@ -16,14 +16,26 @@ import (
 type workbookSheet struct{ name, target, dimension string }
 
 func (a *asset) archive() (*zip.Reader, error) {
+	reader, err := a.archiveReaderAt()
+	if err != nil {
+		return nil, err
+	}
+	size := a.size
+	if a.stream == nil {
+		size = int64(len(a.data))
+	}
+	return zip.NewReader(reader, size)
+}
+
+func (a *asset) archiveReaderAt() (io.ReaderAt, error) {
 	if a.stream != nil {
 		reader, ok := a.stream.(io.ReaderAt)
 		if !ok {
 			return nil, fmt.Errorf("resource does not support workbook access")
 		}
-		return zip.NewReader(reader, a.size)
+		return reader, nil
 	}
-	return zip.NewReader(bytes.NewReader(a.data), int64(len(a.data)))
+	return bytes.NewReader(a.data), nil
 }
 
 // Workbook inspection reads the directory and small XML metadata from the

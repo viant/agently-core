@@ -48,7 +48,35 @@ workbook inspection.
 `resources:read` extracts workbook/CSV tables or PDF text. Table responses include
 original row coordinates, coverage, and a cursor tied to the source version and
 selection. Text uses the existing byte/line pagination fields. Calls without
-`representation` keep legacy text-read behavior.
+`representation` keep legacy text-read behavior for text resources.
+
+### Tableau workbook metadata
+
+Inspect a `.twb` or `.twbx` with `resources:inspect` to get `kind: "tableau"`,
+the source version, workbook metadata, and an ordered list of definition
+components. Components describe connections, relations, fields, calculations,
+parameters, filters, worksheets, marks, dashboards, actions, and tabs. Use
+`parentId` to follow nesting and `nextCursor` to get the next inspection page.
+Formula references retain source spelling as descriptive metadata.
+
+```json
+{"uri":"scratchpad://artifact/a123","representation":"metadata","select":{"componentId":"tableau-1"},"limits":{"maxRows":20},"expectedVersion":"<inspect version>"}
+```
+
+`resources:read` defaults to metadata for Tableau. Use `select.componentId` to
+read that component and its descendants, and keep the same selection and
+version when following a cursor. Longer property values, formulas, and SQL appear as
+`metadataText` child components. Concatenate each field's `text` in `part`
+order. `unmodeledElements` counts definition subtrees outside the supported
+metadata schema. Component `unmodeledAttributes` counts excluded attributes.
+Credential attributes are excluded and credential-like values
+in otherwise supported properties are marked as omitted.
+
+Packaged workbooks open only their single TWB definition during metadata
+operations. Embedded extracts and CSV entries are never opened by those
+operations. An explicit `representation: "text"` on a TWB reads the original
+XML subject to the usual text limits. Explicit native presentation and
+`resources:export` with `operation: "copy"` preserve the original bytes.
 
 ## Native presentation
 

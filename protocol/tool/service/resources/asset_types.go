@@ -29,11 +29,13 @@ type InspectInput struct {
 	ExpectedVersion string             `json:"expectedVersion,omitempty"`
 }
 type ResourceComponent struct {
-	UsedRangeEstimated bool   `json:"usedRangeEstimated,omitempty"`
-	ID                 string `json:"id"`
-	Kind               string `json:"kind"`
-	Name               string `json:"name"`
-	UsedRange          string `json:"usedRange,omitempty"`
+	UsedRangeEstimated bool              `json:"usedRangeEstimated,omitempty"`
+	ID                 string            `json:"id"`
+	Kind               string            `json:"kind"`
+	Name               string            `json:"name"`
+	UsedRange          string            `json:"usedRange,omitempty"`
+	ParentID           string            `json:"parentId,omitempty"`
+	Metadata           map[string]string `json:"metadata,omitempty"`
 }
 type InspectOutput struct {
 	ColumnsInferred               bool                `json:"columnsInferred,omitempty"`
@@ -45,6 +47,7 @@ type InspectOutput struct {
 	SizeBytes                     int                 `json:"sizeBytes"`
 	Version                       string              `json:"version"`
 	Components                    []ResourceComponent `json:"components,omitempty"`
+	Metadata                      map[string]string   `json:"metadata,omitempty"`
 	Columns                       []string            `json:"columns,omitempty"`
 	PageCount                     int                 `json:"pageCount,omitempty"`
 	Width                         int                 `json:"width,omitempty"`

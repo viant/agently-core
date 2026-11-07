@@ -70,6 +70,10 @@ func (s *Service) loadAsset(ctx context.Context, in *ReadInput, expected string)
 	}
 	a.kind = "binary"
 	switch {
+	case tableauExtension(a.name) == ".twb":
+		a.kind, a.mime = tableauKind, "application/xml"
+	case tableauExtension(a.name) == ".twbx":
+		a.kind, a.mime = tableauKind, "application/zip"
 	case bytes.HasPrefix(a.data, []byte("%PDF-")):
 		a.kind = "pdf"
 		a.mime = "application/pdf"
@@ -183,6 +187,22 @@ func (s *Service) inspect(ctx context.Context, in, out interface{}) error {
 	defer a.close()
 	*result = InspectOutput{URI: a.uri, Name: a.name, MimeType: a.mime, Kind: a.kind, SizeBytes: int(a.size), Version: a.version, Capabilities: map[string][]string{}, Complete: true, NativeRequiresProviderSupport: true}
 	switch a.kind {
+	case tableauKind:
+		result.Capabilities["read"] = []string{"metadata", "native"}
+		result.Capabilities["export"] = []string{"original"}
+		if tableauExtension(a.name) == ".twb" {
+			result.Capabilities["read"] = append(result.Capabilities["read"], "text")
+			result.Capabilities["export"] = append(result.Capabilities["export"], "txt")
+		}
+		meta, err := a.tableauMetadata(ctx)
+		if err != nil {
+			return err
+		}
+		components, err := meta.selectComponents(req.Select)
+		if err != nil {
+			return err
+		}
+		result.Metadata, result.Components = meta.properties, components
 	case "workbook":
 		sheets, e := a.workbookMetadata()
 		if e != nil {
@@ -266,11 +286,15 @@ func (s *Service) inspect(ctx context.Context, in, out interface{}) error {
 	}
 	offset := 0
 	if req.Cursor != "" {
-		parts := strings.Split(req.Cursor, ":")
-		if len(parts) != 2 || parts[0] != a.version {
-			return fmt.Errorf("invalid inspection cursor")
+		if a.kind == tableauKind {
+			offset, err = decodeReadCursor(req.Cursor, a.version, req.Select, nil)
+		} else {
+			parts := strings.Split(req.Cursor, ":")
+			if len(parts) != 2 || parts[0] != a.version {
+				return fmt.Errorf("invalid inspection cursor")
+			}
+			offset, err = strconv.Atoi(parts[1])
 		}
-		offset, err = strconv.Atoi(parts[1])
 		if err != nil {
 			return fmt.Errorf("invalid inspection cursor")
 		}
@@ -284,6 +308,19 @@ func (s *Service) inspect(ctx context.Context, in, out interface{}) error {
 	}
 	if limit > 100 {
 		limit = 100
+	}
+	if a.kind == tableauKind {
+		page, _, err := tableauPage(result.Components, offset, limit, maxReadOutputBytes)
+		if err != nil {
+			return err
+		}
+		next := offset + len(page)
+		if next < len(result.Components) {
+			result.Complete = false
+			result.NextCursor = encodeReadCursor(a.version, req.Select, nil, next)
+		}
+		result.Components = page
+		return ctx.Err()
 	}
 	end := offset + limit
 	if end > len(result.Components) {
@@ -303,6 +340,10 @@ func (s *Service) readAsset(ctx context.Context, input *ReadInput, output *ReadO
 		return err
 	}
 	defer a.close()
+	return a.readAsset(ctx, input, output)
+}
+
+func (a *asset) readAsset(ctx context.Context, input *ReadInput, output *ReadOutput) error {
 	if a.kind == "workbook" {
 		output.Warnings = []string{"Formula values use workbook caches; formulas are not recalculated."}
 	}
@@ -341,6 +382,9 @@ func (s *Service) readAsset(ctx context.Context, input *ReadInput, output *ReadO
 	if maxRows > 1000 {
 		maxRows = 1000
 	}
+	if a.kind == tableauKind && (rep == "" || rep == "metadata") {
+		return a.readTableauMetadata(ctx, input, output, maxRows, maxBytes)
+	}
 	if rep == "table" {
 		start := 0
 		var e error
@@ -373,7 +417,7 @@ func (s *Service) readAsset(ctx context.Context, input *ReadInput, output *ReadO
 	if rep != "text" {
 		return fmt.Errorf("unsupported representation %q", rep)
 	}
-	if a.stream != nil && (a.kind == "text" || a.kind == "csv") {
+	if a.stream != nil && a.isText() {
 		if input.Select != nil {
 			return fmt.Errorf("use byte/line ranges for text")
 		}
@@ -391,6 +435,10 @@ func (s *Service) readAsset(ctx context.Context, input *ReadInput, output *ReadO
 	output.Version = a.version
 	output.Coverage = &ResourceCoverage{Selection: input.Select, Truncated: selection.Remaining > 0}
 	return nil
+}
+
+func (a *asset) isText() bool {
+	return a.kind == "text" || a.kind == "csv" || a.kind == tableauKind && tableauExtension(a.name) == ".twb"
 }
 
 func validTextPrefix(data []byte, partial bool) bool {
