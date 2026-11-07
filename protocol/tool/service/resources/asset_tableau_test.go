@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"io"
 	"os"
 	"path/filepath"
@@ -277,6 +278,71 @@ func TestTableauLongSQLPagedWithoutLosingText(t *testing.T) {
 	require.Error(t, s.read(ctx, &ReadInput{URI: uri, Representation: "table"}, &ReadOutput{}))
 	require.NoError(t, os.WriteFile(name, []byte("<workbook/>"), 0600))
 	require.ErrorContains(t, s.read(ctx, input, &output), "resource_changed")
+}
+
+func TestTableauLongFormulaPagedThroughToolRegistry(t *testing.T) {
+	ctx := assetContext(t)
+	formula := "SUM([Amount]) + LEN(\"" + strings.Repeat("雪", 5000) + "\") + [Count]"
+	var encodedFormula bytes.Buffer
+	require.NoError(t, xml.EscapeText(&encodedFormula, []byte(formula)))
+	workbook := "<workbook><datasources><datasource name='Example'><column name='[Computed]' datatype='real'>" +
+		"<calculation class='tableau' formula=\"" + encodedFormula.String() + "\"/>" +
+		"</column></datasource></datasources></workbook>"
+	uri := publishFixture(t, ctx, "long-formula.twb", "application/xml", []byte(workbook))
+	mgr, err := manager.New(nil)
+	require.NoError(t, err)
+	reg, err := tool.NewDefaultRegistry(mgr)
+	require.NoError(t, err)
+	require.NoError(t, tool.AddInternalService(reg, New(nil)))
+
+	raw, err := reg.Execute(ctx, "resources:inspect", map[string]any{"uri": uri})
+	require.NoError(t, err)
+	var inspected InspectOutput
+	require.NoError(t, json.Unmarshal([]byte(raw), &inspected))
+	require.True(t, inspected.Complete)
+	var calculation ResourceComponent
+	for _, component := range inspected.Components {
+		if component.Kind == "calculation" {
+			calculation = component
+		}
+	}
+	require.NotEmpty(t, calculation.ID)
+	require.Equal(t, "4", calculation.Metadata["formula-chunks"])
+	require.Equal(t, "[Amount], [Count]", calculation.Metadata["references"])
+	require.Empty(t, calculation.Metadata["formula"])
+
+	input := map[string]any{
+		"uri": uri, "representation": "metadata", "expectedVersion": inspected.Version,
+		"select": map[string]any{"componentId": calculation.ID},
+		"limits": map[string]any{"maxRows": 1},
+	}
+	var reconstructed strings.Builder
+	parts := 0
+	seenIDs := map[string]bool{}
+	for {
+		raw, err = reg.Execute(ctx, "resources:read", input)
+		require.NoError(t, err)
+		var page ReadOutput
+		require.NoError(t, json.Unmarshal([]byte(raw), &page))
+		require.Len(t, page.Components, 1)
+		component := page.Components[0]
+		require.False(t, seenIDs[component.ID])
+		seenIDs[component.ID] = true
+		if component.Kind == "metadataText" {
+			parts++
+			require.Equal(t, calculation.ID, component.ParentID)
+			require.Equal(t, "formula", component.Name)
+			require.Equal(t, strconv.Itoa(parts), component.Metadata["part"])
+			reconstructed.WriteString(component.Metadata["text"])
+		}
+		if page.Cursor == "" {
+			require.False(t, page.Coverage.Truncated)
+			break
+		}
+		input["cursor"] = page.Cursor
+	}
+	require.Equal(t, 4, parts)
+	require.Equal(t, formula, reconstructed.String())
 }
 
 func TestTableauInvalidDefinitionAndArchive(t *testing.T) {
