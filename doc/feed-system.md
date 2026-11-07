@@ -635,4 +635,3 @@ For a new feed:
 - [`doc/lookups.md`](lookups.md)
 - [`doc/streaming-events.md`](streaming-events.md)
 - [`doc/tool-system.md`](tool-system.md)
-- [`toolfeed-ext.md`](../toolfeed-ext.md) — transient implementation/history

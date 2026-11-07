@@ -1,8 +1,7 @@
 # Intake
 
 This doc describes how agently-core decides what to do with a user turn when
-`agentId=auto` (or auto-equivalent) is requested. It is the user-facing
-counterpart to the design doc [intake-impt.md](../intake-impt.md).
+`agentId=auto` (or auto-equivalent) is requested.
 
 There are exactly two intake layers:
 
