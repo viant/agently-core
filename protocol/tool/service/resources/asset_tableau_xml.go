@@ -154,7 +154,7 @@ func parseTableauMetadata(ctx context.Context, source io.Reader, name string, ha
 				switch {
 				case parent.tag == "encodings":
 					element, found = tableauElement{"encoding", "column", ""}, true
-				case tag == "datasource" && parent.parent != "" && result.componentKind(parent.parent) == "worksheet":
+				case tag == "datasource" && !(len(frames) == 2 && parent.tag == "datasources"):
 					element.kind = "datasourceReference"
 				case tag == "column" && tableauAttribute(value.Attr, "param-domain-type") != "":
 					element.kind = "parameter"
@@ -339,11 +339,9 @@ func (m *tableauMetadata) componentKind(id string) string {
 }
 
 func (m *tableauMetadata) filterScope(parent string) string {
-	switch m.componentKind(parent) {
-	case "datasource":
-		return "datasource"
-	case "worksheet":
-		return "worksheet"
+	switch kind := m.componentKind(parent); kind {
+	case "datasource", "worksheet", "sharedView":
+		return kind
 	default:
 		return "other"
 	}

@@ -224,6 +224,70 @@ func TestTableauResourceInspectionThroughToolRegistry(t *testing.T) {
 	require.ErrorContains(t, err, "specify a representation")
 }
 
+func TestTableauDatasourceReferencesAndFilterScopes(t *testing.T) {
+	ctx := assetContext(t)
+	workbook := `<workbook>
+  <datasources>
+    <datasource name="inventory"><filter class="categorical" column="[Warehouse]"/></datasource>
+    <datasource name="rates"/>
+  </datasources>
+  <shared-views><shared-view name="Shared inventory">
+    <datasources><datasource name="inventory"/></datasources>
+    <filter class="categorical" column="[In Stock]"><groupfilter function="member" member="true"/></filter>
+  </shared-view></shared-views>
+  <worksheets><worksheet name="Inventory by site"><table><view>
+    <datasources><datasource name="inventory"/></datasources>
+    <filter class="categorical" column="[Product]"/>
+  </view></table></worksheet></worksheets>
+  <dashboards><dashboard name="Overview">
+    <datasources><datasource name="rates"/></datasources>
+  </dashboard></dashboards>
+  <actions><datasources><datasource name="inventory"/></datasources></actions>
+</workbook>`
+	uri := publishFixture(t, ctx, "shared-view.twb", "application/xml", []byte(workbook))
+	var inspected InspectOutput
+	require.NoError(t, New(nil).inspect(ctx, &InspectInput{URI: uri}, &inspected))
+	require.True(t, inspected.Complete)
+	byKind := map[string][]ResourceComponent{}
+	for _, component := range inspected.Components {
+		byKind[component.Kind] = append(byKind[component.Kind], component)
+	}
+	require.Len(t, byKind["sharedView"], 1)
+	require.Len(t, byKind["worksheet"], 1)
+	require.Len(t, byKind["dashboard"], 1)
+	shared := byKind["sharedView"][0].ID
+	worksheet := byKind["worksheet"][0].ID
+	dashboard := byKind["dashboard"][0].ID
+
+	t.Run("authored datasource identities", func(t *testing.T) {
+		sources := byKind["datasource"]
+		require.Len(t, sources, 2)
+		require.Equal(t, "inventory", sources[0].Metadata["name"])
+		require.Equal(t, "rates", sources[1].Metadata["name"])
+		for _, source := range sources {
+			require.Empty(t, source.ParentID)
+		}
+		references := byKind["datasourceReference"]
+		require.Len(t, references, 4)
+		for i, want := range []struct{ name, parent string }{
+			{"inventory", shared}, {"inventory", worksheet}, {"rates", dashboard}, {"inventory", ""},
+		} {
+			require.Equal(t, want.name, references[i].Metadata["name"])
+			require.Equal(t, want.parent, references[i].ParentID)
+		}
+	})
+	t.Run("distinct filter scopes", func(t *testing.T) {
+		filters := byKind["filter"]
+		require.Len(t, filters, 3)
+		require.Equal(t, "datasource", filters[0].Metadata["scope"])
+		require.Equal(t, "sharedView", filters[1].Metadata["scope"])
+		require.Equal(t, "[In Stock]", filters[1].Metadata["column"])
+		require.Equal(t, shared, filters[1].ParentID)
+		require.Equal(t, "worksheet", filters[2].Metadata["scope"])
+		require.Equal(t, worksheet, filters[2].ParentID)
+	})
+}
+
 func TestTableauLongSQLPagedWithoutLosingText(t *testing.T) {
 	ctx := assetContext(t)
 	sql := "SELECT '" + strings.Repeat("雪", 5000) + "' AS name"
