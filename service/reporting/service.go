@@ -2242,7 +2242,7 @@ func (s *Service) saveReportTool(ctx context.Context, in, out interface{}) error
 	return nil
 }
 
-func (s *Service) GetReport(ctx context.Context, input *GetReportInput) (*SharedArtifact, error) {
+func (s *Service) getCompleteReport(ctx context.Context, input *GetReportInput) (*SharedArtifact, error) {
 	if s.usesReportResources() || input != nil && (input.Resource != nil || input.ResolvedResource != nil) {
 		return s.getResourceReport(ctx, input)
 	}
@@ -3424,7 +3424,14 @@ func cloneSharedArtifact(input *SharedArtifact) *SharedArtifact {
 	if input == nil {
 		return nil
 	}
-	out := &SharedArtifact{RowEtag: input.RowEtag, DraftRevision: input.DraftRevision, LatestStamp: input.LatestStamp, WorkspaceID: input.WorkspaceID, Resource: cloneResolvedResource(input.Resource), ResourceDefinition: cloneJSON(input.ResourceDefinition),
+	sections := map[string]json.RawMessage(nil)
+	if input.Sections != nil {
+		sections = map[string]json.RawMessage{}
+		for k, v := range input.Sections {
+			sections[k] = cloneJSON(v)
+		}
+	}
+	out := &SharedArtifact{Sections: sections, RowEtag: input.RowEtag, DraftRevision: input.DraftRevision, LatestStamp: input.LatestStamp, WorkspaceID: input.WorkspaceID, Resource: cloneResolvedResource(input.Resource), ResourceDefinition: cloneJSON(input.ResourceDefinition),
 		ArtifactID:       strings.TrimSpace(input.ArtifactID),
 		ArtifactRef:      strings.TrimSpace(input.ArtifactRef),
 		OwnerID:          strings.TrimSpace(input.OwnerID),

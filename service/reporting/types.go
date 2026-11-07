@@ -9,6 +9,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/reporting/catalog"
 	shared "github.com/viant/forge/backend/reporting/engine"
+	sharedregistry "github.com/viant/forge/backend/reporting/registry"
 	"strings"
 	"time"
 )
@@ -357,6 +358,7 @@ type Artifact struct {
 // SharedArtifact is the persisted saved-view / published-snapshot shell owned
 // by agently-core. Payload fields remain opaque JSON at this boundary.
 type SharedArtifact struct {
+	Sections           map[string]json.RawMessage `json:"sections,omitempty"`
 	RowEtag            int64                      `json:"rowEtag,omitempty"`
 	DraftRevision      int64                      `json:"draftRevision,omitempty"`
 	LatestStamp        int64                      `json:"latestStamp,omitempty"`
@@ -409,6 +411,7 @@ type SaveReportRequest struct {
 }
 
 type GetReportInput struct {
+	Include *sharedregistry.ReportInclude `json:"include,omitempty" description:"Opt-in report definition sections. Omit for the complete legacy response; an empty object returns identity only. Never executes the report."`
 	// RefreshMetadata selects a new grant for a new action at the bookmarked
 	// provider. It never renews a grant held by an active execution.
 	RefreshMetadata  bool                       `json:"refreshMetadata,omitempty"`
