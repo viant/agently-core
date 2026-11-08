@@ -17,7 +17,8 @@ import (
 
 const Name = "ui/report"
 
-const toolTimeout = 330 * time.Second
+// OperationTimeout is the wait budget for long-running report operations.
+const OperationTimeout = 330 * time.Second
 
 type WindowInput struct {
 	Include   *CurrentInclude `json:"include,omitempty"`
@@ -122,7 +123,7 @@ func (s *Service) Name() string { return Name }
 
 func (s *Service) MethodToolTimeout(method string) time.Duration {
 	if strings.EqualFold(strings.TrimSpace(method), "run") {
-		return toolTimeout
+		return OperationTimeout
 	}
 	return 0
 }

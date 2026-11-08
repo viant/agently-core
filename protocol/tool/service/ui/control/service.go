@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	reportsvc "github.com/viant/agently-core/protocol/tool/service/ui/report"
 	"reflect"
+	"slices"
 	"strings"
 
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -177,10 +179,15 @@ func (s *Service) operate(ctx context.Context, input *SetValueInput, output *Com
 		return fmt.Errorf("stale UI operation revision; read current UI state before retrying")
 	}
 	targetWindowID := strings.TrimSpace(win.WindowID)
+	timeoutMs := s.exportClickTimeoutMs(ctx, method, controlID, win, ReadTarget{
+		Target: input.Target, Resource: input.Resource, ExpectedRevision: input.ExpectedRevision,
+		ConversationID: conversationID, ClientID: clientID, WindowID: targetWindowID, DataSourceRef: input.DataSourceRef,
+	})
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
 		Namespace: namespace,
 		Method:    method,
+		TimeoutMs: timeoutMs,
 		Params: map[string]interface{}{
 			"windowId":         targetWindowID,
 			"conversationId":   conversationID,
@@ -237,6 +244,32 @@ func (s *Service) operate(ctx context.Context, input *SetValueInput, output *Com
 		},
 	})
 	return nil
+}
+
+// A report output button can await file generation before acknowledging the
+// click. Only extend that wait for a currently mounted export button.
+func (s *Service) exportClickTimeoutMs(ctx context.Context, method, controlID string, win *uireg.WindowSnapshot, target ReadTarget) int {
+	if method != "ui.control.click" || win.Resource == nil {
+		return 0
+	}
+	switch controlID {
+	case "report-output:pdf", "report-output:csv", "report-output:xlsx":
+	default:
+		return 0
+	}
+	uri, err := identity.ParseResourceURI(win.Resource.URI)
+	if err != nil || uri.Kind != "report" {
+		return 0
+	}
+	var page ReadOutput
+	if err := s.readControls(ctx, target, controlID, 0, 2, &page); err != nil || page.Total != 1 || len(page.Controls) != 1 {
+		return 0
+	}
+	button := page.Controls[0]
+	if button.Type == "button" && button.Visible && !button.Disabled && slices.Contains(button.SupportedActions, "click") {
+		return int(reportsvc.OperationTimeout.Milliseconds())
+	}
+	return 0
 }
 
 func normalizeOptionalClientID(raw string) string {
