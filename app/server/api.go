@@ -75,6 +75,7 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	}
 	metadataHandler := svcworkspace.NewMetadataHandler(opts.Runtime.Defaults, opts.Runtime.Store, metadataVersion)
 	metadataHandler.SetLayoutDefault(opts.LayoutDefault)
+	metadataHandler.SetStarterTaskSources(opts.Runtime.PrimitiveProviders, opts.AuthRuntime.StarterTaskPreferences)
 	metadataHandler.SetLayoutDecorator(opts.LayoutDecorator)
 	captured := opts.NativeLayoutSource
 	if captured == nil {

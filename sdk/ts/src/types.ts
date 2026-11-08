@@ -918,6 +918,7 @@ export interface ModelInfo {
 }
 
 export interface StarterTask {
+    priority?: number;
     id?: string;
     categoryId?: string;
     title?: string;
@@ -935,6 +936,7 @@ export interface StarterTaskCategory {
 }
 
 export interface WorkspaceCapabilities {
+    namespaceStarterTasks?: boolean;
     agentAutoSelection?: boolean;
     modelAutoSelection?: boolean;
     toolAutoSelection?: boolean;
@@ -996,6 +998,8 @@ export interface WorkspaceAssetDescriptor {
 }
 
 export interface WorkspaceMetadata {
+    namespaceStarterTasks?: { tasks: StarterTask[]; categories?: StarterTaskCategory[] };
+    starterTaskPreferences?: { hidden?: string[]; order?: string[]; own?: StarterTask[] };
     browserMCP?: import('./browserMCP').BrowserMCPDescriptor[];
     browserMCPDiagnostics?: string[];
     workspaceId?: string;

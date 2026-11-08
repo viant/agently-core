@@ -16,7 +16,9 @@ import (
 	llmprovider "github.com/viant/agently-core/genai/llm/provider"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
+	svcauth "github.com/viant/agently-core/service/auth"
 	policy "github.com/viant/agently-core/service/policy"
+	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	uistyle "github.com/viant/agently-core/service/ui/style"
 	ws "github.com/viant/agently-core/workspace"
@@ -26,6 +28,9 @@ import (
 
 // MetadataResponse is the response for the workspace metadata endpoint.
 type MetadataResponse struct {
+	StarterTaskPreferences *svcauth.StarterTaskPreferences `json:"starterTaskPreferences,omitempty"`
+	NamespaceStarterTasks  *NamespaceStarterTasks          `json:"namespaceStarterTasks,omitempty"`
+
 	BrowserMCPDiagnostics []string                   `json:"browserMCPDiagnostics,omitempty"`
 	BrowserMCP            []mcpcfg.BrowserDescriptor `json:"browserMCP,omitempty"`
 	Composer              wscfg.Composer             `json:"composer"`
@@ -71,6 +76,7 @@ type Defaults struct {
 // Capabilities advertises optional backend contracts so the UI can avoid
 // inventing client-only sentinels and endpoint probes.
 type Capabilities struct {
+	NamespaceStarterTasks bool `json:"namespaceStarterTasks,omitempty"`
 	WorkspaceLayout       bool `json:"workspaceLayout,omitempty"`
 	AgentAutoSelection    bool `json:"agentAutoSelection,omitempty"`
 	ModelAutoSelection    bool `json:"modelAutoSelection,omitempty"`
@@ -119,24 +125,26 @@ type ModelInfo struct {
 
 // MetadataHandler serves the workspace metadata endpoint.
 type MetadataHandler struct {
-	browserMCP            func(context.Context) ([]mcpcfg.BrowserDescriptor, error)
-	windowResourceCatalog WindowResourceCatalog
-	styles                *uistyle.Service
-	defaults              *config.Defaults
-	store                 ws.Store
-	version               string
-	reportingOverride     *bool
-	authorizationPolicy   *policy.Runtime
-	permittedRuntime      *permittedview.Runtime
-	legacyDefaults        bool
-	layoutDefault         []byte
-	capturedLayoutJSON    json.RawMessage
-	capturedLayoutRoot    string
-	capturedLayoutSource  string
-	capturedLayoutCheck   func(context.Context) error
-	layoutMenuReader      LayoutMenuReader
-	layoutDecorator       func(context.Context, *Layout) error
-	toolDefinitions       func(context.Context) ([]ToolDefinition, error)
+	starterTaskPreferences func(context.Context) (*svcauth.StarterTaskPreferences, error)
+	starterTaskGateway     *resources.Gateway
+	browserMCP             func(context.Context) ([]mcpcfg.BrowserDescriptor, error)
+	windowResourceCatalog  WindowResourceCatalog
+	styles                 *uistyle.Service
+	defaults               *config.Defaults
+	store                  ws.Store
+	version                string
+	reportingOverride      *bool
+	authorizationPolicy    *policy.Runtime
+	permittedRuntime       *permittedview.Runtime
+	legacyDefaults         bool
+	layoutDefault          []byte
+	capturedLayoutJSON     json.RawMessage
+	capturedLayoutRoot     string
+	capturedLayoutSource   string
+	capturedLayoutCheck    func(context.Context) error
+	layoutMenuReader       LayoutMenuReader
+	layoutDecorator        func(context.Context, *Layout) error
+	toolDefinitions        func(context.Context) ([]ToolDefinition, error)
 }
 
 func (h *MetadataHandler) SetAuthorizationPolicy(runtime *policy.Runtime) {
@@ -215,6 +223,7 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 			writeMetadataError(w, err)
 			return
 		}
+		w.Header().Set("Cache-Control", "private, no-store")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(result)

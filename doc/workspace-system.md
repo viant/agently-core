@@ -114,6 +114,19 @@ persisted-output promise or replacement for the prompt. Agently preserves it
 when normalizing task metadata and passes it to Forge's document task browser,
 which displays and searches the caption. Omission leaves the caption absent.
 
+A published `startertask://<namespace>/default` artifact supplies a namespace's
+starting tasks. Workspace metadata combines currently admitted namespace sets in
+`namespaceStarterTasks`. Higher priority appears first. Ties use namespace URI
+order, then the order in each set. The namespace URI also qualifies task and
+category IDs so the same authored ID can appear in several namespaces.
+
+If no admitted set exists, Agently uses the selected agent's defaults. An
+admitted empty set replaces those defaults and leaves other namespace sets
+available. Signed-in users can hide individual namespace tasks, set their order,
+and write personal prompts through UI Settings. These preferences are saved in
+the existing user settings. The server supplies published prompts from the
+current admitted catalog independently of saved preference IDs.
+
 Workspace `config.yaml` may also supply an optional composer hint:
 
 ```yaml

@@ -118,14 +118,19 @@ func (s *DatlyUserService) UpdatePreferences(ctx context.Context, username strin
 	if patch.DefaultEmbedderRef != nil {
 		user.SetDefaultEmbedderRef(userTextPtr(strings.TrimSpace(*patch.DefaultEmbedderRef)))
 	}
-	if len(patch.AgentPrefs) > 0 {
+	if len(patch.AgentPrefs) > 0 || patch.StarterTasks != nil {
 		settings := map[string]any{}
 		if existing.Preferences != nil {
 			for key, value := range existing.Preferences {
 				settings[key] = value
 			}
 		}
-		settings["agentPrefs"] = patch.AgentPrefs
+		if len(patch.AgentPrefs) > 0 {
+			settings["agentPrefs"] = patch.AgentPrefs
+		}
+		if patch.StarterTasks != nil {
+			settings["starterTasks"] = patch.StarterTasks
+		}
 		data, err := json.Marshal(settings)
 		if err != nil {
 			return err

@@ -10,6 +10,7 @@ import (
 	"github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/embedius/matching/option"
 	"github.com/viant/embedius/metadata"
+	primitive "github.com/viant/forge/backend/provider/contract"
 	mcpproto "github.com/viant/mcp-protocol/schema"
 )
 
@@ -187,27 +188,8 @@ type (
 		AsyncNarratorPrompt string `yaml:"asyncNarratorPrompt,omitempty" json:"asyncNarratorPrompt,omitempty"`
 	}
 
-	// StarterTask describes a suggested starter prompt for empty chat state.
-	StarterTask struct {
-		AgentID         string   `yaml:"agentId,omitempty" json:"agentId,omitempty"`
-		ID              string   `yaml:"id,omitempty" json:"id,omitempty"`
-		CategoryID      string   `yaml:"categoryId,omitempty" json:"categoryId,omitempty"`
-		Title           string   `yaml:"title,omitempty" json:"title,omitempty"`
-		Prompt          string   `yaml:"prompt,omitempty" json:"prompt,omitempty"`
-		Description     string   `yaml:"description,omitempty" json:"description,omitempty"`
-		ResultLabel     string   `yaml:"resultLabel,omitempty" json:"resultLabel,omitempty"`
-		Icon            string   `yaml:"icon,omitempty" json:"icon,omitempty"`
-		CoverageEvalIDs []string `yaml:"coverageEvalIds,omitempty" json:"coverageEvalIds,omitempty"`
-	}
-
-	// StarterTaskCategory describes an optional workspace-owned grouping for
-	// starter tasks. Icon is a semantic token interpreted by each client.
-	StarterTaskCategory struct {
-		ID          string `yaml:"id,omitempty" json:"id,omitempty"`
-		Title       string `yaml:"title,omitempty" json:"title,omitempty"`
-		Description string `yaml:"description,omitempty" json:"description,omitempty"`
-		Icon        string `yaml:"icon,omitempty" json:"icon,omitempty"`
-	}
+	StarterTask         = primitive.StarterTask
+	StarterTaskCategory = primitive.StarterTaskCategory
 
 	// Resource defines a single resource root with optional binding behavior.
 	Resource struct {

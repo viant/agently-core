@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	iauth "github.com/viant/agently-core/internal/auth"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
 	ws "github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
 )
@@ -96,6 +97,20 @@ func (h *MetadataHandler) Metadata(ctx context.Context) (*MetadataResponse, erro
 	resp.UIStyles = styles.Styles
 	resp.UIThemes = styles.Themes
 	resp.UIStyleDiagnostics = styles.Diagnostics
+	resp.Capabilities.NamespaceStarterTasks = h.starterTaskGateway != nil && len(h.starterTaskGateway.PublishedMetadataConnections()) != 0
+	starterTasks, err := loadNamespaceStarterTasks(ctx, h.starterTaskGateway)
+	if err != nil {
+		// Suggestions are optional. Keep chat available and avoid falling back to
+		// agent defaults when current namespace selection could not be determined.
+		starterTasks = &NamespaceStarterTasks{Tasks: []agentmdl.StarterTask{}}
+	}
+	resp.NamespaceStarterTasks = starterTasks
+	if h.starterTaskPreferences != nil {
+		preferences, err := h.starterTaskPreferences(ctx)
+		if err == nil {
+			resp.StarterTaskPreferences = preferences
+		}
+	}
 	resp.MetadataVersion = resolveMetadataVersion(resp)
 	return &resp, nil
 }

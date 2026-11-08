@@ -8,6 +8,7 @@ import (
 	"github.com/viant/agently-core/app/store/data"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/runtime/streaming"
+	shared "github.com/viant/forge/backend/provider/contract"
 )
 
 // Pagination re-exports from data layer.
@@ -201,6 +202,7 @@ type WorkspaceDefaults struct {
 }
 
 type WorkspaceCapabilities struct {
+	NamespaceStarterTasks bool `json:"namespaceStarterTasks,omitempty"`
 	AgentAutoSelection    bool `json:"agentAutoSelection,omitempty"`
 	ModelAutoSelection    bool `json:"modelAutoSelection,omitempty"`
 	ToolAutoSelection     bool `json:"toolAutoSelection,omitempty"`
@@ -213,23 +215,8 @@ type WorkspaceCapabilities struct {
 	TurnStartedEvent      bool `json:"turnStartedEvent,omitempty"`
 }
 
-type StarterTask struct {
-	AgentID         string   `json:"agentId,omitempty"`
-	ID              string   `json:"id,omitempty"`
-	CategoryID      string   `json:"categoryId,omitempty"`
-	Title           string   `json:"title,omitempty"`
-	Prompt          string   `json:"prompt,omitempty"`
-	Description     string   `json:"description,omitempty"`
-	Icon            string   `json:"icon,omitempty"`
-	CoverageEvalIDs []string `json:"coverageEvalIds,omitempty"`
-}
-
-type StarterTaskCategory struct {
-	ID          string `json:"id,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	Icon        string `json:"icon,omitempty"`
-}
+type StarterTask = shared.StarterTask
+type StarterTaskCategory = shared.StarterTaskCategory
 
 type WorkspaceAgentInfo struct {
 	ID                    string                `json:"id,omitempty"`
@@ -262,7 +249,21 @@ type WorkspaceComposer struct {
 	AllowModelSelection bool   `json:"allowModelSelection"`
 }
 
+type WorkspaceStarterTasks struct {
+	Tasks      []shared.StarterTask         `json:"tasks"`
+	Categories []shared.StarterTaskCategory `json:"categories,omitempty"`
+}
+
+type WorkspaceStarterTaskPreferences struct {
+	Hidden []string      `json:"hidden,omitempty"`
+	Order  []string      `json:"order,omitempty"`
+	Own    []StarterTask `json:"own,omitempty"`
+}
+
 type WorkspaceMetadata struct {
+	StarterTaskPreferences *WorkspaceStarterTaskPreferences `json:"starterTaskPreferences,omitempty"`
+	NamespaceStarterTasks  *WorkspaceStarterTasks           `json:"namespaceStarterTasks,omitempty"`
+
 	WorkspaceID        string                    `json:"workspaceId,omitempty"`
 	UIStyles           *WorkspaceAssetDescriptor `json:"uiStyles,omitempty"`
 	UIThemes           *WorkspaceAssetDescriptor `json:"uiThemes,omitempty"`
