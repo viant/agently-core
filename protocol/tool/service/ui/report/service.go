@@ -20,9 +20,21 @@ const Name = "ui/report"
 const toolTimeout = 330 * time.Second
 
 type WindowInput struct {
-	ClientID  string `json:"clientId,omitempty"`
-	WindowID  string `json:"windowId,omitempty"`
-	WindowKey string `json:"windowKey,omitempty"`
+	Include   *CurrentInclude `json:"include,omitempty"`
+	ClientID  string          `json:"clientId,omitempty"`
+	WindowID  string          `json:"windowId,omitempty"`
+	WindowKey string          `json:"windowKey,omitempty"`
+}
+
+type CurrentInclude struct {
+	State       bool `json:"state,omitempty"`
+	Inputs      bool `json:"inputs,omitempty"`
+	Tabs        bool `json:"tabs,omitempty"`
+	Visuals     bool `json:"visuals,omitempty"`
+	Data        bool `json:"data,omitempty"`
+	Sources     bool `json:"sources,omitempty"`
+	Description bool `json:"description,omitempty"`
+	Raw         bool `json:"raw,omitempty"`
 }
 
 type ActionOutput struct {
@@ -125,12 +137,12 @@ func (s *Service) MethodRetryable(method string) (bool, bool) {
 func (s *Service) Methods() svc.Signatures {
 	input := reflect.TypeOf(&WindowInput{})
 	output := reflect.TypeOf(&ActionOutput{})
-	runDescription := "Run the predefined report or report-builder currently shown in a live window with its current filter values. This executes report data; do not use it for read-only inspection. When opening a report specifically to run it with this action, set ui/view:open parameters.executeOnOpen=false to avoid a duplicate automatic run."
+	runDescription := "Run the report action registered by the live window with its current filter values. If the window report metadata supplies runControlId, invoke that control through ui/control:click instead; not every predefined report registers this separate run action. This executes report data; do not use it for read-only inspection. When opening a report specifically to run it with this action, set ui/view:open parameters.executeOnOpen=false to avoid a duplicate automatic run."
 	if s.orchestration {
 		runDescription += " Waits for the matching execution to finish and returns its completion receipt; do not poll getCurrent through additional model turns while this call is running."
 	}
 	return []svc.Signature{
-		{Name: "getCurrent", Description: "Inspect the report currently shown in a live predefined-report or report-builder window: identity, applied and draft filters, execution status, and available UI actions. Predefined reports include reportSpec and reportFill for their completed current run, so existing output can be interpreted without rerunning it. This read does not run, save, or change the report.", Input: input, Output: output},
+		{Name: "getCurrent", Description: "Read the current live report definition and completed output for interpreting its charts and data without rerunning it. Use include:{state:true} for applied filters, unapplied edits and loading status; opt into inputs, tabs, visuals, data, sources or description only as needed. Omitted include returns the legacy full response; raw:true returns it exclusively. Loaded data can be large. This read does not run, save, or change the report.", Input: input, Output: output},
 		{Name: "run", Description: runDescription, Input: input, Output: output},
 		{Name: "save", Description: "Persist the canonical report currently shown in a live report-builder window and return its stable reportId and artifactId.", Input: input, Output: output},
 	}
@@ -188,6 +200,9 @@ func (s *Service) execute(ctx context.Context, action, eventKind string, in, out
 		return err
 	}
 	params := map[string]interface{}{"windowId": strings.TrimSpace(window.WindowID)}
+	if action == "getCurrent" && input.Include != nil {
+		params["include"] = input.Include
+	}
 	if action == "run" {
 		if issuer := evidence.ReportCommandsFromContext(ctx); issuer != nil {
 			workspace, marshalErr := json.Marshal(window.WorkspaceObject)

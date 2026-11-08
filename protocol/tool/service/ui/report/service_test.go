@@ -61,6 +61,25 @@ func prepareReportWindow(t *testing.T) *forgeuisvc.Service {
 	return bridge
 }
 
+func TestCurrentReportForwardsIncludeBeforeBrowserSerialization(t *testing.T) {
+	bridge := prepareReportWindow(t)
+	service := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	done := make(chan error, 1)
+	out := &ActionOutput{}
+	go func() {
+		done <- service.getCurrent(ctx, &WindowInput{WindowID: "report-window-1", Include: &CurrentInclude{State: true}}, out)
+	}()
+	poll := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-1", "timeoutMs": 1000})
+	command := poll["params"].(map[string]interface{})
+	require.Equal(t, "ui.report.getCurrent", command["method"])
+	params := command["params"].(map[string]interface{})
+	require.Equal(t, map[string]interface{}{"state": true}, params["include"])
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{"id": command["id"], "ok": true, "result": map[string]interface{}{"status": "ready"}})
+	require.NoError(t, <-done)
+	require.Equal(t, "ready", out.Result["status"])
+}
+
 func respondToReportRun(t *testing.T, bridge *forgeuisvc.Service, result map[string]interface{}) {
 	t.Helper()
 	poll := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-1", "timeoutMs": 1000})
