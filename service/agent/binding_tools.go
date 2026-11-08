@@ -550,14 +550,14 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 		return nil, err
 	}
 	preparationStarted = time.Now()
-	defs, err = s.modelVisibleDefinitions(ctx, defs)
-	writeBindingToolStage(ctx, "final_model_visibility", preparationStarted, len(defs), false, err)
+	defs, err = s.selectIntakeTools(ctx, input, defs, candidates)
+	writeBindingToolStage(ctx, "selected_surface", preparationStarted, len(defs), false, err)
 	if err != nil {
 		return nil, err
 	}
 	preparationStarted = time.Now()
-	defs, err = s.selectIntakeTools(ctx, input, defs, candidates)
-	writeBindingToolStage(ctx, "selected_surface", preparationStarted, len(defs), false, err)
+	defs, err = s.modelVisibleDefinitions(ctx, defs)
+	writeBindingToolStage(ctx, "final_model_visibility", preparationStarted, len(defs), false, err)
 	if err != nil {
 		return nil, err
 	}

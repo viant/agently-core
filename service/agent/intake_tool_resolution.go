@@ -46,7 +46,6 @@ func (s *Service) resolveTurnToolDefinitions(ctx context.Context, input *QueryIn
 	if err != nil {
 		return nil, nil, err
 	}
-	required := agenttool.Merge(agenttool.FromPromptProfile(profile), runtimeToolRequirements(input), agenttool.Selection{Tools: selectedNames})
 	if state, ok := toolselection.FromContext(ctx); ok {
 		for _, name := range state.SelectedNames() {
 			if available[mcpname.Canonical(name)] {
@@ -54,6 +53,7 @@ func (s *Service) resolveTurnToolDefinitions(ctx context.Context, input *QueryIn
 			}
 		}
 	}
+	required := agenttool.Merge(agenttool.FromPromptProfile(profile), runtimeToolRequirements(input), agenttool.Selection{Tools: selectedNames})
 	strictCtx := runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Required: true})
 	strictCtx = context.WithValue(strictCtx, selectedSourceResolutionKey{}, true)
 	explicit, err := s.resolveStructuredToolDefinitions(strictCtx, required)

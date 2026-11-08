@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
 	"github.com/viant/agently-core/protocol/intent"
 	mcpname "github.com/viant/agently-core/protocol/mcpname"
+	toolctx "github.com/viant/agently-core/protocol/tool"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	"github.com/viant/agently-core/runtime/toolselection"
 	agenttool "github.com/viant/agently-core/service/agent/tool"
@@ -83,7 +85,12 @@ func intakeNeedsNoTools(ctx context.Context, input *QueryInput) bool {
 // already passed the existing bundle/visibility resolution; keep their metadata.
 func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, definitions []llm.ToolDefinition, prepared ...[]llm.ToolDefinition) (result []llm.ToolDefinition, err error) {
 	selectionStarted := time.Now()
-	defer func() { writeBindingToolStage(ctx, "candidate_selection", selectionStarted, len(result), false, err) }()
+	defer func() {
+		if _, projected := s.registry.(toolctx.ContextMetadataDefinitionLister); projected && err == nil {
+			result, err = s.hydrateSelectedDefinitions(ctx, result)
+		}
+		writeBindingToolStage(ctx, "candidate_selection", selectionStarted, len(result), false, err)
+	}()
 	state, hasState := toolselection.FromContext(ctx)
 	profile, err := s.selectedPromptProfileAny(ctx, input)
 	if err != nil {
@@ -182,6 +189,32 @@ func (s *Service) selectIntakeTools(ctx context.Context, input *QueryInput, defi
 		return initialToolDefinitions(ctx, input, definitions), nil
 	}
 	return selected, nil
+}
+
+func (s *Service) hydrateSelectedDefinitions(ctx context.Context, definitions []llm.ToolDefinition) ([]llm.ToolDefinition, error) {
+	for i, definition := range definitions {
+		if definition.Parameters != nil || definition.OutputSchema != nil {
+			continue
+		}
+		matches, err := s.matchDefinitionsResult(ctx, definition.Name)
+		if err != nil {
+			return nil, err
+		}
+		var selected *llm.ToolDefinition
+		for _, match := range matches {
+			if match != nil && mcpname.Canonical(match.Name) == mcpname.Canonical(definition.Name) {
+				selected = match
+				break
+			}
+		}
+		if selected == nil {
+			return nil, fmt.Errorf("selected tool unavailable: %s", definition.Name)
+		}
+		hydrated := *selected
+		hydrated.Name, hydrated.Tier, hydrated.AlwaysInclude, hydrated.Cacheable = definition.Name, definition.Tier, definition.AlwaysInclude, definition.Cacheable
+		definitions[i] = hydrated
+	}
+	return definitions, nil
 }
 
 // independentlySelectedToolDefinitions retains only explicit selections and

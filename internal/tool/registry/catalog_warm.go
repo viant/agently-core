@@ -28,13 +28,14 @@ func (r *Registry) noteCatalogDiscoveryFailure(ctx context.Context, server, scop
 }
 
 type toolCatalogResult struct {
-	tools []schema.Tool
-	err   error
+	tools     []schema.Tool
+	err       error
+	projected bool
 }
 
 // listToolCatalogs populates the manager's existing catalog cache in parallel.
 // Each worker retains the caller context; results retain server inventory order.
-func (r *Registry) listToolCatalogs(ctx context.Context, servers []string) []toolCatalogResult {
+func (r *Registry) listToolCatalogs(ctx context.Context, servers []string, metadataOnly ...bool) []toolCatalogResult {
 	results := make([]toolCatalogResult, len(servers))
 	jobs := make(chan int)
 	var workers sync.WaitGroup
@@ -46,6 +47,13 @@ func (r *Registry) listToolCatalogs(ctx context.Context, servers []string) []too
 				if err := ctx.Err(); err != nil {
 					results[index].err = err
 					continue
+				}
+				if len(metadataOnly) > 0 && metadataOnly[0] && !r.isInternalServer(servers[index]) {
+					identity, tools, err := r.cachedManagerCatalogSelection(ctx, servers[index], nil, true)
+					if err != nil || identity != "" {
+						results[index] = toolCatalogResult{tools: tools, err: err, projected: true}
+						continue
+					}
 				}
 				results[index].tools, results[index].err = r.listServerTools(ctx, servers[index])
 			}

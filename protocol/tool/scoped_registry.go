@@ -50,6 +50,20 @@ func (s *scopedRegistry) DefinitionsWithContext(ctx context.Context) []llm.ToolD
 	return s.inner.Definitions()
 }
 
+func (s *scopedRegistry) DefinitionMetadataWithContext(ctx context.Context) []llm.ToolDefinition {
+	ctx = s.withConversation(ctx)
+	if lister, ok := s.inner.(ContextMetadataDefinitionLister); ok {
+		return lister.DefinitionMetadataWithContext(ctx)
+	}
+	definitions := append([]llm.ToolDefinition(nil), s.DefinitionsWithContext(ctx)...)
+	for i := range definitions {
+		definitions[i].Parameters = nil
+		definitions[i].Required = nil
+		definitions[i].OutputSchema = nil
+	}
+	return definitions
+}
+
 // MatchDefinition delegates to the underlying registry with the scoped conversation.
 func (s *scopedRegistry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 	return s.MatchDefinitionWithContext(context.Background(), pattern)

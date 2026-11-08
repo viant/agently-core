@@ -46,10 +46,10 @@ func (p *outputArtifactProjection) serverOptions(ctx context.Context, server str
 }
 
 func (r *Registry) projectOutputArtifactDefinition(ctx context.Context, definition *llm.ToolDefinition) *llm.ToolDefinition {
-	return r.newOutputArtifactProjection().project(ctx, definition)
+	return r.newOutputArtifactProjection().project(ctx, definition, false)
 }
 
-func (p *outputArtifactProjection) project(ctx context.Context, definition *llm.ToolDefinition) *llm.ToolDefinition {
+func (p *outputArtifactProjection) project(ctx context.Context, definition *llm.ToolDefinition, metadataOnly bool) *llm.ToolDefinition {
 	r := p.registry
 	if definition == nil || r.mgr == nil {
 		return definition
@@ -115,7 +115,9 @@ func (p *outputArtifactProjection) project(ctx context.Context, definition *llm.
 		return definition
 	}
 	projected := *definition
-	projected.OutputSchema = artifactOutputSchema()
+	if !metadataOnly {
+		projected.OutputSchema = artifactOutputSchema()
+	}
 	projected.Description += " Output is captured as an owned immutable artifact; results contain resource IDs, URIs, and download metadata. Use the artifact URI with resource inspection and extraction tools."
 	return &projected
 }
@@ -123,14 +125,26 @@ func (p *outputArtifactProjection) project(ctx context.Context, definition *llm.
 func (r *Registry) GetDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
 	definition, found := r.GetRawDefinitionWithContext(ctx, name)
 	projection := r.newOutputArtifactProjection()
-	return projection.project(ctx, projection.provenance(ctx, definition)), found
+	return projection.project(ctx, projection.provenance(ctx, definition), false), found
 }
 
 func (r *Registry) DefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
 	definitions := r.rawDefinitionsWithContext(ctx)
 	projection := r.newOutputArtifactProjection()
 	for i := range definitions {
-		definitions[i] = *projection.project(ctx, projection.provenance(ctx, &definitions[i]))
+		definitions[i] = *projection.project(ctx, projection.provenance(ctx, &definitions[i]), false)
+	}
+	return definitions
+}
+
+func (r *Registry) DefinitionMetadataWithContext(ctx context.Context) []llm.ToolDefinition {
+	definitions := r.rawDefinitionList(ctx, true)
+	projection := r.newOutputArtifactProjection()
+	for i := range definitions {
+		definitions[i] = *projection.project(ctx, projection.provenance(ctx, &definitions[i]), true)
+		definitions[i].Parameters = nil
+		definitions[i].Required = nil
+		definitions[i].OutputSchema = nil
 	}
 	return definitions
 }
@@ -139,7 +153,7 @@ func (r *Registry) MatchDefinitionWithContextResult(ctx context.Context, pattern
 	definitions, err := r.rawMatchDefinitionWithContextResult(ctx, pattern)
 	projection := r.newOutputArtifactProjection()
 	for i := range definitions {
-		definitions[i] = projection.project(ctx, projection.provenance(ctx, definitions[i]))
+		definitions[i] = projection.project(ctx, projection.provenance(ctx, definitions[i]), false)
 	}
 	return definitions, err
 }

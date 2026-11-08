@@ -11,11 +11,13 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
 	"github.com/viant/agently-core/protocol/mcpname"
+	toolctx "github.com/viant/agently-core/protocol/tool"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	toolservice "github.com/viant/agently-core/protocol/tool/service/llm/tools"
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	"github.com/viant/agently-core/runtime/toolselection"
 	agenttool "github.com/viant/agently-core/service/agent/tool"
+	"github.com/viant/agently-core/service/browsermcp"
 )
 
 func hasToolDiscoverySelection(ctx context.Context, input *QueryInput) bool {
@@ -71,7 +73,16 @@ func (s *Service) discoverableToolSnapshot(ctx context.Context, input *QueryInpu
 		ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{CachedCatalog: true})
 	}
 	phaseStarted = time.Now()
-	definitions := s.definitions(ctx)
+	var definitions []llm.ToolDefinition
+	if lister, ok := s.registry.(toolctx.ContextMetadataDefinitionLister); ok {
+		definitions = lister.DefinitionMetadataWithContext(toolSurfaceDiscoveryContext(ctx))
+		for _, definition := range browsermcp.Definitions(ctx) {
+			definition.Parameters, definition.OutputSchema, definition.Required = nil, nil, nil
+			definitions = append(definitions, definition)
+		}
+	} else {
+		definitions = s.definitions(ctx)
+	}
 	writeBindingToolStage(ctx, "candidate_definitions", phaseStarted, len(definitions), false, nil)
 	phaseStarted = time.Now()
 	definitions, err = s.callerScopedToolDefinitions(ctx, input, definitions)

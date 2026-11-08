@@ -520,6 +520,10 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 }
 
 func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
+	return r.rawDefinitionList(ctx, false)
+}
+
+func (r *Registry) rawDefinitionList(ctx context.Context, metadataOnly bool) []llm.ToolDefinition {
 	ctx = r.discoveryLookupContext(ctx)
 	var defs []llm.ToolDefinition
 	// Always include virtual tools.
@@ -568,11 +572,18 @@ func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefi
 			if r.isInternalServer(server) || r.isExternalPublicToolCatalog(ctx, server) {
 				continue
 			}
-			identity, tools, err := r.cachedManagerCatalog(ctx, server)
+			var identity string
+			var tools []mcpschema.Tool
+			var err error
+			if metadataOnly {
+				identity, tools, err = r.cachedManagerCatalogSelection(ctx, server, nil, true)
+			} else {
+				identity, tools, err = r.cachedManagerCatalog(ctx, server)
+			}
 			if err != nil || identity == "" {
 				continue
 			}
-			defs = r.appendCatalogDefinitions(ctx, server, tools, defs, seen)
+			defs = r.appendCatalogDefinitions(ctx, server, tools, defs, seen, metadataOnly)
 		}
 		return defs
 	}
@@ -604,19 +615,19 @@ func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefi
 		}
 		pending = append(pending, s)
 	}
-	catalogs := r.listToolCatalogs(discoveryCtx, pending)
+	catalogs := r.listToolCatalogs(discoveryCtx, pending, metadataOnly)
 	for i, s := range pending {
 		tools, err := catalogs[i].tools, catalogs[i].err
 		if err != nil {
 			r.warnf("tools: list %s failed: %v", s, err)
 			continue
 		}
-		defs = r.appendCatalogDefinitions(ctx, s, tools, defs, seen)
+		defs = r.appendCatalogDefinitions(ctx, s, tools, defs, seen, catalogs[i].projected)
 	}
 	return defs
 }
 
-func (r *Registry) appendCatalogDefinitions(ctx context.Context, s string, tools []mcpschema.Tool, defs []llm.ToolDefinition, seen map[string]struct{}) []llm.ToolDefinition {
+func (r *Registry) appendCatalogDefinitions(ctx context.Context, s string, tools []mcpschema.Tool, defs []llm.ToolDefinition, seen map[string]struct{}, metadataOnly bool) []llm.ToolDefinition {
 	applyCacheable := r.cacheableOverride(ctx, s)
 	injectTimeoutMs := r.shouldInjectTimeoutMs(s)
 	for _, t := range tools {
@@ -626,11 +637,17 @@ func (r *Registry) appendCatalogDefinitions(ctx context.Context, s string, tools
 		}
 		if def := llm.ToolDefinitionFromMcpTool(&t); def != nil {
 			def.Name = disp
-			_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
+			projected := metadataOnly
+			if !projected {
+				_ = maybeInjectTimeoutMs(def, injectTimeoutMs)
+			}
 			applyCacheable(def)
 			def.SourceMCPServer = s
 			defs = append(defs, *def)
 			seen[disp] = struct{}{}
+			if projected {
+				continue
+			}
 			// Update cache for lookup by display name
 			cachedDefinition := *def
 			cachedDefinition.Name = qualifiedToolName(s, strings.TrimSpace(t.Name))

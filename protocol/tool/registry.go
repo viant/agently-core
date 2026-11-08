@@ -68,6 +68,12 @@ type ContextDefinitionLister interface {
 	DefinitionsWithContext(ctx context.Context) []llm.ToolDefinition
 }
 
+// ContextMetadataDefinitionLister supplies advisory candidates without schemas.
+// Selected tools must resolve their full definition through the normal registry.
+type ContextMetadataDefinitionLister interface {
+	DefinitionMetadataWithContext(ctx context.Context) []llm.ToolDefinition
+}
+
 // ContextDefinitionGetter is an optional extension for registries that can fetch
 // a tool definition using request-scoped context.
 type ContextDefinitionGetter interface {

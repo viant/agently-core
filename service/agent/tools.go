@@ -139,15 +139,15 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 	if err != nil {
 		return nil, err
 	}
+	defs, err = s.selectIntakeTools(ctx, qi, defs, candidates)
+	if err != nil {
+		return nil, err
+	}
 	defs, err = s.modelVisibleDefinitions(ctx, defs)
 	if err != nil {
 		return nil, err
 	}
 	visibilityChecked = true
-	defs, err = s.selectIntakeTools(ctx, qi, defs, candidates)
-	if err != nil {
-		return nil, err
-	}
 	out := defsToTools(defs)
 	out = s.appendRegistryWarnings(ctx, out)
 	return out, nil
