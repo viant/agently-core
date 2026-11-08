@@ -228,6 +228,9 @@ func (s *Service) execute(ctx context.Context, action, eventKind string, in, out
 		Namespace: namespace,
 		Method:    "ui.report." + action,
 		Params:    params,
+		// Carry the existing run budget through the inner bridge wait. Other
+		// report actions retain the ordinary command deadline.
+		TimeoutMs: int(s.MethodToolTimeout(action).Milliseconds()),
 	})
 	if err != nil {
 		return err
