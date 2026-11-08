@@ -828,6 +828,11 @@ func filterMenusContextWithRuntime(ctx context.Context, menus []LayoutMenu, inhe
 	var result []LayoutMenu
 	for _, menu := range menus {
 		allowed, snapshot, err := resolveNodeContextWithRuntime(ctx, menu.Authorization, menu.VisibleWhen, inherited, runtime)
+		if errors.Is(err, layoutgate.ErrFactsUnavailable) && menu.Action != nil && menu.Action.providerOwned {
+			// A published menu item with unresolved visibility stays hidden.
+			// Other independently admitted windows remain available.
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
