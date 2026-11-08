@@ -460,7 +460,7 @@ func (s *Service) appendTranscriptSystemDocs(tr apiconv.Transcript, b *binding.B
 	if b == nil {
 		return
 	}
-	systemDocs := transcriptSystemDocuments(tr)
+	systemDocs := transcriptSystemDocuments(tr, b.History.CurrentTurnID)
 	if len(systemDocs) == 0 {
 		return
 	}
@@ -532,7 +532,7 @@ func (s *Service) allowContinuationPreview(ctx context.Context, input *QueryInpu
 	return false
 }
 
-func transcriptSystemDocuments(tr apiconv.Transcript) []*binding.Document {
+func transcriptSystemDocuments(tr apiconv.Transcript, currentTurnID string) []*binding.Document {
 	if len(tr) == 0 {
 		return nil
 	}
@@ -543,6 +543,12 @@ func transcriptSystemDocuments(tr apiconv.Transcript) []*binding.Document {
 			continue
 		}
 		for _, msg := range turn.GetMessages() {
+			// template/get persists this system message for retries in its own turn.
+			if msg != nil && msg.CreatedByUserId != nil && *msg.CreatedByUserId == "template" &&
+				msg.ContextSummary != nil && strings.HasPrefix(*msg.ContextSummary, "template://") &&
+				(currentTurnID == "" || turn.Id != currentTurnID) {
+				continue
+			}
 			doc := toSystemDocument(turn, msg)
 			if doc == nil {
 				continue
