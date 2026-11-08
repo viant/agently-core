@@ -196,44 +196,11 @@ modelPreferences:
 
 Both normalize to `Hints []string` internally.
 
-### Published routing guides
+### Legacy routing guides
 
-An agent can include routing guidance from an already configured artifact
-cohort in its existing intake request.
-
-```yaml
-intake:
-  enabled: true
-  scope: [intent]
-  routingGuides:
-    - routing://example/record-review
-```
-
-Publish the version 1 routing definition through the producer's ordinary
-artifact lifecycle. The Markdown body provides classifier guidance. The
-frontmatter provides the guide's catalog name and description.
-
-```yaml
-schemaVersion: 1
-document: |
-  ---
-  name: Record review
-  description: Choose a path for reviewing example records.
-  ---
-
-  ## When
-
-  The current request asks to review a record.
-
-  ## Outcome
-
-  Use the known record scope. If scope is missing, identify the record first.
-```
-
-The agent reads up to four configured guides in order from the local cohort
-replica. The current session must have access to each guide. Unavailable
-guides are omitted, and the combined body is bounded to 16 KiB. The regular
-intake policy still governs playbook selection and any proposed tool action.
+The standard executor no longer loads routing guides into intake. Existing
+agent definitions can still contain the legacy `routingGuides` field, and
+historical published artifacts retain their original revisions.
 
 ---
 
