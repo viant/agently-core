@@ -10,6 +10,25 @@ import (
 	primitive "github.com/viant/forge/backend/provider/contract"
 )
 
+// Published templates retain the producer's versioned envelope. Workspace
+// templates keep their original flat definition shape.
+func authoredTemplateBytes(raw json.RawMessage) (json.RawMessage, error) {
+	var envelope struct {
+		SchemaVersion int64           `json:"schemaVersion"`
+		Template      json.RawMessage `json:"template"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, err
+	}
+	if envelope.SchemaVersion == 0 {
+		return raw, nil
+	}
+	if envelope.SchemaVersion != 1 || len(envelope.Template) == 0 || string(envelope.Template) == "null" {
+		return nil, identity.ErrResource
+	}
+	return envelope.Template, nil
+}
+
 // Published playbooks retain authoring text beside the producer's materialized
 // profile. Native workspace definitions keep their original flat profile shape.
 func authoredProfileBytes(raw json.RawMessage) (json.RawMessage, error) {

@@ -52,6 +52,10 @@ func decodeAuthored[T any](raw json.RawMessage) (T, error) {
 	return result, nil
 }
 func DecodeTemplateDefinition(raw json.RawMessage) (TemplateDefinition, error) {
+	raw, err := authoredTemplateBytes(raw)
+	if err != nil {
+		return TemplateDefinition{}, err
+	}
 	v, err := decodeAuthored[TemplateDefinition](raw)
 	if err != nil {
 		return v, err
@@ -126,13 +130,20 @@ func (r *TemplateReader) LoadAll(ctx context.Context) ([]*tpl.Template, error) {
 		ID, Name, Description, Format               string
 		AppliesTo, Platforms, FormFactors, Surfaces []string
 	}
-	rows, err := authoredPages[summary](ctx, r.Gateway, "template")
+	rows, err := authoredPages[json.RawMessage](ctx, r.Gateway, "template")
 	if err != nil {
 		return nil, err
 	}
 	out := make([]*tpl.Template, 0, len(rows))
 	for _, row := range rows {
-		v := row.Definition
+		raw, err := authoredTemplateBytes(row.Definition)
+		if err != nil {
+			return nil, err
+		}
+		v, err := decodeAuthored[summary](raw)
+		if err != nil {
+			return nil, err
+		}
 		if v.ID == "" || v.Name == "" {
 			continue
 		}
