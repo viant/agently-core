@@ -263,6 +263,9 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if err := forgeuisvc.FinishMetadataReadScope(finish, readErr); err != nil {
 		return err
 	}
+	for i := range items {
+		items[i].Target = discoveryWindowTarget(items[i].Target)
+	}
 	output.Items = items
 	return nil
 }
@@ -285,6 +288,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	if err := forgeuisvc.FinishMetadataReadScope(finish, readErr); err != nil {
 		return err
 	}
+	item.Target = discoveryWindowTarget(item.Target)
 	output.Item = item
 	return nil
 }
@@ -1325,4 +1329,20 @@ func cloneMap(input map[string]interface{}) map[string]interface{} {
 		result[key] = value
 	}
 	return result
+}
+
+// Discovery carries variant preferences, never a server admission proof. Open
+// resolves the selected resource again and signs its complete private target.
+func discoveryWindowTarget(target *forgetypes.WindowTarget) *forgetypes.WindowTarget {
+	if target == nil {
+		return nil
+	}
+	result := *target
+	result.SelectionToken = ""
+	result.DependencyPins = nil
+	result.ExecutionProof = nil
+	if forgetypes.SameWindowTarget(&result, nil) {
+		return nil
+	}
+	return &result
 }
