@@ -3,13 +3,15 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/forge/backend/types"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/jsonrpc/transport/server/base"
-	"testing"
-	"time"
 )
 
 type admittedPresentationCatalog struct {
@@ -118,5 +120,20 @@ func TestRestoredReportBindsExactInstanceWithoutWindowTarget(t *testing.T) {
 	foreign := requestctx.WithUIBridgeSessionID(context.WithValue(context.Background(), feedOwnerKey{}, "bob"), "restore-session")
 	if _, err := svc.BindAdmittedNativePresentationWindow(foreign, "client-a", "restored-report", pin.URI, admitted); err == nil {
 		t.Fatal("foreign user bound report")
+	}
+
+	rotated := pin
+	rotated.AuthorityBinding = "selected-after-credential-rotation"
+	fresh := &types.Window{Resource: &rotated}
+	if handled, err := svc.BindAdmittedNativePresentationWindow(ctx, "client-a", "restored-report", pin.URI, fresh); !handled || !errors.Is(err, identity.ErrResourceDenied) {
+		t.Fatalf("rotated authority must not replace a retained instance: handled=%v err=%v", handled, err)
+	}
+	if handled, err := svc.BindAdmittedNativePresentationWindow(ctx, "client-a", "fresh-report", pin.URI, fresh); !handled || err != nil {
+		t.Fatalf("fresh instance with revalidated authority: handled=%v err=%v", handled, err)
+	}
+	original, _ := svc.getWindowPin(windowPinKey{Namespace: "alice", ClientID: "client-a", WindowID: "restored-report"})
+	current, _ := svc.getWindowPin(windowPinKey{Namespace: "alice", ClientID: "client-a", WindowID: "fresh-report"})
+	if original.Resource != pin || current.Resource != rotated {
+		t.Fatal("fresh grant must bind only the fresh instance")
 	}
 }

@@ -11,13 +11,13 @@ import (
 	authsvc "github.com/viant/agently-core/service/auth"
 	"github.com/viant/authz"
 	"github.com/viant/forge/backend/artifactcohort"
-	manager "github.com/viant/mcp/client/pool"
 	primitive "github.com/viant/forge/backend/provider/contract"
 	"github.com/viant/forge/backend/reporting/registry"
 	identity "github.com/viant/forge/backend/resource"
 	resources "github.com/viant/forge/backend/resourcehost"
 	"github.com/viant/forge/backend/types"
 	iauth "github.com/viant/mcp/client/auth/link"
+	manager "github.com/viant/mcp/client/pool"
 )
 
 type publishedPinCaller struct{ publisher *artifactcohort.Publisher }
@@ -30,6 +30,7 @@ func (c publishedPinCaller) Fetch(_ context.Context, in artifactcohort.FetchInpu
 }
 
 type publishedPinFacts struct{}
+type publishedPinSessionKey struct{}
 
 func (publishedPinFacts) Resolve(ctx context.Context) (authz.Facts, error) {
 	subject := authsvc.EffectiveUserID(ctx)
@@ -59,7 +60,12 @@ func newPublishedPinFixture(t *testing.T, account string) *publishedPinFixture {
 	f.cohorts = []artifactcohort.Cohort{{Tenant: "example-tenant", Name: "readers", PolicyResource: policy}}
 	f.publish(t, 1, "Example")
 	var err error
-	f.replica, err = artifactcohort.NewReplica(artifactcohort.Config{Enabled: true, Source: "publisher", Tenant: "example-tenant", Account: account, Caller: publishedPinCaller{f.publisher}, Facts: publishedPinFacts{}, SessionKey: func(ctx context.Context) (string, error) { return authsvc.EffectiveUserID(ctx), nil }})
+	f.replica, err = artifactcohort.NewReplica(artifactcohort.Config{Enabled: true, Source: "publisher", Tenant: "example-tenant", Account: account, Caller: publishedPinCaller{f.publisher}, Facts: publishedPinFacts{}, SessionKey: func(ctx context.Context) (string, error) {
+		if binding, ok := ctx.Value(publishedPinSessionKey{}).(string); ok {
+			return binding, nil
+		}
+		return authsvc.EffectiveUserID(ctx), nil
+	}})
 	require.NoError(t, err)
 	require.NoError(t, f.replica.Sync(context.Background()))
 	source, err := artifactcohort.NewMetadataSource(f.replica, []string{"example"})
@@ -139,6 +145,22 @@ func (f *publishedPinFixture) run(ctx context.Context, pin *identity.ResolvedRes
 		return err
 	}
 	return run(ctx, &request, &ExecuteResourceResult{})
+}
+
+func TestPublishedReportRequiresFreshPinAfterSameSubjectCredentialRotation(t *testing.T) {
+	f := newPublishedPinFixture(t, "account-one")
+	owner := authsvc.InjectUser(context.Background(), "reader")
+	before := context.WithValue(owner, publishedPinSessionKey{}, "verified-scope-before")
+	after := context.WithValue(owner, publishedPinSessionKey{}, "verified-scope-after")
+	original := f.get(t, before)
+	fresh := f.get(t, after)
+	require.Equal(t, original.ResourceCandidate, fresh.ResourceCandidate)
+	require.NotEqual(t, original.AuthorityBinding, fresh.AuthorityBinding)
+
+	require.ErrorIs(t, f.run(after, original), identity.ErrResourceDenied)
+	require.Zero(t, f.calls)
+	require.NoError(t, f.run(after, fresh))
+	require.Equal(t, 1, f.calls)
 }
 func TestPublishedGetReportPinReplaysAfterUnchangedReconnect(t *testing.T) {
 	f := newPublishedPinFixture(t, "account-one")
