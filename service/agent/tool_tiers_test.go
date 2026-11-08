@@ -60,7 +60,7 @@ func (c *retainedCatalogClient) ListTools(context.Context, *string, ...mcpclient
 		return nil, c.listErr
 	}
 	return &mcpschema.ListToolsResult{Tools: []mcpschema.Tool{
-		{Name: "Read", InputSchema: mcpschema.ToolInputSchema{Type: "object"}},
+		{Name: "Read", InputSchema: mcpschema.ToolInputSchema{Type: "object", Properties: mcpschema.ToolInputSchemaProperties{"recordId": {"type": "string"}}, Required: []string{"recordId"}}},
 		{Name: "Describe", InputSchema: mcpschema.ToolInputSchema{Type: "object"}},
 	}}, nil
 }

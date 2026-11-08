@@ -202,7 +202,7 @@ func (s *Service) hydrateSelectedDefinitions(ctx context.Context, definitions []
 		}
 		var selected *llm.ToolDefinition
 		for _, match := range matches {
-			if match != nil && mcpname.Canonical(match.Name) == mcpname.Canonical(definition.Name) {
+			if match != nil && modelDefinitionName(*match) == modelDefinitionName(definition) {
 				selected = match
 				break
 			}
