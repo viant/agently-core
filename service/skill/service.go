@@ -101,7 +101,7 @@ func (s *Service) Name() string { return Name }
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "get", Description: "Read a visible skill without activating it, or read one supporting file with uri set to the qualified skill URI and path set to its manifest-relative file path. A handoff already supplies the URI; no listing is needed.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
-		{Name: "list", Description: "Find visible skills by namespace, nameTerms, descriptionTerms, or keywords. Matching is case-insensitive contains: terms within each group are OR; groups are AND. Set limit for bounded results and continue with nextCursor using the same filters. Returns metadata only; activate a selected skill separately.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
+		{Name: "list", Description: "Find visible skills by namespace, nameTerms, descriptionTerms, or keywords. Matching is case-insensitive contains: terms within each group are OR; groups are AND. Returns seven matches by default. Set limit for bounded results and continue with nextCursor using the same filters. Returns metadata only; activate a selected skill separately.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "activate", Description: "Activate one skill. Inline skills return their body for the current turn; fork/detach skills may already start a child conversation and return its execution state. When started=true and childConversationId is set, do not launch another agent into that conversation; poll llm/agents:status on the returned childConversationId instead. Optional input.mode may override the skill's default mode with inline, fork, or detach.", Input: reflect.TypeOf(&ActivateInput{}), Output: reflect.TypeOf(&ActivateOutput{})},
 	}
 }
@@ -1205,17 +1205,12 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	}
 	ctx, discovery := withDiscoveryDiagnostics(ctx)
 	query := primitive.CatalogQuery(*li)
-	// Preserve existing callers that request the complete unfiltered list.
-	// Filtered or explicitly paged requests use the shared catalog index.
-	if query.Namespace == "" && len(query.OwnerIDs) == 0 && len(query.NameTerms) == 0 && len(query.DescriptionTerms) == 0 && len(query.Keywords) == 0 && query.Limit == 0 && query.Cursor == "" {
-		lo.Items, err = s.ListVisible(ctx, agent)
-		lo.NextCursor, lo.Complete, lo.Total = "", true, len(lo.Items)
-	} else {
-		var page *primitive.CatalogPage[skillproto.Metadata]
-		page, err = s.ListVisiblePage(ctx, agent, query)
-		if err == nil {
-			lo.Items, lo.NextCursor, lo.Complete, lo.Total = page.Items, page.NextCursor, page.Complete, page.Total
-		}
+	if query.Limit == 0 {
+		query.Limit = 7
+	}
+	page, err := s.ListVisiblePage(ctx, agent, query)
+	if err == nil {
+		lo.Items, lo.NextCursor, lo.Complete, lo.Total = page.Items, page.NextCursor, page.Complete, page.Total
 	}
 	if err != nil {
 		return err
