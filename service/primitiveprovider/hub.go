@@ -15,16 +15,18 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/viant/forge/backend/uicontext"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/jsonrpc/transport"
 )
 
 type Hub struct {
-	token        string
-	requireToken bool
-	localOnly    bool
-	origins      map[string]bool
-	ns           *NamespaceService
+	token           string
+	requireToken    bool
+	localOnly       bool
+	origins         map[string]bool
+	ns              *NamespaceService
+	localStateOwner uicontext.LocalStateOwnerResolver
 
 	mu        sync.RWMutex
 	clients   map[string]map[string]*client // ns -> clientId -> client
@@ -109,18 +111,19 @@ func NewHub(cfg *Config) *Hub {
 	namespace := NewNamespaceService(cfg.NamespaceResolver)
 	namespace.metadataScope = cfg.MetadataScope
 	return &Hub{
-		token:         cfg.Token,
-		requireToken:  cfg.RequireToken,
-		localOnly:     cfg.LocalOnly,
-		origins:       origins,
-		ns:            namespace,
-		clients:       map[string]map[string]*client{},
-		snapshots:     map[string]map[string]snapshotState{},
-		watchers:      map[string]map[string]map[chan json.RawMessage]struct{}{},
-		queues:        map[string]map[string]*commandQueue{},
-		notifiers:     map[string]map[string]transport.Notifier{},
-		pending:       map[string]chan *rpcResponse{},
-		pendingOwners: map[string]commandOwner{},
+		token:           cfg.Token,
+		requireToken:    cfg.RequireToken,
+		localOnly:       cfg.LocalOnly,
+		origins:         origins,
+		ns:              namespace,
+		localStateOwner: cfg.LocalStateOwnerResolver,
+		clients:         map[string]map[string]*client{},
+		snapshots:       map[string]map[string]snapshotState{},
+		watchers:        map[string]map[string]map[chan json.RawMessage]struct{}{},
+		queues:          map[string]map[string]*commandQueue{},
+		notifiers:       map[string]map[string]transport.Notifier{},
+		pending:         map[string]chan *rpcResponse{},
+		pendingOwners:   map[string]commandOwner{},
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return checkOrigin(origins, r)

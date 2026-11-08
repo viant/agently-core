@@ -22,10 +22,11 @@ type httpRPCBridge struct {
 }
 
 type httpSessionInfo struct {
-	clientID string
-	ns       string
-	notifier transport.Notifier
-	receiver *client
+	clientID     string
+	ns           string
+	notifier     transport.Notifier
+	receiver     *client
+	ownerBinding string
 }
 
 type uiRPCHandler struct {
@@ -41,6 +42,19 @@ func (h *Hub) ServeHTTPRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handler := h.httpStreamable()
+	// A refreshed credential retires the negotiated transport's existing local
+	// owner fence. Reuse ordinary missing-session recovery; mounted UI state is
+	// retained and its resources are admitted again under the current owner.
+	if h.localStateOwner != nil {
+		info := h.httpBridge.sessionInfoByID(r.Header.Get("Mcp-Session-Id"))
+		if info != nil && info.ownerBinding != "" {
+			owner, err := h.localStateOwner(r.Context())
+			if err != nil || owner == nil || owner.Binding != info.ownerBinding {
+				http.Error(w, "UI session is no longer current", http.StatusNotFound)
+				return
+			}
+		}
+	}
 	httptransport.DecodeRequestEncoding(handler).ServeHTTP(w, r)
 }
 
@@ -89,12 +103,18 @@ func (b *httpRPCBridge) bindSession(ctx context.Context, clientID, ns string, no
 	if sessionID == "" || clientID == "" {
 		return
 	}
-	b.mu.Lock()
 	var receiver *client
 	if len(receivers) > 0 {
 		receiver = receivers[0]
 	}
-	b.sessions[sessionID] = &httpSessionInfo{clientID: clientID, ns: ns, notifier: notifier, receiver: receiver}
+	ownerBinding := ""
+	if b.hub.localStateOwner != nil {
+		if owner, err := b.hub.localStateOwner(ctx); err == nil && owner != nil {
+			ownerBinding = owner.Binding
+		}
+	}
+	b.mu.Lock()
+	b.sessions[sessionID] = &httpSessionInfo{clientID: clientID, ns: ns, notifier: notifier, receiver: receiver, ownerBinding: ownerBinding}
 	b.mu.Unlock()
 }
 

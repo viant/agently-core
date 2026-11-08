@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
@@ -125,15 +124,15 @@ func TestRestoredReportBindsExactInstanceWithoutWindowTarget(t *testing.T) {
 	rotated := pin
 	rotated.AuthorityBinding = "selected-after-credential-rotation"
 	fresh := &types.Window{Resource: &rotated}
-	if handled, err := svc.BindAdmittedNativePresentationWindow(ctx, "client-a", "restored-report", pin.URI, fresh); !handled || !errors.Is(err, identity.ErrResourceDenied) {
-		t.Fatalf("rotated authority must not replace a retained instance: handled=%v err=%v", handled, err)
+	if handled, err := svc.BindAdmittedNativePresentationWindow(ctx, "client-a", "restored-report", pin.URI, fresh); !handled || err != nil {
+		t.Fatalf("freshly admitted report authority must renew the retained instance: handled=%v err=%v", handled, err)
 	}
 	if handled, err := svc.BindAdmittedNativePresentationWindow(ctx, "client-a", "fresh-report", pin.URI, fresh); !handled || err != nil {
 		t.Fatalf("fresh instance with revalidated authority: handled=%v err=%v", handled, err)
 	}
 	original, _ := svc.getWindowPin(windowPinKey{Namespace: "alice", ClientID: "client-a", WindowID: "restored-report"})
 	current, _ := svc.getWindowPin(windowPinKey{Namespace: "alice", ClientID: "client-a", WindowID: "fresh-report"})
-	if original.Resource != pin || current.Resource != rotated {
-		t.Fatal("fresh grant must bind only the fresh instance")
+	if original.Resource != rotated || current.Resource != rotated {
+		t.Fatal("fresh grant must bind the admitted report instances")
 	}
 }
