@@ -154,6 +154,9 @@ func (r *TemplateReader) Load(ctx context.Context, key string) (*tpl.Template, e
 	return &got.Definition.Template, nil
 }
 func (r *IntentReader) LoadAll(ctx context.Context) ([]*intent.Profile, error) {
+	if r.Scope != (DefinitionScope{}) {
+		ctx = WithDefinitionScope(ctx, r.Scope)
+	}
 	var out []*intent.Profile
 	kinds := []string{"intent"}
 	if r.includePlaybooks {
@@ -168,11 +171,16 @@ func (r *IntentReader) LoadAll(ctx context.Context) ([]*intent.Profile, error) {
 			return nil, err
 		}
 		for _, row := range rows {
-			value, err := r.Load(ctx, row.Resource.URI)
+			got, err := GetWithCodec(ctx, r.Gateway, row.Connection, identity.ResourceRef{URI: row.Resource.URI}, row.ResolvedResource, DefinitionCodec[intent.Profile]{ID: "profile-summary.v1", Parse: decodeProfileSummary})
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, &intent.Profile{ResourceURI: row.Resource.URI, ID: value.ID, Name: value.Name, Description: value.Description, Model: value.Model, Template: value.Template, AppliesTo: value.AppliesTo, Templates: value.Templates, ToolBundles: value.ToolBundles, PreferredTools: value.PreferredTools, Resources: value.Resources, EvidenceContract: value.EvidenceContract, Knowledge: value.Knowledge})
+			value, err := clonePublishedAI(got.Definition)
+			if err != nil {
+				return nil, err
+			}
+			value.ResourceURI = row.Resource.URI
+			out = append(out, &value)
 		}
 	}
 	return out, nil
@@ -285,4 +293,19 @@ func (r *TemplateReader) LoadFrom(ctx context.Context, key, parentURI, provider 
 	}
 	got.Definition.Template.ResourceURI = got.Resource.URI
 	return &got.Definition.Template, nil
+}
+
+// decodeProfileSummary runs inside the existing typed-definition cache. Never
+// retain instruction bodies in a discovery projection or clone them on listing.
+func decodeProfileSummary(raw json.RawMessage) (intent.Profile, error) {
+	value, err := DecodeIntentDefinition(raw)
+	if err != nil {
+		return intent.Profile{}, err
+	}
+	for _, message := range value.Messages {
+		if message.URI != "" {
+			return intent.Profile{}, fmt.Errorf("intent supporting text must be materialized by its provider")
+		}
+	}
+	return intent.Profile{ID: value.ID, Name: value.Name, Description: value.Description, Model: value.Model, Template: value.Template, AppliesTo: value.AppliesTo, Templates: value.Templates, ToolBundles: value.ToolBundles, PreferredTools: value.PreferredTools, Resources: value.Resources, EvidenceContract: value.EvidenceContract, Knowledge: value.Knowledge}, nil
 }

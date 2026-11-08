@@ -551,6 +551,11 @@ func (s *Service) readRemote(ctx context.Context, e remoteEntry) (*skillproto.Sk
 		e.metadata.URI = ref.URI()
 	}
 	item, err := ReadManifestDocument(ctx, fresh, e.uri, e.server, e.config.SkillDiscovery.MaxSkillBytes, func(ctx context.Context, uri string) (*schema.ReadResourceResult, error) {
+		if reader, ok := cli.(interface {
+			ReadSkillResource(context.Context, *schema.GetSkillResult, string, ...mcpclient.RequestOption) (*schema.ReadResourceResult, error)
+		}); ok {
+			return reader.ReadSkillResource(ctx, fresh, uri, opts...)
+		}
 		return cli.ReadResource(ctx, &schema.ReadResourceRequestParams{Uri: uri}, opts...)
 	})
 	if err != nil {

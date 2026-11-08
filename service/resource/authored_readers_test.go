@@ -70,6 +70,13 @@ func TestAuthoredReadersShareNativeSnapshotAndFreshSelectedBody(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, plans, 1)
 	require.Empty(t, plans[0].Messages)
+	require.Equal(t, []string{"original-tools"}, plans[0].ToolBundles)
+	plans[0].ToolBundles[0] = "caller-mutation"
+	again, err := pr.LoadAll(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"original-tools"}, again[0].ToolBundles, "cached summary must not share caller-mutable slices")
+	require.Empty(t, again[0].Messages)
+
 	p, err := pr.Load(ctx, "original-profile")
 	require.NoError(t, err)
 	require.Equal(t, "original-model", p.Model)
