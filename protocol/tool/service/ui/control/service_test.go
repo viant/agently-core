@@ -94,17 +94,18 @@ func TestSetValueFallsBackToExactWindowIDWhenClientIDIsStale(t *testing.T) {
 	svc := New(bridge)
 	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
 	done := make(chan error, 1)
+	rangeValue := map[string]interface{}{"start": "2026-01-01", "end": "2026-01-31"}
 	go func() {
 		out := &CommandOutput{}
 		err := svc.setValue(ctx, &SetValueInput{
 			ClientID:      "stale-client",
 			WindowID:      "genericBuilder__conv-1",
 			WindowKey:     "genericBuilder",
-			ControlID:     "country",
+			ControlID:     "period",
 			DataSourceRef: "forecast_rows",
 			Scope:         "windowForm",
-			BindingPath:   "prefill.includeCountry",
-			Value:         []interface{}{"US"},
+			BindingPath:   "prefill.period",
+			Value:         rangeValue,
 		}, out)
 		if err != nil {
 			done <- err
@@ -135,11 +136,15 @@ func TestSetValueFallsBackToExactWindowIDWhenClientIDIsStale(t *testing.T) {
 	if got := commandParams["windowId"]; got != "genericBuilder__conv-1" {
 		t.Fatalf("expected generic builder window id, got %#v", got)
 	}
-	if got := commandParams["controlId"]; got != "country" {
-		t.Fatalf("expected country control id, got %#v", got)
+	if got := commandParams["controlId"]; got != "period" {
+		t.Fatalf("expected period control id, got %#v", got)
 	}
 	if got := commandParams["dataSourceRef"]; got != "forecast_rows" {
 		t.Fatalf("lost datasource target: %#v", got)
+	}
+	gotRange, ok := commandParams["value"].(map[string]interface{})
+	if !ok || len(gotRange) != 2 || gotRange["start"] != rangeValue["start"] || gotRange["end"] != rangeValue["end"] {
+		t.Fatalf("lost structured date range: %#v", commandParams["value"])
 	}
 
 	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
