@@ -67,7 +67,7 @@ func (s *Service) Name() string {
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "list", Description: "Discover available playbook summaries by id and description without loading instructions into the conversation. After selecting a playbook to follow, call get with includeDocument:true.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
-		{Name: "get", Description: "Get a playbook by id. When selecting it to guide the current task, set includeDocument:true: this injects its authored system/user messages in order. Omit or set false only to inspect the playbook without activating it. Check injected in the result.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
+		{Name: "get", Description: "Get a playbook by id. When selecting it to guide the current task, set includeDocument:true: this injects its authored system/user messages in order and activates its declared tools in the running agent. Tool declarations may use existing wildcard patterns. Search for more tools only when the playbook lacks a needed capability. Omit or set false only to inspect the playbook without activating it. Check injected in the result.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
 	}
 }
 
@@ -186,9 +186,18 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 
 	// Optionally inject into the conversation.
 	if gi.IncludeDocument != nil && *gi.IncludeDocument {
+		activate, err := prepareToolActivation(ctx, selected)
+		if err != nil {
+			return err
+		}
 		ids, err := s.injectMessages(ctx, msgs)
 		if err != nil {
 			return err
+		}
+		if activate != nil {
+			if err := activate(); err != nil {
+				return err
+			}
 		}
 		// Instructions are already role-preserving conversation messages. Return
 		// only their receipt, not a second copy in the tool response.

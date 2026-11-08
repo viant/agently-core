@@ -32,11 +32,13 @@ import (
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	asyncnarrator "github.com/viant/agently-core/protocol/async/narrator"
 	bindpkg "github.com/viant/agently-core/protocol/binding"
+	"github.com/viant/agently-core/protocol/intent"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
 	toolobservation "github.com/viant/agently-core/protocol/tool/service/observation"
+	promptservice "github.com/viant/agently-core/protocol/tool/service/prompt"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -982,6 +984,9 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 	}
 	// Critical discovery controls remain usable on clarification turns too.
 	ctx = toolselection.WithState(ctx, nil)
+	ctx = promptservice.WithToolActivation(ctx, func(callCtx context.Context, profile *intent.Profile) (func() error, error) {
+		return s.preparePlaybookTools(callCtx, input, profile)
+	})
 	ctx = s.ensureNamespaceSnapshot(ctx)
 	mode := runtimerecovery.ModePruneCompact
 	if input != nil && input.Agent != nil {

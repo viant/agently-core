@@ -193,6 +193,17 @@ func TestService_get_InjectsRolePreservingMessages(t *testing.T) {
 		TurnID:         "turn-1",
 	})
 
+	prepared, activated := 0, 0
+	ctx = WithToolActivation(ctx, func(_ context.Context, p *intent.Profile) (func() error, error) {
+		prepared++
+		require.Equal(t, "performance_analysis", p.ID)
+		require.Empty(t, client.messages)
+		return func() error {
+			require.Len(t, client.messages, 2)
+			activated++
+			return nil
+		}, nil
+	})
 	out := &GetOutput{}
 	err := service.get(ctx, &GetInput{ID: "performance_analysis", IncludeDocument: &include}, out)
 	require.NoError(t, err)
@@ -227,6 +238,8 @@ func TestService_get_InjectsRolePreservingMessages(t *testing.T) {
 	require.False(t, inspection.Injected)
 	require.Empty(t, inspection.MessageIDs)
 	require.Len(t, client.messages, 2, "inspection must not inject")
+	require.Equal(t, 1, prepared, "inspection must not prepare tools")
+	require.Equal(t, 1, activated, "inspection must not activate tools")
 }
 
 func valueOrEmpty(value *string) string {
