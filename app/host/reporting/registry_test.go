@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	identity "github.com/viant/agently-core/protocol/resource"
 	uiview "github.com/viant/agently-core/protocol/tool/service/ui/view"
+	viewproto "github.com/viant/agently-core/protocol/ui/view"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
@@ -416,5 +418,25 @@ func TestConfigureWorkspaceReportingRejectsMissingExplicitDevelopmentRoot(t *tes
 	}
 	if err == nil {
 		t.Fatal("missing explicitly configured watcher root accepted")
+	}
+}
+
+func TestWorkspaceRegistryPreservesProducerViewPresets(t *testing.T) {
+	loader := reportregistry.NewLoader(reportregistry.Options{WorkspaceRoot: t.TempDir()})
+	if _, err := loader.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &Runtime{loader: loader}
+	for _, item := range []*uiview.ListItem{
+		{ProviderIdentity: "example-provider", ReportBuilderRef: "external"},
+		{Resource: &identity.ResolvedResource{ProviderIdentity: "example-provider"}, ReportBuilderRef: "external"},
+	} {
+		item.ReportPresets = []viewproto.ReportPreset{{ID: "sample", Label: "Sample"}}
+		if err := runtime.EnrichView(context.Background(), item); err != nil {
+			t.Fatal(err)
+		}
+		if len(item.ReportPresets) != 1 || item.ReportPresets[0].ID != "sample" {
+			t.Fatalf("lost published presets: %v", item.ReportPresets)
+		}
 	}
 }

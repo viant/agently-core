@@ -14,6 +14,7 @@ import (
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	wscfg "github.com/viant/agently-core/workspace/config"
 	reportregistry "github.com/viant/forge/backend/reporting/registry"
+	resourcehost "github.com/viant/forge/backend/resourcehost"
 	forgeTypes "github.com/viant/forge/backend/types"
 )
 
@@ -107,6 +108,14 @@ func (r *Runtime) Close() {
 
 func (r *Runtime) EnrichView(_ context.Context, item *uiview.ListItem) error {
 	if r == nil || r.loader == nil || item == nil {
+		return nil
+	}
+	owner := item.ProviderIdentity
+	if item.Resource != nil {
+		owner = item.Resource.ProviderIdentity
+	}
+	if owner != "" && owner != resourcehost.InternalProviderIdentity {
+		// Published windows carry their producer's builder and preset metadata.
 		return nil
 	}
 	builderRef := strings.TrimSpace(item.ReportBuilderRef)
