@@ -231,7 +231,7 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 		s.publishPlannedToolCallsEvent(eventCtx, event.Response.ResponseID, &choice)
 		s.patchStreamingToolPreamble(eventCtx, choice)
 		s.extendPlanWithToolCalls(event.Response.ResponseID, &choice, aPlan)
-		s.launchPendingSteps(eventCtx, aPlan, nextStepIdx, wg, reg, genOutput.MessageID)
+		s.launchPendingSteps(eventCtx, stepsBeforeActivation(aPlan, *nextStepIdx), nextStepIdx, wg, reg, genOutput.MessageID)
 		return nil
 	})
 	return id
@@ -274,7 +274,7 @@ func (s *Service) handleTypedStreamEvent(
 			})
 		}
 		s.publishTypedToolCallEvent(ctx, event)
-		s.launchPendingSteps(ctx, aPlan, nextStepIdx, wg, reg, genOutput.MessageID)
+		s.launchPendingSteps(ctx, stepsBeforeActivation(aPlan, *nextStepIdx), nextStepIdx, wg, reg, genOutput.MessageID)
 	case llm.StreamEventToolCallStarted:
 	case llm.StreamEventTurnCompleted:
 		mux.Lock()
@@ -338,6 +338,19 @@ func (s *Service) publishTypedToolCallEvent(ctx context.Context, event *llm.Stre
 			}},
 		},
 	})
+}
+
+// Activation waits for preceding tools, whose finish barrier depends on the
+// stream consumer. Retain that suffix for Run to drain after the stream closes.
+func stepsBeforeActivation(plan *execution.Plan, next int) *execution.Plan {
+	for index := next; index < len(plan.Steps); index++ {
+		if plan.Steps[index].Type == "tool" && isActivationBarrierTool(plan.Steps[index].Name) {
+			prefix := *plan
+			prefix.Steps = plan.Steps[:index]
+			return &prefix
+		}
+	}
+	return plan
 }
 
 func (s *Service) launchPendingSteps(ctx context.Context, aPlan *execution.Plan, nextStepIdx *int, wg *sync.WaitGroup, reg tool.Registry, assistantMsgID ...string) {

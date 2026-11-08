@@ -79,6 +79,7 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 	if canStream {
 		logx.Debugf("reactor", "Run starting stream")
 		cleanup, err := s.llm.Stream(ctx, &core2.StreamInput{StreamID: streamId, GenerateInput: genInput}, &core2.StreamOutput{})
+		s.launchPendingSteps(ctx, aPlan, &nextStepIdx, &wg, reg, genOutput.MessageID)
 		logx.Debugf("reactor", "Run stream returned err=%v", err)
 		defer cleanup()
 		if err != nil {
