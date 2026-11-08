@@ -110,3 +110,39 @@ func TestExactSkillControlsUseOwningReadAndPreserveDenial(t *testing.T) {
 		require.Equal(t, 1, owner.reads)
 	}
 }
+
+type observedControlCatalog struct {
+	skillControlCatalog
+	calls int
+}
+
+func (s *observedControlCatalog) List(ctx context.Context) ([]proto.Metadata, error) {
+	s.calls++
+	return s.skillControlCatalog.List(ctx)
+}
+func TestLocalSkillControlPresenceUsesExistingVisibleWildcardIndex(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		selection []string
+		visible   bool
+		lists     int
+	}{
+		{"wildcard", []string{"*"}, true, 0},
+		{"pattern", []string{"review-*"}, true, 0},
+		{"literal", []string{"review-guide"}, true, 0},
+		{"excluded", []string{"review-*", "!review-guide"}, false, 10},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			skillService := newLoadedTestSkillService(t, t.TempDir(), "review-guide")
+			owner := &observedControlCatalog{skillControlCatalog: skillControlCatalog{rows: []proto.Metadata{{Name: "review-guide", URI: "skill://workspace/review-guide/SKILL.md", ServerID: "internal-skills"}}}}
+			skillService.SetDelivery(skillControlSources{}, owner)
+			service := &Service{skillSvc: skillService}
+			for range 10 {
+				visible, err := service.hasVisibleSkills(context.Background(), &agentmdl.Agent{Skills: test.selection})
+				require.NoError(t, err)
+				require.Equal(t, test.visible, visible)
+			}
+			require.Equal(t, test.lists, owner.calls, "existing local wildcard visibility already establishes control presence")
+		})
+	}
+}

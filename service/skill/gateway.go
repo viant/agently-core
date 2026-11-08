@@ -62,10 +62,16 @@ func (s *Service) getPrimitive(ctx context.Context, agent *agentmdl.Agent, key s
 		return nil, false, nil
 	}
 	owned := false
-	if owner, ok := s.delivery.(interface{ OwnsReference(string) bool }); ok {
+	owner, classified := s.delivery.(interface{ OwnsReference(string) bool })
+	if classified {
 		owned = owner.OwnsReference(key)
 	}
 	if !owned {
+		if classified {
+			if ref, err := proto.ParseRef(key); err == nil && ref.ResourceURI != "" {
+				return nil, false, nil
+			}
+		}
 		rows, err := s.primitiveMetadata(ctx, agent)
 		if err != nil {
 			return nil, true, err

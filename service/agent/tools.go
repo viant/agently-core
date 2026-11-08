@@ -238,7 +238,7 @@ func (s *Service) hasVisibleSkills(ctx context.Context, agent *agentmdl.Agent) (
 	if s == nil || s.skillSvc == nil {
 		return false, nil
 	}
-	if len(s.skillSvc.VisibleSkillsByName(agent, configuredAgentSkills(agent))) > 0 {
+	if visible, _ := s.skillSvc.Visible(agent); len(visible) > 0 {
 		return true, nil
 	}
 	if agent == nil || len(agent.Skills) == 0 || !s.skillSvc.HasMCPSource() {

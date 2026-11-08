@@ -1567,13 +1567,20 @@ func InlineActiveSkillsFromHistory(history *binding.History, svc *Service, agent
 		return names
 	}
 	inline := map[string]struct{}{}
+	var modeNames []string
 	// Retain remote references even if authorization or integrity restoration
 	// fails; the runtime must deny subsequent execution rather than silently
 	// dropping restrictions while the original skill remains in context.
 	for _, name := range names {
 		if strings.HasPrefix(name, "skill://") {
 			inline[name] = struct{}{}
+			if ref, err := skillproto.ParseRef(name); err != nil || ref.URI() == name {
+				// Canonical remote names already remain active on failed reads.
+				// The caller restores their body and authority once after selection.
+				continue
+			}
 		}
+		modeNames = append(modeNames, name)
 	}
 	overrideName = skillStateKey(overrideName)
 	overrideMode = skillproto.NormalizeContextMode(overrideMode)
@@ -1581,7 +1588,7 @@ func InlineActiveSkillsFromHistory(history *binding.History, svc *Service, agent
 	if len(contexts) > 0 {
 		ctx = contexts[0]
 	}
-	for _, item := range svc.VisibleSkillsWithContext(ctx, agent, names) {
+	for _, item := range svc.VisibleSkillsWithContext(ctx, agent, modeNames) {
 		if item == nil {
 			continue
 		}
