@@ -83,12 +83,18 @@ func TestENGManagedInternalLayoutScopesDiscoveryAndPreservesRoleVisibility(t *te
 	require.NotContains(t, response.Body.String(), `"windowKey":"restricted"`)
 	require.NotContains(t, response.Body.String(), "nonexistentAlias")
 	require.Zero(t, attempts.Load())
-	// Explicit/custom menu consumers retain their original aggregate catalog path.
+	// Explicit internal menu readers also isolate unrelated providers while
+	// preserving the same visible authored destinations.
 	options.MenuReader = workspaceui.NewGatewayLayoutMenuReader(rt.PrimitiveProviders, []workspaceui.GatewayMenuSource{{Resource: identity.ResourceRef{URI: "navigation://workspace/layout"}, ProviderIdentity: resources.InternalProviderIdentity}})
 	custom, err := NewAPIHandler(ctx, options)
 	require.NoError(t, err)
 	response = httptest.NewRecorder()
 	custom.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/workspace/layout", nil).WithContext(signed))
-	require.Equal(t, http.StatusServiceUnavailable, response.Code)
-	require.Positive(t, attempts.Load())
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	for _, key := range keys {
+		require.Contains(t, response.Body.String(), `"windowKey":"`+key+`"`)
+	}
+	require.NotContains(t, response.Body.String(), `"windowKey":"restricted"`)
+	require.NotContains(t, response.Body.String(), "nonexistentAlias")
+	require.Zero(t, attempts.Load(), "an explicitly owned menu must not initialize unrelated providers")
 }
