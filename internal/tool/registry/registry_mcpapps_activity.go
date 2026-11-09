@@ -32,7 +32,7 @@ func (r *Registry) resolveMCPAppBinding(ctx context.Context, server, method stri
 			return nil, false, nil
 		}
 		var err error
-		tools, err = r.listServerTools(ctx, server)
+		tools, err = r.selectedServerTools(ctx, server, method)
 		if err != nil {
 			return nil, false, err
 		}
