@@ -15,25 +15,15 @@ import (
 // concrete finder types that support Add/Remove. It registers adaptors for
 // each available workspace kind (agents, models, embedders).
 func initHotSwap(ctx context.Context, b *Builder) (*hotswap.Manager, error) {
-	// Select watcher type based on store backend.
-	var watcher hotswap.Watcher
-	if fs, ok := b.store.(*fsstore.Store); ok {
-		root := fs.Root()
-		if root == "" {
-			return nil, nil
-		}
-		watcher = hotswap.NewFSWatcher(root)
-	} else if b.store != nil {
-		watcher = hotswap.NewPollingWatcher(b.store)
-	} else {
+	store := b.store
+	if store == nil {
 		root := workspace.Root()
 		if root == "" {
 			return nil, nil
 		}
-		watcher = hotswap.NewFSWatcher(root)
+		store = fsstore.New(root)
 	}
-
-	mgr := hotswap.New(watcher)
+	mgr := hotswap.New(hotswap.NewPollingWatcher(store))
 
 	registered := false
 

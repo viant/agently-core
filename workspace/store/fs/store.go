@@ -231,12 +231,12 @@ func (s *Store) Entries(ctx context.Context, kind string) ([]workspace.Entry, er
 		if o.IsDir() {
 			dirName := filepath.Base(o.Name())
 			nested := filepath.Join(dir, dirName, dirName+".yaml")
-			if ok, _ := s.fs.Exists(ctx, nested); ok {
-				entries = append(entries, workspace.Entry{
-					Kind:      kind,
-					Name:      dirName,
-					UpdatedAt: o.ModTime(),
-				})
+			info, err := os.Stat(nested)
+			if err != nil && !os.IsNotExist(err) {
+				return nil, err
+			}
+			if err == nil {
+				entries = append(entries, workspace.Entry{Kind: kind, Name: dirName, UpdatedAt: info.ModTime()})
 			}
 			continue
 		}

@@ -29,6 +29,7 @@ func TestWatcherReloadsSkillsOnChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := NewWatcher(svc)
+	w.interval = 10 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := w.Start(ctx); err != nil {
@@ -45,4 +46,24 @@ func TestWatcherReloadsSkillsOnChange(t *testing.T) {
 	}
 	meta, _ := svc.Visible(&agentmdl.Agent{Skills: []string{"demo"}})
 	t.Fatalf("watcher did not reload skill, got %#v", meta)
+}
+
+func TestManifestSnapshotUsesOnlyLoadableSkillLocations(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"alpha/SKILL.md", "scratch/build/SKILL.md", "alpha/references/notes.md"} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("test"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := manifestSnapshot([]string{root, filepath.Join(root, "absent")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := snapshot[filepath.Join(root, "alpha", "SKILL.md")]; !ok || len(snapshot) != 1 {
+		t.Fatalf("unexpected manifest files: %v", snapshot)
+	}
 }

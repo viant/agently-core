@@ -2,87 +2,76 @@ package skill
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 type Watcher struct {
 	service  *Service
-	watcher  *fsnotify.Watcher
-	debounce time.Duration
+	interval time.Duration
 }
 
 func NewWatcher(service *Service) *Watcher {
-	return &Watcher{service: service, debounce: 250 * time.Millisecond}
+	return &Watcher{service: service, interval: 30 * time.Second}
+}
+
+type manifestStamp struct {
+	modified time.Time
+	size     int64
+}
+
+// Only immediate child manifests are indexed by Loader.LoadAll. Supporting
+// documents are read when requested. Do not descend into their directories.
+func manifestSnapshot(roots []string) (map[string]manifestStamp, error) {
+	result := make(map[string]manifestStamp)
+	for _, root := range roots {
+		entries, err := os.ReadDir(root)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			path := filepath.Join(root, entry.Name(), "SKILL.md")
+			info, err := os.Stat(path)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			result[path] = manifestStamp{info.ModTime(), info.Size()}
+		}
+	}
+	return result, nil
 }
 
 func (w *Watcher) Start(ctx context.Context) error {
 	if w == nil || w.service == nil || w.service.loader == nil {
 		return nil
 	}
-	fsw, err := fsnotify.NewWatcher()
-	if err != nil {
-		return err
-	}
-	w.watcher = fsw
-	for _, root := range w.service.loader.Roots() {
-		_ = addRecursiveWatch(fsw, root)
-	}
-	go w.loop(ctx)
-	return nil
-}
-
-func (w *Watcher) loop(ctx context.Context) {
-	defer func() {
-		if w.watcher != nil {
-			_ = w.watcher.Close()
+	roots := w.service.loader.Roots()
+	previous, _ := manifestSnapshot(roots)
+	go func() {
+		ticker := time.NewTicker(w.interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				next, err := manifestSnapshot(roots)
+				if err == nil && !maps.Equal(previous, next) && w.service.Load(ctx) == nil {
+					previous = next
+				}
+			}
 		}
 	}()
-	timer := time.NewTimer(time.Hour)
-	if !timer.Stop() {
-		<-timer.C
-	}
-	pending := false
-	reload := func() {
-		_ = w.service.Load(context.Background())
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case ev, ok := <-w.watcher.Events:
-			if !ok {
-				return
-			}
-			if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
-				_ = addRecursiveWatch(w.watcher, ev.Name)
-			}
-			if !pending {
-				timer.Reset(w.debounce)
-				pending = true
-			}
-		case <-timer.C:
-			pending = false
-			reload()
-		case _, ok := <-w.watcher.Errors:
-			if !ok {
-				return
-			}
-		}
-	}
-}
-
-func addRecursiveWatch(w *fsnotify.Watcher, root string) error {
-	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			_ = w.Add(path)
-		}
-		return nil
-	})
+	return nil
 }

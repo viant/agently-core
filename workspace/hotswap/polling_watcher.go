@@ -74,6 +74,12 @@ func (w *PollingWatcher) Watch(ctx context.Context, kinds []string, onChange fun
 			for _, kind := range kinds {
 				entries, err := w.store.Entries(ctx, kind)
 				if err != nil {
+					// A failed listing supplies no evidence of deletion.
+					for key, stamp := range prev {
+						if key.kind == kind {
+							curr[key] = stamp
+						}
+					}
 					continue
 				}
 				for _, e := range entries {
