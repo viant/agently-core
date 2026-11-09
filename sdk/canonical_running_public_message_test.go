@@ -25,6 +25,7 @@ func TestRunningCanonicalExecutionDoesNotClaimPublicStandaloneMessage(t *testing
 		t.Run(status, func(t *testing.T) {
 			state := BuildCanonicalState("conversation", convstore.Transcript{{Id: "native-turn", ConversationId: "conversation", Status: status, Message: messages}})
 			turn := state.Turns[0]
+			require.Equal(t, []string{noteID}, standaloneIDs(SelectStandaloneAssistantMessages(turn)))
 			require.Len(t, turn.Execution.Pages, 2)
 			require.Equal(t, model2ID, turn.Execution.Pages[1].PageID)
 			require.Empty(t, turn.Execution.Pages[1].FinalAssistantMessageID, "unrelated public message must never become model2 final")
@@ -55,4 +56,5 @@ func TestRunningCanonicalExecutionDoesNotClaimPublicStandaloneMessage(t *testing
 	require.Empty(t, completed.Execution.Pages[1].FinalAssistantMessageID)
 	require.Equal(t, "final-model", completed.Execution.Pages[2].FinalAssistantMessageID)
 	require.Len(t, completed.Messages, 2)
+	require.Equal(t, []string{noteID}, standaloneIDs(SelectStandaloneAssistantMessages(completed)))
 }

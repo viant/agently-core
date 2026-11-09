@@ -299,39 +299,7 @@ func aguiBootstrapMessagesWithAliases(ctx context.Context, client Client, transc
 		quality.Lossless = false
 	}
 	hostTurns, hostMessageIDs := aguiCanonicalHostBoundaries(transcript)
-	internalIDs := map[string]bool{}
-	toolResultIDs := map[string]bool{}
-	for _, turn := range transcript.Conversation.Turns {
-		if turn == nil {
-			continue
-		}
-		for _, message := range turn.Messages {
-			if message != nil && message.Role == "assistant" && streaming.IsInternalMessageMode(message.Mode) {
-				internalIDs[message.MessageID] = true
-			}
-		}
-		if turn.Execution != nil {
-			for _, page := range turn.Execution.Pages {
-				if page == nil {
-					continue
-				}
-				for _, step := range page.ToolSteps {
-					if step != nil && step.ToolMessageID != "" {
-						toolResultIDs[step.ToolMessageID] = true
-					}
-				}
-				hidden := streaming.IsInternalMessageMode(page.Mode)
-				if hidden && page.AssistantMessageID != "" {
-					internalIDs[page.AssistantMessageID] = true
-				}
-				for _, step := range page.ModelSteps {
-					if step != nil && (streaming.IsInternalMessageMode(step.Mode) || step.Mode == "" && (hidden || streaming.IsInternalMessageMode(step.ExecutionRole))) && step.AssistantMessageID != "" {
-						internalIDs[step.AssistantMessageID] = true
-					}
-				}
-			}
-		}
-	}
+	internalIDs, toolResultIDs := canonicalMessageExclusions(transcript.Conversation.Turns)
 	byID := map[string]int{}
 	for _, message := range journal {
 		id, _ := message["id"].(string)
@@ -370,36 +338,7 @@ func aguiBootstrapMessagesWithAliases(ctx context.Context, client Client, transc
 		if turn == nil {
 			continue
 		}
-		pageOwned := map[string]bool{}
-		if turn.Assistant != nil {
-			if turn.Assistant.Final != nil {
-				pageOwned[turn.Assistant.Final.MessageID] = true
-			}
-			if turn.Assistant.Narration != nil {
-				pageOwned[turn.Assistant.Narration.MessageID] = true
-			}
-		}
-		if turn.Execution != nil {
-			for _, page := range turn.Execution.Pages {
-				if page == nil {
-					continue
-				}
-				for _, id := range []string{page.AssistantMessageID, page.NarrationMessageID, page.FinalAssistantMessageID} {
-					if id != "" {
-						pageOwned[id] = true
-					}
-				}
-				for _, step := range page.ModelSteps {
-					if step != nil && step.AssistantMessageID != "" {
-						pageOwned[step.AssistantMessageID] = true
-					}
-				}
-			}
-		}
-		for _, message := range turn.Messages {
-			if message == nil || message.Role != "assistant" || message.MessageID == "" || message.Interim > 0 || pageOwned[message.MessageID] || internalIDs[message.MessageID] || toolResultIDs[message.MessageID] {
-				continue
-			}
+		for _, message := range selectStandaloneAssistantMessages(turn, internalIDs, toolResultIDs) {
 			standalonePresentations[message.MessageID] = map[string]any{"version": "1", "conversationId": transcript.Conversation.ConversationID, "nativeTurnId": turn.TurnID, "nativeMessageId": message.MessageID, "messageKind": "standalone", "mode": message.Mode}
 		}
 	}
