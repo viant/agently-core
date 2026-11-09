@@ -697,6 +697,8 @@ github.com/aws/aws-sdk-go-v2/service/sts v1.51.4/go.mod h1:mCd6qGo9b8hTtfjgsmNkF
 github.com/aws/smithy-go v1.28.5 h1:OqbqKtzY9NUnr2yAe9+hiTdFb20tNaK/lI0PMOGXX9k=
 github.com/aws/smithy-go v1.28.5/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
+github.com/blevesearch/snowballstem v0.9.0 h1:lMQ189YspGP6sXvZQ4WZ+MLawfV8wOmPoD/iWeNXm8s=
+github.com/blevesearch/snowballstem v0.9.0/go.mod h1:PivSj3JMc8WuaFkTSRDW2SlrulNWPl4ABg1tC/hlgLs=
 github.com/boombuler/barcode v1.0.0/go.mod h1:paBWMcWSl3LHKBqUq+rly7CNSldXjb2rDl3JlRe0mD8=
 github.com/boombuler/barcode v1.0.1/go.mod h1:paBWMcWSl3LHKBqUq+rly7CNSldXjb2rDl3JlRe0mD8=
 github.com/bradfitz/go-smtpd v0.0.0-20170404230938-deb6d6237625/go.mod h1:HYsPBTaaSFSlLx/70C2HPIMNZpVV8+vt/A+FMnYP11g=
@@ -715,6 +717,8 @@ github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWR
 github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e/go.mod h1:nSuG5e5PlCu98SY8svDHJxuZscDgtXS6KTTbou5AhLI=
 github.com/chzyer/test v0.0.0-20180213035817-a1ea475d72b1/go.mod h1:Q3SI9o4m/ZMnBNeIyt5eFwwo7qiLfzFZmjNmxjkiQlU=
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=
+github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJv2v7Vk=
+github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/cncf/udpa/go v0.0.0-20191209042840-269d4d468f6f/go.mod h1:M8M6+tZqaGXZJjfX53e64911xZQV5JYwmTeXPW+k8Sc=
 github.com/cncf/udpa/go v0.0.0-20200629203442-efcf912fb354/go.mod h1:WmhPx2Nbnhtbo57+VJT5O0JRkEi1Wbu0z5j0R8u5Hbk=
 github.com/cncf/udpa/go v0.0.0-20201120205902-5459f2c99403/go.mod h1:WmhPx2Nbnhtbo57+VJT5O0JRkEi1Wbu0z5j0R8u5Hbk=
@@ -1197,6 +1201,8 @@ github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4 h1:WeqhWszieY6EVdafw
 github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4/go.mod h1:9IG1rf1J7ShSJnwGhXxSyyNkVy7f7h7E/PacSAHEz6I=
 github.com/viant/embedius v0.5.7 h1:tdEU6xgq0/akBUKWL4AMY2ma/Yd7e1gS7D67tuopPQY=
 github.com/viant/embedius v0.5.7/go.mod h1:xl+kkyKs8COdxz9L/Lz0SzDyU0Z+S0i4Ew6i+2/+uiw=
+github.com/viant/embedius v0.5.8-0.20261108015858-2dbb2e0a515a h1:eXzl4VD68u7buXfxTortru6xKjVtC6XPEcJHmDER92I=
+github.com/viant/embedius v0.5.8-0.20261108015858-2dbb2e0a515a/go.mod h1:BkCf4YWLtLF079Px+UKzDzigdKQX5uEfCpsFOxUpkMs=
 github.com/viant/forge v0.3.47-0.20261028191321-05ca8eaf1fe8 h1:8Ka9yEepebK7K5eXpD4O0ftGshymlZRkvBakBVr4LHA=
 github.com/viant/forge v0.3.47-0.20261028191321-05ca8eaf1fe8/go.mod h1:LFwCJLTUSLZaA6c3txU8FuKhlhD8Tv/omGBFL9AKtrk=
 github.com/viant/forge v0.3.47-0.20261030001907-791b5c389521 h1:ViSPeKzXCSjm2xCsZ9M5pq6w9GtbTnTbAUg+Ro54yTQ=
@@ -1231,6 +1237,10 @@ github.com/viant/forge v0.3.47-0.20261107222848-c8f651fd393f h1:PP1eKk2A63JFUf3q
 github.com/viant/forge v0.3.47-0.20261107222848-c8f651fd393f/go.mod h1:xsNdrrI9rKZJREv11SLxzUW90JTO68eqbD0wx6TCLxQ=
 github.com/viant/forge v0.3.47-0.20261108010150-833695c24849 h1:gXBhogBqb4kO25woRI8pgSx7IC7v4ARpGPks06DSDiE=
 github.com/viant/forge v0.3.47-0.20261108010150-833695c24849/go.mod h1:xsNdrrI9rKZJREv11SLxzUW90JTO68eqbD0wx6TCLxQ=
+github.com/viant/forge v0.3.47-0.20261108044941-5309d25d1715 h1:fOCN/bHdr9NHEuJNa4TbMrvL4HvTnXhuFkTPAnK/EZQ=
+github.com/viant/forge v0.3.47-0.20261108044941-5309d25d1715/go.mod h1:xsNdrrI9rKZJREv11SLxzUW90JTO68eqbD0wx6TCLxQ=
+github.com/viant/forge v0.3.47-0.20261109070856-aa7a7e28adb3 h1:d0aclC93rWzGvGaf7y30uoXTPdVjW+NiTqSRYOYIiYI=
+github.com/viant/forge v0.3.47-0.20261109070856-aa7a7e28adb3/go.mod h1:xsNdrrI9rKZJREv11SLxzUW90JTO68eqbD0wx6TCLxQ=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
 github.com/viant/gds v0.6.0/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.2 h1:zTdW9QrPk2P0i/do9fokxtHesFQCvYqIc5Yktzmyxtg=
@@ -1257,6 +1267,8 @@ github.com/viant/mcp v0.24.2-0.20261107201957-8748c0cb8ca8 h1:C/6rmFUDAPIbQtHScM
 github.com/viant/mcp v0.24.2-0.20261107201957-8748c0cb8ca8/go.mod h1:f5ZT0adIbghdjCrsxHifnDUGhHB9fVzK6bqfzG+OGMk=
 github.com/viant/mcp v0.24.2-0.20261108010110-13b1b5ccde5a h1:unWmUC7D313TF9lKnZYhoWqltYUDJhQHxq87Z67j8R4=
 github.com/viant/mcp v0.24.2-0.20261108010110-13b1b5ccde5a/go.mod h1:f5ZT0adIbghdjCrsxHifnDUGhHB9fVzK6bqfzG+OGMk=
+github.com/viant/mcp v0.24.2-0.20261108032237-21edf2c50ace h1:Z2YpkYeKiRSljBLTGWz5Mv1+ZeWQDKC2pNF8Fyy2JmU=
+github.com/viant/mcp v0.24.2-0.20261108032237-21edf2c50ace/go.mod h1:74nK/ixeOERdXaerZ6OtPu4tZoJpGXemplaHm0efgns=
 github.com/viant/mcp-protocol v0.19.1 h1:PO0vI5lFV5P7QCxbeiBdkwGtk94siMt10Koj+tUUUjg=
 github.com/viant/mcp-protocol v0.19.1/go.mod h1:8h2yGk/LjWpyLqQEZYOGuNZQPohCr1vtM8IvtcNcEIQ=
 github.com/viant/mcp-protocol v0.19.2-0.20261029232114-446f89dc454b h1:BBQbDtI+VH2rBTAhnpwz8Edd/gbx6gV3A7qfLBr+3FA=
