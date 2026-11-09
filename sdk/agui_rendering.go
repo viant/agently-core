@@ -180,6 +180,19 @@ func (p *aguiPresentation) project(ctx context.Context, event *streaming.Event, 
 }
 
 func plainAGUIContent(raw string, complete bool) (string, bool) {
+	return projectTextContent(raw, complete, aguiInteractiveFallback)
+}
+
+// ProjectTextContent projects a completed assistant message to public text.
+// Recognized rich fences, including malformed or unfinished ones, are replaced
+// by interactivePlaceholder once. Ordinary code fences and literal placeholder
+// text are preserved. The boolean reports whether rich content was encountered.
+// This is the same projection used by AG-UI; it does not assemble reports.
+func ProjectTextContent(content, interactivePlaceholder string) (string, bool) {
+	return projectTextContent(content, true, interactivePlaceholder)
+}
+
+func projectTextContent(raw string, complete bool, interactivePlaceholder string) (string, bool) {
 	var out strings.Builder
 	richSeen := false
 	for cursor := 0; cursor < len(raw); {
@@ -221,7 +234,7 @@ func plainAGUIContent(raw string, complete bool) (string, bool) {
 					break
 				}
 				if !richSeen {
-					out.WriteString(aguiInteractiveFallback)
+					out.WriteString(interactivePlaceholder)
 				}
 				richSeen = true
 				break
@@ -233,7 +246,7 @@ func plainAGUIContent(raw string, complete bool) (string, bool) {
 		close := renderedFenceClose(raw, body, language)
 		if recognized {
 			if !richSeen {
-				out.WriteString(aguiInteractiveFallback)
+				out.WriteString(interactivePlaceholder)
 			}
 			richSeen = true
 			if close < 0 {
