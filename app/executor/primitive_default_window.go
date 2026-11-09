@@ -86,12 +86,7 @@ func (b *Builder) configureDefaultUIOwner(out *Runtime) {
 	})
 }
 
-// Default workspace profile IDs retain their authored namespace. Explicit URIs
-// still resolve external profiles through the same gateway.
+// Intake resolves the same authorized playbook identities as interactive discovery.
 func defaultIntentReader(out *Runtime) *resources.IntentReader {
-	reader := resources.NewPlaybookReader(out.PrimitiveProviders)
-	if out.publicPrimitiveDefault {
-		reader.Scope = resources.DefinitionScope{Namespace: "workspace", ProviderIdentity: resources.InternalProviderIdentity}
-	}
-	return reader
+	return resources.NewPlaybookReader(out.PrimitiveProviders)
 }
