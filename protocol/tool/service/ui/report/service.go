@@ -28,6 +28,7 @@ type WindowInput struct {
 }
 
 type CurrentInclude struct {
+	Visible     bool `json:"visible,omitempty"`
 	State       bool `json:"state,omitempty"`
 	Inputs      bool `json:"inputs,omitempty"`
 	Tabs        bool `json:"tabs,omitempty"`
@@ -143,7 +144,7 @@ func (s *Service) Methods() svc.Signatures {
 		runDescription += " Waits for the matching execution to finish and returns its completion receipt; do not poll getCurrent through additional model turns while this call is running."
 	}
 	return []svc.Signature{
-		{Name: "getCurrent", Description: "Read the current live report definition and completed output for interpreting its charts and data without rerunning it. Use include:{state:true} for applied filters, unapplied edits and loading status; opt into inputs, tabs, visuals, data, sources or description only as needed. Omitted include returns the legacy full response; raw:true returns it exclusively. Loaded data can be large. This read does not run, save, or change the report.", Input: input, Output: output},
+		{Name: "getCurrent", Description: "Read the current live report definition and completed output for interpreting its charts and data without rerunning it. Use include:{state:true} for applied filters, unapplied edits and loading status; for interpreting the displayed report use include:{visible:true} to read bounded rendered text and chart labels with current state. Check visible.truncated before making completeness claims. Request full data only when more detail is needed. Omitted include returns the legacy full response; raw:true returns it exclusively. Loaded data can be large. This read does not run, save, or change the report.", Input: input, Output: output},
 		{Name: "run", Description: runDescription, Input: input, Output: output},
 		{Name: "save", Description: "Persist the canonical report currently shown in a live report-builder window and return its stable reportId and artifactId.", Input: input, Output: output},
 	}

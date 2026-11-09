@@ -68,13 +68,13 @@ func TestCurrentReportForwardsIncludeBeforeBrowserSerialization(t *testing.T) {
 	done := make(chan error, 1)
 	out := &ActionOutput{}
 	go func() {
-		done <- service.getCurrent(ctx, &WindowInput{WindowID: "report-window-1", Include: &CurrentInclude{State: true}}, out)
+		done <- service.getCurrent(ctx, &WindowInput{WindowID: "report-window-1", Include: &CurrentInclude{State: true, Visible: true}}, out)
 	}()
 	poll := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-1", "timeoutMs": 1000})
 	command := poll["params"].(map[string]interface{})
 	require.Equal(t, "ui.report.getCurrent", command["method"])
 	params := command["params"].(map[string]interface{})
-	require.Equal(t, map[string]interface{}{"state": true}, params["include"])
+	require.Equal(t, map[string]interface{}{"state": true, "visible": true}, params["include"])
 	postUIRPC(t, bridge, "ui.response", map[string]interface{}{"id": command["id"], "ok": true, "result": map[string]interface{}{"status": "ready"}})
 	require.NoError(t, <-done)
 	require.Equal(t, "ready", out.Result["status"])
