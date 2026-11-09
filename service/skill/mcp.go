@@ -407,6 +407,33 @@ func markdownMIME(s string) bool {
 	return s == "text/markdown" || s == "text/plain"
 }
 
+// HasVisible decides whether the agent needs skill controls. One admitted
+// local or published entry suffices, so unrelated MCPs need no discovery.
+func (s *Service) HasVisible(ctx context.Context, agent *agentmdl.Agent) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if agent == nil || len(agent.Skills) == 0 {
+		return false, nil
+	}
+	if len(s.visibleSkills(agent)) > 0 {
+		return true, nil
+	}
+	if !s.HasMCPSource() {
+		return false, nil
+	}
+	if len(agent.Skills) == 1 && strings.HasPrefix(agent.Skills[0], "skill://") && !strings.ContainsAny(agent.Skills[0], "*?[]") {
+		item, err := s.GetVisible(ctx, agent, agent.Skills[0])
+		return item != nil, err
+	}
+	rows, err := s.primitiveMetadata(ctx, agent)
+	if err != nil || len(rows) > 0 {
+		return len(rows) > 0, err
+	}
+	entries, err := s.remoteEntries(ctx, agent, "")
+	return len(entries) > 0, err
+}
+
 // ListVisible is the only federated model catalog. Visible remains local-only
 // for prompt binding so ordinary turns cause no remote discovery.
 func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]skillproto.Metadata, error) {

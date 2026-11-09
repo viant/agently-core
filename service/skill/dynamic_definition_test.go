@@ -158,3 +158,22 @@ func TestAutomaticPublishedSkillsSkipUnsupportedCapabilityButKeepExplicitErrors(
 	require.NoError(t, err)
 	require.Empty(t, page, "ordinary static connections retain explicit opt-in")
 }
+
+func TestSkillControlPresenceUsesAdmittedPublicationFirst(t *testing.T) {
+	fixture := &skillMCPFixture{body: "---\nname: review\ndescription: Source skill\n---\nSource instruction."}
+	delivery := &fixedNativeSkillDelivery{rows: []proto.Metadata{{Name: "published", URI: "skill://team/published", ServerID: "catalog"}}}
+	svc := &Service{mcpSource: &skillSourceFixture{f: fixture}, delivery: delivery, registry: proto.NewRegistry()}
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	visible, err := svc.HasVisible(ctx, &agent.Agent{Skills: []string{"*"}})
+	require.NoError(t, err)
+	require.True(t, visible)
+	require.Zero(t, fixture.listCalls)
+	visible, err = svc.HasVisible(ctx, &agent.Agent{Skills: []string{"missing"}})
+	require.NoError(t, err)
+	require.False(t, visible)
+	delivery.rows = nil
+	visible, err = svc.HasVisible(ctx, &agent.Agent{Skills: []string{"*"}})
+	require.NoError(t, err)
+	require.True(t, visible)
+	require.Positive(t, fixture.listCalls)
+}

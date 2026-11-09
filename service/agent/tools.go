@@ -238,23 +238,7 @@ func (s *Service) hasVisibleSkills(ctx context.Context, agent *agentmdl.Agent) (
 	if s == nil || s.skillSvc == nil {
 		return false, nil
 	}
-	if visible, _ := s.skillSvc.Visible(agent); len(visible) > 0 {
-		return true, nil
-	}
-	if agent == nil || len(agent.Skills) == 0 || !s.skillSvc.HasMCPSource() {
-		return false, nil
-	}
-	// An explicitly selected remote skill already has an owning identity.
-	// Resolve that identity through the normal scoped reader rather than
-	// discovering unrelated producers just to enable its controls.
-	if len(agent.Skills) == 1 && strings.HasPrefix(agent.Skills[0], "skill://") && !strings.ContainsAny(agent.Skills[0], "*?[]") {
-		item, err := s.skillSvc.GetVisible(ctx, agent, agent.Skills[0])
-		return item != nil && err == nil, err
-	}
-	// A primitive connection may publish windows or datasources without skills.
-	// Use the owning producers' existing visible catalog, not connection presence.
-	visible, err := s.skillSvc.ListVisible(ctx, agent)
-	return len(visible) > 0, err
+	return s.skillSvc.HasVisible(ctx, agent)
 }
 
 func withoutSkillControlSelection(in agenttool.Selection) agenttool.Selection {
