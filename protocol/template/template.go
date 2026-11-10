@@ -19,6 +19,7 @@ type Template struct {
 	Surfaces        []string                   `yaml:"surfaces,omitempty" json:"surfaces,omitempty"`
 	Instructions    string                     `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 	Fences          []Fence                    `yaml:"fences,omitempty" json:"fences,omitempty"`
+	SchemaRef       string                     `yaml:"schemaRef,omitempty" json:"schemaRef,omitempty"`
 	Schema          map[string]interface{}     `yaml:"schema,omitempty" json:"schema,omitempty"`
 	Examples        []TemplateExample          `yaml:"examples,omitempty" json:"examples,omitempty"`
 	LookupOverlays  []*overlay.Overlay         `yaml:"lookupOverlays,omitempty" json:"lookupOverlays,omitempty"`
@@ -31,6 +32,7 @@ type Fence struct {
 	Repeatable  bool                   `yaml:"repeatable,omitempty" json:"repeatable,omitempty"`
 	Order       int                    `yaml:"order,omitempty" json:"order,omitempty"`
 	Description string                 `yaml:"description,omitempty" json:"description,omitempty"`
+	SchemaRef   string                 `yaml:"schemaRef,omitempty" json:"schemaRef,omitempty"`
 	Schema      map[string]interface{} `yaml:"schema,omitempty" json:"schema,omitempty"`
 }
 

@@ -39,6 +39,7 @@ import (
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
 	toolobservation "github.com/viant/agently-core/protocol/tool/service/observation"
 	promptservice "github.com/viant/agently-core/protocol/tool/service/prompt"
+	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -1441,15 +1442,16 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 		}
 		var aPlan *execution.Plan
 		var pErr error
+		dispatchCtx := templatesvc.WithBoundDocuments(ctx, binding.SystemDocuments.Items)
 		if resumePending && iter == start.firstIteration() {
 			// Completed model attempt: execute only never-started planned tools.
 			resumePending = false
 			genOutput.Content = start.Content
 			genOutput.MessageID = start.MessageID
-			aPlan, pErr = s.orchestrator.ResumePlan(ctx, start.Plan, start.Completed)
+			aPlan, pErr = s.orchestrator.ResumePlan(dispatchCtx, start.Plan, start.Completed)
 		} else {
 			templateDigest, restoreTemplatePublication := templatePublication.prepare(genInput)
-			aPlan, pErr = s.orchestrator.Run(ctx, genInput, genOutput)
+			aPlan, pErr = s.orchestrator.Run(dispatchCtx, genInput, genOutput)
 			restoreTemplatePublication()
 			if pErr == nil {
 				templatePublication.accept(templateDigest, genOutput.Response)

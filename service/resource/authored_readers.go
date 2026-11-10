@@ -63,6 +63,9 @@ func DecodeTemplateDefinition(raw json.RawMessage) (TemplateDefinition, error) {
 	if err != nil {
 		return v, err
 	}
+	if err := resolveTemplateSchemas(&v.Template); err != nil {
+		return v, err
+	}
 	return v, v.Template.Validate()
 }
 func DecodeIntentDefinition(raw json.RawMessage) (intent.Profile, error) {

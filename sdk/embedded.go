@@ -1362,6 +1362,8 @@ func (c *backendClient) GetTemplate(ctx context.Context, input *GetTemplateInput
 		return nil, err
 	}
 	return &GetTemplateOutput{
+		URI:              raw.URI,
+		MessageID:        raw.MessageID,
 		Name:             raw.Name,
 		Format:           raw.Format,
 		Description:      raw.Description,

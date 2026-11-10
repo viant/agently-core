@@ -72,13 +72,22 @@ func (c *AuthoredCompilation) Prepare(ctx context.Context, r *ExtensionReader) e
 	})
 }
 func (c *AuthoredCompilation) TemplateDirectory(namespace string) ExtensionDirectory {
-	return ExtensionDirectory{Kind: "template", Namespace: namespace, Directory: c.directory, FormatVersion: 1, Suffixes: []string{".yaml", ".yml"}, ExcludeDirectories: []string{"bundles"}, Load: func(ctx context.Context, r *ExtensionReader, file string) (json.RawMessage, error) {
+	return ExtensionDirectory{Kind: "template", Namespace: namespace, Directory: c.directory, FormatVersion: 1, Suffixes: []string{".yaml", ".yml", ".json", ".md"}, ExcludeDirectories: []string{"bundles"}, Load: func(ctx context.Context, r *ExtensionReader, file string) (json.RawMessage, error) {
 		raw, err := r.ReadFile(ctx, file)
 		if err != nil {
 			return nil, err
 		}
+		if strings.EqualFold(path.Ext(file), ".md") {
+			raw, _, err = tpl.MarkdownSource(raw)
+			if err != nil {
+				return nil, err
+			}
+		}
 		var t tpl.Template
 		if err = decodeNativeAuthored(ctx, r, file, raw, &t); err != nil {
+			return nil, err
+		}
+		if err = resolveTemplateSchemas(&t); err != nil {
 			return nil, err
 		}
 		if err = t.Validate(); err != nil {

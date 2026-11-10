@@ -332,6 +332,8 @@ type GetTemplateInput struct {
 }
 
 type GetTemplateOutput struct {
+	URI              string                   `json:"uri,omitempty"`
+	MessageID        string                   `json:"messageId,omitempty"`
 	Name             string                   `json:"name,omitempty"`
 	Format           string                   `json:"format,omitempty"`
 	Description      string                   `json:"description,omitempty"`

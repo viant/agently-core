@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
-	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/auth"
@@ -17,7 +16,6 @@ import (
 	tpldef "github.com/viant/agently-core/protocol/template"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	"github.com/viant/agently-core/service/shared/toolexec"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 )
@@ -46,6 +44,8 @@ type GetInput struct {
 }
 
 type GetOutput struct {
+	URI              string                   `json:"uri,omitempty"`
+	MessageID        string                   `json:"messageId,omitempty"`
 	Name             string                   `json:"name,omitempty"`
 	Format           string                   `json:"format,omitempty"`
 	Description      string                   `json:"description,omitempty"`
@@ -81,7 +81,7 @@ func (s *Service) Name() string { return Name }
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "list", Description: "List visible output template metadata using namespace, nameTerms, descriptionTerms, or keywords. Matching is literal case-insensitive contains: terms within each group are OR; groups are AND. Use limit and nextCursor with unchanged filters for bounded pages. An unfiltered empty request preserves the complete list.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
-		{Name: "get", Description: "Get an output template by name and optionally inject it as a system document for the next model step", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
+		{Name: "get", Description: "Inspect an output template by its catalog URI or unique name. In an active turn, includeDocument:true activates the template as a system document and returns a compact receipt. Standalone reads retain the full definition. Reuse a template already included in the current binding.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
 	}
 }
 
@@ -191,18 +191,28 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("template not found")
 	}
 	selected = fresh
-	goo.Name = strings.TrimSpace(selected.Name)
-	goo.Format = strings.TrimSpace(selected.Format)
-	goo.Description = strings.TrimSpace(selected.Description)
-	goo.Instructions = strings.TrimSpace(selected.Instructions)
-	goo.Fences = selected.Fences
-	goo.Schema = selected.Schema
-	goo.Examples = selected.Examples
-	if gi.IncludeDocument != nil && *gi.IncludeDocument {
-		if err := s.injectTemplateDocument(ctx, selected); err != nil {
-			return err
+	include := gi.IncludeDocument != nil && *gi.IncludeDocument
+	if include {
+		turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
+		if ok && strings.TrimSpace(turn.ConversationID) != "" && strings.TrimSpace(turn.TurnID) != "" {
+			receipt, err := s.activateDocument(ctx, turn, selected)
+			if err != nil {
+				return err
+			}
+			*goo = receipt
+			return nil
 		}
-		goo.IncludedDocument = true
+	}
+	// Standalone SDK reads retain the existing full document contract.
+	*goo = GetOutput{
+		Name:             strings.TrimSpace(selected.Name),
+		Format:           strings.TrimSpace(selected.Format),
+		Description:      strings.TrimSpace(selected.Description),
+		Instructions:     strings.TrimSpace(selected.Instructions),
+		Fences:           selected.Fences,
+		Schema:           selected.Schema,
+		Examples:         selected.Examples,
+		IncludedDocument: include,
 	}
 	return nil
 }
@@ -280,31 +290,6 @@ func (s *Service) currentAgentID(ctx context.Context) string {
 	return strings.TrimSpace(*conv.AgentId)
 }
 
-func (s *Service) injectTemplateDocument(ctx context.Context, tpl *tpldef.Template) error {
-	if s == nil || s.conv == nil || tpl == nil {
-		return nil
-	}
-	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
-	if !ok || strings.TrimSpace(turn.ConversationID) == "" || strings.TrimSpace(turn.TurnID) == "" {
-		return nil
-	}
-	content := renderTemplateDocument(tpl)
-	if content == "" {
-		return nil
-	}
-	_, err := apiconv.AddMessage(ctx, s.conv, &turn,
-		apiconv.WithRole("system"),
-		apiconv.WithType("text"),
-		apiconv.WithCreatedByUserID("template"),
-		apiconv.WithMode(toolexec.SystemDocumentMode),
-		apiconv.WithContent(content),
-		apiconv.WithTags(toolexec.SystemDocumentTag),
-		apiconv.WithContextSummary("template://"+strings.TrimSpace(tpl.Name)),
-		apiconv.WithCreatedAt(time.Now()),
-	)
-	return err
-}
-
 func RenderTemplateDocument(tpl *tpldef.Template) string {
 	if tpl == nil {
 		return ""
@@ -334,7 +319,7 @@ func RenderTemplateDocument(tpl *tpldef.Template) string {
 				builder.WriteString(strings.TrimSpace(fence.Description))
 			}
 			if len(fence.Schema) > 0 {
-				if raw, err := json.MarshalIndent(fence.Schema, "", "  "); err == nil {
+				if raw, err := json.Marshal(fence.Schema); err == nil {
 					builder.WriteString("\n  schema:\n")
 					builder.WriteString(string(raw))
 				}
@@ -365,11 +350,11 @@ func RenderTemplateDocument(tpl *tpldef.Template) string {
 			}
 		}
 	}
-	return strings.TrimSpace(builder.String())
-}
-
-func renderTemplateDocument(tpl *tpldef.Template) string {
-	return RenderTemplateDocument(tpl)
+	body := strings.TrimSpace(builder.String())
+	if body == "" {
+		return ""
+	}
+	return "Active template: " + DocumentURI(tpl) + "\n\n" + body
 }
 
 func (s *Service) filterTemplatesForCurrentTarget(ctx context.Context, templates []*tpldef.Template) []*tpldef.Template {

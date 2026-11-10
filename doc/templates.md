@@ -67,3 +67,45 @@ work identically against both.
 
 - [doc/prompts.md](prompts.md) — intake profiles use template ids to pair instructions with output shapes.
 - [doc/agent-orchestration.md](agent-orchestration.md)
+
+## Markdown authoring
+
+The native authored template snapshot accepts `.md` alongside YAML and JSON.
+YAML frontmatter contains the ordinary template metadata (`id`, `name`, etc.).
+The body is literal instructions. Explicit `template-schema`, `template-fences`,
+and `template-examples` fenced blocks contain the corresponding YAML or JSON
+value. Ordinary code blocks remain instructions, including named blocks inside
+a longer literal fence. Defining a contract field twice is an error.
+
+````markdown
+---
+id: example-output
+name: Example output
+format: json
+---
+```template-schema
+{"type":"object","properties":{"status":{"type":"string"}}}
+```
+Return the requested status.
+````
+
+An explicit `schemaRef: forge:report-spec` or `schemaRef: forge:window` may replace
+inline `schema` on the template or an output fence. Core resolves these references
+from its pinned Forge canonical schema exports while compiling or decoding the
+immutable definition. Existing snapshot and gateway invalidation own its lifetime;
+there is no runtime remote schema lookup. YAML/JSON definitions can use the same
+references. A schema and reference on the same field are mutually exclusive.
+
+The top-level compiled schema uses Core's existing provider `OutputSchema` path.
+Fenced schemas describe their individual blocks and do not turn a mixed Markdown
+response into whole-response JSON. Provider constraint support varies; no new
+text grammar language or universal provider guarantee is introduced. References
+are opt-in and full canonical schemas can be large; metadata-only discovery does
+not expand them into all agent prompts.
+
+For schema guidance within Markdown instructions, `${ReportSchema}` and
+`${WindowSchema}` expand to the respective complete, compact canonical JSON
+Schema. Expansion occurs in the existing immutable definition preparation path
+using Core's native template engine. Unknown placeholders remain literal.
+Fenced and inline code examples are literal and never expanded. These prose
+macros do not automatically enable whole-response JSON output constraints.

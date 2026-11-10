@@ -544,8 +544,7 @@ func transcriptSystemDocuments(tr apiconv.Transcript, currentTurnID string) []*b
 		}
 		for _, msg := range turn.GetMessages() {
 			// template/get persists this system message for retries in its own turn.
-			if msg != nil && msg.CreatedByUserId != nil && *msg.CreatedByUserId == "template" &&
-				msg.ContextSummary != nil && strings.HasPrefix(*msg.ContextSummary, "template://") &&
+			if isTemplateSystemMessage(msg) &&
 				(currentTurnID == "" || turn.Id != currentTurnID) {
 				continue
 			}
@@ -564,6 +563,11 @@ func transcriptSystemDocuments(tr apiconv.Transcript, currentTurnID string) []*b
 		}
 	}
 	return docs
+}
+
+func isTemplateSystemMessage(msg *apiconv.Message) bool {
+	return msg != nil && msg.CreatedByUserId != nil && *msg.CreatedByUserId == "template" &&
+		msg.ContextSummary != nil && strings.HasPrefix(*msg.ContextSummary, "template://")
 }
 
 func toSystemDocument(turn *apiconv.Turn, msg *apiconv.Message) *binding.Document {
@@ -588,11 +592,12 @@ func toSystemDocument(turn *apiconv.Turn, msg *apiconv.Message) *binding.Documen
 		meta["source"] = source
 	}
 	return &binding.Document{
-		Title:       deriveSystemDocTitle(source),
-		PageContent: content,
-		SourceURI:   source,
-		MimeType:    inferMimeTypeFromSource(source),
-		Metadata:    meta,
+		Title:                 deriveSystemDocTitle(source),
+		PageContent:           content,
+		SourceURI:             source,
+		MimeType:              inferMimeTypeFromSource(source),
+		Metadata:              meta,
+		RefreshOnContinuation: isTemplateSystemMessage(msg),
 	}
 }
 

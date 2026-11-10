@@ -510,7 +510,7 @@ func (s *Service) applySelectedTemplate(ctx context.Context, input *QueryInput, 
 	if content == "" {
 		return tpl.Schema, nil
 	}
-	uri := "template://" + strings.TrimSpace(tpl.Name)
+	uri := templatesvc.DocumentURI(tpl)
 	doc := &binding.Document{
 		Title: strings.TrimSpace(tpl.Name), PageContent: content, SourceURI: uri,
 		MimeType:              "text/markdown",
