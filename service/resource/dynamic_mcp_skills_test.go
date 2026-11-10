@@ -28,8 +28,10 @@ import (
 	server "github.com/viant/mcp/server"
 )
 
+const publishedSkillTTLMillis = 60_000
+
 // A real native skills-extension handler backs the source. The wrapper counts
-// lazy reads and delivers the publisher's standard skills-change notification.
+// lazy reads, advertises producer freshness, and sends standard change notifications.
 type publishedSkillEndpoint struct {
 	client.Interface
 	mu            sync.Mutex
@@ -65,14 +67,28 @@ func (p *publishedSkillEndpoint) SetNotificationHandler(h protocolclient.Handler
 }
 func (p *publishedSkillEndpoint) GetSkill(ctx context.Context, uri string, opts ...client.RequestOption) (*schema.GetSkillResult, error) {
 	p.gets.Add(1)
-	return p.Interface.(manager.SkillsClient).GetSkill(ctx, uri, opts...)
+	result, err := p.Interface.(manager.SkillsClient).GetSkill(ctx, uri, opts...)
+	if err != nil || result == nil {
+		return result, err
+	}
+	ttl := publishedSkillTTLMillis
+	result.TtlMs = &ttl
+	result.CacheScope = schema.CacheableResultCacheScopePrivate
+	return result, nil
 }
 func (p *publishedSkillEndpoint) ListSkills(ctx context.Context, cursor *string, opts ...client.RequestOption) (*schema.ListSkillsResult, error) {
 	return p.Interface.(manager.SkillsClient).ListSkills(ctx, cursor, opts...)
 }
 func (p *publishedSkillEndpoint) ReadResource(ctx context.Context, in *schema.ReadResourceRequestParams, opts ...client.RequestOption) (*schema.ReadResourceResult, error) {
 	p.reads.Add(1)
-	return p.Interface.ReadResource(ctx, in, opts...)
+	result, err := p.Interface.ReadResource(ctx, in, opts...)
+	if err != nil || result == nil {
+		return result, err
+	}
+	result.ResultType = schema.ResultTypeComplete
+	result.TtlMs = publishedSkillTTLMillis
+	result.CacheScope = schema.ReadResourceResultCacheScopePrivate
+	return result, nil
 }
 
 func TestStudioPublishedMCPDefinitionDiscoversSkillsAndChangesWithoutRestart(t *testing.T) {
@@ -167,7 +183,8 @@ func TestStudioPublishedMCPDefinitionDiscoversSkillsAndChangesWithoutRestart(t *
 	endpoint.publish(t, "third-procedure")
 	_, err = service.GetVisible(alice, a, chosen)
 	require.NoError(t, err)
-	require.Equal(t, initialGets+1, endpoint.gets.Load(), "native skill notifications must invalidate held documents")
+	require.Equal(t, initialGets+1, endpoint.gets.Load(), "native skill notifications must invalidate held manifests")
+	require.Equal(t, initialReads+1, endpoint.reads.Load(), "native skill notifications must invalidate held documents")
 
 	require.EqualValues(t, 1, opened.Load(), "publication uses the same pooled connection")
 	bob := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "bob"})

@@ -161,29 +161,18 @@ func TestService_BuildBinding_InjectsSelectedTemplateAndPreservesBaseTools(t *te
 	require.Contains(t, signatureNames(binding.Tools.Signatures), "template-list")
 }
 
-func TestService_ApplySelectedTemplateOutputSchema(t *testing.T) {
-	tmpDir := t.TempDir()
-	templateDir := filepath.Join(tmpDir, "templates")
-	require.NoError(t, os.MkdirAll(templateDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(templateDir, "tutor_action.yaml"), []byte(`
-id: tutor_action
-name: tutor_action
-format: json
-schema:
-  type: object
-  required: [action]
-  properties:
-    action:
-      type: string
-`), 0o644))
-	service := &Service{templateRepo: tplrepo.NewWithStore(fsstore.New(tmpDir))}
-	selection := llm.ModelSelection{Model: "local-model", Options: &llm.Options{MaxTokens: 64}}
-	require.NoError(t, service.applySelectedTemplateOutputSchema(context.Background(), &QueryInput{TemplateId: "tutor_action"}, &selection))
-	require.NotNil(t, selection.Options)
-	require.True(t, selection.Options.JSONMode)
-	require.Equal(t, "application/json", selection.Options.ResponseMIMEType)
-	require.Equal(t, "object", selection.Options.OutputSchema["type"])
+func TestApplyTemplateOutputSchemaCopiesSelectionOptions(t *testing.T) {
+	schema := map[string]any{"type": "object"}
+	base := &llm.Options{MaxTokens: 64}
+	selection := llm.ModelSelection{Model: "local-model", Options: base}
+	applyTemplateOutputSchema(nil, &selection)
+	require.Same(t, base, selection.Options)
+	applyTemplateOutputSchema(schema, &selection)
+	require.NotSame(t, base, selection.Options)
+	require.Nil(t, base.OutputSchema)
 	require.Equal(t, 64, selection.Options.MaxTokens)
+	selection.Options.OutputSchema["type"] = "array"
+	require.Equal(t, "object", schema["type"])
 }
 
 func TestService_BuildBinding_InjectsSelectedPromptProfile(t *testing.T) {
@@ -571,7 +560,8 @@ func TestApplySelectedTemplateReplacesStaleTranscriptCopy(t *testing.T) {
 		{SourceURI: "template://dashboard", PageContent: "stale duplicate"},
 		{SourceURI: "private://context", PageContent: "historical context"},
 	}
-	require.NoError(t, svc.applySelectedTemplate(context.Background(), &QueryInput{TemplateId: "dashboard"}, b))
+	_, err := svc.applySelectedTemplate(context.Background(), &QueryInput{TemplateId: "dashboard"}, b)
+	require.NoError(t, err)
 	require.Len(t, b.SystemDocuments.Items, 2)
 	require.Contains(t, b.SystemDocuments.Items[1].PageContent, "current template v2")
 	require.True(t, b.SystemDocuments.Items[1].RefreshOnContinuation)

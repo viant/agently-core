@@ -37,7 +37,8 @@ func TestMainWorkerUsesAdmittedOwnerAndBundleAttachments(t *testing.T) {
 	own := &intent.Profile{ID: "original", ResourceURI: "intent://team/original", ResourceProviderIdentity: "owning-provider", ResourceFingerprint: "owning-fingerprint", ToolBundles: []string{"same-bundle"}, ToolBundleDefinitions: []*toolbundle.Bundle{{ID: "same-bundle", Match: []llm.Tool{{Name: "owner-read"}}}}}
 	ctx := withSelectedPromptProfile(context.Background(), own)
 	b := &binding.Binding{}
-	require.NoError(t, svc.applySelectedTemplate(ctx, &QueryInput{TemplateId: "same-template"}, b))
+	_, err := svc.applySelectedTemplate(ctx, &QueryInput{TemplateId: "same-template"}, b)
+	require.NoError(t, err)
 	require.True(t, reader.called)
 	require.Len(t, b.SystemDocuments.Items, 1)
 	require.Contains(t, b.SystemDocuments.Items[0].PageContent, "Owning template body")

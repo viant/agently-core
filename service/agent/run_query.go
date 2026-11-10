@@ -1091,10 +1091,11 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 		logx.Infof("conversation", "agent.runPlan iter start convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
 		iterCtx := withLoopHistoryMessages(ctx, iterHistoryMsgs)
 		bindingStart := time.Now()
-		binding, bErr := s.BuildBinding(iterCtx, input)
+		prepared, bErr := s.buildBinding(iterCtx, input)
 		if bErr != nil {
 			return bErr
 		}
+		binding := prepared.binding
 		logx.Infof("conversation", "agent.runPlan iter binding ready convo=%q turn_id=%q iter=%d binding_elapsed=%s total_elapsed=%s",
 			strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(bindingStart), time.Since(iterStart))
 		bindingElapsed := time.Since(bindingStart)
@@ -1288,9 +1289,7 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 		if modelSelection.Options == nil {
 			modelSelection.Options = &llm.Options{}
 		}
-		if err := s.applySelectedTemplateOutputSchema(iterCtx, input, &modelSelection); err != nil {
-			return err
-		}
+		applyTemplateOutputSchema(prepared.templateOutputSchema, &modelSelection)
 		queryOutput.Model = modelSelection.Model
 		queryOutput.Agent = input.Agent
 		genInput := &core.GenerateInput{

@@ -30,7 +30,20 @@ import (
 	"github.com/viant/agently-core/workspace"
 )
 
+type preparedBinding struct {
+	binding              *binding.Binding
+	templateOutputSchema map[string]any
+}
+
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding.Binding, error) {
+	prepared, err := s.buildBinding(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return prepared.binding, nil
+}
+
+func (s *Service) buildBinding(ctx context.Context, input *QueryInput) (*preparedBinding, error) {
 	ctx = mcpmgr.WithToolCatalogReadSnapshot(mcpmgr.WithNamesMemo(ctx))
 	ctx = s.withBindingPayloadReads(ctx)
 	ctx = s.withBindingToolPreparation(ctx)
@@ -233,7 +246,8 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	stageTimings["systemDocumentsMs"] = time.Since(sysDocsStart).Milliseconds()
 	s.appendTranscriptSystemDocs(conv.GetTranscript(), b)
 	templateStageStart := time.Now()
-	if err := s.applySelectedTemplate(ctx, input, b); err != nil {
+	templateSchema, err := s.applySelectedTemplate(ctx, input, b)
+	if err != nil {
 		logx.Infof("conversation", "agent.BuildBinding applySelectedTemplate error convo=%q elapsed=%s err=%v", convoID, time.Since(templateStageStart).String(), err)
 		return nil, err
 	}
@@ -359,7 +373,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 			"timings":         cloneInt64Map(stageTimings),
 		})
 	}
-	return b, nil
+	return &preparedBinding{binding: b, templateOutputSchema: templateSchema}, nil
 }
 
 func cloneInt64Map(input map[string]int64) map[string]int64 {
@@ -477,24 +491,24 @@ func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryI
 	return nil
 }
 
-func (s *Service) applySelectedTemplate(ctx context.Context, input *QueryInput, b *binding.Binding) error {
+func (s *Service) applySelectedTemplate(ctx context.Context, input *QueryInput, b *binding.Binding) (map[string]any, error) {
 	if s == nil || input == nil || b == nil || s.templateRepo == nil {
-		return nil
+		return nil, nil
 	}
 	templateID := strings.TrimSpace(input.TemplateId)
 	if templateID == "" {
-		return nil
+		return nil, nil
 	}
 	tpl, err := s.loadOwnedTemplate(ctx, input, templateID)
 	if err != nil {
-		return fmt.Errorf("load template %q: %w", templateID, err)
+		return nil, fmt.Errorf("load template %q: %w", templateID, err)
 	}
 	if tpl == nil {
-		return fmt.Errorf("template %q not found", templateID)
+		return nil, fmt.Errorf("template %q not found", templateID)
 	}
 	content := strings.TrimSpace(templatesvc.RenderTemplateDocument(tpl))
 	if content == "" {
-		return nil
+		return tpl.Schema, nil
 	}
 	uri := "template://" + strings.TrimSpace(tpl.Name)
 	doc := &binding.Document{
@@ -512,27 +526,14 @@ func (s *Service) applySelectedTemplate(ctx context.Context, input *QueryInput, 
 		items = append(items, existing)
 	}
 	b.SystemDocuments.Items = append(items, doc)
-	return nil
+	return tpl.Schema, nil
 }
 
-// applySelectedTemplateOutputSchema gives providers that support structured
-// output the same contract already injected into the prompt. Without this,
-// local JSON-mode models can return syntactically valid but host-incompatible
-// objects even when a selected template has a schema.
-func (s *Service) applySelectedTemplateOutputSchema(ctx context.Context, input *QueryInput, selection *llm.ModelSelection) error {
-	if s == nil || input == nil || selection == nil || s.templateRepo == nil {
-		return nil
-	}
-	templateID := strings.TrimSpace(input.TemplateId)
-	if templateID == "" {
-		return nil
-	}
-	tpl, err := s.loadOwnedTemplate(ctx, input, templateID)
-	if err != nil {
-		return fmt.Errorf("load template %q: %w", templateID, err)
-	}
-	if tpl == nil || len(tpl.Schema) == 0 {
-		return nil
+// applyTemplateOutputSchema uses the schema from the same admitted template
+// that supplied the model's prompt for this iteration.
+func applyTemplateOutputSchema(schema map[string]any, selection *llm.ModelSelection) {
+	if len(schema) == 0 {
+		return
 	}
 	options := llm.Options{}
 	if selection.Options != nil {
@@ -540,9 +541,8 @@ func (s *Service) applySelectedTemplateOutputSchema(ctx context.Context, input *
 	}
 	options.JSONMode = true
 	options.ResponseMIMEType = "application/json"
-	options.OutputSchema = cloneInterfaceMap(tpl.Schema)
+	options.OutputSchema = cloneInterfaceMap(schema)
 	selection.Options = &options
-	return nil
 }
 
 func (s *Service) bindingConversation(ctx context.Context, input *QueryInput) (*apiconv.Conversation, error) {
