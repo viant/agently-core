@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	uihttp "github.com/viant/agently-core/adapter/http/ui"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,9 +39,14 @@ func TestPublishedReportRegistrationAfterCredentialRotation(t *testing.T) {
 	}, LocalStateOwnerResolver: func(ctx context.Context) (*types.LocalStateOwner, error) {
 		return &types.LocalStateOwner{Binding: ctx.Value(publishedPinSessionKey{}).(string), ValidUntil: time.Now().Add(time.Hour)}, nil
 	}})
+	metadata := uihttp.NewEmbeddedHandlerWithAuthorization(t.TempDir(), nil, nil, nil, uihttp.WithWindowResourceProvider(bridge))
 	// Negotiate the actual HTTP UI session rather than constructing a binding.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(authsvc.InjectUser(r.Context(), "reader"), publishedPinSessionKey{}, r.Header.Get("Test-Credential"))
+		if strings.HasPrefix(r.URL.Path, "/window/") {
+			metadata.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
 		bridge.Hub().ServeHTTPRPC(w, r.WithContext(ctx))
 	}))
 	defer server.Close()
@@ -65,9 +73,19 @@ func TestPublishedReportRegistrationAfterCredentialRotation(t *testing.T) {
 	before = requestctx.WithUIBridgeSessionID(before, session)
 	original, err := bridge.ReportDefinition(before, &ui.ReportDefinitionInput{Resource: identity.ResourceRef{URI: "report://example/summary"}})
 	require.NoError(t, err)
-	handled, err := bridge.BindAdmittedNativePresentationWindow(before, "owner-client", "kept-report", original.Resource.URI, &types.Window{Resource: original.Resource})
-	require.True(t, handled)
+	encoded, _ := json.Marshal(original.Resource)
+	query := url.Values{"applyPermission": {"true"}, "clientId": {"owner-client"}, "windowId": {"kept-report"}, "resolvedResource": {string(encoded)}}
+	request, err := http.NewRequest(http.MethodGet, server.URL+"/window/"+url.PathEscape(original.Resource.URI)+"?"+query.Encode(), nil)
 	require.NoError(t, err)
+	request.Header.Set("Test-Credential", "verified-before")
+	request.Header.Set("Mcp-Session-Id", session)
+	response, err := server.Client().Do(request)
+	require.NoError(t, err)
+	_, err = io.Copy(io.Discard, response.Body)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	handled := false
 	observed := json.RawMessage(`{"conversationId":"chat","selected":{"windowId":"kept-report"},"windows":[{"windowId":"kept-report","windowKey":"report://example/summary","parameters":{"scope":"applied"},"viewState":{"report":{"status":"ready","fill":{"rows":[{"value":7}]}}}}]}`)
 	filtered, err := bridge.FilterResourceSnapshot(before, "reader", "owner-client", observed)
 	require.NoError(t, err)
@@ -82,7 +100,7 @@ func TestPublishedReportRegistrationAfterCredentialRotation(t *testing.T) {
 	require.Error(t, err, "a direct caller cannot replay the old credential authority")
 	filtered, err = bridge.FilterResourceSnapshot(after, "reader", "owner-client", observed)
 	require.NoError(t, err)
-	require.NotContains(t, string(filtered), `"kept-report"`, "the current retained binding cannot survive credential rotation")
+	require.Contains(t, string(filtered), `"kept-report"`, "current owner re-admits the exact report without losing observed state")
 	// The unchanged browser uses normal 404 recovery and gets a new native
 	// session before the existing report loader readmits its mounted instance.
 	status, _ = rpc("verified-after", session, "ui.snapshot.status")

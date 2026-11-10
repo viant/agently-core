@@ -3,10 +3,12 @@ package skill
 import (
 	"context"
 	"github.com/stretchr/testify/require"
+	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
 	proto "github.com/viant/agently-core/protocol/skill"
+	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/jsonrpc/transport"
 	format "github.com/viant/mcp-protocol/extension/skills"
@@ -95,4 +97,22 @@ func TestNativeSkillsWireBridge(t *testing.T) {
 	require.NotNil(t, c)
 	require.Error(t, ValidateExecution(WithConstraints(ctx, c), "system/exec:execute", nil))
 	require.Error(t, ValidateExecution(WithConstraints(ctx, c), "other:lookup", nil))
+
+	selected := &llm.ToolDefinition{Name: "other:read", SourceMCPServer: "other"}
+	unselected := &llm.ToolDefinition{Name: "other:write", SourceMCPServer: "other"}
+	authorized := tool.WithResolvedToolDefinitions(ctx, []*llm.ToolDefinition{selected})
+	visible, _ := ExpandDefinitionsForConstraintsWithContext(authorized, []*llm.ToolDefinition{selected, unselected}, s.toolRegistry, c)
+	require.Equal(t, []*llm.ToolDefinition{selected}, visible)
+	execution := WithRuntimeState(authorized, s, a, []string{item.CatalogURI})
+	execution = tool.WithResolvedToolDefinitions(execution, visible)
+	require.NoError(t, ValidateExecution(execution, selected.Name, nil))
+	require.Error(t, ValidateExecution(execution, unselected.Name, nil))
+	require.Error(t, ValidateExecution(WithConstraints(execution, c), selected.Name, nil))
+	revoked := tool.WithResolvedToolNames(execution, nil)
+	require.Error(t, ValidateExecution(revoked, selected.Name, nil))
+	// A previously visible default must not become independently authorized
+	// if a skill is activated alongside another tool in the same iteration.
+	previous := WithRuntimeState(tool.WithResolvedToolNames(ctx, nil), s, a, []string{item.CatalogURI})
+	previous = tool.WithResolvedToolDefinitions(previous, []*llm.ToolDefinition{unselected})
+	require.Error(t, ValidateExecution(previous, unselected.Name, nil))
 }

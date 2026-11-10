@@ -1090,7 +1090,7 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 			activeNames = mergeActiveSkillNames(activeState.Names, activeInlineSkillNames)
 		}
 		if s.skillSvc != nil && input.Agent != nil {
-			ctx = skillsvc.WithRuntimeState(ctx, s.skillSvc, input.Agent, activeNames)
+			ctx = skillsvc.WithRuntimeState(tool.WithResolvedToolNames(ctx, binding.Tools.IndependentNames), s.skillSvc, input.Agent, activeNames)
 		}
 		ctx = tool.WithResolvedToolDefinitions(ctx, binding.Tools.Signatures)
 		keys := []string{}

@@ -237,7 +237,7 @@ func ExpandDefinitionsForConstraintsWithContext(ctx context.Context, defs []*llm
 			} else {
 				allowed = remoteToolAllowedWithRegistry(ctx, reg, def.Name, c.RemoteServers)
 			}
-			if allowed {
+			if allowed || resolvedSelectionAllows(ctx, def.Name) {
 				filtered = append(filtered, def)
 			}
 		}
@@ -331,13 +331,15 @@ func ValidateExecution(ctx context.Context, toolName string, args map[string]int
 		return fmt.Errorf("active skill authorization is no longer available")
 	}
 	var registry tool.Registry
+	independentlySelected := false
 	if state, ok := RuntimeStateFromContext(ctx); ok && state != nil && state.service != nil {
 		registry = state.service.toolRegistry
+		independentlySelected = resolvedSelectionAllows(ctx, toolName) && resolvedSelectionAllows(state.ctx, toolName)
 	}
 	rawName := toolName
 	toolName = strings.TrimSpace(mcpname2.Canonical(toolName))
 	if len(c.RemoteServers) > 0 {
-		if !remoteToolAllowedWithRegistry(ctx, registry, rawName, c.RemoteServers) {
+		if !independentlySelected && !remoteToolAllowedWithRegistry(ctx, registry, rawName, c.RemoteServers) {
 			return fmt.Errorf("MCP skill does not grant local execution or cross-origin tool access")
 		}
 	}

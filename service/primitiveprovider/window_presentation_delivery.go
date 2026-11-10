@@ -59,7 +59,7 @@ func (s *Service) PrepareNativePresentationRead(ctx context.Context, resource *i
 		return nil, nil, err
 	}
 	// A warm renewal still rechecks the owning catalog and original source.
-	if _, err = s.revalidateWindowPin(ctx, fresh); err != nil {
+	if _, err = s.revalidateWindowPin(ctx, &fresh, selected); err != nil {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	if bridge.sessionInfoByID(sessionID) != session || ctx.Err() != nil || !identity.MetadataExpiryValid(fresh.Resource.ValidUntil, time.Now()) {

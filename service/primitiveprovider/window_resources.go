@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/viant/agently-core/runtime/requestctx"
+	reporting "github.com/viant/forge/backend/reporting/engine"
 	"strings"
 	"time"
 
@@ -55,14 +57,88 @@ func (c *MetadataWindowCatalog) RevalidateResource(ctx context.Context, windowKe
 	}
 	return nil, identity.ErrResourceDenied
 }
-func (s *Service) revalidateWindowPin(ctx context.Context, pin windowResourcePin) (*identity.ResolvedResource, error) {
+func (s *Service) revalidateWindowPin(ctx context.Context, pin *windowResourcePin, instances ...windowPinKey) (*identity.ResolvedResource, error) {
 	if strings.HasPrefix(pin.Resource.URI, "report://") {
-		report, err := s.ReportDefinition(ctx, &ReportDefinitionInput{Resource: identity.ResourceRef{URI: pin.Resource.URI, Revision: pin.Resource.Selector()}, ResolvedResource: &pin.Resource})
+		original := *pin
+		input := &ReportDefinitionInput{Resource: identity.ResourceRef{URI: pin.Resource.URI, Revision: pin.Resource.Selector()}, ResolvedResource: &pin.Resource}
+		var instance *windowPinKey
+		factory, canSelect := s.cfg.ReportCatalog.(interface {
+			Reader(context.Context, string) (reporting.ResourceReader, error)
+		})
+		if len(instances) == 1 && s.ns.Resolver != nil && canSelect {
+			key := instances[0]
+			owner, err := s.ns.Identity(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if owner.Namespace != key.Namespace || !namespaceIdentityLive(owner, time.Now()) {
+				return nil, identity.ErrResourceDenied
+			}
+			// The retained instance is owned by this verified issuer, tenant,
+			// account and subject. Re-admit its exact candidate through the
+			// catalog when current credential authority differs.
+			instance = &key
+			input.ResolvedResource = nil
+		}
+		var report *ReportDefinitionOutput
+		var err error
+		if instance != nil {
+			readCtx, finish, beginErr := BeginMetadataReadScope(ctx, s.cfg.MetadataScope)
+			if beginErr != nil {
+				return nil, beginErr
+			}
+			reader, readErr := factory.Reader(readCtx, "report.retrieve")
+			var selected *identity.ResolvedResource
+			if readErr == nil {
+				provider, ok := reader.(reporting.ProviderResourceReader)
+				if !ok {
+					readErr = identity.ErrResourceDenied
+				} else {
+					selected, readErr = provider.ResolveForProvider(readCtx, input.Resource, original.Resource.ProviderIdentity)
+				}
+			}
+			err = FinishMetadataReadScope(finish, readErr)
+			report = &ReportDefinitionOutput{Resource: selected}
+		} else {
+			report, err = s.ReportDefinition(ctx, input)
+		}
 		if err != nil {
 			return nil, err
 		}
-		if report == nil || report.Resource == nil || !sameReportPin(pin.Resource, *report.Resource) {
+		if report == nil || report.Resource == nil {
 			return nil, identity.ErrResourceDenied
+		}
+		if instance == nil {
+			if !sameReportPin(pin.Resource, *report.Resource) {
+				return nil, identity.ErrResourceDenied
+			}
+		} else {
+			fresh := report.Resource
+			if fresh.URI != pin.Resource.URI || fresh.ProviderIdentity != pin.Resource.ProviderIdentity || fresh.ResourceCandidate != pin.Resource.ResourceCandidate || fresh.AuthorityBinding == "" || !identity.MetadataExpiryValid(fresh.ValidUntil, time.Now()) || ctx.Err() != nil {
+				return nil, identity.ErrResourceDenied
+			}
+			s.resourceMu.Lock()
+			held, ok := s.resourcePins[*instance]
+			if !ok || held.WindowKey != original.WindowKey || held.Resource.URI != original.Resource.URI || held.Resource.ProviderIdentity != original.Resource.ProviderIdentity || held.Resource.ResourceCandidate != original.Resource.ResourceCandidate {
+				s.resourceMu.Unlock()
+				return nil, identity.ErrResourceDenied
+			}
+			if !identity.SameResolvedResource(held.Resource, original.Resource) {
+				// Another current owner operation admitted this same immutable
+				// candidate. Use this operation's fresh authority without
+				// replacing the newer retained presentation binding.
+				*pin = held
+				pin.Resource = *fresh
+				s.resourceMu.Unlock()
+				return fresh, nil
+			}
+			if pin.Resource.AuthorityBinding != fresh.AuthorityBinding && pin.PresentedResource == nil {
+				previous := pin.Resource
+				pin.PresentedResource = &previous
+			}
+			pin.Resource = *fresh
+			s.resourcePins[*instance] = *pin
+			s.resourceMu.Unlock()
 		}
 		return report.Resource, nil
 	}
@@ -149,9 +225,9 @@ func (s *Service) authorizePinnedCommand(ctx context.Context, ns, clientID, meth
 		return nil, renewalErr
 	}
 
-	fresh, err := s.revalidateWindowPin(ctx, pin)
+	fresh, err := s.revalidateWindowPin(ctx, &pin, key)
 	if err != nil {
-		return nil, errors.New("window resource is unavailable")
+		return nil, fmt.Errorf("window resource is unavailable: %w", err)
 	}
 	if fresh == nil || fresh.URI != pin.Resource.URI || fresh.ProviderIdentity != pin.Resource.ProviderIdentity || fresh.ResourceCandidate != pin.Resource.ResourceCandidate || fresh.AuthorityBinding != pin.Resource.AuthorityBinding || identity.MetadataExpiryExtends(fresh.ValidUntil, pin.Resource.ValidUntil) || !identity.MetadataExpiryValid(fresh.ValidUntil, time.Now()) {
 		return nil, identity.ErrResourceDenied
@@ -183,7 +259,7 @@ func (s *Service) filterResourceSnapshot(ctx context.Context, ns, clientID strin
 		if err != nil {
 			continue
 		}
-		if _, err := s.revalidateWindowPin(ctx, pin); err != nil {
+		if _, err := s.revalidateWindowPin(ctx, &pin, windowPinKey{ns, clientID, item.WindowID}); err != nil {
 			continue
 		}
 		if strings.HasPrefix(pin.Resource.URI, "report://") {
@@ -288,7 +364,7 @@ func (s *Service) WindowResource(ctx context.Context, namespace, clientID, windo
 			return nil, err
 		}
 	}
-	current, readErr := s.revalidateWindowPin(readCtx, pin)
+	current, readErr := s.revalidateWindowPin(readCtx, &pin, windowPinKey{namespace, clientID, windowID})
 	finalErr := finish()
 	if readErr != nil {
 		return nil, readErr
@@ -314,7 +390,7 @@ func (s *Service) WindowResource(ctx context.Context, namespace, clientID, windo
 
 func (s *Service) checkWindowContentCurrent(ctx context.Context, pin windowResourcePin) error {
 	if strings.HasPrefix(pin.Resource.URI, "report://") {
-		_, err := s.revalidateWindowPin(ctx, pin)
+		_, err := s.revalidateWindowPin(ctx, &pin)
 		return err
 	}
 	if ctx == nil || ctx.Err() != nil || !identity.MetadataExpiryValid(pin.Resource.ValidUntil, time.Now()) {
@@ -332,7 +408,7 @@ func (s *Service) checkWindowContentCurrent(ctx context.Context, pin windowResou
 	} else {
 		// Older trusted catalogs retain their original authorized pinned read. No
 		// missing-hook success is allowed, and the parent remains outside our phase.
-		terminal, err := s.revalidateWindowPin(ctx, pin)
+		terminal, err := s.revalidateWindowPin(ctx, &pin)
 		if err != nil {
 			return err
 		}

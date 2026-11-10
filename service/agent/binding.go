@@ -445,9 +445,6 @@ func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryI
 	stageStart := time.Now()
 	state := resolveActiveInlineSkillState(&b.History, input, s.skillSvc, input.Agent, ctx)
 	writeBindingToolStage(ctx, "active_skill_load", stageStart, len(state.Skills), false, nil)
-	if len(state.Skills) == 0 {
-		return nil
-	}
 	profile, err := s.selectedPromptProfileAny(ctx, input)
 	if err != nil {
 		return err
@@ -459,6 +456,7 @@ func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryI
 		}
 	}
 	stageStart = time.Now()
+	constraints := skillsvc.BuildConstraints(state.Skills)
 	selected, _, err := s.independentlySelectedToolDefinitions(ctx, input, definitions, profile, intakeSelectedToolNames(input, b.Tools.Signatures))
 	writeBindingToolStage(ctx, "active_skill_selection", stageStart, len(selected), false, err)
 	if err != nil {
@@ -466,13 +464,15 @@ func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryI
 	}
 	// Skill guidance may narrow default tools, while independent selections
 	// and workflow requirements retain their already resolved definitions.
+	b.Tools.IndependentNames = nil
 	selectedDefinitions := make([]*llm.ToolDefinition, 0, len(selected))
 	for i := range selected {
 		selectedDefinitions = append(selectedDefinitions, &selected[i])
+		b.Tools.IndependentNames = append(b.Tools.IndependentNames, selected[i].Name)
 	}
 	ctx = tool.WithResolvedToolDefinitions(ctx, selectedDefinitions)
 	stageStart = time.Now()
-	b.Tools.Signatures, _ = skillsvc.ExpandDefinitionsForConstraintsWithContext(ctx, b.Tools.Signatures, s.registry, skillsvc.BuildConstraints(state.Skills))
+	b.Tools.Signatures, _ = skillsvc.ExpandDefinitionsForConstraintsWithContext(ctx, b.Tools.Signatures, s.registry, constraints)
 	writeBindingToolStage(ctx, "active_skill_expansion", stageStart, len(b.Tools.Signatures), false, nil)
 	return nil
 }

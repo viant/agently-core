@@ -348,7 +348,7 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 		if !openedLease.IsZero() && !openedLease.After(time.Now()) {
 			return nil, identity.ErrResourceDenied
 		}
-		if _, err := s.revalidateWindowPin(ctx, windowResourcePin{WindowKey: openedKey, Resource: *openedPin, Target: openedTarget}); err != nil {
+		if _, err := s.revalidateWindowPin(ctx, &windowResourcePin{WindowKey: openedKey, Resource: *openedPin, Target: openedTarget}); err != nil {
 			return nil, windowVerificationFailure(err, "window access changed")
 		}
 		if resp.OK {

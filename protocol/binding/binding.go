@@ -51,7 +51,9 @@ type (
 	}
 
 	Tools struct {
-		Signatures []*llm.ToolDefinition `yaml:"signatures,omitempty" json:"signatures,omitempty"`
+		// IndependentNames records host selections before active skill narrowing.
+		IndependentNames []string              `yaml:"-" json:"-"`
+		Signatures       []*llm.ToolDefinition `yaml:"signatures,omitempty" json:"signatures,omitempty"`
 	}
 
 	Message struct {
