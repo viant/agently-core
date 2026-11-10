@@ -68,7 +68,21 @@ func (c *HTTPClient) ListLookupRegistry(ctx context.Context, in *api.ListLookupR
 	if ctxParam == "" {
 		return nil, errors.New("context is required (e.g. \"template:foo\")")
 	}
-	path := "/v1/api/lookups/registry?context=" + url.QueryEscape(ctxParam)
+	query := url.Values{"context": {ctxParam}}
+	if in.Owner != nil {
+		query.Set("owner", in.Owner.URI)
+		if in.Owner.Revision != "" {
+			query.Set("revision", in.Owner.Revision)
+		}
+	}
+	if in.ProviderIdentity != "" {
+		query.Set("providerIdentity", in.ProviderIdentity)
+	}
+	if in.StarterTaskID != "" || in.StarterTaskFingerprint != "" {
+		query.Set("starterTaskId", in.StarterTaskID)
+		query.Set("starterTaskFingerprint", in.StarterTaskFingerprint)
+	}
+	path := "/v1/api/lookups/registry?" + query.Encode()
 	var out api.ListLookupRegistryOutput
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err

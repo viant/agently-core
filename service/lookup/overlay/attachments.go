@@ -8,6 +8,8 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/runtime/requestctx"
 	resources "github.com/viant/agently-core/service/resource"
+	forgeidentity "github.com/viant/forge/backend/resource"
+	resourcehost "github.com/viant/forge/backend/resourcehost"
 )
 
 type presentationAttachments struct {
@@ -19,11 +21,22 @@ type presentationAttachments struct {
 // template libraries. Every read uses the same gateway and current actor. The
 // returned service belongs to this operation, never to a process-wide store.
 func ReadAttachments(ctx context.Context, gateway *resources.Gateway, owner identity.ResolvedResource) (*Service, error) {
+	return readAttachments(ctx, gateway, owner, nil)
+}
+
+// ReadStarterLibraries applies the existing library reader to the libraries of
+// one server-selected task. The owner has already been read and admitted.
+func ReadStarterLibraries(ctx context.Context, gateway *resources.Gateway, owner identity.ResolvedResource, libraries []loproto.LibraryReference) (*Service, error) {
+	return readAttachments(ctx, gateway, owner, libraries)
+}
+
+func readAttachments(ctx context.Context, gateway *resources.Gateway, owner identity.ResolvedResource, libraries []loproto.LibraryReference) (*Service, error) {
 	if gateway == nil {
 		return nil, identity.ErrResourceDenied
 	}
 	parsed, err := identity.ParseResourceURI(owner.URI)
-	if err != nil || (parsed.Kind != "window" && parsed.Kind != "template" && parsed.Kind != "intent" && parsed.Kind != "lookup") {
+	starter := parsed.Kind == "startertask" && owner.Kind == forgeidentity.PublishedCandidate && len(libraries) > 0
+	if err != nil || (!starter && parsed.Kind != "window" && parsed.Kind != "template" && parsed.Kind != "intent" && parsed.Kind != "lookup") {
 		return nil, identity.ErrResourceDenied
 	}
 	visited := map[string]bool{}
@@ -39,6 +52,43 @@ func ReadAttachments(ctx context.Context, gateway *resources.Gateway, owner iden
 		uri, err := identity.ParseResourceURI(ref.URI)
 		if err != nil {
 			return identity.ErrResourceDenied
+		}
+		if starter {
+			if uri.Kind != "template" || provider != owner.ProviderIdentity || uri.Namespace != parsed.Namespace {
+				return identity.ErrResourceDenied
+			}
+			loaded, err := resourcehost.Load(ctx, gateway, ref.URI, resourcehost.PublishedCodec[presentationAttachments]{
+				ID: "agently.startertask.lookup-library.v1", Immutable: true,
+				Decode: func(_ context.Context, _ string, raw json.RawMessage) (presentationAttachments, error) {
+					var attached presentationAttachments
+					err := json.Unmarshal(raw, &attached)
+					return attached, err
+				},
+			})
+			if err != nil {
+				return err
+			}
+			if loaded.Resource.ProviderIdentity != provider || loaded.Resource.ContentFingerprint != fingerprint ||
+				pin != nil && loaded.Resource.ResourceCandidate != pin.ResourceCandidate {
+				return identity.ErrResourceStale
+			}
+			for _, definition := range loaded.Value.Overlays {
+				if definition == nil {
+					return identity.ErrResource
+				}
+				copy := *definition
+				copy.Resource = loaded.Resource
+				overlays = append(overlays, &copy)
+			}
+			if err := loproto.ValidateLibraryReferences(loaded.Value.Libraries, true); err != nil {
+				return err
+			}
+			for _, library := range loaded.Value.Libraries {
+				if err := read(library.Resource, library.ProviderIdentity, nil, library.ContentFingerprint, depth+1); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 		connection, err := gateway.ConnectionForResource(ctx, uri, provider)
 		if err != nil {
@@ -105,12 +155,23 @@ func ReadAttachments(ctx context.Context, gateway *resources.Gateway, owner iden
 		}
 		return nil
 	}
-	revision := owner.Revision
-	if owner.Kind == identity.WorkingCandidate {
-		revision = identity.WorkingCandidate
-	}
-	if err := read(identity.ResourceRef{URI: owner.URI, Revision: revision}, owner.ProviderIdentity, &owner, owner.ContentFingerprint, 0); err != nil {
-		return nil, err
+	if starter {
+		if err := loproto.ValidateLibraryReferences(libraries, true); err != nil {
+			return nil, err
+		}
+		for _, library := range libraries {
+			if err := read(library.Resource, library.ProviderIdentity, nil, library.ContentFingerprint, 0); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		revision := owner.Revision
+		if owner.Kind == identity.WorkingCandidate {
+			revision = identity.WorkingCandidate
+		}
+		if err := read(identity.ResourceRef{URI: owner.URI, Revision: revision}, owner.ProviderIdentity, &owner, owner.ContentFingerprint, 0); err != nil {
+			return nil, err
+		}
 	}
 	store := NewMemoryStore()
 	store.Replace(overlays)

@@ -147,7 +147,8 @@ func handleListLookupRegistry(client Backend) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("context query parameter is required (e.g. ?context=template:foo)"))
 			return
 		}
-		input := &api.ListLookupRegistryInput{Context: ctxParam, ProviderIdentity: r.URL.Query().Get("providerIdentity")}
+		query := r.URL.Query()
+		input := &api.ListLookupRegistryInput{Context: ctxParam, ProviderIdentity: query.Get("providerIdentity"), StarterTaskID: query.Get("starterTaskId"), StarterTaskFingerprint: query.Get("starterTaskFingerprint")}
 		if owner := strings.TrimSpace(r.URL.Query().Get("owner")); owner != "" {
 			input.Owner = &identity.ResourceRef{URI: owner, Revision: r.URL.Query().Get("revision")}
 		}

@@ -213,8 +213,19 @@ func (c *backendClient) ListLookupRegistry(ctx context.Context, in *api.ListLook
 		if err != nil {
 			return nil, err
 		}
+		starterEntries, err := c.starterLookupEntries(ctx, &copy, kind, id)
+		if err != nil {
+			return nil, err
+		}
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-		return &api.ListLookupRegistryOutput{Entries: toAPIRegistryEntries(entries)}, nil
+		out := &api.ListLookupRegistryOutput{Entries: toAPIRegistryEntries(entries)}
+		if len(starterEntries) > 0 {
+			out.StarterEntries = toAPIRegistryEntries(starterEntries)
+		}
+		return out, nil
+	}
+	if in.StarterTaskID != "" || in.StarterTaskFingerprint != "" {
+		return nil, identity.ErrResourceDenied
 	}
 	if c.overlaySvc == nil {
 		return nil, ErrDatasourceStackNotConfigured

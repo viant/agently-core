@@ -998,7 +998,7 @@ export interface WorkspaceAssetDescriptor {
 }
 
 export interface WorkspaceMetadata {
-    namespaceStarterTasks?: { tasks: StarterTask[]; categories?: StarterTaskCategory[] };
+    namespaceStarterTasks?: { tasks: (StarterTask & { lookupFingerprint?: string })[]; categories?: StarterTaskCategory[] };
     starterTaskPreferences?: { hidden?: string[]; order?: string[]; own?: StarterTask[] };
     browserMCP?: import('./browserMCP').BrowserMCPDescriptor[];
     browserMCPDiagnostics?: string[];
@@ -1114,6 +1114,10 @@ export interface InvalidateDatasourceCacheInput {
 
 export interface ListLookupRegistryInput {
     context: string;
+    owner?: { uri: string; revision?: string };
+    providerIdentity?: string;
+    starterTaskId?: string;
+    starterTaskFingerprint?: string;
 }
 
 export interface LookupTokenFormat {
@@ -1133,6 +1137,9 @@ export interface LookupParameter {
 
 export interface LookupRegistryEntry {
     name: string;
+    dataSourceResource?: { uri: string; revision?: string };
+    pickerResource?: { uri: string; revision?: string };
+    providerIdentity?: string;
     title?: string;
     dataSource: string;
     dialogId?: string;
@@ -1148,6 +1155,7 @@ export interface LookupRegistryEntry {
 
 export interface ListLookupRegistryOutput {
     entries: LookupRegistryEntry[];
+    starterEntries?: LookupRegistryEntry[];
 }
 
 // ─── UI Events ───────────────────────────────────────────────────────────────

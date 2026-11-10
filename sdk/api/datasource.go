@@ -65,9 +65,11 @@ type InvalidateDatasourceCacheInput struct {
 
 // ListLookupRegistryInput — GET /v1/api/lookups/registry?context=<target-kind>:<target-id>.
 type ListLookupRegistryInput struct {
-	Context          string                `json:"context"`
-	Owner            *identity.ResourceRef `json:"owner,omitempty"`
-	ProviderIdentity string                `json:"providerIdentity,omitempty"`
+	Context                string                `json:"context"`
+	Owner                  *identity.ResourceRef `json:"owner,omitempty"`
+	ProviderIdentity       string                `json:"providerIdentity,omitempty"`
+	StarterTaskID          string                `json:"starterTaskId,omitempty"`
+	StarterTaskFingerprint string                `json:"starterTaskFingerprint,omitempty"`
 }
 
 // LookupRegistryEntry describes a single named-token binding available in a
@@ -109,7 +111,8 @@ type LookupParameter struct {
 
 // ListLookupRegistryOutput is the wire response.
 type ListLookupRegistryOutput struct {
-	Entries []LookupRegistryEntry `json:"entries"`
+	Entries        []LookupRegistryEntry `json:"entries"`
+	StarterEntries []LookupRegistryEntry `json:"starterEntries,omitempty"`
 }
 
 // UnmarshalJSON preserves exact numbers in datasource inputs and the complete

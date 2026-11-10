@@ -14,14 +14,19 @@ import (
 // templates keep their original flat definition shape.
 func authoredTemplateBytes(raw json.RawMessage) (json.RawMessage, error) {
 	var envelope struct {
-		SchemaVersion int64           `json:"schemaVersion"`
-		Template      json.RawMessage `json:"template"`
+		SchemaVersion   int64             `json:"schemaVersion"`
+		Template        json.RawMessage   `json:"template"`
+		LookupOverlays  []json.RawMessage `json:"lookupOverlays"`
+		LookupLibraries []json.RawMessage `json:"lookupLibraries"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return nil, err
 	}
 	if envelope.SchemaVersion == 0 {
 		return raw, nil
+	}
+	if envelope.SchemaVersion == 1 && len(envelope.Template) == 0 && len(envelope.LookupOverlays)+len(envelope.LookupLibraries) > 0 {
+		return nil, nil
 	}
 	if envelope.SchemaVersion != 1 || len(envelope.Template) == 0 || string(envelope.Template) == "null" {
 		return nil, identity.ErrResource

@@ -1265,6 +1265,13 @@ export class AgentlyClient {
         if (!context) throw new Error('context is required');
         const q = new URLSearchParams();
         q.set('context', context);
+        if (input.owner?.uri) {
+            q.set('owner', input.owner.uri);
+            if (input.owner.revision) q.set('revision', input.owner.revision);
+        }
+        if (input.providerIdentity) q.set('providerIdentity', input.providerIdentity);
+        if (input.starterTaskId) q.set('starterTaskId', input.starterTaskId);
+        if (input.starterTaskFingerprint) q.set('starterTaskFingerprint', input.starterTaskFingerprint);
         return this.get<ListLookupRegistryOutput>('/api/lookups/registry', q);
     }
 

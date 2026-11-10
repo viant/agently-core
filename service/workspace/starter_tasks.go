@@ -12,8 +12,13 @@ import (
 // NamespaceStarterTasks is present when an admitted namespace configures chat
 // suggestions. IDs and category references are qualified by the owning URI.
 type NamespaceStarterTasks struct {
-	Tasks      []primitive.StarterTask         `json:"tasks"`
+	Tasks      []NamespaceStarterTask          `json:"tasks"`
 	Categories []primitive.StarterTaskCategory `json:"categories,omitempty"`
+}
+
+type NamespaceStarterTask struct {
+	primitive.StarterTask
+	LookupFingerprint string `json:"lookupFingerprint,omitempty"`
 }
 
 func (h *MetadataHandler) SetStarterTaskSources(gateway *resources.Gateway, preferences func(context.Context) (*svcauth.StarterTaskPreferences, error)) {
@@ -52,7 +57,7 @@ func loadNamespaceStarterTasks(ctx context.Context, gateway *resources.Gateway) 
 	sort.Slice(definitions, func(i, j int) bool {
 		return definitions[i].Resource.URI < definitions[j].Resource.URI
 	})
-	result := &NamespaceStarterTasks{Tasks: []primitive.StarterTask{}}
+	result := &NamespaceStarterTasks{Tasks: []NamespaceStarterTask{}}
 	for _, row := range definitions {
 		if err := row.Definition.Validate(); err != nil {
 			return nil, err
@@ -63,7 +68,12 @@ func loadNamespaceStarterTasks(ctx context.Context, gateway *resources.Gateway) 
 			if task.CategoryID != "" {
 				task.CategoryID = prefix + task.CategoryID
 			}
-			result.Tasks = append(result.Tasks, task)
+			projection := NamespaceStarterTask{StarterTask: task}
+			if len(task.LookupLibraries) > 0 {
+				projection.LookupFingerprint = row.Resource.ContentFingerprint
+				projection.LookupLibraries = nil
+			}
+			result.Tasks = append(result.Tasks, projection)
 		}
 		for _, category := range row.Definition.Categories {
 			category.ID = prefix + category.ID

@@ -56,6 +56,9 @@ func DecodeTemplateDefinition(raw json.RawMessage) (TemplateDefinition, error) {
 	if err != nil {
 		return TemplateDefinition{}, err
 	}
+	if raw == nil {
+		return TemplateDefinition{}, identity.ErrResourceDenied
+	}
 	v, err := decodeAuthored[TemplateDefinition](raw)
 	if err != nil {
 		return v, err
@@ -143,6 +146,9 @@ func (r *TemplateReader) LoadAll(ctx context.Context) ([]*tpl.Template, error) {
 		v, err := decodeAuthored[summary](raw)
 		if err != nil {
 			return nil, err
+		if raw == nil {
+			continue
+		}
 		}
 		if v.ID == "" || v.Name == "" {
 			continue
