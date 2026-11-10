@@ -19,6 +19,7 @@ import (
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
+	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/agently-core/workspace"
 	embedius "github.com/viant/embedius"
 	embindexer "github.com/viant/embedius/indexer"
@@ -37,6 +38,7 @@ const defaultIndexRefreshInterval = time.Hour
 
 // Service extracts structured information from LLM responses
 type Service struct {
+	knowledgeGateway     *resources.Gateway
 	capabilityStateStore workspace.StateStore
 	capabilityVectors    capabilityVectorCache
 	capabilityLoads      singleflight.Group
@@ -223,6 +225,16 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 		return fmt.Errorf("failed to init input: %w", err)
 	}
 	ctx = s.withIndexPath(ctx)
+	for _, location := range input.Locations {
+		if knowledgeURI(location) {
+			*output = AugmentDocsOutput{}
+			break
+		}
+	}
+	ctx, err = s.prepareKnowledge(ctx, input.Locations)
+	if err != nil {
+		return err
+	}
 	augmenter, err := s.getDocAugmenter(ctx, input)
 	if err != nil {
 		return err
@@ -265,6 +277,9 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 				matchOpts = append(matchOpts, vectorstores.WithNeighborFragments(input.NeighborFragmentsBefore, input.NeighborFragmentsAfter))
 			}
 			docs, err := service.Match(matchCtx, input.Query, input.MaxDocuments, location, matchOpts...)
+			if err == nil {
+				err = projectKnowledgeDocuments(matchCtx, location, docs)
+			}
 			if err != nil {
 				results[i] = matchResult{err: err}
 				return
@@ -288,8 +303,7 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 	if firstErr != nil && (!input.AllowPartial || successes == 0) {
 		return fmt.Errorf("failed to augmentDocs documents: %w", firstErr)
 	}
-	output.Documents = searchDocuments
-	output.DocumentsSize = Documents(searchDocuments).Size()
+	result := AugmentDocsOutput{Documents: searchDocuments, DocumentsSize: Documents(searchDocuments).Size()}
 
 	// Ensure the set for the provided paths or kind
 	responseContent := strings.Builder{}
@@ -297,13 +311,21 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 	if input.IncludeFile {
 		s.includeDocFileContent(ctx, searchDocuments, input, &responseContent)
 	} else {
-		s.includeDocuments(output, input, searchDocuments, &responseContent)
+		s.includeDocuments(&result, input, searchDocuments, &responseContent)
 	}
-	output.Content = responseContent.String()
+	result.Content = responseContent.String()
+	if err := s.verifyKnowledge(ctx); err != nil {
+		return err
+	}
+	*output = result
 	return nil
 }
 
 func (s *Service) upstreamSyncConfig(ctx context.Context, location string, augmenter *DocsAugmenter) *vectordb.UpstreamSyncConfig {
+	// Closed publication bytes are the sole source for Knowledge indexes.
+	if knowledgeURI(location) {
+		return nil
+	}
 	if s == nil || augmenter == nil || augmenter.store == nil {
 		return nil
 	}
@@ -554,7 +576,8 @@ func (s *Service) includeDocFileContent(ctx context.Context, searchResults []emb
 	sizeSoFar := 0
 	if documentSize < input.MaxResponseSize {
 		for _, doc := range searchResults {
-			loc := input.Location(getStringFromMetadata(doc.Metadata, "path"))
+			source := getStringFromMetadata(doc.Metadata, "path")
+			loc := input.Location(source)
 			if loc != "" {
 				if unique[loc] {
 					continue
@@ -563,7 +586,9 @@ func (s *Service) includeDocFileContent(ctx context.Context, searchResults []emb
 			}
 			var data []byte
 			var err error
-			if mcpuri.Is(loc) && s.mcpMgr != nil {
+			if knowledgeURI(source) {
+				data, err = (&knowledgeFS{}).Download(ctx, mcpfs.NewObjectFromURI(source))
+			} else if mcpuri.Is(loc) && s.mcpMgr != nil {
 				// Read via MCP
 				mfs := mcpfs.New(
 					s.mcpMgr,

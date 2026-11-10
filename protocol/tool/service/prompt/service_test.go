@@ -203,6 +203,9 @@ func TestService_get_InjectsRolePreservingMessages(t *testing.T) {
 			activated++
 			return nil
 		}, nil
+	}, func(_ context.Context, p *intent.Profile) ([]intent.Message, error) {
+		require.NotEmpty(t, p.Knowledge)
+		return nil, nil
 	})
 	out := &GetOutput{}
 	err := service.get(ctx, &GetInput{ID: "performance_analysis", IncludeDocument: &include}, out)

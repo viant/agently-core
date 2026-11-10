@@ -92,26 +92,36 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 	// Detect if any location targets MCP resources; if so, prefer a composite fs
 	// that supports both MCP and regular AFS sources.
 	useMCP := false
+	useKnowledge := false
 	for _, loc := range input.Locations {
 		if mcpuri.Is(loc) {
 			useMCP = true
-			break
+		}
+		if knowledgeURI(loc) {
+			useKnowledge = true
 		}
 	}
 	if useMCP && s.mcpMgr == nil {
 		return nil, fmt.Errorf("mcp manager not configured for MCP locations")
 	}
+	selectionKey := Key(input.Model, input.Match)
 	resolveNamespace := func(ctx context.Context, uri string) (string, bool, error) {
+		if namespace, owned, err := s.knowledgeNamespace(ctx, uri, selectionKey); owned || err != nil {
+			return namespace, owned, err
+		}
 		if id, ok := s.resolveLocalRootID(ctx, uri); ok {
 			return id, true, nil
 		}
 		return s.resolveMCPRootID(ctx, uri)
 	}
-	resolveMetadata := fs.WithMetadataResolver(s.resolveMetadataConfig)
+	resolveMetadata := fs.WithMetadataResolver(s.knowledgeMetadata)
 	// Use a single augmenter per model+options(+mcp)+db and a shared sqlite store.
-	key := Key(input.Model, input.Match)
+	key := selectionKey
 	if useMCP {
 		key += ":mcp"
+	}
+	if useKnowledge {
+		key += ":knowledge"
 	}
 	store, storeKey, err := s.ensureStoreWithDB(ctx, strings.TrimSpace(input.DB))
 	if err != nil {
@@ -135,7 +145,7 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 		if input.Match != nil {
 			matchOptions = input.Match.Options()
 		}
-		if useMCP && s.mcpMgr != nil {
+		if useMCP || useKnowledge {
 			_ = os.MkdirAll(baseURL, 0755)
 			matcher := matching.New(matchOptions...)
 			splitterFactory := splitter.NewFactory(4096)
@@ -147,14 +157,24 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 			if strings.TrimSpace(s.mcpSnapshotCacheRoot) != "" {
 				opts = append(opts, mcpfs.WithSnapshotCacheRoot(s.mcpSnapshotCacheRoot))
 			}
+			var sourceFS fs.Service = fs.NewAFS()
+			if useMCP {
+				sourceFS = mcpfs.NewComposite(s.mcpMgr, opts...)
+			}
+			if useKnowledge {
+				sourceFS = &knowledgeFS{fallback: sourceFS}
+			}
 			var idx indexer.Indexer = fs.NewWithFS(
 				baseURL,
 				input.Model,
 				matcher,
 				splitterFactory,
-				mcpfs.NewComposite(s.mcpMgr, opts...),
+				sourceFS,
 				resolveMetadata,
 			)
+			if useKnowledge {
+				idx = &knowledgeIndexer{base: idx}
+			}
 			idx = newNamespaceOverrideIndexer(idx, resolveNamespace)
 			ret := &DocsAugmenter{
 				embedder:  input.Model,

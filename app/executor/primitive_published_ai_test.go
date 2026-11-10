@@ -12,6 +12,7 @@ import (
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
+	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
 	core "github.com/viant/agently-core/service/core"
 	resources "github.com/viant/agently-core/service/resource"
 )
@@ -129,6 +130,21 @@ func TestPublishedAIConsumersResolveActualTypedDefinitionsLocally(t *testing.T) 
 	profile, err := resources.NewPlaybookReader(gateway).Load(ctx, "playbook://example/review")
 	require.NoError(t, err)
 	require.Equal(t, "Closed playbook instructions.", profile.Instructions)
+	// The default host scopes relative intake references to workspace. Interactive
+	// discovery must still reach a published namespace through both tool names.
+	runtime.publicPrimitiveDefault = true
+	repo := playbookDiscoveryRepository(runtime)
+	for _, svc := range []*promptsvc.Service{promptsvc.NewPlaybook(repo), promptsvc.New(repo)} {
+		list, err := svc.Method("list")
+		require.NoError(t, err)
+		listed := &promptsvc.ListOutput{}
+		require.NoError(t, list(ctx, &promptsvc.ListInput{}, listed))
+		require.Len(t, listed.Profiles, 1)
+		require.Equal(t, "playbook://example/review", listed.Profiles[0].URI)
+		get, err := svc.Method("get")
+		require.NoError(t, err)
+		require.NoError(t, get(ctx, &promptsvc.GetInput{ID: listed.Profiles[0].URI}, &promptsvc.GetOutput{}))
+	}
 	cases, err := resources.NewEvalReader(gateway).LoadAll(ctx)
 	require.NoError(t, err)
 	require.Len(t, cases, 1)
@@ -151,6 +167,9 @@ func TestPublishedAIConsumersResolveActualTypedDefinitionsLocally(t *testing.T) 
 	source.denied = true
 	_, err = intakeReader.Load(ctx, "playbook://example/review")
 	require.Error(t, err)
+	getPlaybook, err := promptsvc.NewPlaybook(repo).Method("get")
+	require.NoError(t, err)
+	require.Error(t, getPlaybook(ctx, &promptsvc.GetInput{ID: "playbook://example/review"}, &promptsvc.GetOutput{}))
 	_, err = selected.Find(ctx, "agent://example/review")
 	require.Error(t, err)
 	_, err = resources.NewPromptReader(gateway).Load(ctx, "prompt://example/question")

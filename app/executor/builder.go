@@ -1090,7 +1090,10 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			promptsvc.WithMCPManager(out.MCPManager),
 			promptsvc.WithAuthorizationPolicy(out.AuthorizationPolicy),
 		}
-		for _, profileService := range []*promptsvc.Service{promptsvc.NewPlaybook(promptRepo, profileOptions...), promptsvc.New(promptRepo, profileOptions...)} {
+		// Interactive discovery spans all admitted publishers. Intake and delegation
+		// still resolve their configured relative profile IDs within the workspace.
+		discoveryRepo := playbookDiscoveryRepository(out)
+		for _, profileService := range []*promptsvc.Service{promptsvc.NewPlaybook(discoveryRepo, profileOptions...), promptsvc.New(discoveryRepo, profileOptions...)} {
 			if err := tool.AddInternalService(out.Registry, profileService); err != nil {
 				return nil, err
 			}
@@ -1123,6 +1126,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		return nil, err
 	}
 	primitiveTiming.End(observe.OK, observe.CacheBypass)
+	aug.SetKnowledgeGateway(out.PrimitiveProviders)
 	b.configureDefaultUIOwner(out)
 	if out.Agent != nil && out.NativeHostDocuments != nil {
 		out.Agent.SetHostDocuments(out.NativeHostDocuments)
@@ -1330,4 +1334,13 @@ func (r *Runtime) InitializeRegistryAsync(ctx context.Context, timeout time.Dura
 func (b *Builder) WithComponentDispatcher(dispatcher windowprotocol.ComponentDispatcher) *Builder {
 	b.componentDispatcher = dispatcher
 	return b
+}
+
+// playbookDiscoveryRepository uses the caller's admitted catalogs for interactive
+// selection. Workspace-only runtimes keep the store-backed reader.
+func playbookDiscoveryRepository(out *Runtime) *intakerepo.Repository {
+	if out.PrimitiveProviders == nil {
+		return intakerepo.NewWithStore(out.Store)
+	}
+	return intakerepo.NewWithReader(resourcesvc.NewPlaybookReader(out.PrimitiveProviders))
 }

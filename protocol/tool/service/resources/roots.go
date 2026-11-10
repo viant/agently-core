@@ -12,6 +12,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
+	identity "github.com/viant/agently-core/protocol/resource"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/workspace"
@@ -162,11 +163,16 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 		}
 		if desc == "" && containsProtectedDescendants {
 			desc = "Workspace root"
+		} else if desc == "" && kind == "knowledge" {
+			desc = "Published knowledge"
 		} else if desc == "" && (kind != "mcp" || s.defaults.DescribeMCP) {
 			desc = s.describeCached(ctx, wsRoot, kind)
 		}
 		semAllowed := s.semanticAllowedForAgent(ctx, curAgent, wsRoot)
 		grepAllowed := s.grepAllowedForAgent(ctx, curAgent, wsRoot)
+		if kind == "knowledge" {
+			grepAllowed = false
+		}
 		rootEntry := Root{
 			ID:                     rootID,
 			URI:                    wsRoot,
@@ -404,6 +410,13 @@ func (s *Service) normalizeUserRoot(ctx context.Context, in string) (string, str
 	u := strings.TrimSpace(in)
 	if u == "" {
 		return "", "", nil
+	}
+	if strings.HasPrefix(u, "knowledge://") {
+		parsed, err := identity.ParseResourceURI(u)
+		if err != nil || parsed.Kind != "knowledge" {
+			return "", "", fmt.Errorf("invalid knowledge resource URI")
+		}
+		return parsed.String(), "knowledge", nil
 	}
 	// Treat github://... as shorthand for the github MCP server.
 	if strings.HasPrefix(strings.ToLower(u), "github://") {

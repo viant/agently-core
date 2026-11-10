@@ -186,11 +186,15 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 
 	// Optionally inject into the conversation.
 	if gi.IncludeDocument != nil && *gi.IncludeDocument {
+		knowledge, err := prepareKnowledgeActivation(ctx, selected)
+		if err != nil {
+			return err
+		}
 		activate, err := prepareToolActivation(ctx, selected)
 		if err != nil {
 			return err
 		}
-		ids, err := s.injectMessages(ctx, msgs)
+		ids, err := s.injectMessages(ctx, append(msgs, knowledge...))
 		if err != nil {
 			return err
 		}
@@ -225,12 +229,16 @@ func (s *Service) injectMessages(ctx context.Context, msgs []intent.Message) ([]
 			continue
 		}
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
+		summary := strings.TrimSpace(msg.URI)
+		if summary == "" {
+			summary = fmt.Sprintf("prompt://message/%d", i)
+		}
 		opts := []apiconv.MessageOption{
 			apiconv.WithRole(role),
 			apiconv.WithType("text"),
 			apiconv.WithCreatedByUserID("prompt"),
 			apiconv.WithContent(text),
-			apiconv.WithContextSummary(fmt.Sprintf("prompt://message/%d", i)),
+			apiconv.WithContextSummary(summary),
 			apiconv.WithCreatedAt(time.Now()),
 		}
 		if role == "system" {

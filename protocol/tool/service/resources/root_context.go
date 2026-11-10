@@ -12,6 +12,7 @@ import (
 
 	"github.com/viant/afs/url"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/workspace"
 )
 
@@ -247,6 +248,16 @@ func joinBaseWithPath(wsRoot, base, p, rootAlias string) (string, error) {
 	}
 	if p == "/" {
 		return base, nil
+	}
+	if strings.HasPrefix(wsRoot, "knowledge://") {
+		if isAbsLikePath(p) || strings.Contains(p, "://") {
+			return "", identity.ErrResourceDenied
+		}
+		cleaned := pathpkg.Clean(p)
+		if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+			return "", identity.ErrResourceDenied
+		}
+		return url.Join(base, cleaned), nil
 	}
 	if isAbsLikePath(p) {
 		if !mcpuri.Is(wsRoot) {

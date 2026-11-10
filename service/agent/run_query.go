@@ -986,6 +986,23 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 	ctx = toolselection.WithState(ctx, nil)
 	ctx = promptservice.WithToolActivation(ctx, func(callCtx context.Context, profile *intent.Profile) (func() error, error) {
 		return s.preparePlaybookTools(callCtx, input, profile)
+	}, func(callCtx context.Context, profile *intent.Profile) ([]intent.Message, error) {
+		b := &bindpkg.Binding{}
+		if err := s.appendKnowledgeMatches(callCtx, input, b, profile.Knowledge, profile.ID); err != nil {
+			return nil, err
+		}
+		messages := make([]intent.Message, 0, len(b.SystemDocuments.Items))
+		for _, doc := range b.SystemDocuments.Items {
+			if doc == nil || strings.TrimSpace(doc.PageContent) == "" {
+				continue
+			}
+			content, err := json.Marshal(doc)
+			if err != nil {
+				return nil, err
+			}
+			messages = append(messages, intent.Message{Role: "system", URI: doc.SourceURI, Text: string(content)})
+		}
+		return messages, nil
 	})
 	ctx = s.ensureNamespaceSnapshot(ctx)
 	mode := runtimerecovery.ModePruneCompact
