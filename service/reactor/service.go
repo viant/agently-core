@@ -157,6 +157,9 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			if err = s.streamPlanSteps(ctx, streamId, aPlan); err != nil {
 				return nil, fmt.Errorf("failed to stream plan steps: %w", err)
 			}
+			// The synthetic stream uses the same activation barrier as a real
+			// stream. Drain its deferred suffix after all tool calls are known.
+			s.launchPendingSteps(ctx, aPlan, &nextStepIdx, &wg, reg, genOutput.MessageID)
 			logx.Debugf("reactor", "Run streamPlanSteps done; waiting for wg")
 			wg.Wait()
 			logx.Debugf("reactor", "Run extendPlan wg done")
@@ -194,6 +197,7 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			if err2 := s.streamPlanSteps(ctx, streamId, aPlan); err2 != nil {
 				return nil, fmt.Errorf("failed to stream plan steps (retry): %w", err2)
 			}
+			s.launchPendingSteps(ctx, aPlan, &nextStepIdx, &wg, reg, genOutput.MessageID)
 		}
 		wg.Wait()
 		if err := failures.err(); err != nil && ctx.Err() == nil {

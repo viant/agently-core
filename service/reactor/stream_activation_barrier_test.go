@@ -111,6 +111,7 @@ type activationOrderRegistry struct {
 	streamClosed             <-chan struct{}
 	startedBeforePersistence bool
 	activationBeforeClose    bool
+	cancelOnActivation       context.CancelFunc
 }
 
 func (r *activationOrderRegistry) Execute(ctx context.Context, name string, _ map[string]interface{}) (string, error) {
@@ -124,7 +125,7 @@ func (r *activationOrderRegistry) Execute(ctx context.Context, name string, _ ma
 	default:
 		r.startedBeforePersistence = true
 	}
-	if name != "fixture/before" {
+	if r.streamClosed != nil && name != "fixture/before" {
 		select {
 		case <-r.streamClosed:
 		default:
@@ -132,6 +133,10 @@ func (r *activationOrderRegistry) Execute(ctx context.Context, name string, _ ma
 		}
 	}
 	r.order = append(r.order, name)
+	if name == "llm/skills:activate" && r.cancelOnActivation != nil {
+		r.cancelOnActivation()
+		return "", ctx.Err()
+	}
 	return "fixture result", nil
 }
 
@@ -196,6 +201,73 @@ func TestStreamActivationDrainsArgumentsBeforeOrderedToolDispatch(t *testing.T) 
 				require.NoError(t, getErr)
 				require.Equal(t, "fixture result", message.GetContent())
 				require.Equal(t, "completed", message.ToolMessage[0].ToolCall.Status)
+			}
+		})
+	}
+}
+
+type activationGenerateModel struct{ plannedCallsModel }
+
+func (m *activationGenerateModel) Generate(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	observer := modelcall.ObserverFromContext(ctx)
+	if observer == nil {
+		return m.plannedCallsModel.Generate(ctx, request)
+	}
+	started := time.Now()
+	info := modelcall.Info{Provider: "fixture", Model: "fixture", LLMRequest: request, StartedAt: started}
+	ctx, err := observer.OnCallStart(ctx, info)
+	if err != nil {
+		return nil, err
+	}
+	response, err := m.plannedCallsModel.Generate(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	info.LLMResponse, info.CompletedAt, info.FinishReason = response, time.Now(), "tool_calls"
+	return response, observer.OnCallEnd(ctx, info)
+}
+
+func TestNonStreamingActivationDrainsPlannedToolsOnce(t *testing.T) {
+	for _, name := range []string{"completed", "canceled"} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{ConversationID: "activation-conversation", TurnID: "activation-turn"})
+			store := convmem.New()
+			conversation := apiconv.NewConversation()
+			conversation.SetId("activation-conversation")
+			require.NoError(t, store.PatchConversations(ctx, conversation))
+			model := &activationGenerateModel{plannedCallsModel{response: &llm.GenerateResponse{Choices: []llm.Choice{{Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+				{ID: "before", Name: "fixture/before"},
+				{ID: "activate", Name: "llm/skills:activate"},
+				{ID: "after", Name: "fixture/after"},
+			}}}}}}}
+			client := &activationPersistenceClient{Client: store, persisted: make(chan struct{})}
+			registry := &activationOrderRegistry{persisted: client.persisted}
+			if name == "canceled" {
+				registry.cancelOnActivation = cancel
+			}
+			service := New(core.New(plannedCallsFinder{model: model}, registry, client), registry, client, nil, nil)
+			input := &core.GenerateInput{ModelSelection: llm.ModelSelection{Model: "fixture"}, UserID: "fixture-user", Prompt: &binding.Prompt{Text: "fixture"}, Binding: &binding.Binding{}}
+			plan, err := service.Run(ctx, input, &core.GenerateOutput{})
+			require.NoError(t, err)
+			require.Len(t, plan.Steps, 3)
+			require.Equal(t, 1, model.calls)
+			expectedOrder := []string{"fixture/before", "llm/skills:activate", "fixture/after"}
+			expectedStatuses := map[string]string{"before": "completed", "activate": "completed", "after": "completed"}
+			if name == "canceled" {
+				require.ErrorIs(t, ctx.Err(), context.Canceled)
+				expectedOrder = expectedOrder[:2]
+				expectedStatuses["activate"], expectedStatuses["after"] = "canceled", "canceled"
+			}
+			require.Equal(t, expectedOrder, registry.order)
+			require.False(t, registry.startedBeforePersistence)
+			results := service.TurnToolResults("activation-turn")
+			require.Len(t, results, 3)
+			for _, result := range results {
+				message, err := store.GetMessage(context.Background(), result.ResultMessageID, apiconv.WithIncludeToolCall(true))
+				require.NoError(t, err)
+				require.Equal(t, expectedStatuses[result.ID], message.ToolMessage[0].ToolCall.Status)
 			}
 		})
 	}
