@@ -3,6 +3,7 @@ package overlay
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	loproto "github.com/viant/agently-core/protocol/lookup/overlay"
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -57,8 +58,12 @@ func readAttachments(ctx context.Context, gateway *resources.Gateway, owner iden
 			if uri.Kind != "template" || provider != owner.ProviderIdentity || uri.Namespace != parsed.Namespace {
 				return identity.ErrResourceDenied
 			}
+			version, err := strconv.ParseUint(ref.Revision, 10, 64)
+			if err != nil {
+				return identity.ErrResource
+			}
 			loaded, err := resourcehost.Load(ctx, gateway, ref.URI, resourcehost.PublishedCodec[presentationAttachments]{
-				ID: "agently.startertask.lookup-library.v1", Immutable: true,
+				ID: "agently.startertask.lookup-library.v1", Immutable: true, ExpectedVersion: version,
 				Decode: func(_ context.Context, _ string, raw json.RawMessage) (presentationAttachments, error) {
 					var attached presentationAttachments
 					err := json.Unmarshal(raw, &attached)

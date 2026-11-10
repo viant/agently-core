@@ -95,6 +95,7 @@ func TestPublishedStarterLookupRegistryScopesAttachmentsToSelectedTask(t *testin
 	picker := publish(pickerURI, "window", 1, json.RawMessage(`{"schemaVersion":2,"title":"Record picker"}`))
 	libraryDefinition := json.RawMessage(`{"schemaVersion":1,"lookupOverlays":[{"id":"record","target":{"kind":"chat-composer"},"bindings":[{"lookup":{"windowId":"window://measurement/record-picker"},"named":{"name":"record","required":true,"store":"${id}","display":"${name}","modelForm":"${name} (ID ${id})"}}]}]}`)
 	library := publish(libraryURI, "template", 1, libraryDefinition)
+	ordinaryTemplate := publish("template://measurement/ordinary-output", "template", 1, json.RawMessage(`{"schemaVersion":1,"template":{"id":"ordinary-output","name":"Ordinary Output","format":"json"}}`))
 	tasks := primitive.StarterTaskEnvelope{SchemaVersion: 1, Tasks: []primitive.StarterTask{
 		{ID: "review", Title: "Review", Prompt: "Review /record.", LookupLibraries: []lookup.LibraryReference{{Resource: identity.ResourceRef{URI: libraryURI, Revision: "1"}, ProviderIdentity: studio, ContentFingerprint: library.Hash}}},
 		{ID: "legacy", Title: "Legacy", Prompt: "Review available records."},
@@ -107,7 +108,7 @@ func TestPublishedStarterLookupRegistryScopesAttachmentsToSelectedTask(t *testin
 		_, err := publisher.ReplaceCatalog(ctx, []authz.Document{policy}, cohorts, publisher.Generation())
 		require.NoError(t, err)
 	}
-	activate(selected, library, picker)
+	activate(selected, library, picker, ordinaryTemplate)
 	replica, err := artifactcohort.NewReplica(artifactcohort.Config{Enabled: true, Source: studio, Tenant: "fixture", Account: "publisher", Caller: publisher, Facts: starterLookupFacts{}, SessionKey: func(ctx context.Context) (string, error) {
 		role, _ := ctx.Value(starterLookupRoleKey{}).(string)
 		return role, nil
@@ -152,13 +153,26 @@ func TestPublishedStarterLookupRegistryScopesAttachmentsToSelectedTask(t *testin
 	require.Equal(t, studio, entry.ProviderIdentity)
 	require.Equal(t, pickerURI, entry.PickerResource.URI)
 	require.Equal(t, "${name} (ID ${id})", entry.Token.ModelForm)
-	templates, err := resources.NewTemplateReader(gateway).LoadAll(context.WithValue(ctx, starterLookupRoleKey{}, "reader"))
+	readerContext := context.WithValue(ctx, starterLookupRoleKey{}, "reader")
+	templateReader := resources.NewTemplateReader(gateway)
+	templates, err := templateReader.LoadAll(readerContext)
 	require.NoError(t, err)
-	require.Empty(t, templates, "a lookup library must not become an output template suggestion")
+	require.Len(t, templates, 1, "a lookup library must not become an output template suggestion")
+	require.Equal(t, "ordinary-output", templates[0].ID)
+	resolved, err := templateReader.Load(readerContext, "Ordinary Output")
+	require.NoError(t, err)
+	require.Equal(t, ordinaryTemplate.URI, resolved.ResourceURI)
+	_, err = templateReader.Load(readerContext, libraryURI)
+	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	registry("other", "review", selected.Hash, http.StatusForbidden)
 	registry("reader", "legacy", selected.Hash, http.StatusForbidden)
 	registry("reader", "missing", selected.Hash, http.StatusForbidden)
 	registry("reader", "review", library.Hash, http.StatusForbidden)
+	sameBytesNewVersion := publish(libraryURI, "template", 2, libraryDefinition)
+	require.Equal(t, library.Hash, sameBytesNewVersion.Hash)
+	activate(selected, sameBytesNewVersion, picker)
+	require.NoError(t, replica.Sync(ctx))
+	registry("reader", "review", selected.Hash, http.StatusForbidden)
 	activate(selected, library)
 	require.NoError(t, replica.Sync(ctx))
 	registry("reader", "review", selected.Hash, http.StatusForbidden)

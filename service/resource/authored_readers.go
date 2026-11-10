@@ -57,7 +57,7 @@ func DecodeTemplateDefinition(raw json.RawMessage) (TemplateDefinition, error) {
 		return TemplateDefinition{}, err
 	}
 	if raw == nil {
-		return TemplateDefinition{}, identity.ErrResourceDenied
+		return TemplateDefinition{}, nil
 	}
 	v, err := decodeAuthored[TemplateDefinition](raw)
 	if err != nil {
@@ -143,12 +143,12 @@ func (r *TemplateReader) LoadAll(ctx context.Context) ([]*tpl.Template, error) {
 		if err != nil {
 			return nil, err
 		}
-		v, err := decodeAuthored[summary](raw)
-		if err != nil {
-			return nil, err
 		if raw == nil {
 			continue
 		}
+		v, err := decodeAuthored[summary](raw)
+		if err != nil {
+			return nil, err
 		}
 		if v.ID == "" || v.Name == "" {
 			continue
@@ -166,6 +166,9 @@ func (r *TemplateReader) Load(ctx context.Context, key string) (*tpl.Template, e
 	}, DecodeTemplateDefinition)
 	if err != nil {
 		return nil, err
+	}
+	if got.Definition.Template.ID == "" {
+		return nil, identity.ErrResourceDenied
 	}
 	got.Definition.Template.ResourceURI = got.Resource.URI
 	return &got.Definition.Template, nil
@@ -307,6 +310,9 @@ func (r *TemplateReader) LoadFrom(ctx context.Context, key, parentURI, provider 
 	}, DecodeTemplateDefinition)
 	if err != nil {
 		return nil, err
+	}
+	if got.Definition.Template.ID == "" {
+		return nil, identity.ErrResourceDenied
 	}
 	got.Definition.Template.ResourceURI = got.Resource.URI
 	return &got.Definition.Template, nil
