@@ -20,13 +20,13 @@ func ResolveRoots(defaults *execconfig.Defaults) []string {
 			"./.claude/skills",
 			"./.codex/skills",
 		}
-	}
-	home, _ := os.UserHomeDir()
-	if home != "" {
-		roots = append(roots,
-			filepath.Join(home, ".claude", "skills"),
-			filepath.Join(home, ".codex", "skills"),
-		)
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			roots = append(roots,
+				filepath.Join(home, ".claude", "skills"),
+				filepath.Join(home, ".codex", "skills"),
+			)
+		}
 	}
 	seen := map[string]struct{}{}
 	var out []string
