@@ -122,8 +122,8 @@ func TestToolSelectionRejectsMalformedWireWithoutTrustingNames(t *testing.T) {
 func TestToolSelectionSchemaRestrictsNamesToAdvertisedTools(t *testing.T) {
 	svc := &Service{}
 	cfg := &agentmdl.Intake{Scope: []string{"tools"}}
-	in := svc.buildGenerateInputWithContext(context.Background(), "model", "instructions", "request", "user", cfg,
-		WithToolNames([]string{"catalog-read", "llm_skills-activate"}))
+	in := svc.buildGenerateInput(context.Background(), "model", "instructions", "request", "user", cfg,
+		runOptions{ToolNames: []string{"catalog-read", "llm_skills-activate"}})
 	for _, tc := range []struct {
 		name  string
 		valid bool
@@ -158,7 +158,7 @@ func TestToolSelectionSnapshotAbsentAndEmpty(t *testing.T) {
 		{"known empty rejects tool names", []string{}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			schema := svc.buildOutputJSONSchema(context.Background(), cfg, WithToolNames(tc.names))
+			schema := svc.buildOutputJSONSchema(context.Background(), cfg, runOptions{ToolNames: tc.names})
 			value := map[string]any{"prompting": map[string]any{
 				"appendToolBundles": []string{}, "toolSelection": ToolSelection{Names: []string{"catalog-read"}, Complete: true},
 			}}

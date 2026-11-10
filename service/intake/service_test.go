@@ -305,7 +305,7 @@ match:
 		},
 	}
 
-	schema := svc.buildOutputJSONSchema(context.Background(), cfg)
+	schema := svc.buildOutputJSONSchema(context.Background(), cfg, runOptions{})
 	props, _ := schema["properties"].(map[string]interface{})
 	directAction, _ := props["directAction"].(map[string]interface{})
 	require.NotNil(t, directAction)
@@ -315,7 +315,7 @@ match:
 	assert.Equal(t, []string{"message:askUser", "ui/view:open", "ui/window:show"}, toolNameProp["enum"])
 
 	cfg.ModelDirectAction = &agentmdl.ModelDirectActionPolicy{AllowedTools: []string{"ui/window:show"}}
-	schema = svc.buildOutputJSONSchema(context.Background(), cfg)
+	schema = svc.buildOutputJSONSchema(context.Background(), cfg, runOptions{})
 	props, _ = schema["properties"].(map[string]interface{})
 	directAction, _ = props["directAction"].(map[string]interface{})
 	directActionProps, _ = directAction["properties"].(map[string]interface{})
@@ -343,7 +343,7 @@ func TestBuildSystemPrompt_IncludesTemplatesWhenTemplateScopeEnabled(t *testing.
 	}
 	cfg := &agentmdl.Intake{Scope: []string{"template"}}
 
-	prompt, err := svc.buildSystemPrompt(t.Context(), cfg)
+	prompt, err := svc.buildSystemPrompt(t.Context(), cfg, svc.loadTemplateChoices(t.Context()))
 	require.NoError(t, err)
 	assert.Contains(t, prompt, "Available output templates")
 	assert.Contains(t, prompt, "capacity_review_dashboard")
@@ -354,7 +354,7 @@ func TestBuildGenerateInput_UsesMinimalReasoningForJSONIntake(t *testing.T) {
 	svc := &Service{}
 	cfg := &agentmdl.Intake{MaxTokens: 400, Scope: []string{"intent", "context", "template"}}
 
-	in := svc.buildGenerateInput("openai_gpt-5_mini", "system", "user", "", cfg)
+	in := svc.buildGenerateInput(context.Background(), "openai_gpt-5_mini", "system", "user", "", cfg, runOptions{})
 	require.NotNil(t, in)
 	require.NotNil(t, in.ModelSelection.Options)
 	require.NotNil(t, in.ModelSelection.Options.Reasoning)
@@ -375,11 +375,11 @@ func TestBuildGenerateInputWithTranscriptIncludesCurrentMessageContext(t *testin
 	svc := &Service{}
 	cfg := &agentmdl.Intake{MaxTokens: 400, Scope: []string{"intent", "context", "template"}}
 
-	in := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_mini", "system", "show me the top audiences", "", cfg,
-		WithTranscript([]TranscriptMessage{
+	in := svc.buildGenerateInput(context.Background(), "openai_gpt-5_mini", "system", "show me the top audiences", "", cfg,
+		runOptions{Transcript: []TranscriptMessage{
 			{Role: "user", Content: "Troubleshoot order 4518"},
 			{Role: "assistant", Content: "Order 4518 is underdelivering; audience 83 is active."},
-		}))
+		}})
 	require.NotNil(t, in)
 	require.Len(t, in.Message, 2)
 
@@ -394,10 +394,10 @@ func TestBuildGenerateInputWithTranscriptIncludesCurrentMessageContext(t *testin
 func TestBuildGenerateInputWithLiveContextKeepsSystemPromptStable(t *testing.T) {
 	svc := &Service{}
 	cfg := &agentmdl.Intake{MaxTokens: 400, Scope: []string{"intent", "context", "profile"}}
-	first := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "switch to starred records", "", cfg,
-		WithLiveContext(`{"kind":"web","liveUI":true} recordsListMode[all|starred]`))
-	second := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "show records", "", cfg,
-		WithLiveContext(`{"kind":"web","liveUI":true} another window`))
+	first := svc.buildGenerateInput(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "switch to starred records", "", cfg,
+		runOptions{LiveContext: `{"kind":"web","liveUI":true} recordsListMode[all|starred]`})
+	second := svc.buildGenerateInput(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "show records", "", cfg,
+		runOptions{LiveContext: `{"kind":"web","liveUI":true} another window`})
 
 	assert.Equal(t, llm.MessageText(first.Message[0]), llm.MessageText(second.Message[0]))
 	assert.Equal(t, "shared routing rules", llm.MessageText(first.Message[0]))
@@ -420,7 +420,7 @@ func TestBuildGenerateInputWithContext_ConstrainsTemplateAndProfileEnums(t *test
 	}
 	cfg := &agentmdl.Intake{MaxTokens: 400, Scope: []string{"intent", "profile", "template"}}
 
-	in := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_mini", "system", "user", "", cfg)
+	in := svc.buildGenerateInput(context.Background(), "openai_gpt-5_mini", "system", "user", "", cfg, runOptions{Templates: svc.loadTemplateChoices(context.Background())})
 	require.NotNil(t, in)
 	require.NotNil(t, in.ModelSelection.Options)
 	require.NotNil(t, in.ModelSelection.Options.OutputSchema)
@@ -494,7 +494,7 @@ func TestBuildSystemPrompt_AppendsWorkspaceSpecificPrompt(t *testing.T) {
 		Prompt: agentmdl.IntakePrompt{Prompt: binding.Prompt{Text: "Concrete resource troubleshoot requests are actionable without extra clarification."}},
 	}
 
-	prompt, err := svc.buildSystemPrompt(t.Context(), cfg)
+	prompt, err := svc.buildSystemPrompt(t.Context(), cfg, svc.loadTemplateChoices(t.Context()))
 	require.NoError(t, err)
 	assert.Contains(t, prompt, "Workspace-specific intake guidance:")
 	assert.Contains(t, prompt, "Concrete resource troubleshoot requests are actionable without extra clarification.")
@@ -515,7 +515,7 @@ func TestBuildSystemPrompt_ResolvesObjectPromptURIWithImports(t *testing.T) {
 		Prompt: agentmdl.IntakePrompt{Prompt: binding.Prompt{URI: "intake/intake.tmpl"}},
 	}
 
-	prompt, err := svc.buildSystemPrompt(t.Context(), cfg)
+	prompt, err := svc.buildSystemPrompt(t.Context(), cfg, svc.loadTemplateChoices(t.Context()))
 	require.NoError(t, err)
 	assert.Contains(t, prompt, "Rule one.")
 	assert.Contains(t, prompt, "Rule two.")
@@ -525,7 +525,7 @@ func TestBuildSystemPrompt_IncludesMonthDayDateRule(t *testing.T) {
 	svc := &Service{}
 	cfg := &agentmdl.Intake{Scope: []string{"intent", "context"}}
 
-	prompt, err := svc.buildSystemPrompt(t.Context(), cfg)
+	prompt, err := svc.buildSystemPrompt(t.Context(), cfg, svc.loadTemplateChoices(t.Context()))
 	require.NoError(t, err)
 	assert.Contains(t, prompt, "If the user gives a concrete month/day date without a year")
 	assert.Contains(t, prompt, "assume the current year")
@@ -546,7 +546,7 @@ func TestBuildSystemPrompt_FiltersProfilesByAllowList(t *testing.T) {
 	cfg := &agentmdl.Intake{Scope: []string{"profile"}}
 	ctx := runtimerequestctx.WithPromptProfileAllowList(context.Background(), []string{"performance_analysis"})
 
-	prompt, err := svc.buildSystemPrompt(ctx, cfg)
+	prompt, err := svc.buildSystemPrompt(ctx, cfg, svc.loadTemplateChoices(ctx))
 	require.NoError(t, err)
 	assert.Contains(t, prompt, "performance_analysis")
 	assert.NotContains(t, prompt, "diagnostic_baseline")

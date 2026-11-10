@@ -13,10 +13,10 @@ import (
 func TestDiscoveryNamespaceSchemaKeepsExactToolsSeparateAndLegacyOptional(t *testing.T) {
 	svc := &Service{}
 	cfg := &agentmdl.Intake{Scope: []string{"tools"}}
-	legacy := svc.buildOutputJSONSchema(context.Background(), cfg, WithToolNames([]string{"remote-read"}))
+	legacy := svc.buildOutputJSONSchema(context.Background(), cfg, runOptions{ToolNames: []string{"remote-read"}})
 	legacyProps := legacy["properties"].(map[string]interface{})["prompting"].(map[string]interface{})["properties"].(map[string]interface{})
 	require.NotContains(t, legacyProps, "discoveryNamespaces", "no namespace metadata preserves the old output contract")
-	schema := svc.buildGenerateInputWithContext(context.Background(), "model", "instructions", "request", "user", cfg, WithToolNames([]string{"remote-read"}), WithDiscoveryNamespaces([]string{"analysis", "planning"})).Options.OutputSchema
+	schema := svc.buildGenerateInput(context.Background(), "model", "instructions", "request", "user", cfg, runOptions{ToolNames: []string{"remote-read"}, NamespaceNames: []string{"analysis", "planning"}}).Options.OutputSchema
 	for _, tc := range []struct {
 		name         string
 		hints, tools []string
