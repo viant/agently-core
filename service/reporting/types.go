@@ -423,7 +423,7 @@ type GetReportInput struct {
 }
 
 type ListReportsInput struct {
-	Namespace       string `json:"namespace,omitempty"`
+	Namespace       string `json:"namespace,omitempty" description:"Exact namespace ID from discovery; omit when unknown. A display label is not a namespace ID."`
 	CurrentUserOnly bool   `json:"currentUserOnly,omitempty"`
 	Cursor          string `json:"cursor,omitempty"`
 	ArtifactRef     string `json:"artifactRef,omitempty"`

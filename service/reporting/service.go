@@ -328,13 +328,13 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "get_report",
-			Description: "Load a persisted report record visible to the current principal.",
+			Description: "Read a visible saved or published report definition using an exact resource URI or report identifier returned by list_reports. Use include to request only needed sections, such as description, inputs, refinements, binding or request; omit include only when the complete definition is needed. Definition metadata describes authored controls and defaults, not live applied filters or completed output. This does not run report data.",
 			Input:       reflect.TypeOf(&GetReportInput{}),
 			Output:      reflect.TypeOf(&SharedArtifact{}),
 		},
 		{
 			Name:        "list_reports",
-			Description: "List visible saved and published report catalog summaries, including names and resource URIs. Use this to identify a report by title before reading its definition or invoking its producer. Supports namespace and cursor filtering; does not execute report data.",
+			Description: "List visible saved and published report catalog summaries, including names and resource URIs. Use this to identify a report by title before reading its definition or invoking its producer. Defaults to 7 entries; use nextCursor to continue or an explicit limit. Supports exact namespace IDs and cursors. Omit namespace when its identifier is unknown; do not derive an ID from a display label. Does not execute report data.",
 			Input:       reflect.TypeOf(&ListReportsInput{}),
 			Output:      reflect.TypeOf(&ListReportsResult{}),
 		},
@@ -2354,7 +2354,16 @@ func (s *Service) listReportsTool(ctx context.Context, in, out interface{}) erro
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	result, err := s.ListReports(ctx, input)
+	var request ListReportsInput
+	if input != nil {
+		request = *input
+	}
+	// The shared catalog supports continuation; the legacy store does not.
+	// Bound model discovery without changing ordinary catalog API defaults.
+	if request.Limit == 0 && s.usesReportResources() && request.ReportID == "" && request.ArtifactRef == "" && request.OrderID == "" {
+		request.Limit = 7
+	}
+	result, err := s.ListReports(ctx, &request)
 	if err != nil {
 		return err
 	}
