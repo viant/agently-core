@@ -88,6 +88,12 @@ func (m *templateActivationModel) Generate(ctx context.Context, in *llm.Generate
 }
 func (*templateActivationModel) Implements(feature string) bool { return feature == base.CanUseTools }
 
+type templateActivationAgentFinder struct{ agent *agentmdl.Agent }
+
+func (f templateActivationAgentFinder) Find(context.Context, string) (*agentmdl.Agent, error) {
+	return f.agent, nil
+}
+
 type templateActivationModelFinder struct{ model *templateActivationModel }
 
 func (f templateActivationModelFinder) Find(context.Context, string) (llm.Model, error) {
@@ -124,7 +130,7 @@ func TestPublishedTemplateActivationInModelRequest(t *testing.T) {
 			require.NoError(t, store.Save(ctx, "", "config", []byte("ui: {}\n")))
 			ag := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "reader"}, ModelSelection: llm.ModelSelection{Model: "synthetic"}, Prompt: &binding.Prompt{Engine: "go", Text: "{{.Task.Prompt}}"}, Tool: agentmdl.Tool{Items: []*llm.Tool{{Name: "template:get", AlwaysInclude: true}}}}
 			model := &templateActivationModel{selected: scenario.activate}
-			finder := builderKnowledgeAgentFinder{ag}
+			finder := templateActivationAgentFinder{agent: ag}
 			verified := identity.VerifiedActor{Issuer: "https://identity.example.test", Subject: "reader", TenantID: "tenant", AccountID: "account", IdentityRevision: "one", ValidUntil: time.Now().Add(time.Hour)}
 			actor := func(context.Context) (identity.VerifiedActor, error) { return verified, nil }
 			verify := func(context.Context, identity.VerifiedActor) error { return nil }

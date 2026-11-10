@@ -22,6 +22,7 @@ import (
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	svcauth "github.com/viant/agently-core/service/auth"
 	resourcepolicy "github.com/viant/agently-core/service/policy"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 	"github.com/viant/authz"
 	reporting "github.com/viant/forge/backend/reporting/engine"
 	"github.com/viant/jsonrpc"
@@ -394,6 +395,9 @@ func statusForToolExecuteError(err error) int {
 func toolExecuteErrorResponse(err error, result string) (int, error, string) {
 	status := statusForToolExecuteError(err)
 	if status == http.StatusNotFound && errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, resourcesvc.ErrKnowledgeDocumentNotFound) {
+			return status, errors.New("published knowledge document not found"), ""
+		}
 		return status, errors.New("tool not found"), ""
 	}
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {

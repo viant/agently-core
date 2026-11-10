@@ -33,7 +33,8 @@ type ResourcesDefaults struct {
 func WithDefaults(d ResourcesDefaults) func(*Service) { return func(s *Service) { s.defaults = d } }
 
 type RootsInput struct {
-	MaxRoots int `json:"maxRoots,omitempty"`
+	MaxRoots int    `json:"maxRoots,omitempty"`
+	Cursor   string `json:"cursor,omitempty" description:"Continue the published Knowledge roots page with the same maxRoots."`
 }
 
 type Root struct {
@@ -65,7 +66,8 @@ type Root struct {
 }
 
 type RootsOutput struct {
-	Roots []Root `json:"roots"`
+	Roots      []Root `json:"roots"`
+	NextCursor string `json:"nextCursor,omitempty"`
 }
 
 type rootCollection struct {
@@ -215,15 +217,19 @@ func (s *Service) roots(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	mcpRoots := s.filterMCPRootsByAllowed(ctx, s.collectMCPRoots(ctx))
 	var roots []Root
+	published := map[string]Root{}
 	seen := map[string]bool{}
 	appendWithLimit := func(source []Root) {
 		for _, r := range source {
-			if max > 0 && len(roots) >= max {
-				return
-			}
 			key := strings.TrimRight(strings.TrimSpace(r.URI), "/")
+			if isKnowledgeRoot(key) {
+				published[key] = r
+				continue
+			}
+			if input.Cursor != "" || (max > 0 && len(roots) >= max) {
+				continue
+			}
 			if key == "" || seen[key] {
 				continue
 			}
@@ -233,9 +239,10 @@ func (s *Service) roots(ctx context.Context, in, out interface{}) error {
 	}
 	appendWithLimit(collected.user)
 	appendWithLimit(collected.system)
-	appendWithLimit(mcpRoots)
-	output.Roots = roots
-	return nil
+	if input.Cursor == "" {
+		appendWithLimit(s.filterMCPRootsByAllowed(ctx, s.collectMCPRoots(ctx)))
+	}
+	return s.appendPublishedKnowledgePage(ctx, input.Cursor, max, roots, published, output)
 }
 
 func (s *Service) collectMCPRoots(ctx context.Context) []Root {

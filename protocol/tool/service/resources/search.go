@@ -114,6 +114,10 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 			availableRoots = append(availableRoots, root)
 		}
 	}
+	availableRoots, err = s.addExplicitKnowledgeRoots(availableRoots, input)
+	if err != nil {
+		return nil, err
+	}
 	if len(availableRoots) == 0 {
 		return nil, fmt.Errorf("no roots configured for semantic search")
 	}
@@ -172,8 +176,17 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 		if err := s.checkRawResourceURI(base, true); err != nil {
 			return nil, err
 		}
+		var match *embopt.Options
+		if isKnowledgeRoot(wsRoot) {
+			match, err = scopedKnowledgeMatch(root.Match, effectiveInputMatch)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			match = mergeEffectiveMatch(root.Match, effectiveInputMatch)
+		}
 		locations = append(locations, base)
-		locInfos = append(locInfos, locInfo{location: base, db: strings.TrimSpace(root.DB), match: root.Match})
+		locInfos = append(locInfos, locInfo{location: base, db: strings.TrimSpace(root.DB), match: match})
 		searchRoots = append(searchRoots, searchRootMeta{
 			id:     root.ID,
 			wsRoot: wsRoot,
@@ -190,10 +203,10 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 	}
 	grouped := map[string]*matchGroup{}
 	for _, li := range locInfos {
-		key := li.db + "|" + matchKey(li.match, effectiveInputMatch)
+		key := li.db + "|" + matchKey(li.match, nil)
 		g, ok := grouped[key]
 		if !ok {
-			g = &matchGroup{db: li.db, match: mergeEffectiveMatch(li.match, effectiveInputMatch)}
+			g = &matchGroup{db: li.db, match: li.match}
 			grouped[key] = g
 		}
 		g.locs = append(g.locs, li.location)

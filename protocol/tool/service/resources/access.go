@@ -45,6 +45,10 @@ func normalizeWorkspaceKey(value string) string {
 }
 
 func (s *Service) agentAllowed(ctx context.Context) []string {
+	return s.agentAllowedWith(ctx, nil)
+}
+
+func (s *Service) agentAllowedWith(ctx context.Context, onRoot func(string, *agmodel.Resource)) []string {
 	ag := s.currentAgent(ctx)
 	if ag == nil {
 		return nil
@@ -64,6 +68,9 @@ func (s *Service) agentAllowed(ctx context.Context) []string {
 				continue
 			}
 			out = append(out, ws)
+			if onRoot != nil {
+				onRoot(ws, e)
+			}
 		}
 	}
 	return out

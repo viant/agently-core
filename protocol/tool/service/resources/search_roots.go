@@ -25,9 +25,9 @@ func (s *Service) selectSearchRoots(ctx context.Context, roots []Root, input *Ma
 	seen := map[string]struct{}{}
 	add := func(candidates []Root) {
 		for _, root := range candidates {
-			key := strings.ToLower(strings.TrimSpace(root.ID))
+			key := normalizeRootID(root.ID)
 			if key == "" {
-				key = strings.ToLower(strings.TrimSpace(root.URI))
+				key = normalizeRootURI(root.URI)
 			}
 			if key == "" {
 				continue
@@ -179,6 +179,9 @@ func missingRootIDs(requested []string, matched []Root) []string {
 
 func normalizeRootID(value string) string {
 	v := strings.TrimSpace(value)
+	if isKnowledgeRoot(v) {
+		return strings.TrimRight(v, "/")
+	}
 	if mcpuri.Is(v) {
 		v = mcpuri.NormalizeForCompare(v)
 	}
@@ -187,6 +190,9 @@ func normalizeRootID(value string) string {
 
 func normalizeRootURI(value string) string {
 	v := strings.TrimSpace(value)
+	if isKnowledgeRoot(v) {
+		return strings.TrimRight(v, "/")
+	}
 	if mcpuri.Is(v) {
 		v = mcpuri.NormalizeForCompare(v)
 	} else {

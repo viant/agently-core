@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -72,7 +73,15 @@ func TestKnowledgeReaderUsesNativePublicationSelectionAndRevocation(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, original, second.Value.Files["guides/example.md"])
 	require.Equal(t, "guides/example.md", second.Value.Sources[0].Paths[0])
-	require.Equal(t, 1, publication.reads, "unchanged immutable publication is decoded once")
+	for range 4 {
+		exact, err := ReadKnowledgeFile(ctx, gateway, uri, "guides/example.md")
+		require.NoError(t, err)
+		require.Equal(t, original, string(exact))
+		exact[0] = 'x'
+	}
+	_, err = ReadKnowledgeFile(ctx, gateway, uri, "guides/missing.md")
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	require.Equal(t, 1, publication.reads, "corpus and warm file reads share one immutable publication decode")
 	set("Updated document.\n")
 	updated, err := ReadKnowledge(ctx, gateway, uri)
 	require.NoError(t, err)
@@ -81,4 +90,6 @@ func TestKnowledgeReaderUsesNativePublicationSelectionAndRevocation(t *testing.T
 	publication.denied = true
 	_, err = ReadKnowledge(ctx, gateway, uri)
 	require.Error(t, err, "an existing decoded corpus never bypasses revoked admission")
+	_, err = ReadKnowledgeFile(ctx, gateway, uri, "guides/missing.md")
+	require.ErrorIs(t, err, identity.ErrResourceDenied, "revoked callers cannot distinguish a missing file")
 }

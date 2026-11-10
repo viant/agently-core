@@ -3,6 +3,7 @@ package augmenter
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	iofs "io/fs"
 	"path"
@@ -36,6 +37,31 @@ type knowledgeSelection struct {
 // SetKnowledgeGateway binds the existing native publication owner at startup.
 // It must be called before the augmenter serves requests.
 func (s *Service) SetKnowledgeGateway(gateway *resources.Gateway) { s.knowledgeGateway = gateway }
+
+// ReadPublishedKnowledgeFile reuses the runtime's existing Knowledge owner.
+func (s *Service) ReadPublishedKnowledgeFile(ctx context.Context, root, child string) ([]byte, error) {
+	return resources.ReadKnowledgeFile(ctx, s.knowledgeGateway, root, child)
+}
+
+// PublishedKnowledgeClaims reports a registered namespace, never a read grant.
+func (s *Service) PublishedKnowledgeClaims(root string) bool {
+	return s != nil && s.knowledgeGateway != nil && s.knowledgeGateway.OwnsPublishedMetadata(root)
+}
+
+// PublishedKnowledgeRoots pages the existing local cohort metadata catalog.
+func (s *Service) PublishedKnowledgeRoots(ctx context.Context, query resources.CatalogQuery) (*primitive.CatalogPage[resources.Located[json.RawMessage]], error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s == nil || s.knowledgeGateway == nil {
+		return &primitive.CatalogPage[resources.Located[json.RawMessage]]{Complete: true}, nil
+	}
+	connections := s.knowledgeGateway.PublishedMetadataConnections()
+	if len(connections) == 0 {
+		return &primitive.CatalogPage[resources.Located[json.RawMessage]]{Complete: true}, nil
+	}
+	return resources.ListPageFrom[json.RawMessage](ctx, s.knowledgeGateway, connections, primitive.KnowledgeKind, query, false)
+}
 
 func knowledgeURI(uri string) bool { return strings.HasPrefix(strings.TrimSpace(uri), "knowledge://") }
 func selectedKnowledge(ctx context.Context, uri string) *knowledgeSelection {

@@ -141,22 +141,41 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if input.Representation != "" {
+		if isKnowledgeRoot(strings.TrimSpace(input.URI)) || isKnowledgeRoot(strings.TrimSpace(input.Path)) ||
+			isKnowledgeRoot(strings.TrimSpace(input.RootURI)) || isKnowledgeRoot(strings.TrimSpace(input.RootID)) {
+			return fmt.Errorf("published knowledge read supports text ranges")
+		}
+		if rootID := strings.TrimSpace(input.RootID); rootID != "" {
+			_, roots := s.readRoots(ctx)
+			for _, root := range roots {
+				if strings.EqualFold(root.id, rootID) {
+					return fmt.Errorf("published knowledge read supports text ranges")
+				}
+			}
+		}
 		return s.readAsset(ctx, input, output)
 	}
-	target, err := s.resolveReadTargetWithOwnedSkill(ctx, input, s.agentAllowed(ctx), true)
+	allowed, knowledgeRoots := s.readRoots(ctx)
+	target, err := s.resolveKnowledgeReadTarget(ctx, input, allowed, knowledgeRoots)
+	if err == nil && target == nil {
+		target, err = s.resolveReadTargetWithOwnedSkill(ctx, input, allowed, true)
+	}
 	if err != nil {
 		logx.Debugf("resources", "read resolve error rootId=%q root=%q uri=%q err=%v", input.RootID, input.RootURI, input.URI, err)
 		return err
 	}
-	if tableauExtension(pathpkg.Base(target.fullURI)) != "" {
+	if target.knowledgeRoot == nil && tableauExtension(pathpkg.Base(target.fullURI)) != "" {
 		return s.readAsset(ctx, input, output)
 	}
 	structuredSelection := input.Select != nil || input.Options != nil || input.Cursor != ""
 	if structuredSelection && !strings.HasPrefix(target.fullURI, "scratchpad://") {
 		return fmt.Errorf("specify a representation for structured selection/options")
 	}
-	if s.skillSvc != nil {
+	if target.knowledgeRoot == nil && s.skillSvc != nil {
 		if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
 			if strings.EqualFold(pathpkg.Base(target.fullURI), "SKILL.md") {
 				if body, err := s.skillSvc.ActivateByPathForConversation(ctx, convID, target.fullURI, ""); err == nil {
@@ -182,13 +201,15 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	}
 	var data []byte
 	native := false
-	if s.skillSvc != nil {
+	if target.knowledgeRoot == nil && s.skillSvc != nil {
 		data, native, err = s.skillSvc.ReadNativeFile(ctx, target.fullURI)
 		if err != nil {
 			return err
 		}
 	}
-	if native {
+	if target.knowledgeRoot != nil {
+		data, err = s.readPublishedKnowledge(ctx, target)
+	} else if native {
 		// The owned snapshot supplied exact bytes through fresh primitive Get.
 	} else if strings.HasPrefix(target.fullURI, "scratchpad://") {
 		a, err := s.loadAsset(ctx, input, input.ExpectedVersion)
@@ -359,8 +380,10 @@ func (s *Service) readImage(ctx context.Context, in, out interface{}) error {
 }
 
 type readTarget struct {
-	fullURI  string
-	normRoot string
+	fullURI        string
+	normRoot       string
+	knowledgeRoot  *knowledgeReadRoot
+	knowledgeChild string
 }
 
 func (s *Service) resolveReadTarget(ctx context.Context, input *ReadInput, allowed []string) (*readTarget, error) {
