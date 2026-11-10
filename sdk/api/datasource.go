@@ -77,6 +77,7 @@ type ListLookupRegistryInput struct {
 type LookupRegistryEntry struct {
 	DataSourceResource *identity.ResourceRef `json:"dataSourceResource,omitempty"`
 	PickerResource     *identity.ResourceRef `json:"pickerResource,omitempty"`
+	PickerRoot         *LookupPickerRoot     `json:"pickerRoot,omitempty"`
 	ProviderIdentity   string                `json:"providerIdentity,omitempty"`
 	Name               string                `json:"name"`
 	Title              string                `json:"title,omitempty"`
@@ -89,6 +90,13 @@ type LookupRegistryEntry struct {
 	Token              *TokenFormat          `json:"token,omitempty"`
 	Inputs             []LookupParameter     `json:"inputs,omitempty"`
 	Outputs            []LookupParameter     `json:"outputs,omitempty"`
+}
+
+// LookupPickerRoot identifies the admitted published picker behind a task.
+// Version is a string to retain the exact producer value in browser clients.
+type LookupPickerRoot struct {
+	Version            string `json:"version"`
+	ContentFingerprint string `json:"contentFingerprint"`
 }
 
 // TokenFormat is the client-facing token template set.

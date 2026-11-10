@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	dsproto "github.com/viant/agently-core/protocol/datasource"
@@ -139,6 +140,9 @@ func tryPublishedWindow(w http.ResponseWriter, r *http.Request, registrations ma
 	representationETag := `"` + hash + "." + publishedWindowRepresentationVersion + `"`
 	w.Header().Set("ETag", representationETag)
 	w.Header().Set("X-Artifact-Hash", hash)
+	if variant.PublishedVersion != 0 {
+		w.Header().Set("X-Artifact-Version", strconv.FormatUint(variant.PublishedVersion, 10))
+	}
 	w.Header().Set("Cache-Control", "private, no-cache")
 	w.Header().Set("Vary", "Authorization, Cookie")
 	if r.Header.Get("If-None-Match") == representationETag {

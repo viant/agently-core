@@ -1139,6 +1139,7 @@ export interface LookupRegistryEntry {
     name: string;
     dataSourceResource?: { uri: string; revision?: string };
     pickerResource?: { uri: string; revision?: string };
+    pickerRoot?: { version: string; contentFingerprint: string };
     providerIdentity?: string;
     title?: string;
     dataSource: string;

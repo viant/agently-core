@@ -30,7 +30,7 @@ func (f *publishedWindowFixture) OpenWindowVariant(_ context.Context, uri string
 	if f.variant != nil {
 		return f.variant, "abcdef", nil
 	}
-	return &forgetypes.WindowResourceVariant{Window: &forgetypes.Window{WindowKey: "connectors", View: forgetypes.View{Content: &forgetypes.Container{ID: "published"}}, DataSource: map[string]forgetypes.DataSource{"rows": {Service: &forgetypes.Service{Endpoint: "agentlyAPI", URI: "/v1/api/datasources/rows/fetch", Method: "POST"}}}}, DataSources: map[string]json.RawMessage{"rows": json.RawMessage(`{"id":"rows"}`)}}, "abcdef", nil
+	return &forgetypes.WindowResourceVariant{PublishedVersion: 9007199254740993, Window: &forgetypes.Window{WindowKey: "connectors", View: forgetypes.View{Content: &forgetypes.Container{ID: "published"}}, DataSource: map[string]forgetypes.DataSource{"rows": {Service: &forgetypes.Service{Endpoint: "agentlyAPI", URI: "/v1/api/datasources/rows/fetch", Method: "POST"}}}}, DataSources: map[string]json.RawMessage{"rows": json.RawMessage(`{"id":"rows"}`)}}, "abcdef", nil
 }
 
 func TestClaimedPublishedNamespaceNeverFallsBackForOldCanonicalLocator(t *testing.T) {
@@ -133,6 +133,9 @@ func TestPublishedWindowGetUsesOnlyAdmittedLocalVariantAndRechecks304(t *testing
 		return response
 	}
 	first := request("")
+	if first.Header().Get("X-Artifact-Version") != "9007199254740993" {
+		t.Fatal("published response lost the exact artifact version")
+	}
 	if first.Code != http.StatusOK || first.Header().Get("ETag") != `"abcdef.cohort-v2"` || first.Header().Get("X-Artifact-Hash") != "abcdef" || first.Header().Get("Cache-Control") != "private, no-cache" || legacy.calls != 0 || published.calls != 1 || published.uri != expected.URI || bound != 1 {
 		t.Fatalf("published GET: %d %q calls=%d/%d bound=%d body=%s", first.Code, first.Header().Get("ETag"), legacy.calls, published.calls, bound, first.Body.String())
 	}
@@ -151,6 +154,9 @@ func TestPublishedWindowGetUsesOnlyAdmittedLocalVariantAndRechecks304(t *testing
 		t.Fatalf("old representation incorrectly reused: %d", oldRepresentation.Code)
 	}
 	second := request(`"abcdef.cohort-v2"`)
+	if second.Header().Get("X-Artifact-Version") != first.Header().Get("X-Artifact-Version") {
+		t.Fatal("conditional response lost the selected artifact version")
+	}
 	if second.Code != http.StatusNotModified || second.Header().Get("X-Artifact-Hash") != "abcdef" || legacy.calls != 0 || published.calls != 3 || bound != 3 {
 		t.Fatalf("304 skipped admission/bind: %d %d %d %d", second.Code, legacy.calls, published.calls, bound)
 	}

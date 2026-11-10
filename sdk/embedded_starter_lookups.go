@@ -3,9 +3,9 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 
-	loproto "github.com/viant/agently-core/protocol/lookup/overlay"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/sdk/api"
 	overlays "github.com/viant/agently-core/service/lookup/overlay"
@@ -13,7 +13,7 @@ import (
 	resourcehost "github.com/viant/forge/backend/resourcehost"
 )
 
-func (c *backendClient) starterLookupEntries(ctx context.Context, in *api.ListLookupRegistryInput, kind, agent string) ([]loproto.RegistryEntry, error) {
+func (c *backendClient) starterLookupEntries(ctx context.Context, in *api.ListLookupRegistryInput, kind, agent string) ([]api.LookupRegistryEntry, error) {
 	if in.StarterTaskID == "" && in.StarterTaskFingerprint == "" {
 		return nil, nil
 	}
@@ -23,7 +23,7 @@ func (c *backendClient) starterLookupEntries(ctx context.Context, in *api.ListLo
 		return nil, identity.ErrResourceDenied
 	}
 	loaded, err := resourcehost.Load(ctx, c.primitiveProviders, set, resourcehost.PublishedCodec[map[string]primitive.StarterTask]{
-		ID: "agently.startertask.lookup.v1", Immutable: true, Decode: func(_ context.Context, _ string, raw json.RawMessage) (map[string]primitive.StarterTask, error) {
+		ID: "agently.startertask.lookup.v1", Immutable: true, FenceSnapshot: true, Decode: func(_ context.Context, _ string, raw json.RawMessage) (map[string]primitive.StarterTask, error) {
 			var definition primitive.StarterTaskEnvelope
 			if err := json.Unmarshal(raw, &definition); err != nil {
 				return nil, err
@@ -59,7 +59,9 @@ func (c *backendClient) starterLookupEntries(ctx context.Context, in *api.ListLo
 	if len(entries) == 0 {
 		return nil, identity.ErrResourceDenied
 	}
-	for _, entry := range entries {
+	result := toAPIRegistryEntries(entries)
+	pickers := map[string]*api.LookupPickerRoot{}
+	for i, entry := range entries {
 		if entry.PickerResource == nil || entry.WindowId != entry.PickerResource.URI || entry.ProviderIdentity != loaded.Resource.ProviderIdentity {
 			return nil, identity.ErrResourceDenied
 		}
@@ -67,19 +69,25 @@ func (c *backendClient) starterLookupEntries(ctx context.Context, in *api.ListLo
 		if err != nil || picker.Kind != "window" || picker.Namespace != uri.Namespace {
 			return nil, identity.ErrResourceDenied
 		}
-		opened, err := resourcehost.Load(ctx, c.primitiveProviders, picker.String(), resourcehost.PublishedCodec[struct{}]{
-			ID: "agently.startertask.picker-admission.v1", Immutable: true,
-			Decode: func(context.Context, string, json.RawMessage) (struct{}, error) { return struct{}{}, nil },
-		})
-		if err != nil {
-			return nil, err
+		root := pickers[entry.WindowId]
+		if root == nil {
+			opened, err := resourcehost.Load(ctx, c.primitiveProviders, picker.String(), resourcehost.PublishedCodec[struct{}]{
+				ID: "agently.startertask.picker-admission.v1", Immutable: true, CaptureVersion: true,
+				Decode: func(context.Context, string, json.RawMessage) (struct{}, error) { return struct{}{}, nil },
+			})
+			if err != nil {
+				return nil, err
+			}
+			if opened.Resource.ProviderIdentity != entry.ProviderIdentity || opened.Version == 0 {
+				return nil, identity.ErrResourceDenied
+			}
+			root = &api.LookupPickerRoot{Version: strconv.FormatUint(opened.Version, 10), ContentFingerprint: opened.Resource.ContentFingerprint}
+			pickers[entry.WindowId] = root
 		}
-		if opened.Resource.ProviderIdentity != entry.ProviderIdentity {
-			return nil, identity.ErrResourceDenied
-		}
+		result[i].PickerRoot = root
 	}
-	if err := c.primitiveProviders.VerifyPublishedMetadata(ctx, *loaded.Resource); err != nil {
+	if err := loaded.VerifySnapshot(ctx); err != nil {
 		return nil, err
 	}
-	return entries, nil
+	return result, nil
 }

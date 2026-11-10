@@ -40,6 +40,20 @@ func (p starterLookupPublisher) Fetch(_ context.Context, input artifactcohort.Fe
 type starterLookupRoleKey struct{}
 type starterLookupFacts struct{}
 
+type starterTransitionSource struct {
+	*artifactcohort.MetadataSource
+	beforePicker func()
+}
+
+func (s *starterTransitionSource) CurrentVersionHash(ctx context.Context, uri string) (uint64, string, error) {
+	if uri == "window://measurement/record-picker" && s.beforePicker != nil {
+		before := s.beforePicker
+		s.beforePicker = nil
+		before()
+	}
+	return s.MetadataSource.CurrentVersionHash(ctx, uri)
+}
+
 func (starterLookupFacts) Resolve(ctx context.Context) (authz.Facts, error) {
 	role, _ := ctx.Value(starterLookupRoleKey{}).(string)
 	return authz.Facts{Subject: role, Issuer: "fixture", Tenant: "fixture", Roles: []string{role}, ValidUntil: time.Now().Add(time.Hour)}, nil
@@ -119,7 +133,8 @@ func TestPublishedStarterLookupRegistryScopesAttachmentsToSelectedTask(t *testin
 	require.NoError(t, err)
 	gateway := resources.NewGateway(mgr, actor, verify, "consumer")
 	t.Cleanup(gateway.Close)
-	require.NoError(t, gateway.RegisterPublishedMetadataSource(resources.Connection{Name: "studio-cohort", ProviderIdentity: studio}, []string{"measurement"}, source))
+	transition := &starterTransitionSource{MetadataSource: source}
+	require.NoError(t, gateway.RegisterPublishedMetadataSource(resources.Connection{Name: "studio-cohort", ProviderIdentity: studio}, []string{"measurement"}, transition))
 	backend := &backendClient{primitiveProviders: gateway}
 	registry := func(role, task, fingerprint string, status int) api.ListLookupRegistryOutput {
 		t.Helper()
@@ -152,6 +167,7 @@ func TestPublishedStarterLookupRegistryScopesAttachmentsToSelectedTask(t *testin
 	require.Equal(t, "record", entry.Name)
 	require.Equal(t, studio, entry.ProviderIdentity)
 	require.Equal(t, pickerURI, entry.PickerResource.URI)
+	require.Equal(t, &api.LookupPickerRoot{Version: "1", ContentFingerprint: picker.Hash}, entry.PickerRoot)
 	require.Equal(t, "${name} (ID ${id})", entry.Token.ModelForm)
 	readerContext := context.WithValue(ctx, starterLookupRoleKey{}, "reader")
 	templateReader := resources.NewTemplateReader(gateway)
@@ -164,6 +180,18 @@ func TestPublishedStarterLookupRegistryScopesAttachmentsToSelectedTask(t *testin
 	require.Equal(t, ordinaryTemplate.URI, resolved.ResourceURI)
 	_, err = templateReader.Load(readerContext, libraryURI)
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
+	changedPicker := publish(pickerURI, "window", 2, json.RawMessage(`{"schemaVersion":2,"title":"New Record picker"}`))
+	activate(selected, library, changedPicker, ordinaryTemplate)
+	require.NoError(t, replica.Sync(ctx))
+	afterPickerChange := registry("reader", "review", selected.Hash, http.StatusOK)
+	require.Equal(t, &api.LookupPickerRoot{Version: "2", ContentFingerprint: changedPicker.Hash}, afterPickerChange.StarterEntries[0].PickerRoot)
+	transition.beforePicker = func() {
+		cohorts := []artifactcohort.Cohort{{Tenant: "fixture", Name: "readers", PolicyResource: role, Roots: []artifactcohort.RootRef{selected, library, changedPicker, ordinaryTemplate}, DeniedURIs: []string{libraryURI}}}
+		_, err := publisher.ReplaceCatalog(ctx, []authz.Document{policy}, cohorts, publisher.Generation())
+		require.NoError(t, err)
+		require.NoError(t, replica.Sync(ctx))
+	}
+	registry("reader", "review", selected.Hash, http.StatusForbidden)
 	registry("other", "review", selected.Hash, http.StatusForbidden)
 	registry("reader", "legacy", selected.Hash, http.StatusForbidden)
 	registry("reader", "missing", selected.Hash, http.StatusForbidden)
