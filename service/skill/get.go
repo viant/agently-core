@@ -8,9 +8,9 @@ import (
 )
 
 type GetInput struct {
-	Name   string `json:"name,omitempty"`
-	URI    string `json:"uri,omitempty" description:"Qualified skill URI returned by discovery or supplied in the skill handoff."`
-	Server string `json:"server,omitempty"`
+	Name   string `json:"name,omitempty" description:"Skill name when no URI is supplied. Do not combine a name with server; prefer the exact uri returned by skill discovery."`
+	URI    string `json:"uri,omitempty" description:"Exact qualified skill URI returned by discovery or supplied in the skill handoff. Pass this value unchanged and omit name and server. Discover the skill first if its URI is unknown."`
+	Server string `json:"server,omitempty" description:"Only for an explicit raw skill resource URI ending in /SKILL.md: the catalog identifier, not an MCP endpoint URL. Omit this field for a qualified URI returned by discovery. A server alone or with only name is not supported."`
 	Path   string `json:"path,omitempty" description:"Optional supporting-file path relative to the selected skill, such as references/methodology.md. Keep uri set to the skill URI; do not use the file path as the skill name."`
 }
 type GetOutput struct {
