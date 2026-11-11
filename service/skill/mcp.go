@@ -223,7 +223,14 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 				traceSkippedDiscoveryFailure(ctx, "list", server, automatic, only, err)
 				continue
 			}
-			if only == "" && (optionalSkillLinkRequired(err) || automatic && optionalDiscoveryUnavailable(err)) {
+			if only == "" && optionalSkillLinkRequired(err) {
+				// No credentials means this provider contributes no skills yet.
+				// The catalog owner's credential scope changes when it is linked;
+				// do not make healthy catalogs uncacheable while it stays unlinked.
+				traceSkippedDiscoveryFailure(ctx, "unlinked", server, automatic, only, err)
+				continue
+			}
+			if only == "" && automatic && optionalDiscoveryUnavailable(err) {
 				traceSkippedDiscoveryFailure(ctx, "list", server, automatic, only, err)
 				recordDiscoveryFailure(ctx, id)
 				continue

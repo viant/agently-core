@@ -51,6 +51,13 @@ func TestSkillPageWithNativeGatewaySourceSkipsUnlinkedParticipant(t *testing.T) 
 	require.Len(t, page.Items, 1)
 	require.Equal(t, "review", page.Items[0].Name)
 	require.Zero(t, f.readCalls)
+	require.True(t, page.Complete, "an unlinked provider is a known credential state, not an unavailable catalog")
+	for i := 0; i < 3; i++ {
+		again, err := s.ListVisiblePage(ctx, a, primitive.CatalogQuery{})
+		require.NoError(t, err)
+		require.Equal(t, page, again)
+	}
+	require.Equal(t, 1, f.listCalls, "unchanged credentials must reuse the healthy provider catalog")
 	_, err = s.GetVisible(ctx, a, "skill://optional/review")
 	require.ErrorIs(t, err, missing)
 	linked = true
