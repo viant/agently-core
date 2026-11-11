@@ -36,6 +36,7 @@ func (h *MetadataHandler) SetCapturedLayout(root, source string, raw []byte, che
 	if err != nil {
 		return err
 	}
+	h.managedStyles = layout.GlobalStyleSource != nil
 	h.layoutDefault = append([]byte(nil), raw...)
 	h.capturedLayoutJSON = compiled
 	h.capturedLayoutRoot = root

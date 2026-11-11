@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -94,5 +95,37 @@ themes:
 	}
 	if after.WorkspaceID != metadata.WorkspaceID {
 		t.Fatal("style edit changed workspace identity")
+	}
+}
+
+func TestManagedStyleOwnershipSuppressesLocalAssetsBeforeFirstLayoutRead(t *testing.T) {
+	h := NewMetadataHandler(nil, nil, "test")
+	err := h.SetCapturedLayout(t.TempDir(), "embedded", []byte("version: 1\nid: shell\napplications: []\nglobalStyleSource: {connection: public-catalog, resource: 'style://shared/base'}\n"), func(context.Context) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A central-style startup must never invoke the local compiler, even before
+	// layout/global metadata arrives. Its custom asset routes remain unmounted.
+	h.styles = nil
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/workspace/metadata", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metadata: %d %s", rec.Code, rec.Body.String())
+	}
+	var metadata MetadataResponse
+	if err = json.Unmarshal(rec.Body.Bytes(), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.UIStyleSource != "managed" || metadata.UIStyles != nil || metadata.UIThemes != nil {
+		t.Fatalf("local styling leaked into managed startup: %+v", metadata)
+	}
+	for _, path := range []string{"/v1/workspace/ui/styles/old.css", "/v1/workspace/ui/themes/old.json", "/v1/workspace/ui/fonts/old.woff2"} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("local custom asset remained mounted: %s %d", path, rec.Code)
+		}
 	}
 }

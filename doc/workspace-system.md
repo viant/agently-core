@@ -162,22 +162,35 @@ not infer report persistence or product placement from starter-task captions.
 The existing SDK tests and type check cover final projection; host lifecycle
 checks do not establish authenticated access recovery or cross-device retention.
 
-## Application stylesheet overrides
+## Stylesheet ownership
 
-Agently uses its workspace theme by default. To allow an MCP application's
-linked stylesheets to override that appearance, opt in on the host's source:
+Without `globalStyleSource`, local mode uses workspace CSS when it is defined.
+It does not fall back to a remote stylesheet. Selecting a global source chooses
+provider-managed ownership for the complete custom design system:
 
 ```yaml
-applicationSources:
-  - connection: mcp://workspace/catalog
-    resource: navigation://example/main
-    applicationId: example
-    allowStyleOverrides: true
+globalStyleSource:
+  connection: public-catalog
+  resource: style://shared/base
 ```
 
-Omitted or false disables delivery of `styleResources` in the application
-projection. A provider cannot enable this option in its navigation payload.
-The UI removes previously installed application sheets when the option is
-turned off. Local workspace themes, authored layout and chart colors remain
-unchanged. Original verified artifacts and producer preview CSS are retained;
-this option does not rewrite signed or fingerprinted bundle bytes.
+In managed mode, startup captures that choice before the metadata routes mount.
+Local custom CSS and font routes are not mounted, local styles are not compiled,
+and metadata omits local `uiStyles` and `uiThemes`. The `uiStyleSource` response
+field tells clients the selected ownership before the remote layout arrives.
+Generic framework component CSS remains available.
+
+The layout projects `globalStyle` with the resource URI, discovered provider and
+connection, and an opaque revision. CSS bytes stay in the existing MCP resource
+read path. A public cohort can supply the base with no visible applications.
+Namespace style references remain authored metadata, but are not fetched or
+applied in managed mode. The one global stylesheet governs every namespace.
+Local mode likewise does not fetch remote namespace styles.
+
+Published metadata and resource notifications change the projected revision.
+Existing layout refresh observes it without fetching stylesheet bodies, and
+unchanged revisions reuse installed CSS and owned fonts. Transient read failures
+retain the last admitted synchronized revision with diagnostics. Authoritative
+withdrawal removes it, exposing only generic framework styling; it never restores
+an old local stylesheet or local theme catalog. Explicitly choosing local mode is
+the only way to resume local workspace CSS.

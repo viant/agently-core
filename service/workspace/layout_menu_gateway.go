@@ -242,8 +242,11 @@ func validateNavigationDefinition(raw json.RawMessage) (json.RawMessage, error) 
 // poison its own transaction, never the accepted reads of another provider.
 func optionalGatewayLayoutMenuReader(gateway *resources.Gateway, sources func(context.Context) ([]GatewayMenuSource, error)) LayoutMenuReader {
 	return func(ctx context.Context) (*LayoutMenuRead, error) {
-		if ctx == nil || ctx.Err() != nil {
+		if ctx == nil {
 			return nil, identity.ErrResourceDenied
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		// Optional navigation is discovery, not a user request to link an app.
 		// Reuse the transport's existing noninteractive metadata-read marker.
@@ -311,6 +314,7 @@ func applyNavigationStylePreference(raw json.RawMessage, allow bool) (json.RawMe
 	}
 	if allow {
 		app["allowStyleOverrides"] = json.RawMessage("true")
+
 	} else {
 		delete(app, "allowStyleOverrides")
 		delete(app, "styleResources")

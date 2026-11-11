@@ -8,11 +8,19 @@ import (
 
 // LayoutMenuRead contains already authorized visible applications and a final
 // exact-pin check. Revision identifies the composed delivery, not source bytes.
+type LayoutGlobalStyle struct {
+	ResourceURI        string `json:"resourceUri"`
+	ResourceConnection string `json:"resourceConnection"`
+	ProviderIdentity   string `json:"providerIdentity"`
+	StyleRevision      string `json:"styleRevision"`
+}
 type LayoutMenuRead struct {
-	Applications json.RawMessage
-	Revision     string
-	Revalidate   func(context.Context) error
-	Close        func() error
+	GlobalStyle          *LayoutGlobalStyle
+	PreserveApplications bool
+	Applications         json.RawMessage
+	Revision             string
+	Revalidate           func(context.Context) error
+	Close                func() error
 	// ProviderOwnedApplications have already been selected by their managing
 	// MCP. The host applies presentation conditions, not another window inventory.
 	ProviderOwnedApplications bool

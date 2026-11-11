@@ -32,6 +32,7 @@ import (
 // Layout is the workspace-owned navigation shell. Window definitions remain
 // owned by Forge's existing workspace/embedded window loaders.
 type Layout struct {
+	GlobalStyleSource           *LayoutGlobalStyleSource      `json:"-" yaml:"globalStyleSource,omitempty"`
 	Version                     int                           `json:"version" yaml:"version"`
 	ID                          string                        `json:"id" yaml:"id"`
 	Topbar                      *LayoutTopbar                 `json:"topbar,omitempty" yaml:"topbar,omitempty"`
@@ -175,16 +176,22 @@ type LayoutAction struct {
 }
 
 type layoutResponse struct {
-	SchemaVersion    int               `json:"schemaVersion"`
-	LayoutRevision   string            `json:"layoutRevision"`
-	WorkspaceID      string            `json:"workspaceId"`
-	CatalogRevisions map[string]string `json:"catalogRevisions,omitempty"`
-	Layout           *Layout           `json:"layout"`
+	UIStyleSource    string             `json:"uiStyleSource"`
+	GlobalStyle      *LayoutGlobalStyle `json:"globalStyle,omitempty"`
+	SchemaVersion    int                `json:"schemaVersion"`
+	LayoutRevision   string             `json:"layoutRevision"`
+	WorkspaceID      string             `json:"workspaceId"`
+	CatalogRevisions map[string]string  `json:"catalogRevisions,omitempty"`
+	Layout           *Layout            `json:"layout"`
 }
 
 // SetLayoutDefault supplies the host application's embedded default.
 func (h *MetadataHandler) SetLayoutDefault(data []byte) {
 	h.layoutDefault = append([]byte(nil), data...)
+	var layout Layout
+	if yaml.Unmarshal(data, &layout) == nil {
+		h.managedStyles = layout.GlobalStyleSource != nil
+	}
 }
 
 func (h *MetadataHandler) handleLayout() http.HandlerFunc {
@@ -303,25 +310,28 @@ func (h *MetadataHandler) Layout(ctx context.Context, request *LayoutRequest) (*
 			logLayoutMenuFailure("revalidate", err)
 			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
 		}
-		var applications []LayoutApplication
-		if err = json.Unmarshal(menuRead.Applications, &applications); err != nil || applications == nil {
-			logLayoutMenuFailure("menu_decode", err)
-			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
-		}
-		if menuRead.ProviderOwnedApplications {
-			for i := range applications {
-				markProviderOwnedLayoutActions(&applications[i])
+		if !menuRead.PreserveApplications {
+			var applications []LayoutApplication
+			if err = json.Unmarshal(menuRead.Applications, &applications); err != nil || applications == nil {
+				logLayoutMenuFailure("menu_decode", err)
+				return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
 			}
+			if menuRead.ProviderOwnedApplications {
+				for i := range applications {
+					markProviderOwnedLayoutActions(&applications[i])
+				}
+			}
+			layout.Applications = applications
 		}
-		layout.Applications = applications
 		if err = validateLayout(&layout); err != nil {
 			logLayoutMenuFailure("menu_validate", err)
 			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
 		}
 	}
 	admission, capabilities := h.layoutRuntimes()
-	catalog := layoutWindowCatalog(h.windowResourceCatalog, &layout, menuRead != nil)
-	if menuRead != nil && menuRead.ProviderOwnedApplications {
+	menuManaged := menuRead != nil && !menuRead.PreserveApplications
+	catalog := layoutWindowCatalog(h.windowResourceCatalog, &layout, menuManaged)
+	if menuManaged && menuRead.ProviderOwnedApplications {
 		catalog = nil
 	}
 	permitted, err := filterLayoutContextWithRuntimes(ctx, &layout, admission, capabilities, catalog)
@@ -353,7 +363,15 @@ func (h *MetadataHandler) Layout(ctx context.Context, request *LayoutRequest) (*
 	digest := sha256.Sum256(revisionBytes)
 	catalogRevisions := permitted.CatalogRevisions
 	permitted.CatalogRevisions = nil
-	return &layoutResponse{SchemaVersion: 1, LayoutRevision: hex.EncodeToString(digest[:]), WorkspaceID: root, CatalogRevisions: catalogRevisions, Layout: permitted}, nil
+	var globalStyle *LayoutGlobalStyle
+	if menuRead != nil {
+		globalStyle = menuRead.GlobalStyle
+	}
+	styleSource := "local"
+	if h.managedStyles {
+		styleSource = "managed"
+	}
+	return &layoutResponse{UIStyleSource: styleSource, GlobalStyle: globalStyle, SchemaVersion: 1, LayoutRevision: hex.EncodeToString(digest[:]), WorkspaceID: root, CatalogRevisions: catalogRevisions, Layout: permitted}, nil
 }
 
 func validateLayoutYAML(node *yaml.Node) error {

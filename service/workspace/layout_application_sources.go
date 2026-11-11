@@ -21,6 +21,11 @@ import (
 
 // LayoutApplicationSource selects presentation order, never grants access.
 // Names, icons and menu content remain owned by the managing MCP.
+type LayoutGlobalStyleSource struct {
+	Connection string `yaml:"connection"`
+	Resource   string `yaml:"resource"`
+}
+
 type LayoutApplicationSource struct {
 	AllowStyleOverrides bool   `yaml:"allowStyleOverrides,omitempty"`
 	Connection          string `yaml:"connection"`
@@ -32,14 +37,21 @@ type LayoutApplicationSource struct {
 // reports. Only explicitly configured connections participate in discovery.
 func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuReader, error) {
 	var config struct {
+		GlobalStyle     *LayoutGlobalStyleSource  `yaml:"globalStyleSource"`
 		Sources         []LayoutApplicationSource `yaml:"applicationSources"`
 		IncludeUnlisted bool                      `yaml:"includeUnlistedApplications"`
 	}
 	if err := yaml.Unmarshal(raw, &config); err != nil {
 		return nil, err
 	}
-	if len(config.Sources) == 0 {
+	if len(config.Sources) == 0 && config.GlobalStyle == nil {
 		return nil, nil
+	}
+	if config.GlobalStyle != nil {
+		uri, err := identity.ParseResourceURI(config.GlobalStyle.Resource)
+		if err != nil || uri.Kind != "style" || config.GlobalStyle.Connection == "" {
+			return nil, fmt.Errorf("invalid global stylesheet source")
+		}
 	}
 	roots := []resources.Connection{}
 	seenRoots, seenSelections := map[string]bool{}, map[string]bool{}
@@ -55,7 +67,7 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 			seenRoots[source.Connection] = true
 		}
 	}
-	return newGatewayLayoutMenuReader(gateway, func(ctx context.Context) ([]GatewayMenuSource, error) {
+	menuReader := newGatewayLayoutMenuReader(gateway, func(ctx context.Context) ([]GatewayMenuSource, error) {
 		available := map[string]resources.Located[json.RawMessage]{}
 		var ordered []resources.Located[json.RawMessage]
 		for _, root := range roots {
@@ -118,7 +130,59 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 			}
 		}
 		return out, nil
-	}, true), nil
+	}, true)
+	if config.GlobalStyle == nil {
+		return menuReader, nil
+	}
+	return func(ctx context.Context) (*LayoutMenuRead, error) {
+		read, err := menuReader(ctx)
+		if err != nil {
+			return nil, err
+		}
+		read.PreserveApplications = len(config.Sources) == 0
+		source := config.GlobalStyle
+		uri, _ := identity.ParseResourceURI(source.Resource)
+		var selected *LayoutGlobalStyle
+		for cursor := ""; ; {
+			page, err := resources.ListPageFrom[json.RawMessage](ctx, gateway, []resources.Connection{{Name: source.Connection}}, "style", resources.CatalogQuery{Namespace: uri.Namespace, NameTerms: []string{uri.Name}, Limit: 100, Cursor: cursor}, false)
+			if err != nil {
+				_ = read.Close()
+				return nil, markLayoutMenuFailure("global_style_discovery", source.Connection, source.Resource, err)
+			}
+			for _, row := range page.Items {
+				if row.Resource.URI == source.Resource {
+					metadata, marshalErr := json.Marshal(row.LocatedResource)
+					if marshalErr != nil {
+						_ = read.Close()
+						return nil, markLayoutMenuFailure("global_style_metadata", source.Connection, source.Resource, marshalErr)
+					}
+					revision := identity.ContentFingerprint(append(metadata, []byte(fmt.Sprintf(":%v:%v", gateway.Manager.ResourceCatalogGeneration(ctx, row.Connection.Name), gateway.Manager.ResourceContentGeneration(ctx, row.Connection.Name)))...))
+					selected = &LayoutGlobalStyle{ResourceURI: source.Resource, ResourceConnection: row.Connection.Name, ProviderIdentity: row.Connection.ProviderIdentity, StyleRevision: revision}
+					break
+				}
+			}
+			if selected != nil || page.NextCursor == "" {
+				break
+			}
+			if page.NextCursor == cursor {
+				_ = read.Close()
+				return nil, fmt.Errorf("global stylesheet pagination made no progress")
+			}
+			cursor = page.NextCursor
+		}
+		read.GlobalStyle = selected
+		styleProjection, _ := json.Marshal(selected)
+		read.Revision = identity.ContentFingerprint(append([]byte(read.Revision), styleProjection...))
+		revalidate := read.Revalidate
+		read.Revalidate = func(ctx context.Context) error {
+			if err := revalidate(ctx); err != nil {
+				return err
+			}
+			read.Revision = identity.ContentFingerprint(append([]byte(read.Revision), styleProjection...))
+			return nil
+		}
+		return read, nil
+	}, nil
 }
 
 // Classify only typed authorization outcomes. Mixed failures, cancellation,

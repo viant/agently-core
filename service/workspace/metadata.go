@@ -35,6 +35,7 @@ type MetadataResponse struct {
 	BrowserMCP            []mcpcfg.BrowserDescriptor `json:"browserMCP,omitempty"`
 	Composer              wscfg.Composer             `json:"composer"`
 	WorkspaceID           string                     `json:"workspaceId,omitempty"`
+	UIStyleSource         string                     `json:"uiStyleSource,omitempty"`
 	UIStyles              *uistyle.Descriptor        `json:"uiStyles,omitempty"`
 	UIThemes              *uistyle.Descriptor        `json:"uiThemes,omitempty"`
 	UIStyleDiagnostics    []string                   `json:"uiStyleDiagnostics,omitempty"`
@@ -130,6 +131,7 @@ type MetadataHandler struct {
 	browserMCP             func(context.Context) ([]mcpcfg.BrowserDescriptor, error)
 	windowResourceCatalog  WindowResourceCatalog
 	styles                 *uistyle.Service
+	managedStyles          bool
 	defaults               *config.Defaults
 	store                  ws.Store
 	version                string
@@ -193,7 +195,9 @@ func (h *MetadataHandler) SetReportingCapabilityEnabled(enabled bool) {
 
 // Register mounts the metadata endpoint.
 func (h *MetadataHandler) Register(mux *http.ServeMux) {
-	h.styles.Register(mux)
+	if !h.managedStyles {
+		h.styles.Register(mux)
+	}
 	mux.HandleFunc("GET /v1/workspace/metadata", h.handleMetadata())
 	mux.HandleFunc("GET /v1/workspace/metadata/publicagents", h.handlePublicAgents())
 	mux.HandleFunc("GET /v1/workspace/layout", h.handleLayout())

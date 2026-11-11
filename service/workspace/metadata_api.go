@@ -91,11 +91,16 @@ func (h *MetadataHandler) Metadata(ctx context.Context) (*MetadataResponse, erro
 	}
 	resp.Composer = composerConfig.Composer()
 	resp.Capabilities.Goals = goalsCapabilityEnabled(resp.AgentInfos)
-	styles := h.styles.Current(ctx)
-	resp.WorkspaceID = styles.WorkspaceID
-	resp.UIStyles = styles.Styles
-	resp.UIThemes = styles.Themes
-	resp.UIStyleDiagnostics = styles.Diagnostics
+	if h.managedStyles {
+		resp.UIStyleSource = "managed"
+	} else {
+		resp.UIStyleSource = "local"
+		styles := h.styles.Current(ctx)
+		resp.WorkspaceID = styles.WorkspaceID
+		resp.UIStyles = styles.Styles
+		resp.UIThemes = styles.Themes
+		resp.UIStyleDiagnostics = styles.Diagnostics
+	}
 	resp.Capabilities.NamespaceStarterTasks = h.starterTaskGateway != nil && len(h.starterTaskGateway.PublishedMetadataConnections()) != 0
 	starterTasks, err := loadNamespaceStarterTasks(ctx, h.starterTaskGateway)
 	if err != nil {
