@@ -136,6 +136,7 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		permittedRuntime = permittedview.NewRuntime(opts.Runtime.PermittedResolver)
 	}
 	metadataHandler.SetAuthorizationRuntimes(opts.Runtime.AuthorizationPolicy, permittedRuntime)
+	metadataHandler.SetLayoutPresentationResolver(opts.Runtime.PresentationResolver())
 	if opts.Runtime.UIBridge != nil {
 		var windows svcworkspace.WindowResourceCatalog = opts.Runtime.UIBridge
 		if defaultManagedNavigation && opts.Runtime.PrimitiveWindows != nil {

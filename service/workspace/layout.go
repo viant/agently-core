@@ -334,7 +334,12 @@ func (h *MetadataHandler) Layout(ctx context.Context, request *LayoutRequest) (*
 	if menuManaged && menuRead.ProviderOwnedApplications {
 		catalog = nil
 	}
-	permitted, err := filterLayoutContextWithRuntimes(ctx, &layout, admission, capabilities, catalog)
+	principal, err := h.layoutPresentationPrincipal(ctx, &layout)
+	if err != nil {
+		logLayoutMenuFailure("presentation_principal", err)
+		return nil, layoutPresentationFailure(err)
+	}
+	permitted, err := filterLayoutContextWithPrincipal(ctx, &layout, admission, capabilities, principal, catalog)
 	if err != nil {
 		logx.Debugf("workspace-navigation", "layout presentation failed: %v", err)
 		if errors.Is(err, policy.ErrIdentityRejected) {
@@ -358,6 +363,9 @@ func (h *MetadataHandler) Layout(ctx context.Context, request *LayoutRequest) (*
 	}
 	if menuRead != nil {
 		revisionBytes = append(append(revisionBytes, 0), menuRead.Revision...)
+	}
+	if principal != nil {
+		revisionBytes = append(append(revisionBytes, 0), principal.AuthorizationVersion...)
 	}
 
 	digest := sha256.Sum256(revisionBytes)
@@ -649,6 +657,10 @@ func filterLayoutWithRuntimes(r *http.Request, layout *Layout, admission *policy
 }
 
 func filterLayoutContextWithRuntimes(ctx context.Context, layout *Layout, admission *policy.Runtime, capabilities *permittedview.Runtime, catalogs ...WindowResourceCatalog) (filtered *Layout, resultErr error) {
+	return filterLayoutContextWithPrincipal(ctx, layout, admission, capabilities, nil, catalogs...)
+}
+
+func filterLayoutContextWithPrincipal(ctx context.Context, layout *Layout, admission *policy.Runtime, capabilities *permittedview.Runtime, principal *permittedview.Snapshot, catalogs ...WindowResourceCatalog) (filtered *Layout, resultErr error) {
 	var catalog WindowResourceCatalog
 	if len(catalogs) > 0 && catalogs[0] != nil && catalogs[0].UsesWindowResourceResolution() {
 		catalog = catalogs[0]
@@ -677,7 +689,7 @@ func filterLayoutContextWithRuntimes(ctx context.Context, layout *Layout, admiss
 	}
 	var prepared []preparedApp
 	for _, app := range layout.Applications {
-		allowed, snapshot, err := resolveNodeContextWithRuntime(ctx, app.Authorization, app.VisibleWhen, nil, capabilities)
+		allowed, snapshot, err := resolveNodeContextWithRuntime(ctx, app.Authorization, app.VisibleWhen, principal, capabilities)
 		if err != nil {
 			return nil, err
 		}
@@ -791,7 +803,7 @@ func filterLayoutContextWithRuntimes(ctx context.Context, layout *Layout, admiss
 	if layout.Topbar != nil {
 		topbar := *layout.Topbar
 		var err error
-		topbar.Actions, err = filterMenusContextWithRuntime(ctx, layout.Topbar.Actions, nil, false, false, allowedWindows, exactWindowIDs, capabilities)
+		topbar.Actions, err = filterMenusContextWithRuntime(ctx, layout.Topbar.Actions, principal, false, false, allowedWindows, exactWindowIDs, capabilities)
 		if err != nil {
 			return nil, err
 		}

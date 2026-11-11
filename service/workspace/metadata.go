@@ -138,6 +138,7 @@ type MetadataHandler struct {
 	reportingOverride      *bool
 	authorizationPolicy    *policy.Runtime
 	permittedRuntime       *permittedview.Runtime
+	presentationResolver   permittedview.Resolver
 	legacyDefaults         bool
 	layoutDefault          []byte
 	capturedLayoutJSON     json.RawMessage

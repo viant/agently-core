@@ -424,8 +424,11 @@ func (r *AuthzResolver) Resolve(ctx context.Context, request *Request) (*Snapsho
 // resolvePrincipal projects current authenticated roles/exposures for rendering.
 // It never resolves an account, reads resource policies, or evaluates actions.
 func (r *AuthzResolver) resolvePrincipal(ctx context.Context, request *Request) (*Snapshot, error) {
-	if r == nil || r.Service == nil || r.Service.Provider == nil || ctx == nil || ctx.Err() != nil {
+	if r == nil || r.Service == nil || r.Service.Provider == nil || ctx == nil {
 		return nil, ErrUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if request.SchemaVersion != 0 && request.SchemaVersion != 1 && request.SchemaVersion != 2 {
 		return nil, fmt.Errorf("permitted view: unsupported schema")
@@ -443,13 +446,16 @@ func (r *AuthzResolver) resolvePrincipal(ctx context.Context, request *Request) 
 	} else {
 		facts, err = r.Service.Provider.Resolve(ctx)
 	}
+	if canceled := ctx.Err(); canceled != nil {
+		return nil, canceled
+	}
 	if err != nil {
 		if errors.Is(err, authz.ErrDenied) {
-			return nil, authz.ErrDenied
+			return nil, err
 		}
-		return nil, ErrUnavailable
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
-	if facts.Subject == "" || !facts.ValidUntil.After(time.Now()) || ctx.Err() != nil {
+	if facts.Subject == "" || !facts.ValidUntil.After(time.Now()) {
 		return nil, ErrUnavailable
 	}
 	principal := map[string]any{"subject": facts.Subject, "issuer": facts.Issuer, "tenantId": facts.Tenant, "roles": append([]string{}, facts.Roles...), "features": append([]string{}, facts.Exposures...)}

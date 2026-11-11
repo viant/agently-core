@@ -44,6 +44,15 @@ func principalPresentationResolver(source gating.PrincipalResolver) permittedvie
 	return &permittedview.AuthzResolver{Service: &authz.Service{Provider: presentationPrincipalProvider{source}}}
 }
 
+// PresentationResolver exposes the configured principal display source without
+// adding a resource or tool authorizer.
+func (r *Runtime) PresentationResolver() permittedview.Resolver {
+	if r == nil || r.VerifiedPrincipalResolver == nil {
+		return nil
+	}
+	return principalPresentationResolver(r.VerifiedPrincipalResolver)
+}
+
 // Each menu projection resolves its principal once. Authored resource/capability
 // declarations consume only that snapshot; they cannot request entity facts.
 // Multiple projections in one resource read may still resolve the principal
