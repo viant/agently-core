@@ -15,6 +15,8 @@ type LayoutGlobalStyle struct {
 	StyleRevision      string `json:"styleRevision"`
 }
 type LayoutMenuRead struct {
+	StyleDiagnostics []string
+
 	GlobalStyle          *LayoutGlobalStyle
 	PreserveApplications bool
 	Applications         json.RawMessage

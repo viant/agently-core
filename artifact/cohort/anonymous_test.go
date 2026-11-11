@@ -90,9 +90,15 @@ func anonymousUserIngress(t *testing.T) (*authsvc.Runtime, func(string) *http.Co
 func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t *testing.T) {
 	_, caller := sidecarReplica(t)
 	publisher := caller.publisher
+	globalPublisher := artifactcohort.NewPublisher()
+	globalArtifact, _, globalErr := globalPublisher.Publish(context.Background(), artifactcohort.RootRef{URI: "style://global/workspace", Kind: "style", Version: 1}, json.RawMessage(`{"schemaVersion":1,"css":".surface{color:purple}"}`), func(context.Context, json.RawMessage) error { return nil })
+	require.NoError(t, globalErr)
+	_, globalErr = globalPublisher.ReplaceCatalog(context.Background(), nil, []artifactcohort.Cohort{{Tenant: "example-tenant", Name: "global", Public: true, Roots: []artifactcohort.RootRef{globalArtifact.Root}}}, globalPublisher.Generation())
+	require.NoError(t, globalErr)
 	notify := make(chan struct{}, 1)
 	streamReady := make(chan struct{}, 1)
 	var authenticated, gets, fetches, legacy atomic.Int32
+	var globalAvailable atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" {
 			authenticated.Add(1)
@@ -146,19 +152,29 @@ func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t 
 		case schema.MethodToolsCall:
 			var body any
 			switch req.Params.Name {
+			case "namespaces/list":
+				body = map[string]any{"namespaces": []map[string]string{{"name": "example"}, {"name": "global"}}}
 			case "namespaces/get":
 				gets.Add(1)
 				var namespace string
 				_ = json.Unmarshal(req.Params.Arguments["namespace"], &namespace)
-				if namespace != "example" {
+				if namespace != "example" && namespace != "global" {
 					http.Error(w, "wrong namespace", 400)
+					return
+				}
+				if namespace == "global" && !globalAvailable.Load() {
+					http.Error(w, "global publication not ready", http.StatusServiceUnavailable)
 					return
 				}
 				var sync struct {
 					KnownHash string `json:"knownHash"`
 				}
 				_ = json.Unmarshal(req.Params.Arguments["sync"], &sync)
-				manifest, err := publisher.Snapshot()
+				selected := publisher
+				if namespace == "global" {
+					selected = globalPublisher
+				}
+				manifest, err := selected.Snapshot()
 				if err != nil {
 					http.Error(w, "unavailable", 503)
 					return
@@ -171,7 +187,11 @@ func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t 
 				fetches.Add(1)
 				var root artifactcohort.RootRef
 				_ = json.Unmarshal(req.Params.Arguments["root"], &root)
-				value, err := publisher.Get(root)
+				selected := publisher
+				if root.URI == "style://global/workspace" {
+					selected = globalPublisher
+				}
+				value, err := selected.Get(root)
 				if err != nil {
 					http.Error(w, "missing", 404)
 					return
@@ -206,7 +226,34 @@ func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t 
 	require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf("connectionName: catalog\nproviderIdentity: example-publisher\nnamespace: example\nexpectedEndpoint: %s\nexpectedTenant: example-tenant\nexpectedAccount: example-account\n", endpoint)), 0600))
 	bindings, err := PrepareLocalBindings(context.Background(), runtime, path)
 	require.NoError(t, err)
-	require.Len(t, bindings, 1)
+	require.Len(t, bindings, 2)
+	require.True(t, bindings[1].Optional)
+	require.Equal(t, "catalog#global", bindings[1].ConnectionName)
+	require.Equal(t, []string{"global"}, bindings[1].Namespaces)
+	require.Empty(t, bindings[1].ConnectionAliases)
+	require.Error(t, bindings[1].Source.Sync(context.Background()), "absent public global must not become a successful empty source")
+	globalCtx, stopGlobal := context.WithCancel(context.Background())
+	require.NoError(t, bindings[1].Start(globalCtx))
+	bindings[1].Reconcile()
+	globalAvailable.Store(true)
+	require.Eventually(t, func() bool {
+		_, err := bindings[1].Metadata.Get(context.Background(), "style://global/workspace")
+		return err == nil
+	}, 3*time.Second, time.Millisecond)
+
+	for i := 0; i < 10; i++ {
+		style, readErr := bindings[1].Metadata.Get(context.Background(), "style://global/workspace")
+		require.NoError(t, readErr)
+		require.Equal(t, globalArtifact.Root.Hash, style.ContentFingerprint)
+	}
+	require.Zero(t, principals.calls.Load(), "public global reads must not request recipient roles")
+	stopGlobal()
+	bindings[1].Close()
+	select {
+	case <-streamReady:
+	default:
+	}
+
 	binding := bindings[0]
 	defer binding.Close()
 	require.NoError(t, binding.Source.Sync(context.Background()))

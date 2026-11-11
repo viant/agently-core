@@ -2,7 +2,10 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	identity "github.com/viant/agently-core/protocol/resource"
+	resources "github.com/viant/agently-core/service/resource"
 	"net/http"
 	"strings"
 
@@ -36,6 +39,28 @@ func handleMCPResourceRead(reader MCPResourceReader) http.HandlerFunc {
 func (c *backendClient) ReadMCPResource(ctx context.Context, server, uri string) (*schema.ReadResourceResult, error) {
 	if c == nil || c.mcpMgr == nil || strings.TrimSpace(server) == "" || strings.TrimSpace(uri) == "" {
 		return nil, errors.New("MCP connection and resource URI are required")
+	}
+	// Published resources use the same admitted local gateway as metadata and
+	// windows. A claimed URI never falls through to an unrelated MCP transport.
+	if c.primitiveProviders != nil && c.primitiveProviders.OwnsPublishedMetadata(uri) {
+		got, err := resources.GetFrom[json.RawMessage](ctx, c.primitiveProviders, resources.Connection{Name: server}, identity.ResourceRef{URI: uri}, func(raw json.RawMessage) (json.RawMessage, error) { return raw, nil })
+		if err != nil {
+			return nil, err
+		}
+		if got == nil || got.Resource == nil {
+			return nil, identity.ErrResource
+		}
+		raw := got.Resource.DefinitionBytes
+		if got.MenuProjection != nil {
+			raw = got.MenuProjection.DefinitionBytes
+		} else if len(raw) == 0 {
+			raw = got.Resource.Definition
+		}
+		if len(raw) == 0 {
+			return nil, identity.ErrResource
+		}
+		mime := "application/json"
+		return &schema.ReadResourceResult{ResultType: schema.ResultTypeComplete, CacheScope: schema.ReadResourceResultCacheScopePrivate, Contents: []schema.ReadResourceResultContentsElem{{Uri: uri, MimeType: &mime, Text: string(raw)}}}, nil
 	}
 	ctx = c.mcpMgr.WithAuthTokenContext(ctx, server)
 	client, err := c.mcpMgr.Get(ctx, "", server)

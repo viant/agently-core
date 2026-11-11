@@ -24,6 +24,8 @@ import (
 // anonymous; interactive admission still uses verified user facts locally.
 // Browser requests cannot select this client, source scope, account, or cohort.
 type Registration struct {
+	global bool // automatic public namespace, derived from a configured producer
+
 	ConnectionName, ProviderIdentity, Tenant, Account, Cohort string
 	Namespace                                                 string
 	Client                                                    artifactcohort.ToolClient
@@ -86,6 +88,9 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 		return Binding{}, err
 	}
 	namespace, err := selectSyncNamespace(registration.Namespace, namespaces)
+	if registration.global && registration.Namespace == "global" {
+		namespace, err = "global", nil
+	}
 	if err != nil {
 		return Binding{}, err
 	}
@@ -132,6 +137,16 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 		}
 	}}
 	binding.ConnectionAliases = cohortConnectionAliases(registration.ConnectionName, configured.Name)
+	if registration.global {
+		// A local published locator reuses the producer transport without claiming
+		// its application namespace aliases or introducing another MCP connection.
+		binding.ConnectionName = registration.ConnectionName + "#global"
+		binding.ConnectionAliases = nil
+		binding.Optional = true
+		if registration.Notifications != nil {
+			binding.Reconcile = registration.Notifications.ReconcileHint
+		}
+	}
 	if registration.Notifications != nil {
 		binding.Start = func(context.Context) error { return registration.Notifications.AttachReplica(replica) }
 	}

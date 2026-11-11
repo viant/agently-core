@@ -32,7 +32,6 @@ import (
 // Layout is the workspace-owned navigation shell. Window definitions remain
 // owned by Forge's existing workspace/embedded window loaders.
 type Layout struct {
-	GlobalStyleSource           *LayoutGlobalStyleSource      `json:"-" yaml:"globalStyleSource,omitempty"`
 	Version                     int                           `json:"version" yaml:"version"`
 	ID                          string                        `json:"id" yaml:"id"`
 	Topbar                      *LayoutTopbar                 `json:"topbar,omitempty" yaml:"topbar,omitempty"`
@@ -176,6 +175,8 @@ type LayoutAction struct {
 }
 
 type layoutResponse struct {
+	UIStyleDiagnostics []string `json:"uiStyleDiagnostics,omitempty"`
+
 	UIStyleSource    string             `json:"uiStyleSource"`
 	GlobalStyle      *LayoutGlobalStyle `json:"globalStyle,omitempty"`
 	SchemaVersion    int                `json:"schemaVersion"`
@@ -188,14 +189,7 @@ type layoutResponse struct {
 // SetLayoutDefault supplies the host application's embedded default.
 func (h *MetadataHandler) SetLayoutDefault(data []byte) {
 	h.layoutDefault = append([]byte(nil), data...)
-	var layout Layout
-	if yaml.Unmarshal(data, &layout) == nil {
-		h.managedStyles = layout.GlobalStyleSource != nil
-		h.globalStyleSource = nil
-		if layout.GlobalStyleSource.prepare() == nil {
-			h.globalStyleSource = layout.GlobalStyleSource
-		}
-	}
+
 }
 
 func (h *MetadataHandler) handleLayout() http.HandlerFunc {
@@ -376,14 +370,16 @@ func (h *MetadataHandler) Layout(ctx context.Context, request *LayoutRequest) (*
 	catalogRevisions := permitted.CatalogRevisions
 	permitted.CatalogRevisions = nil
 	var globalStyle *LayoutGlobalStyle
+	var styleDiagnostics []string
 	if menuRead != nil {
 		globalStyle = menuRead.GlobalStyle
+		styleDiagnostics = menuRead.StyleDiagnostics
 	}
 	styleSource := "local"
-	if h.managedStyles {
+	if h.managedStyleMode() {
 		styleSource = "managed"
 	}
-	return &layoutResponse{UIStyleSource: styleSource, GlobalStyle: globalStyle, SchemaVersion: 1, LayoutRevision: hex.EncodeToString(digest[:]), WorkspaceID: root, CatalogRevisions: catalogRevisions, Layout: permitted}, nil
+	return &layoutResponse{UIStyleDiagnostics: styleDiagnostics, UIStyleSource: styleSource, GlobalStyle: globalStyle, SchemaVersion: 1, LayoutRevision: hex.EncodeToString(digest[:]), WorkspaceID: root, CatalogRevisions: catalogRevisions, Layout: permitted}, nil
 }
 
 func validateLayoutYAML(node *yaml.Node) error {

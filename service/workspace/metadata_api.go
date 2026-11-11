@@ -91,9 +91,9 @@ func (h *MetadataHandler) Metadata(ctx context.Context) (*MetadataResponse, erro
 	}
 	resp.Composer = composerConfig.Composer()
 	resp.Capabilities.Goals = goalsCapabilityEnabled(resp.AgentInfos)
-	if h.managedStyles {
+	if h.managedStyleMode() {
 		resp.UIStyleSource = "managed"
-		style, styleErr := readGlobalStyleMetadata(ctx, h.starterTaskGateway, h.globalStyleSource)
+		style, styleErr := readGlobalStyleMetadata(ctx, h.starterTaskGateway)
 		if styleErr != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -102,6 +102,9 @@ func (h *MetadataHandler) Metadata(ctx context.Context) (*MetadataResponse, erro
 			logLayoutMenuFailure("global_style_metadata", styleErr)
 		} else {
 			resp.GlobalStyle = style
+			if style == nil {
+				resp.UIStyleDiagnostics = []string{"No public global stylesheet is published."}
+			}
 		}
 	} else {
 		resp.UIStyleSource = "local"

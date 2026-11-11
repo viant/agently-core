@@ -132,8 +132,6 @@ type MetadataHandler struct {
 	browserMCP             func(context.Context) ([]mcpcfg.BrowserDescriptor, error)
 	windowResourceCatalog  WindowResourceCatalog
 	styles                 *uistyle.Service
-	managedStyles          bool
-	globalStyleSource      *LayoutGlobalStyleSource
 	defaults               *config.Defaults
 	store                  ws.Store
 	version                string
@@ -198,7 +196,7 @@ func (h *MetadataHandler) SetReportingCapabilityEnabled(enabled bool) {
 
 // Register mounts the metadata endpoint.
 func (h *MetadataHandler) Register(mux *http.ServeMux) {
-	if !h.managedStyles {
+	if !h.managedStyleMode() {
 		h.styles.Register(mux)
 	}
 	mux.HandleFunc("GET /v1/workspace/metadata", h.handleMetadata())
@@ -554,4 +552,9 @@ func stringValue(value interface{}) string {
 
 func (h *MetadataHandler) SetBrowserMCPLoader(loader func(context.Context) ([]mcpcfg.BrowserDescriptor, error)) {
 	h.browserMCP = loader
+}
+
+// A registered publication owns styles even while its global root is absent.
+func (h *MetadataHandler) managedStyleMode() bool {
+	return h.starterTaskGateway != nil && len(h.starterTaskGateway.PublishedMetadataConnections()) != 0
 }

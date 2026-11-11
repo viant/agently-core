@@ -3,6 +3,8 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"github.com/viant/agently-core/protocol/mcp/manager"
+	resources "github.com/viant/agently-core/service/resource"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -100,7 +102,19 @@ themes:
 
 func TestManagedStyleOwnershipSuppressesLocalAssetsBeforeFirstLayoutRead(t *testing.T) {
 	h := NewMetadataHandler(nil, nil, "test")
-	err := h.SetCapturedLayout(t.TempDir(), "embedded", []byte("version: 1\nid: shell\napplications: []\nglobalStyleSource: {connection: public-catalog, resource: 'style://shared/base'}\n"), func(context.Context) error { return nil })
+	pool, poolErr := manager.New(&layoutPublishedTrap{})
+	if poolErr != nil {
+		t.Fatal(poolErr)
+	}
+	t.Cleanup(func() { pool.CloseConversation("") })
+	actor, verify := resources.PublicReadActors()
+	gateway := resources.NewGateway(pool, actor, verify, "host")
+	t.Cleanup(gateway.Close)
+	if err := gateway.RegisterPublishedMetadataSource(resources.Connection{Name: "public-catalog", ProviderIdentity: "public-owner"}, []string{"global"}, &publishedStyleFixture{absent: true}); err != nil {
+		t.Fatal(err)
+	}
+	h.SetStarterTaskSources(gateway, nil)
+	err := h.SetCapturedLayout(t.TempDir(), "embedded", []byte("version: 1\nid: shell\napplications: []\n"), func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}

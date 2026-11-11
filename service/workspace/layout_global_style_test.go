@@ -24,7 +24,7 @@ func (s *publishedStyleFixture) AdmissionKey(context.Context) (string, error) {
 	return fmt.Sprint(s.revision), s.failure
 }
 func (s *publishedStyleFixture) Namespaces(context.Context) ([]primitive.NamespaceCapabilities, error) {
-	return []primitive.NamespaceCapabilities{{ProviderIdentity: "public-owner", Namespace: "shared", Kinds: []primitive.KindSupport{{Kind: "style", FormatVersions: []int64{1}, Operations: []string{"list", "get"}}}}}, s.failure
+	return []primitive.NamespaceCapabilities{{ProviderIdentity: "public-owner", Namespace: "global", Kinds: []primitive.KindSupport{{Kind: "style", FormatVersions: []int64{1}, Operations: []string{"list", "get"}}}}}, s.failure
 }
 func (s *publishedStyleFixture) List(context.Context, string, string) ([]primitive.ResourceState, error) {
 	s.lists++
@@ -34,7 +34,7 @@ func (s *publishedStyleFixture) List(context.Context, string, string) ([]primiti
 	if s.absent {
 		return []primitive.ResourceState{}, nil
 	}
-	return []primitive.ResourceState{{URI: "style://shared/base", Kind: "style", Namespace: "shared", Name: "base", ContentFingerprint: identity.ContentFingerprint([]byte(fmt.Sprint(s.revision)))}}, nil
+	return []primitive.ResourceState{{URI: "style://global/workspace", Kind: "style", Namespace: "global", Name: "workspace", ContentFingerprint: identity.ContentFingerprint([]byte(fmt.Sprint(s.revision)))}}, nil
 }
 func (s *publishedStyleFixture) Get(context.Context, string) (*primitive.ResourceState, error) {
 	s.gets++
@@ -54,8 +54,10 @@ func TestGlobalStyleUsesPublishedIndexWithoutPrivateApplications(t *testing.T) {
 	gateway := resources.NewGateway(pool, actor, verify, "host")
 	t.Cleanup(gateway.Close)
 	source := &publishedStyleFixture{revision: 1}
-	require.NoError(t, gateway.RegisterPublishedMetadataSource(resources.Connection{Name: "public-catalog", ProviderIdentity: "public-owner"}, []string{"shared"}, source))
-	config := []byte("version: 1\nid: shell\napplications: []\nglobalStyleSource: {connection: public-catalog, resource: 'style://shared/base'}\n")
+	require.NoError(t, gateway.RegisterPublishedMetadataSource(resources.Connection{Name: "public-catalog", ProviderIdentity: "public-owner"}, []string{"global"}, source))
+	unrelated := &publishedStyleFixture{failure: context.DeadlineExceeded}
+	require.NoError(t, gateway.RegisterPublishedMetadataSource(resources.Connection{Name: "unavailable-other", ProviderIdentity: "other-owner"}, []string{"other"}, unrelated))
+	config := []byte("version: 1\nid: shell\napplications: []\n")
 	reader, err := ApplicationMenuReader(gateway, config)
 	require.NoError(t, err)
 	handler := NewMetadataHandler(nil, nil, "test")
@@ -68,7 +70,7 @@ func TestGlobalStyleUsesPublishedIndexWithoutPrivateApplications(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, first.Layout.Applications)
 	require.NotNil(t, first.GlobalStyle)
-	require.Equal(t, "style://shared/base", first.GlobalStyle.ResourceURI)
+	require.Equal(t, "style://global/workspace", first.GlobalStyle.ResourceURI)
 	require.Equal(t, "public-owner", first.GlobalStyle.ProviderIdentity)
 	for i := 0; i < 10; i++ {
 		next, err := handler.Layout(ctx, &LayoutRequest{})
@@ -82,6 +84,8 @@ func TestGlobalStyleUsesPublishedIndexWithoutPrivateApplications(t *testing.T) {
 	}
 	require.Equal(t, 1, source.lists)
 	require.Zero(t, source.gets)
+	require.Zero(t, unrelated.lists)
+	require.Zero(t, unrelated.gets)
 	require.Zero(t, trap.options.Load())
 	source.revision++
 	changed, err := handler.Layout(ctx, &LayoutRequest{})
@@ -97,25 +101,22 @@ func TestGlobalStyleUsesPublishedIndexWithoutPrivateApplications(t *testing.T) {
 	metadata, err := handler.Metadata(ctx)
 	require.NoError(t, err)
 	require.Nil(t, metadata.GlobalStyle)
-	require.Empty(t, metadata.UIStyleDiagnostics)
+	require.NotEmpty(t, metadata.UIStyleDiagnostics)
 	require.Empty(t, withdrawn.Layout.Applications)
 	require.Zero(t, source.gets)
+	require.Zero(t, unrelated.lists)
+	require.Zero(t, unrelated.gets)
 	require.Zero(t, trap.options.Load())
 
 	source.failure = context.DeadlineExceeded
-	_, err = reader(ctx)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
+	unavailable, err := reader(ctx)
+	require.NoError(t, err)
+	require.Nil(t, unavailable.GlobalStyle)
+	require.NotEmpty(t, unavailable.StyleDiagnostics)
 	source.failure = nil
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
 	_, err = reader(cancelled)
 	require.ErrorIs(t, err, context.Canceled)
 
-}
-
-func TestGlobalStyleConfigurationRejectsNonStyleSources(t *testing.T) {
-	for _, raw := range []string{"globalStyleSource: {connection: remote, resource: window://shared/base}", "globalStyleSource: {resource: style://shared/base}"} {
-		_, err := ApplicationMenuReader(nil, []byte(raw))
-		require.Error(t, err)
-	}
 }

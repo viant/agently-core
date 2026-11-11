@@ -29,6 +29,9 @@ type Source interface {
 
 // Binding is an operator-owned source and its background lifecycle.
 type Binding struct {
+	Optional  bool   // unavailable optional presentation must not prevent host startup
+	Reconcile func() // queues the existing notification worker after a failed preload
+
 	ConnectionName    string
 	ConnectionAliases []string
 	ProviderIdentity  string

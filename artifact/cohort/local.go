@@ -5,8 +5,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/viant/mcp-protocol/schema"
+	mcpclient "github.com/viant/mcp/client"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +32,8 @@ import (
 // restrict which users can match the producer-authored presentation policy.
 // Optional authenticated compatibility uses secret REFERENCES, never tokens.
 type LocalConfig struct {
+	global bool // derived internally once per producer; never accepted from YAML
+
 	Namespace        string   `yaml:"namespace"`
 	ConnectionName   string   `yaml:"connectionName"`
 	ProviderIdentity string   `yaml:"providerIdentity"`
@@ -128,18 +134,63 @@ func PrepareLocalBindings(ctx context.Context, rt *executor.Runtime, path string
 	if err != nil {
 		return nil, err
 	}
-	bindings := make([]Binding, 0, len(configs))
+	// A producer owns one global publication, independent of application namespaces.
+	// Reuse its endpoint and existing replica/notification lifecycle once.
+	producers := map[string]bool{}
+	expanded := append([]LocalConfig(nil), configs...)
 	for _, config := range configs {
+		if producers[config.ProviderIdentity] {
+			continue
+		}
+		producers[config.ProviderIdentity] = true
+		explicit := false
+		for _, candidate := range configs {
+			if candidate.ProviderIdentity == config.ProviderIdentity && candidate.Namespace == "global" {
+				explicit = true
+			}
+		}
+		if explicit {
+			continue
+		}
+		global := config
+		global.Namespace, global.Cohort, global.global = "global", "", true
+		global.OAuthClient, global.UserSecret, global.Key, global.ExpectedSubject = "", "", "", ""
+		global.Scopes = nil
+		expanded = append(expanded, global)
+	}
+	bindings := make([]Binding, 0, len(expanded))
+	var globals []Binding
+	for _, config := range expanded {
 		binding, err := prepareLocalArtifactCohortConfig(ctx, rt, config)
+		if err != nil && config.global && ctx.Err() == nil {
+			if !errors.Is(err, artifactcohort.ErrUnsupported) {
+				log.Printf("global publication discovery unavailable: phase=startup provider=%q cause=%v", config.ProviderIdentity, err)
+			}
+			continue
+		}
 		if err != nil {
-			for _, prepared := range bindings {
+			for _, prepared := range append(bindings, globals...) {
 				if prepared.Close != nil {
 					prepared.Close()
 				}
 			}
 			return nil, err
 		}
-		bindings = append(bindings, binding)
+		if config.global {
+			globals = append(globals, binding)
+		} else {
+			bindings = append(bindings, binding)
+		}
+	}
+	if len(globals) > 1 {
+		for _, binding := range globals {
+			if binding.Close != nil {
+				binding.Close()
+			}
+		}
+		log.Printf("global publication unavailable: phase=startup cause=multiple producers advertise the global namespace")
+	} else {
+		bindings = append(bindings, globals...)
 	}
 	return bindings, nil
 }
@@ -243,8 +294,42 @@ func prepareLocalArtifactCohortConfig(ctx context.Context, rt *executor.Runtime,
 	if err != nil {
 		return Binding{}, err
 	}
+	if config.global {
+		result, listErr := client.CallTool(ctx, &schema.CallToolRequestParams{Name: "namespaces/list", Arguments: map[string]any{}}, mcpclient.WithNoRetry())
+		supported := false
+		if listErr == nil && result != nil && (result.IsError == nil || !*result.IsError) {
+			var listing struct {
+				Namespaces []struct {
+					Name string `json:"name"`
+				} `json:"namespaces"`
+			}
+			for _, content := range result.Content {
+				raw, _ := json.Marshal(content)
+				var text struct {
+					Text string `json:"text"`
+				}
+				if json.Unmarshal(raw, &text) == nil && json.Unmarshal([]byte(text.Text), &listing) == nil {
+					for _, namespace := range listing.Namespaces {
+						if namespace.Name == "global" {
+							supported = true
+						}
+					}
+				}
+			}
+		}
+		if !supported {
+			if closer, ok := client.(interface{ Close() }); ok {
+				closer.Close()
+			}
+			notifications.Close()
+			if listErr != nil {
+				return Binding{}, listErr
+			}
+			return Binding{}, artifactcohort.ErrUnsupported
+		}
+	}
 	cacheTiming := observe.Start(ctx, "startup.cohort.cache", observe.Labels{})
-	binding, err := PrepareBinding(ctx, rt, Registration{ConnectionName: config.ConnectionName, ProviderIdentity: config.ProviderIdentity, Namespace: config.Namespace, Tenant: tenant, Account: account, Cohort: config.Cohort, Client: client, Notifications: notifications})
+	binding, err := PrepareBinding(ctx, rt, Registration{ConnectionName: config.ConnectionName, ProviderIdentity: config.ProviderIdentity, Namespace: config.Namespace, global: config.global, Tenant: tenant, Account: account, Cohort: config.Cohort, Client: client, Notifications: notifications})
 	cacheTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		switch closer := client.(type) {

@@ -21,11 +21,8 @@ import (
 
 // LayoutApplicationSource selects presentation order, never grants access.
 // Names, icons and menu content remain owned by the managing MCP.
-type LayoutGlobalStyleSource struct {
-	Connection      string `yaml:"connection"`
-	Resource        string `yaml:"resource"`
-	namespace, name string
-}
+// GlobalStyleURI identifies the single producer-owned public workspace stylesheet.
+const GlobalStyleURI = "style://global/workspace"
 
 type LayoutApplicationSource struct {
 	AllowStyleOverrides bool   `yaml:"allowStyleOverrides,omitempty"`
@@ -38,18 +35,14 @@ type LayoutApplicationSource struct {
 // reports. Only explicitly configured connections participate in discovery.
 func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuReader, error) {
 	var config struct {
-		GlobalStyle     *LayoutGlobalStyleSource  `yaml:"globalStyleSource"`
 		Sources         []LayoutApplicationSource `yaml:"applicationSources"`
 		IncludeUnlisted bool                      `yaml:"includeUnlistedApplications"`
 	}
 	if err := yaml.Unmarshal(raw, &config); err != nil {
 		return nil, err
 	}
-	if len(config.Sources) == 0 && config.GlobalStyle == nil {
+	if len(config.Sources) == 0 && (gateway == nil || len(gateway.PublishedMetadataConnections()) == 0) {
 		return nil, nil
-	}
-	if err := config.GlobalStyle.prepare(); err != nil {
-		return nil, err
 	}
 	roots := []resources.Connection{}
 	seenRoots, seenSelections := map[string]bool{}, map[string]bool{}
@@ -129,7 +122,7 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 		}
 		return out, nil
 	}, true)
-	if config.GlobalStyle == nil {
+	if gateway == nil || len(gateway.PublishedMetadataConnections()) == 0 {
 		return menuReader, nil
 	}
 	return func(ctx context.Context) (*LayoutMenuRead, error) {
@@ -138,10 +131,17 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 			return nil, err
 		}
 		read.PreserveApplications = len(config.Sources) == 0
-		selected, err := readGlobalStyleMetadata(ctx, gateway, config.GlobalStyle)
+		selected, err := readGlobalStyleMetadata(ctx, gateway)
 		if err != nil {
-			_ = read.Close()
-			return nil, err
+			if ctx.Err() != nil {
+				_ = read.Close()
+				return nil, ctx.Err()
+			}
+			logLayoutMenuFailure("global_style_metadata", err)
+			read.StyleDiagnostics = []string{"Managed global stylesheet is unavailable; check the producer's public global publication."}
+		}
+		if selected == nil && len(read.StyleDiagnostics) == 0 {
+			read.StyleDiagnostics = []string{"No public global stylesheet is published."}
 		}
 		read.GlobalStyle = selected
 		styleProjection, _ := json.Marshal(selected)
@@ -158,40 +158,32 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 	}, nil
 }
 
-func (s *LayoutGlobalStyleSource) prepare() error {
-	if s == nil {
-		return nil
-	}
-	uri, err := identity.ParseResourceURI(s.Resource)
-	if err != nil || uri.Kind != "style" || s.Connection == "" {
-		return fmt.Errorf("invalid global stylesheet source")
-	}
-	s.namespace, s.name = uri.Namespace, uri.Name
-	return nil
-}
-
 // Both shell and standalone renderer metadata reuse the same prepared source
 // and gateway index. This reads no stylesheet body and adds no cache or ACL.
-func readGlobalStyleMetadata(ctx context.Context, gateway *resources.Gateway, source *LayoutGlobalStyleSource) (*LayoutGlobalStyle, error) {
+func readGlobalStyleMetadata(ctx context.Context, gateway *resources.Gateway) (*LayoutGlobalStyle, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if source == nil || gateway == nil || gateway.Manager == nil {
+	if gateway == nil || gateway.Manager == nil {
 		return nil, fmt.Errorf("managed stylesheet catalog is unavailable")
 	}
+	connections := gateway.PublishedMetadataConnections("global")
+	if len(connections) == 0 {
+		return nil, nil
+	}
 	for cursor := ""; ; {
-		page, err := resources.ListPageFrom[json.RawMessage](ctx, gateway, []resources.Connection{{Name: source.Connection}}, "style", resources.CatalogQuery{Namespace: source.namespace, NameTerms: []string{source.name}, Limit: 100, Cursor: cursor}, false)
+		page, err := resources.ListPageFrom[json.RawMessage](ctx, gateway, connections, "style", resources.CatalogQuery{Namespace: "global", NameTerms: []string{"workspace"}, Limit: 100, Cursor: cursor}, false)
 		if err != nil {
-			return nil, markLayoutMenuFailure("global_style_discovery", source.Connection, source.Resource, err)
+			return nil, markLayoutMenuFailure("global_style_discovery", "", GlobalStyleURI, err)
 		}
 		for _, row := range page.Items {
-			if row.Resource.URI == source.Resource {
+			if row.Resource.URI == GlobalStyleURI {
 				metadata, err := json.Marshal(row.LocatedResource)
 				if err != nil {
-					return nil, markLayoutMenuFailure("global_style_metadata", source.Connection, source.Resource, err)
+					return nil, markLayoutMenuFailure("global_style_metadata", "", GlobalStyleURI, err)
 				}
 				revision := identity.ContentFingerprint(append(metadata, []byte(fmt.Sprintf(":%v:%v", gateway.Manager.ResourceCatalogGeneration(ctx, row.Connection.Name), gateway.Manager.ResourceContentGeneration(ctx, row.Connection.Name)))...))
-				return &LayoutGlobalStyle{ResourceURI: source.Resource, ResourceConnection: row.Connection.Name, ProviderIdentity: row.Connection.ProviderIdentity, StyleRevision: revision}, nil
+				return &LayoutGlobalStyle{ResourceURI: GlobalStyleURI, ResourceConnection: row.Connection.Name, ProviderIdentity: row.Connection.ProviderIdentity, StyleRevision: revision}, nil
 			}
 		}
 		if page.NextCursor == "" {
