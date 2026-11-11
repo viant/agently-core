@@ -79,6 +79,12 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 		windowMSvc = metaSvc.New(afs.New(), windowRoot, efs)
 	}
 	mux.HandleFunc(windowBase, func(w http.ResponseWriter, r *http.Request) {
+		migrated, migrationErr := migrateWindowRequest(r, strings.TrimPrefix(r.URL.Path, windowBase), settings.migrations)
+		if migrationErr != nil {
+			http.Error(w, "invalid saved window reference", http.StatusBadRequest)
+			return
+		}
+		r = migrated
 		pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, windowBase), "/")
 		if len(pathParts) < 1 || pathParts[0] == "" {
 			http.Error(w, "missing path in URL", http.StatusBadRequest)

@@ -19,8 +19,9 @@ type WindowResourceProvider interface {
 }
 type HandlerOption func(*handlerOptions)
 type handlerOptions struct {
-	windows   WindowResourceProvider
-	published map[string]*publishedWindowRegistration
+	windows    WindowResourceProvider
+	published  map[string]*publishedWindowRegistration
+	migrations map[windowMigrationKey]WindowMigrationTarget
 }
 
 // PublishedWindowSource opens a producer-validated closed window from the
