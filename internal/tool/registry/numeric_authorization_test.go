@@ -41,6 +41,10 @@ func TestNumericMCPValidationStatusRequiresExplicitErrorStatus(t *testing.T) {
 		want    int
 	}{
 		{map[string]any{"statusCode": 400}, 400},
+		{map[string]any{"data": map[string]any{"status": 403}}, 0},
+		{map[string]any{"error": false, "data": map[string]any{"status": 403}}, 0},
+		{map[string]any{"error": true, "data": map[string]any{"status": "forbidden"}}, 0},
+		{map[string]any{"error": true, "data": map[string]any{"status": 422}}, 422},
 		{map[string]any{"statusCode": json.Number("422")}, 422},
 		{map[string]any{"error": map[string]any{"statusCode": 400}}, 400},
 		{map[string]any{"code": 400}, 0},

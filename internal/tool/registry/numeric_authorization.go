@@ -77,6 +77,11 @@ func numericMCPErrorPayload(value any) int {
 		return 0
 	}
 	status := 0
+	// JSON-RPC error envelopes carry HTTP provenance in their data object.
+	// Do not inspect ordinary result data for authorization status.
+	if failed, _ := object["error"].(bool); failed {
+		status = numericMCPErrorPayload(object["data"])
+	}
 	for key, child := range object {
 		switch strings.ToLower(key) {
 		case "code", "status", "statuscode", "error":

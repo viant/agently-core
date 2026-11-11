@@ -60,6 +60,18 @@ func TestMCPAppFailurePreservesTypedCauseWithoutExposingHostContent(t *testing.T
 	}
 }
 
+func TestMCPAppProtocolErrorDataPreservesAuthorization(t *testing.T) {
+	remote := &hostResultClient{body: `{"resultType":"complete","isError":true,"content":[{"type":"text","text":"resource operation denied"}],"structuredContent":{"code":-32003,"data":{"code":"forbidden","status":403},"error":true,"message":"resource operation denied"}}`}
+	registry, _ := newAdvertisedAppCaptureRegistry(remote)
+	ctx, _ := mcpapps.WithCapture(protectedTurnContext("error-turn"), "service", "tool", "error-operation")
+	_, err := registry.Execute(ctx, "service/tool", nil)
+	var typed *ds.UpstreamAuthorizationError
+	require.ErrorAs(t, err, &typed)
+	require.Equal(t, 403, typed.Status)
+	require.EqualError(t, err, "MCP app tool access denied (403)")
+	require.Equal(t, 1, remote.calls)
+}
+
 func (c *hostResultClient) CallTool(context.Context, *mcpschema.CallToolRequestParams, ...mcpclient.RequestOption) (*mcpschema.CallToolResult, error) {
 	c.calls++
 	var result mcpschema.CallToolResult
