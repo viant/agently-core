@@ -1003,6 +1003,8 @@ export interface WorkspaceMetadata {
     browserMCP?: import('./browserMCP').BrowserMCPDescriptor[];
     browserMCPDiagnostics?: string[];
     workspaceId?: string;
+    uiStyleSource?: 'local' | 'managed';
+    globalStyle?: {resourceUri: string; resourceConnection: string; providerIdentity: string; styleRevision: string};
     uiStyles?: WorkspaceAssetDescriptor;
     uiThemes?: WorkspaceAssetDescriptor;
     uiStyleDiagnostics?: string[];
