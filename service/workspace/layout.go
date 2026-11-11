@@ -191,6 +191,10 @@ func (h *MetadataHandler) SetLayoutDefault(data []byte) {
 	var layout Layout
 	if yaml.Unmarshal(data, &layout) == nil {
 		h.managedStyles = layout.GlobalStyleSource != nil
+		h.globalStyleSource = nil
+		if layout.GlobalStyleSource.prepare() == nil {
+			h.globalStyleSource = layout.GlobalStyleSource
+		}
 	}
 }
 

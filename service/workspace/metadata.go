@@ -35,6 +35,7 @@ type MetadataResponse struct {
 	BrowserMCP            []mcpcfg.BrowserDescriptor `json:"browserMCP,omitempty"`
 	Composer              wscfg.Composer             `json:"composer"`
 	WorkspaceID           string                     `json:"workspaceId,omitempty"`
+	GlobalStyle           *LayoutGlobalStyle         `json:"globalStyle,omitempty"`
 	UIStyleSource         string                     `json:"uiStyleSource,omitempty"`
 	UIStyles              *uistyle.Descriptor        `json:"uiStyles,omitempty"`
 	UIThemes              *uistyle.Descriptor        `json:"uiThemes,omitempty"`
@@ -132,6 +133,7 @@ type MetadataHandler struct {
 	windowResourceCatalog  WindowResourceCatalog
 	styles                 *uistyle.Service
 	managedStyles          bool
+	globalStyleSource      *LayoutGlobalStyleSource
 	defaults               *config.Defaults
 	store                  ws.Store
 	version                string

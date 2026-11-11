@@ -93,6 +93,16 @@ func (h *MetadataHandler) Metadata(ctx context.Context) (*MetadataResponse, erro
 	resp.Capabilities.Goals = goalsCapabilityEnabled(resp.AgentInfos)
 	if h.managedStyles {
 		resp.UIStyleSource = "managed"
+		style, styleErr := readGlobalStyleMetadata(ctx, h.starterTaskGateway, h.globalStyleSource)
+		if styleErr != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			resp.UIStyleDiagnostics = []string{"Managed global stylesheet metadata is temporarily unavailable."}
+			logLayoutMenuFailure("global_style_metadata", styleErr)
+		} else {
+			resp.GlobalStyle = style
+		}
 	} else {
 		resp.UIStyleSource = "local"
 		styles := h.styles.Current(ctx)

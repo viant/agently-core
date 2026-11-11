@@ -22,8 +22,9 @@ import (
 // LayoutApplicationSource selects presentation order, never grants access.
 // Names, icons and menu content remain owned by the managing MCP.
 type LayoutGlobalStyleSource struct {
-	Connection string `yaml:"connection"`
-	Resource   string `yaml:"resource"`
+	Connection      string `yaml:"connection"`
+	Resource        string `yaml:"resource"`
+	namespace, name string
 }
 
 type LayoutApplicationSource struct {
@@ -47,11 +48,8 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 	if len(config.Sources) == 0 && config.GlobalStyle == nil {
 		return nil, nil
 	}
-	if config.GlobalStyle != nil {
-		uri, err := identity.ParseResourceURI(config.GlobalStyle.Resource)
-		if err != nil || uri.Kind != "style" || config.GlobalStyle.Connection == "" {
-			return nil, fmt.Errorf("invalid global stylesheet source")
-		}
+	if err := config.GlobalStyle.prepare(); err != nil {
+		return nil, err
 	}
 	roots := []resources.Connection{}
 	seenRoots, seenSelections := map[string]bool{}, map[string]bool{}
@@ -140,35 +138,10 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 			return nil, err
 		}
 		read.PreserveApplications = len(config.Sources) == 0
-		source := config.GlobalStyle
-		uri, _ := identity.ParseResourceURI(source.Resource)
-		var selected *LayoutGlobalStyle
-		for cursor := ""; ; {
-			page, err := resources.ListPageFrom[json.RawMessage](ctx, gateway, []resources.Connection{{Name: source.Connection}}, "style", resources.CatalogQuery{Namespace: uri.Namespace, NameTerms: []string{uri.Name}, Limit: 100, Cursor: cursor}, false)
-			if err != nil {
-				_ = read.Close()
-				return nil, markLayoutMenuFailure("global_style_discovery", source.Connection, source.Resource, err)
-			}
-			for _, row := range page.Items {
-				if row.Resource.URI == source.Resource {
-					metadata, marshalErr := json.Marshal(row.LocatedResource)
-					if marshalErr != nil {
-						_ = read.Close()
-						return nil, markLayoutMenuFailure("global_style_metadata", source.Connection, source.Resource, marshalErr)
-					}
-					revision := identity.ContentFingerprint(append(metadata, []byte(fmt.Sprintf(":%v:%v", gateway.Manager.ResourceCatalogGeneration(ctx, row.Connection.Name), gateway.Manager.ResourceContentGeneration(ctx, row.Connection.Name)))...))
-					selected = &LayoutGlobalStyle{ResourceURI: source.Resource, ResourceConnection: row.Connection.Name, ProviderIdentity: row.Connection.ProviderIdentity, StyleRevision: revision}
-					break
-				}
-			}
-			if selected != nil || page.NextCursor == "" {
-				break
-			}
-			if page.NextCursor == cursor {
-				_ = read.Close()
-				return nil, fmt.Errorf("global stylesheet pagination made no progress")
-			}
-			cursor = page.NextCursor
+		selected, err := readGlobalStyleMetadata(ctx, gateway, config.GlobalStyle)
+		if err != nil {
+			_ = read.Close()
+			return nil, err
 		}
 		read.GlobalStyle = selected
 		styleProjection, _ := json.Marshal(selected)
@@ -183,6 +156,52 @@ func ApplicationMenuReader(gateway *resources.Gateway, raw []byte) (LayoutMenuRe
 		}
 		return read, nil
 	}, nil
+}
+
+func (s *LayoutGlobalStyleSource) prepare() error {
+	if s == nil {
+		return nil
+	}
+	uri, err := identity.ParseResourceURI(s.Resource)
+	if err != nil || uri.Kind != "style" || s.Connection == "" {
+		return fmt.Errorf("invalid global stylesheet source")
+	}
+	s.namespace, s.name = uri.Namespace, uri.Name
+	return nil
+}
+
+// Both shell and standalone renderer metadata reuse the same prepared source
+// and gateway index. This reads no stylesheet body and adds no cache or ACL.
+func readGlobalStyleMetadata(ctx context.Context, gateway *resources.Gateway, source *LayoutGlobalStyleSource) (*LayoutGlobalStyle, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if source == nil || gateway == nil || gateway.Manager == nil {
+		return nil, fmt.Errorf("managed stylesheet catalog is unavailable")
+	}
+	for cursor := ""; ; {
+		page, err := resources.ListPageFrom[json.RawMessage](ctx, gateway, []resources.Connection{{Name: source.Connection}}, "style", resources.CatalogQuery{Namespace: source.namespace, NameTerms: []string{source.name}, Limit: 100, Cursor: cursor}, false)
+		if err != nil {
+			return nil, markLayoutMenuFailure("global_style_discovery", source.Connection, source.Resource, err)
+		}
+		for _, row := range page.Items {
+			if row.Resource.URI == source.Resource {
+				metadata, err := json.Marshal(row.LocatedResource)
+				if err != nil {
+					return nil, markLayoutMenuFailure("global_style_metadata", source.Connection, source.Resource, err)
+				}
+				revision := identity.ContentFingerprint(append(metadata, []byte(fmt.Sprintf(":%v:%v", gateway.Manager.ResourceCatalogGeneration(ctx, row.Connection.Name), gateway.Manager.ResourceContentGeneration(ctx, row.Connection.Name)))...))
+				return &LayoutGlobalStyle{ResourceURI: source.Resource, ResourceConnection: row.Connection.Name, ProviderIdentity: row.Connection.ProviderIdentity, StyleRevision: revision}, nil
+			}
+		}
+		if page.NextCursor == "" {
+			return nil, nil
+		}
+		if page.NextCursor == cursor {
+			return nil, fmt.Errorf("global stylesheet pagination made no progress")
+		}
+		cursor = page.NextCursor
+	}
 }
 
 // Classify only typed authorization outcomes. Mixed failures, cancellation,

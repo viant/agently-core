@@ -62,6 +62,8 @@ func TestGlobalStyleUsesPublishedIndexWithoutPrivateApplications(t *testing.T) {
 	handler.SetAuthorizationRuntimes(nil, nil)
 	require.NoError(t, handler.SetCapturedLayout(t.TempDir(), "embedded", config, func(context.Context) error { return nil }))
 	handler.SetLayoutMenuReader(reader)
+	handler.starterTaskGateway = gateway
+	handler.styles = nil
 	first, err := handler.Layout(ctx, &LayoutRequest{})
 	require.NoError(t, err)
 	require.Empty(t, first.Layout.Applications)
@@ -72,6 +74,11 @@ func TestGlobalStyleUsesPublishedIndexWithoutPrivateApplications(t *testing.T) {
 		next, err := handler.Layout(ctx, &LayoutRequest{})
 		require.NoError(t, err)
 		require.Equal(t, first.LayoutRevision, next.LayoutRevision)
+		metadata, err := handler.Metadata(ctx)
+		require.NoError(t, err)
+		require.Equal(t, next.GlobalStyle, metadata.GlobalStyle)
+		require.Equal(t, "managed", metadata.UIStyleSource)
+		require.Nil(t, metadata.UIStyles)
 	}
 	require.Equal(t, 1, source.lists)
 	require.Zero(t, source.gets)
@@ -87,6 +94,10 @@ func TestGlobalStyleUsesPublishedIndexWithoutPrivateApplications(t *testing.T) {
 	withdrawn, err := handler.Layout(ctx, &LayoutRequest{})
 	require.NoError(t, err)
 	require.Nil(t, withdrawn.GlobalStyle)
+	metadata, err := handler.Metadata(ctx)
+	require.NoError(t, err)
+	require.Nil(t, metadata.GlobalStyle)
+	require.Empty(t, metadata.UIStyleDiagnostics)
 	require.Empty(t, withdrawn.Layout.Applications)
 	require.Zero(t, source.gets)
 	require.Zero(t, trap.options.Load())
