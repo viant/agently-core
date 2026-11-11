@@ -226,7 +226,7 @@ func TestToLLMSResponse_ToolCallsAndToolCallId(t *testing.T) {
 }
 
 // TestToRequest_ReasoningSummary ensures that reasoning.summary="auto" is propagated
-// only for supported models (o3, o4-mini, codex-mini-latest).
+// when explicitly requested on the Responses path.
 func TestToRequest_ReasoningSummary(t *testing.T) {
 	testCases := []struct {
 		description string
@@ -246,14 +246,15 @@ func TestToRequest_ReasoningSummary(t *testing.T) {
 			},
 		},
 		{
-			description: "reasoning summary ignored for unsupported model",
+			description: "explicit reasoning preserved for provider model names",
 			input: llm.GenerateRequest{
 				Messages: []llm.Message{llm.NewUserMessage("Ignore")},
 				Options:  &llm.Options{Model: "test-model", Reasoning: &llm.Reasoning{Summary: "auto"}},
 			},
 			expected: &Request{
-				Model:    "test-model",
-				Messages: []Message{{Role: "user", Content: []ContentItem{{Type: "text", Text: "Ignore"}}}},
+				Model:     "test-model",
+				Reasoning: &llm.Reasoning{Summary: "auto"},
+				Messages:  []Message{{Role: "user", Content: []ContentItem{{Type: "text", Text: "Ignore"}}}},
 			},
 		},
 		{

@@ -225,11 +225,9 @@ func (c *Client) ToRequestContext(ctx context.Context, request *llm.GenerateRequ
 		// chat/completions rejects the `reasoning` field entirely.
 		if r := request.Options.Reasoning; r != nil {
 			if isContextContinuationEnabled(c) {
-				switch req.Model {
-				case "o3", "o4-mini", "codex-mini-latest",
-					"gpt-4.1", "gpt-4.1-mini", "gpt-5", "gpt-5-mini", "gpt-5.2", "gpt-5.4", "o3-mini":
-					req.Reasoning = r
-				}
+				// Honor the explicitly configured Responses option. Model support
+				// belongs to the provider, not a stale client-side name allowlist.
+				req.Reasoning = r
 			}
 		}
 
