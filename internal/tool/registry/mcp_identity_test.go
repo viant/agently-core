@@ -147,3 +147,20 @@ func TestPrivateAdvertisedAliasResolvesDuringStructuredMatching(t *testing.T) {
 	require.Equal(t, server, definitions[0].SourceMCPServer)
 	require.Empty(t, r.cache, "private definitions never enter the shared cache")
 }
+
+func TestCatalogAliasCandidatePreservesNativeNormalization(t *testing.T) {
+	for _, server := range []string{"local", "server.name", "server-name", "server_name", "server/path", "mcp://example/source", "mcp://example.test/source-name"} {
+		for _, method := range []string{"read", "nested/read", "nested:read", "nested.read", "nested-read", "nested_read", "nested/path:read.operation"} {
+			for _, separator := range []string{"/", ":"} {
+				literal := server + separator + method
+				require.True(t, catalogAliasMayMatchServer(server, literal), literal)
+				require.True(t, catalogAliasMayMatchServer(server, mcpname.Canonical(literal)), mcpname.Canonical(literal))
+			}
+		}
+	}
+	require.False(t, catalogAliasMayMatchServer("unrelated", "local-read"))
+	require.False(t, catalogAliasMayMatchServer("local", "locality-read"))
+	// Lossy aliases retain all potential owners for the existing ambiguity check.
+	require.True(t, catalogAliasMayMatchServer("server.name", "server_name-tool"))
+	require.True(t, catalogAliasMayMatchServer("server_name", "server_name-tool"))
+}

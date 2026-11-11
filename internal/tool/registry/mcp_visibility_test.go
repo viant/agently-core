@@ -185,3 +185,19 @@ func TestExactInternalLookupDoesNotTruncateLaterFullCatalog(t *testing.T) {
 	registry.DefinitionsWithContext(context.Background())
 	require.Equal(t, 1, client.calls, "reuse the already fetched complete internal catalog")
 }
+
+// A previously observed but now unavailable unrelated provider must not block
+// the next turn's native discovery controls.
+func TestNativeVisibilityDoesNotReconnectUnrelatedObservedProvider(t *testing.T) {
+	t.Setenv("AGENTLY_MCP_SERVERS", "unrelated")
+	mgr := &discoveryManagerStub{options: &mcpcfg.MCPClient{ToolsListVisibility: mcpcfg.ToolsListVisibilityPrivate}}
+	reg := &Registry{mgr: mgr, internal: map[string]mcpclient.Interface{"local": nil}, cache: map[string]*toolCacheEntry{}, discoveryShared: map[string]discoveryIdentity{"unrelated|scope": {userID: "alice", catalogSeen: true}}}
+	reg.mergeServerTools("local", []mcpschema.Tool{{Name: "read"}})
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	visible, err := reg.MCPToolsVisible(ctx, []string{"local-read"}, "model")
+	require.NoError(t, err)
+	require.True(t, visible["local-read"])
+	require.Empty(t, mgr.getCallsSnapshot())
+	_, err = reg.MCPToolsVisible(ctx, []string{"unrelated-read"}, "model")
+	require.Error(t, err, "selected unavailable providers still report their real failure")
+}

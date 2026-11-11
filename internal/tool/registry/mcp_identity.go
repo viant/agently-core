@@ -29,6 +29,21 @@ func (r *Registry) ResolveMCPIdentity(ctx context.Context, name string) (string,
 	return r.discoveredMCPIdentity(ctx, name)
 }
 
+// catalogAliasMayMatchServer only eliminates impossible provider identities.
+// Build prefixes using the same normalization as advertised aliases; dots in
+// provider names can become the method separator when the literal method has
+// none. Candidates still require the current caller's catalog and collision
+// checks. This does not infer a tool name or grant visibility.
+func catalogAliasMayMatchServer(server, alias string) bool {
+	normalized := mcpname.Name(server).ToolName()
+	for _, prefix := range []string{server + "/", server + ":", normalized + "_", normalized + "-", mcpname.Canonical(server + "/"), mcpname.Canonical(server + ":")} {
+		if strings.HasPrefix(alias, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // discoveredMCPIdentity resolves an advertised alias from the existing catalogs.
 // A provider name is lossy; the catalog owns the server and literal tool name.
 func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (server, method string, found bool, err error) {
@@ -80,6 +95,9 @@ func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (serv
 			return "", "", false, listErr
 		}
 		for _, server := range servers {
+			if !catalogAliasMayMatchServer(server, name) {
+				continue
+			}
 			if owner, ok := r.mgr.(interface{ MayHaveToolCatalogAlias(string, string) bool }); ok && !owner.MayHaveToolCatalogAlias(server, name) {
 				continue
 			}

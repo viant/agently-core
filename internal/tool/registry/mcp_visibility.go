@@ -79,6 +79,16 @@ func (r *Registry) MCPToolsVisible(ctx context.Context, names []string, audience
 			return nil, err
 		}
 		for _, server := range servers {
+			candidate := false
+			for name := range requested {
+				if catalogAliasMayMatchServer(server, name) {
+					candidate = true
+					break
+				}
+			}
+			if !candidate {
+				continue
+			}
 			if isPublic(server) || !r.hasObservedCatalog(ctx, server) {
 				continue
 			}
