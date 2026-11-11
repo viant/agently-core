@@ -1332,14 +1332,15 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			}
 			if res.IsError != nil && *res.IsError {
 				terr := toolError(res)
-				switch status := numericMCPErrorStatus(res); status {
+				status := numericMCPErrorStatus(res)
+				switch status {
 				case 401, 403:
 					terr = &dsproto.UpstreamAuthorizationError{Status: status, Cause: terr}
 				case 400, 422:
 					terr = newMCPInputError(res, status, terr)
 				}
 				if mcpapps.Active(ctx) || appActivity {
-					terr = errors.New("MCP app tool returned an error")
+					terr = &mcpAppToolError{cause: terr, status: status}
 				}
 				debugMCPExecf("registry calltool tool-error server=%s base=%s attempt=%d err=%v content=%d structured=%d", server, baseName, attempt+1, terr, len(res.Content), structuredContentSize(res.StructuredContent))
 				if r.mgr != nil && isReconnectableError(terr) && attempt < maxAttempts-1 {

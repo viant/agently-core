@@ -2,11 +2,34 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	reporting "github.com/viant/forge/backend/reporting/engine"
 	"github.com/viant/mcp-protocol/schema"
 )
+
+// Keep host-only error payloads out of model/client text without discarding
+// the typed producer cause needed by diagnostics and transport classification.
+type mcpAppToolError struct {
+	cause  error
+	status int
+}
+
+func (e *mcpAppToolError) Error() string {
+	switch e.status {
+	case 401:
+		return "MCP app tool authentication failed (401)"
+	case 403:
+		return "MCP app tool access denied (403)"
+	case 400, 422:
+		return fmt.Sprintf("MCP app tool rejected the supplied inputs (%d)", e.status)
+	default:
+		return "MCP app tool returned an error"
+	}
+}
+
+func (e *mcpAppToolError) Unwrap() error { return e.cause }
 
 // Explicit authorization statuses outrank validation statuses when a producer
 // supplies more than one error field. Text alone never creates numeric status.

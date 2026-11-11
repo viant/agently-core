@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	ds "github.com/viant/agently-core/protocol/datasource"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcpname"
 	"github.com/viant/agently-core/runtime/mcpapps"
@@ -22,6 +24,40 @@ type hostResultClient struct {
 	mcpclient.Interface
 	calls int
 	body  string
+}
+
+func TestMCPAppFailurePreservesTypedCauseWithoutExposingHostContent(t *testing.T) {
+	for _, status := range []int{401, 403, 400, 422, 0} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{"resultType": "complete", "isError": true, "content": []any{map[string]any{"type": "text", "text": "private-host-detail"}}, "structuredContent": map[string]any{"statusCode": status}, "_meta": map[string]any{"private": "host-only"}})
+			require.NoError(t, err)
+			remote := &hostResultClient{body: string(body)}
+			registry, _ := newAdvertisedAppCaptureRegistry(remote)
+			ctx, capture := mcpapps.WithCapture(protectedTurnContext("error-turn"), "service", "tool", "error-operation")
+			text, err := registry.Execute(ctx, "service/tool", nil)
+			require.Error(t, err)
+			require.Empty(t, text)
+			require.NotContains(t, err.Error(), "private-host-detail")
+			require.NotContains(t, err.Error(), "host-only")
+			if status != 0 {
+				require.Contains(t, err.Error(), fmt.Sprint(status))
+			} else {
+				require.EqualError(t, err, "MCP app tool returned an error")
+			}
+			if status == 401 || status == 403 {
+				var typed *ds.UpstreamAuthorizationError
+				require.ErrorAs(t, err, &typed)
+				require.Equal(t, status, typed.Status)
+			} else if status != 0 {
+				var typed *upstreamMCPInputError
+				require.ErrorAs(t, err, &typed)
+				require.Equal(t, status, typed.HTTPStatusCode())
+			}
+			raw, _ := capture.Snapshot()
+			require.Contains(t, string(raw), "private-host-detail", "host capture retains its existing isolated result")
+			require.Equal(t, 1, remote.calls, "tool failures must not replay a remote effect")
+		})
+	}
 }
 
 func (c *hostResultClient) CallTool(context.Context, *mcpschema.CallToolRequestParams, ...mcpclient.RequestOption) (*mcpschema.CallToolResult, error) {
