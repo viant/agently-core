@@ -341,9 +341,9 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	if conversationPatchErr != nil {
 		logx.Errorf("conversation", "agent.finalizeTurn patch conversation failed convo=%q turn_id=%q status=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(status), conversationPatchErr)
 	}
-	attachmentMessageErr := s.persistAttachmentCapabilityFailureMessage(patchCtx, turn, status, runErr)
-	if attachmentMessageErr != nil {
-		logx.Errorf("conversation", "agent.finalizeTurn attachment failure message failed convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), attachmentMessageErr)
+	terminalMessageErr := s.persistTerminalFailureMessage(patchCtx, turn, status, runErr)
+	if terminalMessageErr != nil {
+		logx.Errorf("conversation", "agent.finalizeTurn terminal failure message failed convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), terminalMessageErr)
 	}
 	// Patch the turn last. PatchTurn emits the terminal SSE event, so this ordering
 	// ensures transcript-level state (conversation + run) is already durable when
@@ -370,8 +370,8 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	if conversationPatchErr != nil {
 		errs = append(errs, fmt.Errorf("failed to update conversation: %w", conversationPatchErr))
 	}
-	if attachmentMessageErr != nil {
-		errs = append(errs, fmt.Errorf("failed to persist attachment failure message: %w", attachmentMessageErr))
+	if terminalMessageErr != nil {
+		errs = append(errs, fmt.Errorf("failed to persist terminal failure message: %w", terminalMessageErr))
 	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -383,17 +383,17 @@ func (s *Service) finalizeTurn(ctx context.Context, turn runtimerequestctx.TurnM
 	return nil
 }
 
-func (s *Service) persistAttachmentCapabilityFailureMessage(ctx context.Context, turn runtimerequestctx.TurnMeta, status string, runErr error) error {
-	if s == nil || s.conversation == nil || runErr == nil {
+func (s *Service) persistTerminalFailureMessage(ctx context.Context, turn runtimerequestctx.TurnMeta, status string, runErr error) error {
+	if s == nil || s.conversation == nil {
 		return nil
 	}
 	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
 	if normalizedStatus != "failed" && normalizedStatus != "error" {
 		return nil
 	}
-	content, ok := llm.AttachmentCapabilityUserMessage(runErr)
-	if !ok || strings.TrimSpace(content) == "" {
-		return nil
+	content, attachmentFailure := llm.AttachmentCapabilityUserMessage(runErr)
+	if !attachmentFailure || strings.TrimSpace(content) == "" {
+		content = "I couldn’t complete this request. You can review the details and retry."
 	}
 	conversationID := strings.TrimSpace(turn.ConversationID)
 	turnID := strings.TrimSpace(turn.TurnID)
@@ -404,7 +404,11 @@ func (s *Service) persistAttachmentCapabilityFailureMessage(ctx context.Context,
 	if messageID == "" {
 		messageID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	}
-	if messageID == "" {
+	if !attachmentFailure {
+		// Persist one terminal response even when binding failed before a model
+		// message existed. Keep any streamed/partial model content untouched.
+		messageID = uuid.NewSHA1(uuid.NameSpaceOID, []byte("turn-failure:"+conversationID+":"+turnID)).String()
+	} else if messageID == "" {
 		messageID = uuid.NewString()
 	}
 	msg := apiconv.NewMessage()

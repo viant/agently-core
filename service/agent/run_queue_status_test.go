@@ -185,7 +185,7 @@ func TestService_FinalizeTurn_PersistsAttachmentCapabilityFailureMessage(t *test
 	require.Equal(t, "failed", *failureStatus)
 }
 
-func TestService_FinalizeTurn_DoesNotPersistGenericFailureMessage(t *testing.T) {
+func TestService_FinalizeTurn_PersistsNeutralFailureResponse(t *testing.T) {
 	ctx := context.Background()
 	client := memconv.New()
 	svc := &Service{conversation: client}
@@ -204,9 +204,23 @@ func TestService_FinalizeTurn_DoesNotPersistGenericFailureMessage(t *testing.T) 
 	require.NoError(t, err)
 	require.NotNil(t, gotConv)
 	require.Len(t, gotConv.Transcript, 1)
+	var responses []string
 	for _, msg := range gotConv.Transcript[0].Message {
-		require.False(t, msg != nil && msg.Role == "assistant", "generic failures should keep existing transcript behavior")
+		if msg != nil && msg.Role == "assistant" {
+			responses = append(responses, valueOrEmpty(msg.Content))
+		}
 	}
+	require.Equal(t, []string{"I couldn’t complete this request. You can review the details and retry."}, responses)
+	require.ErrorIs(t, svc.finalizeTurn(ctx, turn, "failed", runErr), runErr)
+	again, err := client.GetConversation(ctx, "c1")
+	require.NoError(t, err)
+	count := 0
+	for _, msg := range again.Transcript[0].Message {
+		if msg != nil && msg.Role == "assistant" {
+			count++
+		}
+	}
+	require.Equal(t, 1, count, "repeated finalization must not duplicate the response")
 }
 
 func TestService_RegisterTurnCancel_UpdatesStarterMessageStatus(t *testing.T) {
@@ -773,4 +787,34 @@ func (o *orderingConvClient) DeleteConversation(ctx context.Context, id string) 
 
 func (o *orderingConvClient) DeleteMessage(ctx context.Context, conversationID, messageID string) error {
 	return nil
+}
+
+func TestService_FinalizeTurn_FailurePreservesPartialResponseAndPrivateCause(t *testing.T) {
+	ctx := memory.WithModelMessageID(context.Background(), "partial-response")
+	client := memconv.New()
+	svc := &Service{conversation: client}
+	seedTurnState(t, ctx, client, "failure-conversation", "failure-turn", "request", "pending")
+	partial := apiconv.NewMessage()
+	partial.SetId("partial-response")
+	partial.SetConversationID("failure-conversation")
+	partial.SetTurnID("failure-turn")
+	partial.SetRole("assistant")
+	partial.SetType("text")
+	partial.SetContent("The draft was saved; validation has not completed.")
+	require.NoError(t, client.PatchMessage(ctx, partial))
+	cause := errors.New("PRIVATE_BACKEND_DIAGNOSTIC")
+	require.ErrorIs(t, svc.finalizeTurn(ctx, memory.TurnMeta{ConversationID: "failure-conversation", TurnID: "failure-turn"}, "failed", cause), cause)
+	saved, err := client.GetMessage(ctx, "partial-response")
+	require.NoError(t, err)
+	require.Equal(t, "The draft was saved; validation has not completed.", valueOrEmpty(saved.Content))
+	conv, err := client.GetConversation(ctx, "failure-conversation")
+	require.NoError(t, err)
+	count := 0
+	for _, msg := range conv.Transcript[0].Message {
+		if msg != nil && msg.Role == "assistant" {
+			count++
+			require.NotContains(t, valueOrEmpty(msg.Content), "PRIVATE_BACKEND_DIAGNOSTIC")
+		}
+	}
+	require.Equal(t, 2, count, "partial evidence and terminal response must both remain visible")
 }
