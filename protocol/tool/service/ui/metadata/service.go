@@ -64,7 +64,7 @@ type GetOutput struct {
 func (*Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "list", Description: "Metadata only: discover authorized unopened Forge windows without opening them or fetching business data. Returns a bounded page; use get for tabs/forms/controls. Does not report current UI state or executable authority.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
-		{Name: "get", Description: "Metadata only: describe the authorized selected Forge window definition, including nested tabs, forms, control field types/constraints, declared actions and unloaded option sources. No OPEN, business reads or actions execute. Narrow with a returned path or unambiguous nodeId and follow nextCursor. For every static option or enum choice, follow the control options.path and its paginated option nodes; the inline items are only a bounded preview. Conditional availability is unknown; use ui/context:get for current Read state and registered UI controls for Operate.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
+		{Name: "get", Description: "Metadata only: use the exact id returned by ui/metadata:list, without inventing a revision selector. Describe the authorized selected Forge window definition, including nested tabs, forms, control field types/constraints, declared actions and unloaded option sources. No OPEN, business reads or actions execute. Narrow with a returned path or unambiguous nodeId and follow nextCursor. For every static option or enum choice, follow the control options.path and its paginated option nodes; the inline items are only a bounded preview. Conditional availability is unknown; use ui/context:get for current Read state and registered UI controls for Operate.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
 	}
 }
 func (s *Service) Method(name string) (svc.Executable, error) {
@@ -118,7 +118,7 @@ func (s *Service) list(ctx context.Context, in, out any) error {
 				projected.HasMore = true
 				break
 			}
-			projected.Windows = append(projected.Windows, Window{ID: bounded(item.WindowID), Title: bounded(item.Title), ResourceURI: bounded(item.ResourceURI)})
+			projected.Windows = append(projected.Windows, Window{ID: item.WindowID, Title: bounded(item.Title), ResourceURI: item.ResourceURI})
 		}
 		if projected.HasMore {
 			projected.NextOffset = input.Offset + limit
@@ -156,6 +156,12 @@ func (s *Service) get(ctx context.Context, in, out any) error {
 	if strings.Contains(key, "://") {
 		uri, err := identity.ParseResourceURI(key)
 		if err != nil || uri.Kind != "window" {
+			return errors.New("invalid window identity")
+		}
+	} else if strings.HasPrefix(key, "primitive:") {
+		// Opaque catalog locators are validated and resolved by the owning reader.
+		// Do not apply local-key syntax or truncate a returned locator.
+		if len(key) > 4096 {
 			return errors.New("invalid window identity")
 		}
 	} else if !safeID.MatchString(key) || strings.Contains(key, "..") {

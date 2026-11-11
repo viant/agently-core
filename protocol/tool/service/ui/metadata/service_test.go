@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -222,5 +223,49 @@ func TestMetadataAdapterPagesAllStaticChoicesAndReauthorizesEveryPage(t *testing
 	denied := &GetOutput{}
 	if err := get(currentContext(), &GetInput{ID: "record", Path: path, Cursor: cursor, MaxNodes: 6}, denied); err == nil || denied.Metadata != nil {
 		t.Fatal("denied option continuation leaked choices")
+	}
+}
+
+// An opaque locator returned by the catalog must survive list -> get intact.
+type locatorReader struct {
+	*reader
+	locator string
+}
+
+func (r *locatorReader) WindowDefinitionsList(ctx context.Context, in *bridge.WindowDefinitionListInput) (*bridge.WindowDefinitionListOutput, error) {
+	out, err := r.reader.WindowDefinitionsList(ctx, in)
+	if err == nil {
+		out.Windows[0].WindowID = r.locator
+	}
+	return out, err
+}
+func (r *locatorReader) WindowDefinitionGet(ctx context.Context, in *bridge.WindowDefinitionGetInput) (*bridge.WindowDefinitionGetOutput, error) {
+	if in.WindowID != r.locator {
+		return nil, identity.ErrResourceDenied
+	}
+	copied := *in
+	copied.WindowID = "record"
+	return r.reader.WindowDefinitionGet(ctx, &copied)
+}
+func TestCatalogLocatorRoundTripPreservesIdentityAndAdmission(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{"connection": map[string]any{"name": "provider-" + strings.Repeat("a", 200), "providerIdentity": "fixture"}, "uri": "window://team/record"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &locatorReader{reader: &reader{scope: &scope{}}, locator: "primitive:" + base64.RawURLEncoding.EncodeToString(payload)}
+	s := New(r)
+	listed := &ListOutput{}
+	if err := s.list(currentContext(), &ListInput{}, listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Windows[0].ID != r.locator {
+		t.Fatal("catalog locator was truncated")
+	}
+	if err := s.get(currentContext(), &GetInput{ID: listed.Windows[0].ID, MaxNodes: 1}, &GetOutput{}); err != nil {
+		t.Fatal(err)
+	}
+	r.deny = true
+	if err := s.get(currentContext(), &GetInput{ID: listed.Windows[0].ID}, &GetOutput{}); !errors.Is(err, identity.ErrResourceDenied) {
+		t.Fatalf("owner denial lost: %v", err)
 	}
 }
