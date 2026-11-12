@@ -50,23 +50,39 @@ func resolveTemplateSchemas(t *tpl.Template) error {
 		}
 	}
 
-	// Resolve only the two declared schema macros. Other runtime placeholders
+	// Resolve only declared schema macros. Other runtime placeholders
 	// remain untouched, and inserted schema bytes are never interpreted again.
 	expanded := map[string]string{}
 	text, err := markdown.TransformText(t.Instructions, func(prose string) (string, error) {
 		replacements := []string{}
-		for _, entry := range []struct{ name, ref string }{{"ReportSchema", "forge:report-spec"}, {"WindowSchema", "forge:window"}} {
+		for _, entry := range []struct{ name, ref, pointer string }{
+			{"ReportSchema", "forge:report-spec", ""}, {"WindowSchema", "forge:window", ""},
+			{"ReportTransactionSchema", "forge:report-transaction", ""}, {"ReportDataSchema", "forge:report-data", ""},
+			{"ReportTransactionEnvelopeSchema", "forge:report-transaction", "/$defs/transactionEnvelope"},
+			{"ReportKpiBlockSchema", "forge:report-transaction", "/$defs/kpiBlock"},
+			{"ReportTableBlockSchema", "forge:report-transaction", "/$defs/tableBlock"},
+			{"ReportChartSpecSchema", "forge:report-transaction", "/$defs/chartSpec"},
+			{"ReportGeoMapBlockSchema", "forge:report-transaction", "/$defs/geoMapBlock"},
+			{"ReportSectionBlockSchema", "forge:report-transaction", "/$defs/sectionBlock"},
+			{"ReportTabGroupBlockSchema", "forge:report-transaction", "/$defs/tabGroupBlock"},
+			{"ReportCalloutBlockSchema", "forge:report-transaction", "/$defs/calloutBlock"},
+			{"ReportBadgesBlockSchema", "forge:report-transaction", "/$defs/badgesBlock"},
+			{"ReportMarkdownBlockSchema", "forge:report-transaction", "/$defs/markdownBlock"},
+			{"ReportInfoPanelBlockSchema", "forge:report-transaction", "/$defs/infoPanelBlock"},
+			{"ReportCompositeBlockSchema", "forge:report-transaction", "/$defs/compositeBlock"},
+			{"ReportCollectionBlockSchema", "forge:report-transaction", "/$defs/collectionBlock"},
+		} {
 			token := "${" + entry.name + "}"
 			if !strings.Contains(prose, token) {
 				continue
 			}
 			value, ok := expanded[token]
 			if !ok {
-				raw, err := forgeschema.Compact(entry.ref)
+				selection, err := forgeschema.Select(entry.ref, entry.pointer)
 				if err != nil {
 					return "", err
 				}
-				value, err = templating.Expand(token, map[string]interface{}{entry.name: raw})
+				value, err = templating.Expand(token, map[string]interface{}{entry.name: string(selection.Schema)})
 				if err != nil {
 					return "", err
 				}

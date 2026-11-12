@@ -109,3 +109,26 @@ Schema. Expansion occurs in the existing immutable definition preparation path
 using Core's native template engine. Unknown placeholders remain literal.
 Fenced and inline code examples are literal and never expanded. These prose
 macros do not automatically enable whole-response JSON output constraints.
+
+Progressive `forge-report` templates use `${ReportTransactionSchema}`
+(`forge:report-transaction`) and scoped `forge-data` uses `${ReportDataSchema}`
+(`forge:report-data`). The transaction schema describes `report-document-v1`
+authoring; native lowering derives fields such as a chart's `chartModel` from
+`chartSpec`. `${ReportSchema}` continues to describe the compiled ReportSpec.
+Place each schema once in prose, and omit an equivalent inline fence schema
+to avoid repeating the same contract in the activated document.
+
+Prefer explicit partial guidance for common progressive output:
+`${ReportTransactionEnvelopeSchema}`, `${ReportDataSchema}`, and the required
+`${ReportKpiBlockSchema}`, `${ReportTableBlockSchema}`, `${ReportChartSpecSchema}`,
+`${ReportGeoMapBlockSchema}`, `${ReportSectionBlockSchema}`,
+`${ReportTabGroupBlockSchema}`, `${ReportCalloutBlockSchema}`,
+`${ReportBadgesBlockSchema}`, `${ReportMarkdownBlockSchema}`,
+`${ReportInfoPanelBlockSchema}`, `${ReportCompositeBlockSchema}`, or
+`${ReportCollectionBlockSchema}` fragments.
+These use Forge's existing closed JSON-pointer selections. They preserve nested
+enums and constraints, but do not claim to describe the complete output.
+Block fragments describe merged state; the chart fragment describes only the
+authored `chartSpec` field and excludes its derived `chartModel`. Native
+assembly and final validation remain unchanged. The complete
+`${ReportTransactionSchema}` is available when explicitly needed.

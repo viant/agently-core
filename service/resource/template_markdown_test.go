@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	identity "github.com/viant/agently-core/protocol/resource"
+	forgeschema "github.com/viant/forge/backend/authoring/schema"
 )
 
 func TestNativeMarkdownTemplateMatchesYAML(t *testing.T) {
@@ -45,6 +47,43 @@ func TestNativeMarkdownTemplateMatchesYAML(t *testing.T) {
 	first := compile("sample.yaml", yaml)
 	second := compile("sample.md", md)
 	require.JSONEq(t, string(first), string(second))
+}
+
+func TestProgressiveTemplateSchemaMacrosExpandExactlyOnce(t *testing.T) {
+	const instructions = "Report transaction:\n${ReportTransactionSchema}\nData transaction:\n${ReportDataSchema}"
+	raw, err := json.Marshal(map[string]any{"id": "example", "name": "Example", "instructions": instructions})
+	require.NoError(t, err)
+	actual, err := DecodeTemplateDefinition(raw)
+	require.NoError(t, err)
+	for _, ref := range []string{"forge:report-transaction", "forge:report-data"} {
+		canonical, err := forgeschema.Compact(ref)
+		require.NoError(t, err)
+		require.Equal(t, 1, strings.Count(actual.Instructions, canonical))
+	}
+	require.NotContains(t, actual.Instructions, "${ReportTransactionSchema}")
+	require.NotContains(t, actual.Instructions, "${ReportDataSchema}")
+	encoded, err := json.Marshal(actual)
+	require.NoError(t, err)
+	again, err := DecodeTemplateDefinition(encoded)
+	require.NoError(t, err)
+	require.Equal(t, actual.Instructions, again.Instructions)
+	require.Nil(t, actual.Schema, "mixed fenced responses are not whole-response JSON")
+}
+
+func TestSelectedProgressiveGuidanceUsesClosedCanonicalFragments(t *testing.T) {
+	raw := json.RawMessage(`{"id":"example","name":"Example","instructions":"Envelope: ${ReportTransactionEnvelopeSchema}\nChart field: ${ReportChartSpecSchema}\nData: ${ReportDataSchema}"}`)
+	actual, err := DecodeTemplateDefinition(raw)
+	require.NoError(t, err)
+	for _, pointer := range []string{"/$defs/transactionEnvelope", "/$defs/chartSpec"} {
+		selected, err := forgeschema.Select("forge:report-transaction", pointer)
+		require.NoError(t, err)
+		require.False(t, selected.Complete)
+		require.Equal(t, 1, strings.Count(actual.Instructions, string(selected.Schema)))
+	}
+	require.NotContains(t, actual.Instructions, "${Report")
+	require.NotContains(t, actual.Instructions, `"chartModel"`)
+	require.Less(t, len(actual.Instructions), 25000)
+	require.Nil(t, actual.Schema)
 }
 
 func TestTemplatePinnedForgeSchemas(t *testing.T) {
