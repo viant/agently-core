@@ -32,7 +32,8 @@ import (
 // restrict which users can match the producer-authored presentation policy.
 // Optional authenticated compatibility uses secret REFERENCES, never tokens.
 type LocalConfig struct {
-	global bool // derived internally once per producer; never accepted from YAML
+	global      bool // derived internally once per producer; never accepted from YAML
+	probeGlobal bool // preserve disambiguation when more than one producer is configured
 
 	Namespace        string   `yaml:"namespace"`
 	ConnectionName   string   `yaml:"connectionName"`
@@ -157,6 +158,11 @@ func PrepareLocalBindings(ctx context.Context, rt *executor.Runtime, path string
 		global.OAuthClient, global.UserSecret, global.Key, global.ExpectedSubject = "", "", "", ""
 		global.Scopes = nil
 		expanded = append(expanded, global)
+	}
+	// With multiple producers, retain the existing explicit discovery check to
+	// avoid choosing an arbitrary global owner. A single producer needs no scan.
+	for i := range expanded {
+		expanded[i].probeGlobal = len(producers) > 1
 	}
 	bindings := make([]Binding, 0, len(expanded))
 	var globals []Binding
@@ -294,7 +300,10 @@ func prepareLocalArtifactCohortConfig(ctx context.Context, rt *executor.Runtime,
 	if err != nil {
 		return Binding{}, err
 	}
-	if config.global {
+	// Keep the optional global replica even when publication is not ready yet.
+	// Existing background reconciliation owns discovery and recovery; a startup
+	// namespace listing must not permanently disable subsequent style updates.
+	if config.global && config.probeGlobal {
 		result, listErr := client.CallTool(ctx, &schema.CallToolRequestParams{Name: "namespaces/list", Arguments: map[string]any{}}, mcpclient.WithNoRetry())
 		supported := false
 		if listErr == nil && result != nil && (result.IsError == nil || !*result.IsError) {

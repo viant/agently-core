@@ -97,7 +97,7 @@ func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t 
 	require.NoError(t, globalErr)
 	notify := make(chan struct{}, 1)
 	streamReady := make(chan struct{}, 1)
-	var authenticated, gets, fetches, legacy atomic.Int32
+	var authenticated, gets, fetches, legacy, namespaceLists atomic.Int32
 	var globalAvailable atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" {
@@ -153,7 +153,8 @@ func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t 
 			var body any
 			switch req.Params.Name {
 			case "namespaces/list":
-				body = map[string]any{"namespaces": []map[string]string{{"name": "example"}, {"name": "global"}}}
+				namespaceLists.Add(1)
+				body = map[string]any{"namespaces": []map[string]string{{"name": "example"}}}
 			case "namespaces/get":
 				gets.Add(1)
 				var namespace string
@@ -226,7 +227,8 @@ func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t 
 	require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf("connectionName: catalog\nproviderIdentity: example-publisher\nnamespace: example\nexpectedEndpoint: %s\nexpectedTenant: example-tenant\nexpectedAccount: example-account\n", endpoint)), 0600))
 	bindings, err := PrepareLocalBindings(context.Background(), runtime, path)
 	require.NoError(t, err)
-	require.Len(t, bindings, 2)
+	require.Len(t, bindings, 2, "retain the global binding even before the producer advertises it")
+	require.Zero(t, namespaceLists.Load(), "global synchronization must not depend on a startup catalog listing")
 	require.True(t, bindings[1].Optional)
 	require.Equal(t, "catalog#global", bindings[1].ConnectionName)
 	require.Equal(t, []string{"global"}, bindings[1].Namespaces)
