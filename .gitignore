@@ -121,3 +121,4 @@ __pycache__/
 
 # Local design, planning, and execution notes.
 /lookups-test.mjs
+/graphify-out/

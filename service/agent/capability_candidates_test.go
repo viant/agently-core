@@ -111,3 +111,22 @@ func TestIntakeEmbeddingFailureRetainsFullAuthorizedMetadata(t *testing.T) {
 	require.Contains(t, summary, "First authored description")
 	require.Contains(t, summary, "Second authored description")
 }
+
+func TestBM25DiscoveryDoesNotChangeKnowledgeEmbedder(t *testing.T) {
+	defaults := &execconfig.Defaults{Embedder: "dense-knowledge", Discovery: execconfig.DiscoveryDefaults{Ranker: "bm25", CandidateLimit: 1}}
+	service := &Service{defaults: defaults, augmenter: augmenter.New(intakeCandidateFinder{&intakeCandidateEmbedder{failure: errors.New("dense embedder must not be called")}})}
+	items := []intakeCapability{{Kind: "tool", Name: "calendar:open", Description: "Open calendar appointments"}, {Kind: "tool", Name: "files:read", Description: "Read local documents"}}
+	input := &QueryInput{Query: "calendar appointments", EmbeddingModel: "dense-override"}
+	got, ranked, err := service.rankIntakeCapabilities(context.Background(), input, items, nil)
+	require.NoError(t, err)
+	require.True(t, ranked)
+	require.Len(t, got, 1)
+	require.Equal(t, "calendar:open", got[0].Name)
+	require.Equal(t, "dense-knowledge", defaults.Embedder)
+	require.Equal(t, "dense-override", input.EmbeddingModel)
+	input.Query = "zxqnotfound"
+	got, ranked, err = service.rankIntakeCapabilities(context.Background(), input, items, nil)
+	require.NoError(t, err)
+	require.False(t, ranked, "no-hit must use existing compact discovery presentation")
+	require.Len(t, got, 2)
+}

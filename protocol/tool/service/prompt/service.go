@@ -2,10 +2,14 @@ package prompt
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/protocol/primitive"
+	"net/url"
 	"reflect"
-	"sort"
 	"strings"
 	"time"
 
@@ -52,7 +56,14 @@ func NewPlaybook(repo *intakerepo.Repository, opts ...func(*Service)) *Service {
 
 func WithConversationClient(c apiconv.Client) func(*Service) { return func(s *Service) { s.conv = c } }
 func WithAgentFinder(f agentmdl.Finder) func(*Service)       { return func(s *Service) { s.finder = f } }
-func WithMCPManager(m intent.MCPManager) func(*Service)      { return func(s *Service) { s.mgr = m } }
+func WithMCPManager(m intent.MCPManager) func(*Service) {
+	return func(s *Service) {
+		if m == nil || (reflect.ValueOf(m).Kind() == reflect.Pointer && reflect.ValueOf(m).IsNil()) {
+			return
+		}
+		s.mgr = m
+	}
+}
 func WithAuthorizationPolicy(p *policy.Runtime) func(*Service) {
 	return func(s *Service) { s.policy = p }
 }
@@ -66,7 +77,7 @@ func (s *Service) Name() string {
 
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
-		{Name: "list", Description: "Discover available playbook summaries by id and description without loading instructions into the conversation. After selecting a playbook to follow, call get with includeDocument:true.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
+		{Name: "list", Description: "Find available playbook summaries using search (BM25-ranked natural-language search), namespace, nameTerms, descriptionTerms, keywords, or excludeKeywords. Literal groups use OR within each group and AND across groups. Returns seven summaries by default; use limit and nextCursor with unchanged filters. No instruction bodies are returned. After selecting a playbook to follow, call get with includeDocument:true.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "get", Description: "Get a playbook by id. When selecting it to guide the current task, set includeDocument:true: this injects its authored system/user messages in order and activates its declared tools in the running agent. Tool declarations may use existing wildcard patterns. Search for more tools only when the playbook lacks a needed capability. Omit or set false only to inspect the playbook without activating it. Check injected in the result.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
 	}
 }
@@ -83,8 +94,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 }
 
 func (s *Service) list(ctx context.Context, in, out interface{}) error {
-	_, ok := in.(*ListInput)
-	if !ok {
+	input, ok := in.(*ListInput)
+	if !ok || input == nil {
 		return svc.NewInvalidInputError(in)
 	}
 	lo, ok := out.(*ListOutput)
@@ -113,9 +124,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 			Knowledge:        append([]intent.KnowledgeMatch(nil), p.Knowledge...),
 		})
 	}
-	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].ID) < strings.ToLower(items[j].ID) })
-	lo.Profiles = items
-	return nil
+	return s.listPage(ctx, input, items, lo)
 }
 
 func (s *Service) get(ctx context.Context, in, out interface{}) error {
@@ -365,4 +374,87 @@ func mapEvidenceContract(in *intent.EvidenceContract) *EvidenceContract {
 		Forbidden:  append([]string(nil), in.Forbidden...),
 		Completion: append([]string(nil), in.Completion...),
 	}
+}
+
+// playbookCatalogOwner is the existing shared MCP metadata-cache boundary.
+type playbookCatalogOwner interface {
+	CatalogScope(context.Context, string, []string) (string, bool, error)
+	VisibleCatalog(context.Context, string, time.Time, func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error), ...func() time.Time) (*primitive.Catalog[json.RawMessage], error)
+	CheckVisibleCatalog(context.Context, *primitive.Catalog[json.RawMessage]) error
+}
+
+func (s *Service) listPage(ctx context.Context, input *ListInput, items []ListItem, out *ListOutput) error {
+	query := input.CatalogQuery
+	if query.Limit <= 0 {
+		query.Limit = 7
+	}
+	// Admission and agent presentation filtering have already run. The exact
+	// summary digest makes source or eligibility changes invalidate old cursors.
+	raw, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(raw)
+	load := func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error) {
+		entries := make([]primitive.CatalogItem[json.RawMessage], 0, len(items))
+		for _, item := range items {
+			value, err := json.Marshal(item)
+			if err != nil {
+				return nil, err
+			}
+			namespace := "workspace"
+			if u, e := url.Parse(item.URI); e == nil && u.Host != "" {
+				namespace = u.Host
+			}
+			entries = append(entries, primitive.CatalogItem[json.RawMessage]{Name: item.ID, Description: strings.TrimSpace(item.Name + " " + item.Description), Namespace: namespace, URI: item.URI, OwnerID: item.ID, Value: value})
+		}
+		return entries, nil
+	}
+	var index *primitive.Catalog[json.RawMessage]
+	owner, hasOwner := s.mgr.(playbookCatalogOwner)
+	if hasOwner {
+		conversation := runtimerequestctx.ConversationIDFromContext(ctx)
+		scope, cacheable, err := owner.CatalogScope(ctx, conversation, nil)
+		if err != nil {
+			return err
+		}
+		until := time.Now().Add(30 * time.Second)
+		if !cacheable {
+			until = time.Now()
+		}
+		index, err = owner.VisibleCatalog(ctx, fmt.Sprintf("playbook:%p:%s:%x", s.repo, scope, digest), until, load)
+		if err != nil {
+			return err
+		}
+	} else {
+		entries, err := load(ctx)
+		if err != nil {
+			return err
+		}
+		identity, _ := json.Marshal([]string{authctx.CanonicalUserID(ctx), authctx.EffectiveUserID(ctx), authctx.Provider(ctx), runtimerequestctx.ConversationIDFromContext(ctx)})
+		index = primitive.NewCatalog(fmt.Sprintf("playbook:%x:%x", sha256.Sum256(identity), digest), entries)
+	}
+	page, err := index.Page(ctx, query)
+	if err != nil {
+		return err
+	}
+	profiles := make([]ListItem, 0, len(page.Items))
+	for _, raw := range page.Items {
+		var item ListItem
+		if err = json.Unmarshal(raw, &item); err != nil {
+			return err
+		}
+		profiles = append(profiles, item)
+	}
+	if hasOwner {
+		if err = owner.CheckVisibleCatalog(ctx, index); err != nil {
+			return err
+		}
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	out.Profiles = profiles
+	out.NextCursor, out.Complete, out.Total = page.NextCursor, page.Complete, page.Total
+	return nil
 }

@@ -1,9 +1,12 @@
 package prompt
 
-import intent "github.com/viant/agently-core/protocol/intent"
+import (
+	intent "github.com/viant/agently-core/protocol/intent"
+	"github.com/viant/agently-core/protocol/primitive"
+)
 
 // ListInput is the request payload for prompt:list.
-type ListInput struct{}
+type ListInput struct{ primitive.CatalogQuery }
 
 // ListItem is a single entry in a prompt:list response.
 // Instruction content is intentionally omitted — descriptions are selection
@@ -24,7 +27,10 @@ type ListItem struct {
 
 // ListOutput is the response payload for prompt:list.
 type ListOutput struct {
-	Profiles []ListItem `json:"profiles"`
+	Profiles   []ListItem `json:"profiles"`
+	NextCursor string     `json:"nextCursor,omitempty"`
+	Complete   bool       `json:"complete"`
+	Total      int        `json:"total"`
 }
 
 // GetInput is the request payload for prompt:get.

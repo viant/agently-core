@@ -40,6 +40,13 @@ func (s *Service) rankIntakeCapabilities(ctx context.Context, input *QueryInput,
 		if model == "" {
 			model = strings.TrimSpace(s.defaults.Embedder)
 		}
+		switch strings.ToLower(strings.TrimSpace(s.defaults.Discovery.Ranker)) {
+		case "", "embedding":
+		case "bm25":
+			model = "bm25"
+		default:
+			return nil, false, fmt.Errorf("unsupported discovery ranker %q", s.defaults.Discovery.Ranker)
+		}
 		if s.defaults.Discovery.CandidateLimit > 0 {
 			limit = s.defaults.Discovery.CandidateLimit
 		}
@@ -67,6 +74,10 @@ func (s *Service) rankIntakeCapabilities(ctx context.Context, input *QueryInput,
 		}
 		debugtrace.Write("agent", "capability_ranking_unavailable", map[string]any{"errorType": fmt.Sprintf("%T", err), "candidateCount": len(items)})
 		appendWarning(ctx, "Capability ranking is unavailable; full authorized discovery metadata remains available")
+		return items, false, nil
+	}
+	if len(ranked) == 0 {
+		// Preserve compact namespace discovery when lexical retrieval has no hit.
 		return items, false, nil
 	}
 	result := make([]intakeCapability, 0, len(ranked))

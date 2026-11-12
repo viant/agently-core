@@ -74,9 +74,21 @@ func TestToolsListSharedFiltersPaginationAndLegacyInput(t *testing.T) {
 	require.NotContains(t, string(encoded), "private_schema")
 	for _, tool := range adapter.FromService(New()) {
 		if tool.Name == "list" {
-			for _, name := range []string{"query", "offset", "limit", "namespace", "nameTerms", "descriptionTerms", "keywords", "cursor"} {
+			for _, name := range []string{"search", "query", "offset", "limit", "namespace", "nameTerms", "descriptionTerms", "keywords", "excludeKeywords", "cursor"} {
 				require.Contains(t, tool.InputSchema.Properties, name)
 			}
 		}
 	}
+}
+
+func TestRankedSearchSelectsRelevantToolWithoutExecuting(t *testing.T) {
+	service := New()
+	list, err := service.Method("list")
+	require.NoError(t, err)
+	ctx := toolselection.WithState(context.Background(), []llm.Tool{{Definition: llm.ToolDefinition{Name: "a:compile", Description: "Compile authored artifacts"}}, {Definition: llm.ToolDefinition{Name: "z:inspect", Description: "Inspect report input defaults and filter controls"}}})
+	out := &ListOutput{}
+	err = list(ctx, &ListInput{CatalogQuery: primitive.CatalogQuery{Search: "inspect filter defaults"}, Limit: 1}, out)
+	require.NoError(t, err)
+	require.Len(t, out.Tools, 1)
+	require.Equal(t, "z:inspect", out.Tools[0].Name)
 }

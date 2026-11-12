@@ -32,6 +32,7 @@ type CapabilityRequest struct {
 }
 
 type capabilityVectors struct {
+	lexical *lexicalCapabilities
 	vectors [][]float32
 	expires time.Time
 	used    time.Time
@@ -57,6 +58,9 @@ func (s *Service) RankCapabilities(ctx context.Context, request CapabilityReques
 	}
 	if len(request.Candidates) <= limit {
 		return append([]capability.Candidate(nil), request.Candidates...), nil
+	}
+	if s != nil && strings.EqualFold(strings.TrimSpace(request.Model), "bm25") {
+		return s.rankLexicalCapabilities(ctx, request, limit)
 	}
 	if s == nil || s.finder == nil || strings.TrimSpace(request.Model) == "" {
 		return nil, fmt.Errorf("capability embedder unavailable")
@@ -283,24 +287,7 @@ func (s *Service) cachedCapabilityVectors(ctx context.Context, embedder baseembe
 		if size > 64<<20 {
 			return vectors, nil
 		}
-		for heldKey, held := range s.capabilityVectors.entries {
-			if !held.expires.IsZero() && !held.expires.After(now) {
-				s.capabilityVectors.bytes -= held.size
-				delete(s.capabilityVectors.entries, heldKey)
-			}
-		}
-		for len(s.capabilityVectors.entries) >= 256 || s.capabilityVectors.bytes+size > 64<<20 {
-			var oldest [32]byte
-			var oldestTime time.Time
-			for heldKey, held := range s.capabilityVectors.entries {
-				if oldestTime.IsZero() || held.used.Before(oldestTime) {
-					oldest = heldKey
-					oldestTime = held.used
-				}
-			}
-			s.capabilityVectors.bytes -= s.capabilityVectors.entries[oldest].size
-			delete(s.capabilityVectors.entries, oldest)
-		}
+		s.capabilityVectors.evict(now, size)
 		owned := make([][]float32, len(vectors))
 		for i, vector := range vectors {
 			owned[i] = append([]float32(nil), vector...)
@@ -358,4 +345,26 @@ func exactCapabilityReference(query string, candidate capability.Candidate) bool
 		}
 	}
 	return false
+}
+
+// evict runs under the shared capability-cache lock.
+func (c *capabilityVectorCache) evict(now time.Time, size int) {
+	for heldKey, held := range c.entries {
+		if !held.expires.IsZero() && !held.expires.After(now) {
+			c.bytes -= held.size
+			delete(c.entries, heldKey)
+		}
+	}
+	for len(c.entries) >= 256 || c.bytes+size > 64<<20 {
+		var oldest [32]byte
+		var oldestTime time.Time
+		for heldKey, held := range c.entries {
+			if oldestTime.IsZero() || held.used.Before(oldestTime) {
+				oldest = heldKey
+				oldestTime = held.used
+			}
+		}
+		c.bytes -= c.entries[oldest].size
+		delete(c.entries, oldest)
+	}
 }
