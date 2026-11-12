@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -51,7 +52,13 @@ func bindHTTPReport(w http.ResponseWriter, r *http.Request, provider WindowResou
 	}
 	handled, err := source.BindAdmittedNativePresentationWindow(ctx, r.URL.Query().Get("clientId"), r.URL.Query().Get("windowId"), key, &types.Window{Resource: selected.Resource})
 	if err != nil {
-		writeWindowError(w, err)
+		// Exact candidate admission already succeeded. A changed candidate cannot
+		// replace an existing instance, but is not an authorization failure.
+		if errors.Is(err, identity.ErrResourceStale) {
+			http.Error(w, "report instance revision changed", http.StatusConflict)
+		} else {
+			writeWindowError(w, err)
+		}
 		return true
 	}
 	if !handled {

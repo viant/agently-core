@@ -32,8 +32,19 @@ func (s *Service) BindAdmittedNativePresentationWindow(ctx context.Context, clie
 	// current native owner. Credential rotation may replace its authority while
 	// retaining the mounted instance and its observed output. Direct reads with
 	// the old pin still fail at the owning report catalog.
-	if old, exists := s.getWindowPin(key); exists && (old.Resource.URI != admitted.Resource.URI || old.Resource.ProviderIdentity != admitted.Resource.ProviderIdentity || old.Resource.ResourceCandidate != admitted.Resource.ResourceCandidate || (uri.Kind != "report" && old.Resource.AuthorityBinding != admitted.Resource.AuthorityBinding)) {
-		return true, identity.ErrResourceDenied
+	if old, exists := s.getWindowPin(key); exists {
+		if old.Resource.URI != admitted.Resource.URI || old.Resource.ProviderIdentity != admitted.Resource.ProviderIdentity {
+			return true, identity.ErrResourceDenied
+		}
+		if old.Resource.ResourceCandidate != admitted.Resource.ResourceCandidate {
+			if uri.Kind == "report" {
+				return true, identity.ErrResourceStale
+			}
+			return true, identity.ErrResourceDenied
+		}
+		if uri.Kind != "report" && old.Resource.AuthorityBinding != admitted.Resource.AuthorityBinding {
+			return true, identity.ErrResourceDenied
+		}
 	}
 	if bridge.sessionInfoByID(requestctx.UIBridgeSessionIDFromContext(ctx)) != session {
 		return true, identity.ErrResourceDenied

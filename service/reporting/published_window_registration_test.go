@@ -128,7 +128,29 @@ func TestPublishedReportRegistrationAfterCredentialRotation(t *testing.T) {
 	changed, err := bridge.ReportDefinition(after, &ui.ReportDefinitionInput{Resource: identity.ResourceRef{URI: original.Resource.URI}})
 	require.NoError(t, err)
 	_, err = bridge.BindAdmittedNativePresentationWindow(after, "owner-client", "kept-report", changed.Resource.URI, &types.Window{Resource: changed.Resource})
-	require.Error(t, err, "readmission cannot silently replace the selected report candidate")
+	require.ErrorIs(t, err, identity.ErrResourceStale, "readmission cannot silently replace the selected report candidate")
+	bind := func(client, instance string) int {
+		encoded, marshalErr := json.Marshal(changed.Resource)
+		require.NoError(t, marshalErr)
+		query.Set("clientId", client)
+		query.Set("windowId", instance)
+		query.Set("resolvedResource", string(encoded))
+		req, requestErr := http.NewRequest(http.MethodGet, server.URL+"/window/"+url.PathEscape(changed.Resource.URI)+"?"+query.Encode(), nil)
+		require.NoError(t, requestErr)
+		req.Header.Set("Test-Credential", "verified-after")
+		req.Header.Set("Mcp-Session-Id", renewedSession)
+		res, callErr := server.Client().Do(req)
+		require.NoError(t, callErr)
+		_, readErr := io.Copy(io.Discard, res.Body)
+		require.NoError(t, readErr)
+		require.NoError(t, res.Body.Close())
+		return res.StatusCode
+	}
+	require.Equal(t, http.StatusConflict, bind("owner-client", "kept-report"))
+	require.Equal(t, http.StatusForbidden, bind("foreign-client", "kept-report"))
+	require.Equal(t, http.StatusOK, bind("owner-client", "fresh-report"))
+	require.Equal(t, http.StatusConflict, bind("owner-client", "kept-report"), "opening a fresh instance must not rewrite the old binding")
+	require.Zero(t, f.calls)
 	// Revocation cannot be converted into another successful restoration.
 	f.policies[0].Revision++
 	f.policies[0].Policies[artifactcohort.PolicyAction] = authz.Policy{Mode: "protected", Rule: &authz.Rule{Kind: "role", Value: "administrator"}}
