@@ -100,6 +100,18 @@ func TestToolExecContext_Timeout(t *testing.T) {
 	}
 }
 
+func TestExecuteToolStep_FailedDocumentSearchDoesNotDecodeErrorAsDocuments(t *testing.T) {
+	reg := &scriptedRegistry{script: []scriptedResult{{result: "no roots configured for semantic search", err: fmt.Errorf("no roots configured for semantic search")}}}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "search-conversation", TurnID: "search-turn"})
+	conv := &stubConv{}
+	call, _, err := ExecuteToolStep(ctx, reg, StepInfo{ID: "search-call", Name: "resources-matchDocuments"}, conv)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no roots configured")
+	assert.NotContains(t, err.Error(), "decode matchDocuments")
+	assert.NotContains(t, err.Error(), "emit system content")
+	assert.Contains(t, call.Error, "no roots configured")
+}
+
 func TestMaybePersistSystemDocuments(t *testing.T) {
 	turn := memory.TurnMeta{ConversationID: "c1", TurnID: "t1", Assistant: "agent-test"}
 	result := `{"documents":[{"uri":"workspace://localhost/sys/doc.md","score":0.91},{"uri":"workspace://localhost/user/doc.md","score":0.42}]}`

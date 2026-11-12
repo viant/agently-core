@@ -487,10 +487,10 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		defer cancelPersist()
 	}
 	if strings.TrimSpace(toolResult) != "" {
-		if err := persistDocumentsIfNeeded(persistCtx, reg, conv, turn, step.Name, toolResult); err != nil {
-			errs = append(errs, fmt.Errorf("emit system content: %w", err))
-		}
 		if execErr == nil {
+			if err := persistDocumentsIfNeeded(persistCtx, reg, conv, turn, step.Name, toolResult); err != nil {
+				errs = append(errs, fmt.Errorf("emit system content: %w", err))
+			}
 			if err := persistNativeResource(persistCtx, conv, turn, toolMsgID, step.Name, step.Args, toolResult); err != nil {
 				errs = append(errs, err)
 				execErr = err
