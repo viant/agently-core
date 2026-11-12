@@ -21,10 +21,11 @@ const Name = "ui/report"
 const OperationTimeout = 330 * time.Second
 
 type WindowInput struct {
-	Include   *CurrentInclude `json:"include,omitempty"`
-	ClientID  string          `json:"clientId,omitempty"`
-	WindowID  string          `json:"windowId,omitempty"`
-	WindowKey string          `json:"windowKey,omitempty"`
+	WaitForCompletion bool            `json:"waitForCompletion,omitempty" description:"Wait for an already-running report to finish without starting or rerunning data. Default false reads current state immediately."`
+	Include           *CurrentInclude `json:"include,omitempty"`
+	ClientID          string          `json:"clientId,omitempty"`
+	WindowID          string          `json:"windowId,omitempty"`
+	WindowKey         string          `json:"windowKey,omitempty"`
 }
 
 type CurrentInclude struct {
@@ -123,7 +124,7 @@ func New(bridge *forgeuisvc.Service, options ...Option) *Service {
 func (s *Service) Name() string { return Name }
 
 func (s *Service) MethodToolTimeout(method string) time.Duration {
-	if strings.EqualFold(strings.TrimSpace(method), "run") {
+	if strings.EqualFold(strings.TrimSpace(method), "run") || strings.EqualFold(strings.TrimSpace(method), "getCurrent") {
 		return OperationTimeout
 	}
 	return 0
@@ -144,7 +145,7 @@ func (s *Service) Methods() svc.Signatures {
 		runDescription += " Waits for the matching execution to finish and returns its completion receipt; do not poll getCurrent through additional model turns while this call is running."
 	}
 	return []svc.Signature{
-		{Name: "getCurrent", Description: "Read the current live report definition and completed output for interpreting its charts and data without rerunning it. Use include:{state:true} for applied filters, unapplied edits and loading status; for interpreting the displayed report use include:{visible:true} to read bounded rendered text and chart labels with current state. Check visible.truncated before making completeness claims. Request full data only when more detail is needed. Omitted include returns the legacy full response; raw:true returns it exclusively. Loaded data can be large. This read does not run, save, or change the report.", Input: input, Output: output},
+		{Name: "getCurrent", Description: "Read the current live report definition and completed output for interpreting its charts and data without rerunning it. Use include:{state:true} for applied filters, unapplied edits and loading status; for interpreting the displayed report use include:{visible:true} to read bounded rendered text and chart labels with current state. Check visible.truncated before making completeness claims. Request full data only when more detail is needed. Omitted include returns the legacy full response; raw:true returns it exclusively. Loaded data can be large. Set waitForCompletion:true after opening or applying filters to await the existing execution in one read. Default reads remain immediate. This read does not run, save, or change the report.", Input: input, Output: output},
 		{Name: "run", Description: runDescription, Input: input, Output: output},
 		{Name: "save", Description: "Persist the canonical report currently shown in a live report-builder window and return its stable reportId and artifactId.", Input: input, Output: output},
 	}
@@ -202,6 +203,21 @@ func (s *Service) execute(ctx context.Context, action, eventKind string, in, out
 		return err
 	}
 	params := map[string]interface{}{"windowId": strings.TrimSpace(window.WindowID)}
+	timeoutMs := 0
+	if action == "run" || action == "getCurrent" && input.WaitForCompletion {
+		timeoutMs = int(OperationTimeout.Milliseconds())
+	}
+	if action == "getCurrent" && input.WaitForCompletion {
+		params["waitForCompletion"] = true
+		waitBudget := OperationTimeout
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < waitBudget {
+			waitBudget = time.Until(deadline)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		params["timeoutMs"] = max(1, int(waitBudget.Milliseconds()))
+	}
 	if action == "getCurrent" && input.Include != nil {
 		params["include"] = input.Include
 	}
@@ -231,7 +247,7 @@ func (s *Service) execute(ctx context.Context, action, eventKind string, in, out
 		Params:    params,
 		// Carry the existing run budget through the inner bridge wait. Other
 		// report actions retain the ordinary command deadline.
-		TimeoutMs: int(s.MethodToolTimeout(action).Milliseconds()),
+		TimeoutMs: timeoutMs,
 	})
 	if err != nil {
 		return err

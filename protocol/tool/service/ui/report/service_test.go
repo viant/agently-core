@@ -318,7 +318,12 @@ func TestServiceRegistryEffectiveTimeout(t *testing.T) {
 	require.Equal(t, 330*time.Second, timeout)
 	require.Greater(t, timeout, 300*time.Second)
 
-	for _, method := range []string{"getCurrent", "save"} {
+	// getCurrent supports an opt-in completion wait. Its ordinary bridge read
+	// still uses the short deadline (covered by TestReportReadKeepsOrdinaryCommandDeadline).
+	timeout, ok = reg.ToolTimeout("ui/report:getCurrent")
+	require.True(t, ok)
+	require.Equal(t, OperationTimeout, timeout)
+	for _, method := range []string{"save"} {
 		timeout, ok = reg.ToolTimeout("ui/report:" + method)
 		require.False(t, ok, method)
 		require.Zero(t, timeout, method)
@@ -386,5 +391,77 @@ func TestRunDiscoveryDescribesPredefinedReportsAndConfiguredWait(t *testing.T) {
 			}
 		}
 		require.True(t, found)
+	}
+}
+
+func TestCurrentReportWaitUsesExistingDeadlineAndCompactProjection(t *testing.T) {
+	bridge := prepareReportWindow(t)
+	service := New(bridge)
+	ctx, cancel := context.WithTimeout(runtimerequestctx.WithConversationID(context.Background(), "conv-1"), time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	out := &ActionOutput{}
+	go func() {
+		done <- service.getCurrent(ctx, &WindowInput{WindowID: "report-window-1", WaitForCompletion: true, Include: &CurrentInclude{State: true}}, out)
+	}()
+	poll := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-1", "timeoutMs": 1000})
+	command := poll["params"].(map[string]interface{})
+	params := command["params"].(map[string]interface{})
+	require.Equal(t, true, params["waitForCompletion"])
+	require.Equal(t, map[string]interface{}{"state": true}, params["include"])
+	require.Greater(t, params["timeoutMs"].(float64), float64(0))
+	require.LessOrEqual(t, params["timeoutMs"].(float64), float64(1000))
+	select {
+	case err := <-done:
+		t.Fatalf("returned before UI completion: %v", err)
+	default:
+	}
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{"id": command["id"], "ok": true, "result": map[string]interface{}{"ok": true, "status": "ready", "hasCompletedRun": true}})
+	require.NoError(t, <-done)
+	require.True(t, out.OK)
+	require.Equal(t, "ready", out.Result["status"])
+	require.NotContains(t, out.Result, "reportFill")
+}
+
+func TestCurrentReportWaitPreservesFailureAndSupersession(t *testing.T) {
+	for _, status := range []string{"error", "superseded", "closed", "timeout"} {
+		t.Run(status, func(t *testing.T) {
+			bridge := prepareReportWindow(t)
+			service := New(bridge)
+			ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+			done := make(chan error, 1)
+			out := &ActionOutput{}
+			go func() {
+				done <- service.getCurrent(ctx, &WindowInput{WindowID: "report-window-1", WaitForCompletion: true}, out)
+			}()
+			poll := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-1", "timeoutMs": 1000})
+			command := poll["params"].(map[string]interface{})
+			postUIRPC(t, bridge, "ui.response", map[string]interface{}{"id": command["id"], "ok": true, "result": map[string]interface{}{"ok": false, "status": status, "error": "Report operation " + status}})
+			require.NoError(t, <-done)
+			require.False(t, out.OK)
+			require.Equal(t, status, out.Result["status"])
+			require.Equal(t, "Report operation "+status, out.Error)
+		})
+	}
+}
+
+func TestCurrentReportWaitHonorsCallerCancellation(t *testing.T) {
+	bridge := prepareReportWindow(t)
+	service := New(bridge)
+	ctx, cancel := context.WithCancel(runtimerequestctx.WithConversationID(context.Background(), "conv-1"))
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- service.getCurrent(ctx, &WindowInput{WindowID: "report-window-1", WaitForCompletion: true}, &ActionOutput{})
+	}()
+	poll := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-1", "timeoutMs": 1000})
+	command := poll["params"].(map[string]interface{})
+	require.Equal(t, "ui.report.getCurrent", command["method"])
+	cancel()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("wait ignored caller cancellation")
 	}
 }
