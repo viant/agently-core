@@ -268,3 +268,26 @@ func TestSkillNamespaceFilterSkipsOnlyKnownUnrelatedSources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, scoped.Items, again.Items)
 }
+
+func TestSkillCatalogRefreshesWhenResolvedNamespaceChanges(t *testing.T) {
+	fixture := &skillMCPFixture{body: "---\nname: review\ndescription: Review records\n---\nbody"}
+	entry := fixture.entry()
+	source := &queryNamespaceNative{skillMCPFixture: fixture, entries: []schema.Skill{entry}}
+	config := &cfg.MCPClient{SkillDiscovery: &cfg.SkillDiscovery{Enabled: true}, ResolvedIdentity: &cfg.ResolvedServiceIdentity{ResourceURI: "mcp://analysis/reader", ProviderIdentity: "publisher"}}
+	mgr, err := manager.New(querySkillOptions{"transport": config}, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return source, nil }))
+	require.NoError(t, err)
+	defer mgr.CloseConversation("skill-catalog")
+	svc := &Service{mcpSource: mgr, registry: proto.NewRegistry()}
+	actor := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	agent := &agentmdl.Agent{Skills: []string{"*"}}
+	before, err := svc.ListVisiblePage(actor, agent, primitive.CatalogQuery{})
+	require.NoError(t, err)
+	require.Len(t, before.Items, 1)
+	require.Equal(t, "analysis", before.Items[0].Namespace)
+	config.ResolvedIdentity = &cfg.ResolvedServiceIdentity{ResourceURI: "mcp://planning/reader", ProviderIdentity: "publisher"}
+	after, err := svc.ListVisiblePage(actor, agent, primitive.CatalogQuery{})
+	require.NoError(t, err)
+	require.Len(t, after.Items, 1)
+	require.Equal(t, "planning", after.Items[0].Namespace)
+	require.Equal(t, before.Items[0].URI, after.Items[0].URI, "grouping changes must not rewrite immutable skill identity")
+}
