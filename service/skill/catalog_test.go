@@ -197,3 +197,74 @@ func TestSkillCatalogPartitionsOriginalNamespacesWithinOneMCPConnection(t *testi
 	legacy := proto.Metadata{URI: proto.Ref{ServerID: "connection", Name: "review", ResourceURI: "https://example.test/review/SKILL.md"}.URI(), ServerID: "connection"}
 	require.Equal(t, "connection", skillCatalogNamespace(legacy))
 }
+
+func TestPublishedNativeSkillUsesResolvedServiceNamespace(t *testing.T) {
+	fixture := &skillMCPFixture{body: "---\nname: review\ndescription: Review records\n---\nbody"}
+	entry := fixture.entry()
+	entry.Uri = "skill://opaque-storage/revision/review/SKILL.md"
+	for i := range entry.Resources.Files {
+		entry.Resources.Files[i].Uri = entry.Uri
+	}
+	native := &queryNamespaceNative{skillMCPFixture: fixture, entries: []schema.Skill{entry}}
+	options := querySkillOptions{"transport": {ResolvedIdentity: &cfg.ResolvedServiceIdentity{ResourceURI: "mcp://analysis/reader", ProviderIdentity: "publisher"}, SkillDiscovery: &cfg.SkillDiscovery{Enabled: true}}}
+	mgr, err := manager.New(options, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return native, nil }))
+	require.NoError(t, err)
+	defer mgr.CloseConversation("skill-catalog")
+	svc := &Service{mcpSource: mgr, registry: proto.NewRegistry()}
+	actor := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	agent := &agentmdl.Agent{Skills: []string{"*"}}
+	page, err := svc.ListVisiblePage(actor, agent, primitive.CatalogQuery{Namespace: "analysis"})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	require.Equal(t, "analysis", page.Items[0].Namespace)
+	ref, err := proto.ParseRef(page.Items[0].URI)
+	require.NoError(t, err)
+	require.Equal(t, entry.Uri, ref.ResourceURI)
+	other, err := svc.ListVisiblePage(actor, agent, primitive.CatalogQuery{Namespace: "unrelated"})
+	require.NoError(t, err)
+	require.Empty(t, other.Items)
+	require.Equal(t, 1, fixture.listCalls)
+	require.Zero(t, fixture.readCalls)
+}
+
+func TestSkillNamespaceFilterSkipsOnlyKnownUnrelatedSources(t *testing.T) {
+	fixtures := map[string]*queryNamespaceNative{}
+	options := querySkillOptions{}
+	for _, name := range []string{"analysis", "planning", "legacy"} {
+		fixture := &skillMCPFixture{body: "---\nname: review\ndescription: Review records\n---\nbody"}
+		entry := fixture.entry()
+		entry.Uri = "skill://opaque/" + name + "/review/SKILL.md"
+		if name == "legacy" {
+			entry.Uri = "skill://analysis/legacy/review/SKILL.md"
+		}
+		for i := range entry.Resources.Files {
+			entry.Resources.Files[i].Uri = entry.Uri
+		}
+		fixtures[name] = &queryNamespaceNative{skillMCPFixture: fixture, entries: []schema.Skill{entry}}
+		options[name] = &cfg.MCPClient{SkillDiscovery: &cfg.SkillDiscovery{Enabled: true}}
+		if name != "legacy" {
+			options[name].ResolvedIdentity = &cfg.ResolvedServiceIdentity{ResourceURI: "mcp://" + name + "/reader", ProviderIdentity: "publisher"}
+		}
+	}
+	mgr, err := manager.New(options, manager.WithClientFactory(func(_ context.Context, _ string, name string) (mcpclient.Interface, error) {
+		return fixtures[name], nil
+	}))
+	require.NoError(t, err)
+	defer mgr.CloseConversation("skill-catalog")
+	svc := &Service{mcpSource: mgr, registry: proto.NewRegistry()}
+	actor := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	agent := &agentmdl.Agent{Skills: []string{"*"}}
+	scoped, err := svc.ListVisiblePage(actor, agent, primitive.CatalogQuery{Namespace: "analysis"})
+	require.NoError(t, err)
+	require.Len(t, scoped.Items, 2, "legacy sources without trusted ownership must still contribute")
+	require.Zero(t, fixtures["planning"].listCalls, "unrelated published namespace must not be enumerated")
+	require.Equal(t, 1, fixtures["analysis"].listCalls)
+	require.Equal(t, 1, fixtures["legacy"].listCalls)
+	all, err := svc.ListVisiblePage(actor, agent, primitive.CatalogQuery{})
+	require.NoError(t, err)
+	require.Len(t, all.Items, 3, "a scoped cached result must not replace the global catalog")
+	require.Equal(t, 1, fixtures["planning"].listCalls)
+	again, err := svc.ListVisiblePage(actor, agent, primitive.CatalogQuery{Namespace: "analysis"})
+	require.NoError(t, err)
+	require.Equal(t, scoped.Items, again.Items)
+}

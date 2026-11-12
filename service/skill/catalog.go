@@ -40,6 +40,7 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 	ctx = manager.WithNamesMemo(ctx)
 	ctx, discovery := withDiscoveryDiagnostics(ctx)
 	names := []string{}
+	discoveryNamespace := ""
 	if s.mcpSource != nil && authctx.EffectiveUserID(ctx) != "" {
 		available, err := s.mcpSource.Names(ctx)
 		if err != nil {
@@ -51,6 +52,10 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 			if err != nil {
 				traceDiscoveryFailure(ctx, "page_options", name, false, "", err)
 				return nil, err
+			}
+			if declared := resolvedSkillNamespace(cfg); query.Namespace != "" && declared != "" && declared != query.Namespace {
+				discoveryNamespace = query.Namespace
+				continue
 			}
 			cfg = ordinarySkillDiscovery(cfg)
 			if cfg != nil && (cfg.SkillDiscovery != nil && cfg.SkillDiscovery.Enabled || s.delivery != nil && cfg.PrimitiveProviderIdentity != "") {
@@ -82,13 +87,13 @@ func (s *Service) ListVisiblePage(ctx context.Context, agent *agentmdl.Agent, qu
 	}
 	raw, _ := json.Marshal(patterns)
 	fingerprint := sha256.Sum256(raw)
-	key := fmt.Sprintf("skill:%p:%p:%x:%s", s, registry, fingerprint, scope)
+	key := fmt.Sprintf("skill:%p:%p:%x:%s:namespace:%q", s, registry, fingerprint, scope, discoveryNamespace)
 	if query.Namespace == capability.DefaultNamespace {
 		key += ":default-partition"
 	}
 	var partialItems []primitive.CatalogItem[json.RawMessage]
 	load := func(ctx context.Context) ([]primitive.CatalogItem[json.RawMessage], error) {
-		metadata, err := s.ListVisible(ctx, agent)
+		metadata, err := s.listVisibleInNamespace(ctx, agent, discoveryNamespace)
 		if err != nil {
 			return nil, err
 		}

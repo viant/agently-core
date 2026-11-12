@@ -138,6 +138,10 @@ func visibleRemoteResource(agent *agentmdl.Agent, ref skillproto.Ref, uri string
 // Remote federation requires an authenticated principal even for public lists.
 // It intentionally has no process-wide cache and never runs on startup.
 func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only string) ([]remoteEntry, error) {
+	return s.remoteEntriesInNamespace(ctx, agent, only, "")
+}
+
+func (s *Service) remoteEntriesInNamespace(ctx context.Context, agent *agentmdl.Agent, only, namespace string) ([]remoteEntry, error) {
 	if s.mcpSource == nil || agent == nil || len(agent.Skills) == 0 {
 		return nil, nil
 	}
@@ -172,6 +176,11 @@ func (s *Service) remoteEntries(ctx context.Context, agent *agentmdl.Agent, only
 		if err != nil {
 			preflightErr, preflightServer, preflightStage = err, server, "options"
 			break
+		}
+		if namespace != "" {
+			if declared := resolvedSkillNamespace(cfg); declared != "" && declared != namespace {
+				continue
+			}
 		}
 		automatic := cfg != nil && cfg.SkillDiscovery == nil
 		cfg = ordinarySkillDiscovery(cfg)
@@ -395,6 +404,10 @@ func (s *Service) listRemoteServer(ctx context.Context, agent *agentmdl.Agent, s
 			}
 			frontMetadata, _ := r.Frontmatter["metadata"].(map[string]any)
 			meta := skillproto.Metadata{AlwaysInclude: (skillproto.Frontmatter{Metadata: frontMetadata}).AlwaysIncluded(), DiscoveryCacheScope: cacheScope, Name: name, URI: ref.URI(), QualifiedName: id + "/" + name, ServerID: server, Description: description}
+			// Published MCP resources already carry host-resolved namespace ownership.
+			// Native skill URLs may use opaque storage identities; retain the exact
+			// URL/revision and use the service provenance only for discovery grouping.
+			meta.Namespace = resolvedSkillNamespace(cfg)
 			out = append(out, remoteEntry{entry: r, revision: ref.Revision, metadata: meta, server: server, uri: r.Uri, config: cfg})
 		}
 		if res.NextCursor == nil || *res.NextCursor == "" {
@@ -444,12 +457,16 @@ func (s *Service) HasVisible(ctx context.Context, agent *agentmdl.Agent) (bool, 
 // ListVisible is the only federated model catalog. Visible remains local-only
 // for prompt binding so ordinary turns cause no remote discovery.
 func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]skillproto.Metadata, error) {
+	return s.listVisibleInNamespace(ctx, agent, "")
+}
+
+func (s *Service) listVisibleInNamespace(ctx context.Context, agent *agentmdl.Agent, namespace string) ([]skillproto.Metadata, error) {
 	local, _ := s.Visible(agent)
 	if s.delivery != nil {
 		local = nil
 	}
 	started := time.Now()
-	entries, err := s.remoteEntries(ctx, agent, "")
+	entries, err := s.remoteEntriesInNamespace(ctx, agent, "", namespace)
 	debugtrace.Write("skill", "list_visible_stage", map[string]any{"stage": "remote_entries", "count": len(entries), "elapsedMs": float64(time.Since(started)) / float64(time.Millisecond)})
 	if err != nil {
 		logSkillCatalogFailure(ctx, "remote_entries", err)
@@ -639,4 +656,17 @@ func (s *Service) resolveRemoteTools(ctx context.Context, item *skillproto.Skill
 		copy.Body += "\n\nQualified tool references (no permission grant): " + strings.Join(names, ", ")
 	}
 	return &copy, nil
+}
+
+// resolvedSkillNamespace is host-resolved provenance, not a connection alias or
+// a caller-supplied authority. Unknown legacy providers retain broad discovery.
+func resolvedSkillNamespace(config *mcpcfg.MCPClient) string {
+	if config == nil || config.ResolvedIdentity == nil || config.ResolvedIdentity.ProviderIdentity == "" {
+		return ""
+	}
+	source, err := identity.ParseResourceURI(config.ResolvedIdentity.ResourceURI)
+	if err != nil || source.Kind != "mcp" {
+		return ""
+	}
+	return source.Namespace
 }
