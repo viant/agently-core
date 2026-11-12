@@ -196,10 +196,14 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 	if qi == nil {
 		return agenttool.Selection{}, nil
 	}
-	hasVisibleSkills, err := s.hasVisibleSkills(ctx, qi.Agent)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return agenttool.Selection{}, err
 	}
+	// Discovery controls are configured capabilities, not a promise that a
+	// producer is currently available. Probing remote catalogs here made an
+	// unrelated outage abort every turn before the model could respond.
+	// List/get/activate retain their existing caller-scoped admission checks.
+	hasVisibleSkills := s.skillSvc != nil && qi.Agent != nil && len(qi.Agent.Skills) > 0
 	agentSelection := agenttool.FromAgentTool(agentmdlTool(qi.Agent))
 	if hasVisibleSkills {
 		agentSelection.Tools = append(agentSelection.Tools, skillproto.ListToolName, skillproto.GetToolName, skillproto.ActivateToolName)
@@ -232,13 +236,6 @@ func runtimeToolRequirements(input *QueryInput) agenttool.Selection {
 		selection.Tools = append(selection.Tools, "resources:inspect", "resources:read", "resources:readImage", "resources:export", "resources:list")
 	}
 	return agenttool.Normalize(selection)
-}
-
-func (s *Service) hasVisibleSkills(ctx context.Context, agent *agentmdl.Agent) (bool, error) {
-	if s == nil || s.skillSvc == nil {
-		return false, nil
-	}
-	return s.skillSvc.HasVisible(ctx, agent)
 }
 
 func withoutSkillControlSelection(in agenttool.Selection) agenttool.Selection {

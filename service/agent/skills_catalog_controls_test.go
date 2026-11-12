@@ -71,7 +71,7 @@ func TestSkillControlsUseOwningVisibleCatalogNotPrimitiveConnectionPresence(t *t
 			service := &Service{skillSvc: skillService}
 			type marker struct{}
 			ctx := context.WithValue(context.Background(), marker{}, "caller")
-			visible, err := service.hasVisibleSkills(ctx, &agentmdl.Agent{Skills: tc.selection})
+			visible, err := service.skillSvc.HasVisible(ctx, &agentmdl.Agent{Skills: tc.selection})
 			require.Equal(t, tc.visible, visible)
 			require.Equal(t, tc.denied, err != nil)
 			require.Equal(t, "caller", owner.observed.Value(marker{}))
@@ -104,7 +104,7 @@ func TestExactSkillControlsUseOwningReadAndPreserveDenial(t *testing.T) {
 		skillService := skills.New(nil, nil, nil)
 		skillService.SetDelivery(skillControlSources{}, owner)
 		service := &Service{skillSvc: skillService}
-		visible, err := service.hasVisibleSkills(context.Background(), &agentmdl.Agent{Skills: []string{uri}})
+		visible, err := service.skillSvc.HasVisible(context.Background(), &agentmdl.Agent{Skills: []string{uri}})
 		require.Equal(t, !denied, visible)
 		require.Equal(t, denied, err != nil)
 		require.Equal(t, 1, owner.reads)
@@ -138,7 +138,7 @@ func TestLocalSkillControlPresenceUsesExistingVisibleWildcardIndex(t *testing.T)
 			skillService.SetDelivery(skillControlSources{}, owner)
 			service := &Service{skillSvc: skillService}
 			for range 10 {
-				visible, err := service.hasVisibleSkills(context.Background(), &agentmdl.Agent{Skills: test.selection})
+				visible, err := service.skillSvc.HasVisible(context.Background(), &agentmdl.Agent{Skills: test.selection})
 				require.NoError(t, err)
 				require.Equal(t, test.visible, visible)
 			}
