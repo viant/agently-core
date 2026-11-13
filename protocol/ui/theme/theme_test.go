@@ -274,6 +274,36 @@ fonts:
 	}
 }
 
+func TestThirdWorkspaceFontKeepsOriginalRoles(t *testing.T) {
+	input := strings.Replace(example, "version: 1", `version: 1
+fonts:
+  - role: workspace-primary
+    name: Baseline Sans
+    faces: [{file: baseline.woff2, style: normal, weight: '400'}]
+  - role: workspace-secondary
+    name: Existing Accent Sans
+    faces: [{file: accent.woff2, style: normal, weight: '400'}]
+  - role: workspace-tertiary
+    name: New System Sans
+    faces: [{file: new.woff2, style: normal, weight: '200 800'}]`, 1)
+	input = strings.Replace(input, "control.radius: 8", "control.radius: 8\n      typography.family: workspace-tertiary", 1)
+	m, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Fonts) != 3 {
+		t.Fatalf("fonts: %+v", m.Fonts)
+	}
+	catalog, err := Resolve(*m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	css, err := CSS(catalog)
+	if err != nil || !strings.Contains(css, "var(--agently-font-workspace-tertiary, system-ui, sans-serif)") {
+		t.Fatalf("tertiary CSS: %s, %v", css, err)
+	}
+}
+
 func TestCompleteTypographyRoles(t *testing.T) {
 	roles := []string{"caption", "small", "body", "section", "heading", "title", "metric", "display", "code", "label", "metadata"}
 	for _, role := range roles {

@@ -64,7 +64,9 @@ A secondary registration uses `role: workspace-secondary` and publishes
 `--agently-font-workspace-secondary`. It does not change the primary family or
 any theme token. A bounded workspace surface may consume that variable directly;
 `typography.family: workspace-secondary` explicitly selects it for a whole theme.
-Both roles must be registered before theme tokens can select them, and duplicate
+An optional `workspace-tertiary` registration follows the same rule, allowing a
+new design system to select its own face while the primary and secondary faces
+retain their original uses. Each selected role must be registered, and duplicate
 roles remain invalid. Native clients use the same published role metadata and
 retain system fallback when a family is unavailable.
 ## Complete optional typography roles (UX0)

@@ -98,6 +98,7 @@ var fontFamilies = map[string]string{
 	"monospace":           "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 	"workspace-primary":   "var(--agently-font-workspace-primary, system-ui, sans-serif)",
 	"workspace-secondary": "var(--agently-font-workspace-secondary, system-ui, sans-serif)",
+	"workspace-tertiary":  "var(--agently-font-workspace-tertiary, system-ui, sans-serif)",
 }
 
 // Defaults returns a fresh palette. Dimensions are logical units, not CSS strings.

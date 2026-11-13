@@ -23,7 +23,9 @@ import (
 )
 
 const Directory = "extension/forge/styles"
-const MaxCSSBytes = 512 * 1024
+// Keep the complete legacy workspace appearance alongside an opt-in semantic
+// theme. Both profiles share one compiled stylesheet in the native catalog.
+const MaxCSSBytes = 768 * 1024
 const maxFiles = 32
 const maxSnapshots = 8
 const compilerVersion = 2
