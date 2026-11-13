@@ -18,6 +18,9 @@ type AsyncDefaults = wsconfig.WorkspaceConfig
 
 // DiscoveryDefaults configures initial capability retrieval, not authorization.
 type DiscoveryDefaults struct {
+	// FailOnUnavailableRetainedTools opts out of best-effort tool preloading.
+	// Explicitly selected tool execution remains strict regardless of this setting.
+	FailOnUnavailableRetainedTools bool `yaml:"failOnUnavailableRetainedTools,omitempty" json:"failOnUnavailableRetainedTools,omitempty"`
 	// Ranker selects lexical bm25 or existing embedding retrieval. Empty preserves embedding behavior.
 	Ranker                      string `yaml:"ranker,omitempty" json:"ranker,omitempty"`
 	CandidateLimit              int    `yaml:"candidateLimit,omitempty" json:"candidateLimit,omitempty"`

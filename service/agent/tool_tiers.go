@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/viant/agently-core/genai/llm"
 	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
@@ -109,11 +110,21 @@ func (s *Service) resolveAlwaysIncludedTools(ctx context.Context, input *QueryIn
 		if scope != nil {
 			for allowed := range scope {
 				if toolmatcher.Match(pattern, mcpname.Canonical(allowed)) {
+					if matched, found := matches[allowed]; found {
+						definitions = append(definitions, matched...)
+						continue
+					}
 					matched, matchError := s.matchDefinitionsResult(ctx, allowed)
 					if matchError != nil {
-						err = matchError
-						break
+						if ctx.Err() != nil || s.defaults != nil && s.defaults.Discovery.FailOnUnavailableRetainedTools {
+							err = matchError
+							break
+						}
+						appendWarning(ctx, fmt.Sprintf("Tool %q could not be preloaded; other capabilities remain available", allowed))
+						matches[allowed] = nil
+						continue
 					}
+					matches[allowed] = matched
 					definitions = append(definitions, matched...)
 				}
 			}
@@ -121,14 +132,27 @@ func (s *Service) resolveAlwaysIncludedTools(ctx context.Context, input *QueryIn
 			definitions, err = s.matchDefinitionsResult(ctx, pattern)
 		}
 		if err != nil {
-			if matchErr == nil {
-				matchErr = err
+			if ctx.Err() != nil {
+				matchErr = ctx.Err()
+			} else if s.defaults != nil && s.defaults.Discovery.FailOnUnavailableRetainedTools {
+				if matchErr == nil {
+					matchErr = err
+				}
+			} else {
+				// Preloading is optional. Do not let an unrelated producer outage
+				// prevent the model from responding with its healthy capabilities.
+				// Exact selection and execution still use their strict source path.
+				appendWarning(ctx, fmt.Sprintf("Tool %q could not be preloaded; other capabilities remain available", pattern))
+				matches[pattern] = nil
 			}
 			return nil
 		}
 		matches[pattern] = definitions
 		return definitions
 	})
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if matchErr != nil {
 		return nil, matchErr
 	}

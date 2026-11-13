@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	execconfig "github.com/viant/agently-core/app/executor/config"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	toolregistry "github.com/viant/agently-core/internal/tool/registry"
@@ -138,18 +139,19 @@ func TestRetainedMCPURIToolsUseNativeCatalog(t *testing.T) {
 	}
 }
 
-func TestRetainedMCPURIToolsPropagateDiscoveryFailure(t *testing.T) {
+func TestRetainedMCPURIToolsIsolateDiscoveryFailureByDefault(t *testing.T) {
 	for _, path := range []string{"binding", "execution"} {
 		t.Run(path, func(t *testing.T) {
-			cause := errors.New("synthetic catalog unavailable")
-			s, ctx, _, _ := retainedCatalogService(t, cause)
+			s, ctx, _, _ := retainedCatalogService(t, errors.New("synthetic catalog unavailable"))
 			in := selectionInput(&intake.ToolSelection{Complete: true})
 			if path == "binding" {
-				_, err := s.buildToolSignatures(ctx, in)
-				require.ErrorIs(t, err, cause)
+				defs, err := s.buildToolSignatures(ctx, in)
+				require.NoError(t, err)
+				require.Empty(t, defs)
 			} else {
-				_, err := s.resolveTools(ctx, in)
-				require.ErrorIs(t, err, cause)
+				defs, err := s.resolveTools(ctx, in)
+				require.NoError(t, err)
+				require.Empty(t, defs)
 			}
 		})
 	}
@@ -429,5 +431,72 @@ func TestExactCallerAndProfileChoicesSelectOnDemandWithoutIntake(t *testing.T) {
 				require.Contains(t, names, "catalog-write")
 			}
 		})
+	}
+}
+
+func TestRetainedToolStrictOptOutPreservesCause(t *testing.T) {
+	for _, path := range []string{"binding", "execution"} {
+		t.Run(path, func(t *testing.T) {
+			cause := errors.New("synthetic source unavailable")
+			s, ctx, _, _ := retainedCatalogService(t, cause)
+			s.defaults = &execconfig.Defaults{Discovery: execconfig.DiscoveryDefaults{FailOnUnavailableRetainedTools: true}}
+			in := selectionInput(&intake.ToolSelection{Complete: true})
+			if path == "binding" {
+				_, err := s.buildToolSignatures(ctx, in)
+				require.ErrorIs(t, err, cause)
+			} else {
+				_, err := s.resolveTools(ctx, in)
+				require.ErrorIs(t, err, cause)
+			}
+		})
+	}
+}
+func TestRetainedToolIsolationPreservesCallerCancellation(t *testing.T) {
+	for _, deadline := range []bool{false, true} {
+		s, ctx, _, _ := retainedCatalogService(t, errors.New("unavailable"))
+		var cancel context.CancelFunc
+		expected := error(context.Canceled)
+		if deadline {
+			ctx, cancel = context.WithTimeout(ctx, 0)
+			expected = context.DeadlineExceeded
+		} else {
+			ctx, cancel = context.WithCancel(ctx)
+		}
+		cancel()
+		in := selectionInput(&intake.ToolSelection{Complete: true})
+		_, err := s.buildToolSignatures(ctx, in)
+		require.ErrorIs(t, err, expected)
+		_, err = s.resolveTools(ctx, in)
+		require.ErrorIs(t, err, expected)
+	}
+}
+
+type partialRetainedRegistry struct {
+	fakeRegistry
+	calls   map[string]int
+	failure error
+}
+
+func (r *partialRetainedRegistry) MatchDefinitionWithContextResult(_ context.Context, pattern string) ([]*llm.ToolDefinition, error) {
+	r.calls[pattern]++
+	if pattern == "broken-read" {
+		return nil, r.failure
+	}
+	return r.fakeRegistry.MatchDefinition(pattern), nil
+}
+func TestRetainedWildcardKeepsHealthyScopedToolsAndMemoizesFailure(t *testing.T) {
+	for _, allowed := range [][]string{{"healthy-read", "broken-read"}, {"broken-read", "healthy-read"}} {
+		reg := &partialRetainedRegistry{fakeRegistry: fakeRegistry{defs: []llm.ToolDefinition{{Name: "healthy-read"}}}, calls: map[string]int{}, failure: errors.New("source unavailable")}
+		s := &Service{registry: reg, toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{{ID: "preload", Match: []llm.Tool{{Name: "*", AlwaysInclude: true}, {Name: "*-read", AlwaysInclude: true}}}}, nil
+		}}
+		in := selectionInput(&intake.ToolSelection{Complete: true})
+		in.ToolsAllowed = allowed
+		defs, err := s.resolveAlwaysIncludedTools(context.Background(), in)
+		require.NoError(t, err)
+		require.Len(t, defs, 1)
+		require.Equal(t, "healthy-read", defs[0].Name)
+		require.Equal(t, 1, reg.calls["broken-read"], "overlapping retained patterns must not repeat a failed lookup")
+		require.Equal(t, 1, reg.calls["healthy-read"])
 	}
 }

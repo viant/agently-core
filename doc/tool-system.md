@@ -49,6 +49,24 @@ A `FeedSpec` declares how a tool's JSON result should project into UI-ready forg
 - **Add bundle**: drop a YAML under `<workspace>/tools/bundles/`.
 - **Add feed spec**: declare it on the tool's `metadata.feed`; no runtime change needed.
 
+## Retained tool availability
+
+`alwaysInclude` and `tier: critical` select tools for initial model exposure.
+By default, a failed preload omits that tool and preserves healthy tools, including
+other matches of a retained wildcard. It does not abort unrelated chat. Existing
+server diagnostics retain the source failure. Caller cancellation still cancels
+the operation; actual tool discovery and execution retain their existing errors
+and authorization checks.
+
+No configuration is required for this isolation. An operator who deliberately
+requires every retained tool to preload successfully can opt into strict behavior:
+
+```yaml
+default:
+  discovery:
+    failOnUnavailableRetainedTools: true
+```
+
 ## Related docs
 
 - [doc/mcp-integration.md](mcp-integration.md)

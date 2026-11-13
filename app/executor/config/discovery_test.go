@@ -14,3 +14,11 @@ func TestDiscoveryDefaultsDecodeWorkspaceConfiguration(t *testing.T) {
 	require.Equal(t, "Workspace discovery guidance", defaults.Discovery.DefaultNamespaceDescription)
 	require.Equal(t, "fixture", defaults.Embedder)
 }
+
+func TestRetainedToolFailureIsolationIsDefaultWithExplicitStrictOptOut(t *testing.T) {
+	var defaults Defaults
+	require.NoError(t, yaml.Unmarshal([]byte("discovery: {}\n"), &defaults))
+	require.False(t, defaults.Discovery.FailOnUnavailableRetainedTools)
+	require.NoError(t, yaml.Unmarshal([]byte("discovery:\n  failOnUnavailableRetainedTools: true\n"), &defaults))
+	require.True(t, defaults.Discovery.FailOnUnavailableRetainedTools)
+}
