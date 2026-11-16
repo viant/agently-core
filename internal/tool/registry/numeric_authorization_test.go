@@ -96,3 +96,18 @@ func TestProducerInputDiagnosticSurvivesRegistryDispatch(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeMCPUnavailableWithNullBody(t *testing.T) {
+	failed := true
+	res := &schema.CallToolResult{IsError: &failed, Content: []schema.CallToolResultContentElem{schema.TextContent{Type: "text", Text: "null"}}}
+	if !schema.SetToolErrorHTTPStatus(res, 503) {
+		t.Fatal("failed to set protocol status")
+	}
+	cli := &scriptedCallClient{result: res}
+	registry := newReconnectTestRegistry(&scriptedReconnectManager{clients: []mcpclient.Interface{cli}})
+	_, err := registry.Execute(context.Background(), "fixture:read", nil)
+	var status interface{ HTTPStatusCode() int }
+	if !errors.As(err, &status) || status.HTTPStatusCode() != 503 || err.Error() == "null" {
+		t.Fatalf("unavailable status or client explanation lost: %v", err)
+	}
+}

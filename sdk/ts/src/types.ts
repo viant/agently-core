@@ -999,6 +999,7 @@ export interface WorkspaceAssetDescriptor {
 
 export interface WorkspaceMetadata {
     namespaceStarterTasks?: { tasks: (StarterTask & { lookupFingerprint?: string })[]; categories?: StarterTaskCategory[] };
+    preferenceOwnerId?: string;
     starterTaskPreferences?: { hidden?: string[]; order?: string[]; own?: StarterTask[] };
     browserMCP?: import('./browserMCP').BrowserMCPDescriptor[];
     browserMCPDiagnostics?: string[];

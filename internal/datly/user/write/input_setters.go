@@ -2,6 +2,39 @@
 
 package write
 
+func (input *Input) SetExpectedSettings(value string) {
+	if input == nil {
+		return
+	}
+	input.ExpectedSettings = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.ExpectedSettings = true
+}
+
+func (input *Input) SetExpectedSettingsNull(value bool) {
+	if input == nil {
+		return
+	}
+	input.ExpectedSettingsNull = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.ExpectedSettingsNull = true
+}
+
+func (input *Input) SetCompareSettings(value bool) {
+	if input == nil {
+		return
+	}
+	input.CompareSettings = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.CompareSettings = true
+}
+
 func (input *Input) SetUsers(value []*User) {
 	if input == nil {
 		return

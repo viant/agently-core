@@ -154,7 +154,14 @@ func TestReportInstanceRevalidationUsesCurrentOwnerAndOriginalProvider(t *testin
 			}
 			visible, err := svc.FilterResourceSnapshot(testCtx, key.Namespace, key.ClientID, raw)
 			require.NoError(t, err)
-			require.NotContains(t, string(visible), `"persisted-report"`)
+			if failure == "candidate" {
+				require.Contains(t, string(visible), `"persisted-report"`)
+				require.Contains(t, string(visible), "Report needs reopening")
+				require.NotContains(t, string(visible), `"viewState"`)
+				require.NotContains(t, string(visible), `"resource"`)
+			} else {
+				require.NotContains(t, string(visible), `"persisted-report"`)
+			}
 			_, err = svc.WindowResource(testCtx, key.Namespace, key.ClientID, key.WindowID, pin.URI)
 			require.Error(t, err)
 			_, err = svc.authorizePinnedCommand(testCtx, key.Namespace, key.ClientID, "ui.control.export", map[string]any{"windowId": key.WindowID})

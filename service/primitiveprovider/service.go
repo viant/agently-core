@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	windowprotocol "github.com/viant/agently-core/protocol/window"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"strings"
@@ -248,13 +249,37 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 		clientID, _ = s.hub.DefaultClient(ns)
 	}
 	var commandPin *windowResourcePin
+	workspaceVisibility := in.Method == "ui.workspace.setVisibility"
+	checkWorkspaceClient := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if s.ns.Resolver == nil || in.ClientID == "" || in.ClientID != runtimerequestctx.PreferredUIClientIDFromContext(ctx) {
+			return identity.ErrResourceDenied
+		}
+		actor, err := s.ns.Identity(ctx)
+		if err != nil {
+			return err
+		}
+		params, ok := in.Params.(map[string]any)
+		conversation := runtimerequestctx.ConversationIDFromContext(ctx)
+		if actor.Namespace != ns || (!actor.ValidUntil.IsZero() && !actor.ValidUntil.After(time.Now())) || !ok || conversation == "" || params["conversationId"] != conversation {
+			return identity.ErrResourceDenied
+		}
+		return s.authorizeConversationClient(ctx, ns, in.ClientID, conversation)
+	}
+	if workspaceVisibility {
+		if err := checkWorkspaceClient(); err != nil {
+			return nil, err
+		}
+	}
 	conversationFeed := s.canonicalWindowCatalog() && isConversationFeedCommand(in.Method)
 	if conversationFeed {
 		if err := s.authorizeConversationFeedCommand(ctx, ns, clientID, in.Params); err != nil {
 			return nil, err
 		}
 	}
-	if s.canonicalWindowCatalog() && openedPin == nil && !conversationFeed {
+	if s.canonicalWindowCatalog() && openedPin == nil && !conversationFeed && !workspaceVisibility {
 		var err error
 		commandPin, err = s.authorizePinnedCommand(ctx, ns, clientID, in.Method, in.Params)
 		if err != nil {
@@ -315,6 +340,9 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 	}
 	resp, err := s.hub.Call(callCtx, ns, in.ClientID, in.Method, in.Params)
 	if err != nil {
+		if workspaceVisibility {
+			return nil, fmt.Errorf("could not confirm the visibility change; check Manage Workspace before retrying: %w", err)
+		}
 		return nil, err
 	}
 	if pureOpen {
@@ -361,6 +389,11 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 			if err := s.rememberWindowPin(ctx, windowPinKey{Namespace: ns, ClientID: clientID, WindowID: result.WindowID}, windowResourcePin{WindowKey: openedKey, Resource: *openedPin, Target: openedTarget}); err != nil {
 				return nil, err
 			}
+		}
+	}
+	if workspaceVisibility {
+		if err := checkWorkspaceClient(); err != nil {
+			return nil, fmt.Errorf("could not confirm the visibility change; check Manage Workspace before retrying: %w", err)
 		}
 	}
 	if conversationFeed {

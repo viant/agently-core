@@ -150,6 +150,10 @@ func httpError(w http.ResponseWriter, code int, err error) {
 
 func httpErrorWithResult(w http.ResponseWriter, code int, err error, result string) {
 	payload := map[string]string{"error": err.Error()}
+	if code == http.StatusForbidden && errors.Is(err, dsproto.ErrDatasourceDenied) {
+		payload["code"] = "datasource_denied"
+		payload["scope"] = "dataset"
+	}
 	if strings.TrimSpace(result) != "" {
 		payload["result"] = result
 	}

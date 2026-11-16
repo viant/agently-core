@@ -1,8 +1,12 @@
 package sdk
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	authsvc "github.com/viant/agently-core/service/auth"
+	primitiveprovider "github.com/viant/agently-core/service/primitiveprovider"
+	personalreporting "github.com/viant/agently-core/service/reporting"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -65,4 +69,61 @@ func TestToolProducerInputDiagnosticPreservesMessageAndDenial(t *testing.T) {
 		}
 		require.NotContains(t, response.Body.String(), "internal dispatch")
 	}
+}
+
+func TestUnavailableDefaultReturnsSafeRecoveryChoice(t *testing.T) {
+	err := fmt.Errorf("%w: %w: private provider detail", personalreporting.ErrPersonalDefaultUnavailable, identity.ErrResourceDenied)
+	response := httptest.NewRecorder()
+	writeToolExecuteError(response, err, "private partial result")
+	require.Equal(t, 403, response.Code)
+	require.Contains(t, response.Body.String(), "open the original report")
+	require.NotContains(t, response.Body.String(), "private")
+}
+
+func TestToolExecutePreservesExplicitDependencyOutage(t *testing.T) {
+	response := httptest.NewRecorder()
+	writeToolExecuteError(response, explicitInputStatusError{status: 503}, "")
+	require.Equal(t, 503, response.Code)
+}
+
+func TestAcknowledgedReportOpenFailurePreservesPhaseAndStatus(t *testing.T) {
+	for _, test := range []struct {
+		cause  error
+		status int
+	}{{identity.ErrResourceDenied, 403}, {identity.ErrResourceStale, 409}, {context.DeadlineExceeded, 504}} {
+		recorder := httptest.NewRecorder()
+		writeToolExecuteError(recorder, errors.Join(primitiveprovider.ErrReportOpenUnconfirmed, fmt.Errorf("private detail: %w", test.cause)), "private output")
+		require.Equal(t, test.status, recorder.Code)
+		require.Contains(t, recorder.Body.String(), "browser acknowledged")
+		require.NotContains(t, recorder.Body.String(), "private")
+	}
+}
+
+func TestResetWithoutOriginalIsAnUnsupportedOperation(t *testing.T) {
+	require.ErrorIs(t, personalreporting.ErrReportHasNoOriginal, errors.ErrUnsupported)
+	recorder := httptest.NewRecorder()
+	writeToolExecuteError(recorder, fmt.Errorf("private cause: %w", personalreporting.ErrReportHasNoOriginal), "private output")
+	require.Equal(t, http.StatusNotImplemented, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "no verified original to restore")
+	require.NotContains(t, recorder.Body.String(), "private")
+}
+
+func TestAmbiguousPersonalReportRequestsAChoiceThroughHTTP(t *testing.T) {
+	const uri = "report://example/summary"
+	service := &personalreporting.Service{}
+	service.SetPersonalWorkspacePreferences(func(context.Context) (*authsvc.WorkspacePreferences, error) {
+		return &authsvc.WorkspacePreferences{Defaults: []authsvc.WorkspaceReportDefault{
+			{SourceProvider: "first", SourceURI: uri, TargetURI: "report://users/owner/first"},
+			{SourceProvider: "second", SourceURI: uri, TargetURI: "report://users/owner/second"},
+		}}, nil
+	})
+	_, err := service.GetReport(t.Context(), &personalreporting.GetReportInput{ArtifactRef: uri, PreferPersonal: true})
+	require.Error(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/v1/tools/reporting:get_report/execute", strings.NewReader("{}"))
+	req.SetPathValue("name", "reporting:get_report")
+	response := httptest.NewRecorder()
+	handleExecuteTool(authorityErrorToolClient{failure: fmt.Errorf("private dispatch: %w", err)})(response, req)
+	require.Equal(t, http.StatusConflict, response.Code)
+	require.Contains(t, response.Body.String(), "choose a personal report or open the original explicitly")
+	require.NotContains(t, response.Body.String(), "private")
 }

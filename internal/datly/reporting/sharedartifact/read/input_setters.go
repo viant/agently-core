@@ -46,6 +46,17 @@ func (input *Input) SetArtifactID(value string) {
 	input.Has.ArtifactID = true
 }
 
+func (input *Input) SetArtifactIDs(value []string) {
+	if input == nil {
+		return
+	}
+	input.ArtifactIDs = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.ArtifactIDs = true
+}
+
 func (input *Input) SetFields(value []string) {
 	if input == nil {
 		return

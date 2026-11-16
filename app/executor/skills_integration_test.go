@@ -790,9 +790,17 @@ func TestRuntimeQuery_ExplicitSkillActivation_IgnoresInvisibleDollarSkill(t *tes
 	if err != nil {
 		t.Fatalf("read llm-request payload: %v", err)
 	}
-	text := string(data)
-	if strings.Contains(text, "llm_skills-activate") || strings.Contains(text, "llm/skills:activate") {
-		t.Fatalf("expected no skill activation for invisible skill, payload=%s", text)
+	var payload struct {
+		Messages json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	// An available tool declaration is not an activation. Check the actual
+	// prompt history for synthetic calls/results and loaded skill content.
+	text := string(payload.Messages)
+	if strings.Contains(text, "llm_skills-activate") || strings.Contains(text, "llm/skills:activate") || strings.Contains(text, "Follow the demo instructions.") {
+		t.Fatalf("expected no activation or instructions for invisible skill, messages=%s", text)
 	}
 	if !strings.Contains(text, "$demo use it") {
 		t.Fatalf("expected raw $demo query to pass through, payload=%s", text)

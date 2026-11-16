@@ -82,27 +82,28 @@ type Options struct {
 // Service is the agently-core runtime boundary for reporting compile and
 // export job orchestration.
 type Service struct {
-	exportContexts              exportExecutionContexts
-	execution                   *sharedengine.Service
-	reportResourceService       primitive.ResourceAuthoring
-	reportCatalog               catalog.Provider
-	resourceResolver            ResourceResolver
-	resourceReaderFactory       ResourceReaderFactory
-	resourceDependencyResolver  ResourceDependencyResolver
-	resourceDependencyProof     forgetypes.WindowTargetProof
-	reportCompilation           evidence.ReportCompilation
-	exporter                    Exporter
-	store                       Store
-	audit                       AuditSink
-	scratchpad                  *afsscratchpad.Service
-	scratchpadFS                afs.Service
-	tokenProvider               tokenctx.Provider
-	now                         func() time.Time
-	newID                       func() string
-	exportFromRunEnabled        bool
-	conversationAdoptionEnabled bool
-	activeRunResolver           ActiveReportRunResolver
-	forgeUIViewResolver         ForgeUIViewResolver
+	exportContexts               exportExecutionContexts
+	execution                    *sharedengine.Service
+	reportResourceService        primitive.ResourceAuthoring
+	reportCatalog                catalog.Provider
+	personalWorkspacePreferences func(context.Context) (*authctx.WorkspacePreferences, error)
+	resourceResolver             ResourceResolver
+	resourceReaderFactory        ResourceReaderFactory
+	resourceDependencyResolver   ResourceDependencyResolver
+	resourceDependencyProof      forgetypes.WindowTargetProof
+	reportCompilation            evidence.ReportCompilation
+	exporter                     Exporter
+	store                        Store
+	audit                        AuditSink
+	scratchpad                   *afsscratchpad.Service
+	scratchpadFS                 afs.Service
+	tokenProvider                tokenctx.Provider
+	now                          func() time.Time
+	newID                        func() string
+	exportFromRunEnabled         bool
+	conversationAdoptionEnabled  bool
+	activeRunResolver            ActiveReportRunResolver
+	forgeUIViewResolver          ForgeUIViewResolver
 }
 
 // New constructs a reporting Service.
@@ -328,25 +329,30 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "get_report",
-			Description: "Read a visible saved or published report definition using an exact resource URI or report identifier returned by list_reports. Use include to request only needed sections, such as description, inputs, refinements, binding or request; omit include only when the complete definition is needed. Definition metadata describes authored controls and defaults, not live applied filters or completed output. This does not run report data.",
+			Description: "Read a visible saved or published report definition using an exact resource URI or report identifier returned by list_reports. Use include to request only needed sections, such as description, inputs, refinements, binding or request; omit include only when the complete definition is needed. For an unqualified conversational opening request, set preferPersonal=true to resolve an explicitly selected personal default. Never set it for exact references, menu pins, open windows or a requested original. Definition metadata describes authored controls and defaults, not live applied filters or completed output. This does not run report data.",
 			Input:       reflect.TypeOf(&GetReportInput{}),
 			Output:      reflect.TypeOf(&SharedArtifact{}),
 		},
 		{
 			Name:        "list_reports",
-			Description: "List visible saved and published report catalog summaries, including names and resource URIs. Use this to identify a report by title before reading its definition or invoking its producer. Defaults to 7 entries; use nextCursor to continue or an explicit limit. Supports exact namespace IDs and cursors. Omit namespace when its identifier is unknown; do not derive an ID from a display label. Does not execute report data.",
+			Description: "List visible saved and published report summaries. For a named report, pass its title in search. Results include names and resource URIs. The indexed catalog defaults to 7 entries. Keep the same search and namespace when following nextCursor. Use an exact namespace ID when known or omit it. Does not execute report data.",
 			Input:       reflect.TypeOf(&ListReportsInput{}),
 			Output:      reflect.TypeOf(&ListReportsResult{}),
 		},
 		{
 			Name:        "update_report",
-			Description: "Update a persisted report record visible to the current principal.",
+			Description: "Update an existing personal report rather than cloning again. For a customized copy, supply expectedContentFingerprint from get_report so stale edits cannot overwrite changes. A published original is customized through duplicate_report, not edited in place.",
 			Input:       reflect.TypeOf(&UpdateReportRequest{}),
 			Output:      reflect.TypeOf(&SharedArtifact{}),
 		},
 		{
+			Name:        "reset_report",
+			Description: "Reset a personal report to its recorded original definition, or explicitly latest original. Requires the current content fingerprint. Preserves personal identity and menu references. This discards customizations: confirm intent when not already explicit. Does not run data.",
+			Input:       reflect.TypeOf(&ResetReportRequest{}), Output: reflect.TypeOf(&SharedArtifact{}),
+		},
+		{
 			Name:        "duplicate_report",
-			Description: "Duplicate an authorized report under a new namespaced identity.",
+			Description: "Save an explicitly requested personal copy of an authorized report, optionally with a modified complete definition. Opening, running or pinning an original never calls this tool. Supply a stable idempotencyKey for this save operation. After a successful save, call ui/view:open with resource.uri set to the returned personal URI and windowId set to the live report window ID from ui/window:list, then use update_report on that personal URI for follow-up edits. Keep the original binding if saving fails.",
 			Input:       reflect.TypeOf(&DuplicateReportRequest{}),
 			Output:      reflect.TypeOf(&SharedArtifact{}),
 		},
@@ -455,6 +461,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.listReportsTool, nil
 	case "update_report":
 		return s.updateReportTool, nil
+	case "reset_report":
+		return s.resetReportTool, nil
 	case "duplicate_report":
 		return s.duplicateReportTool, nil
 	case "stamp_report":
@@ -1867,12 +1875,19 @@ func (s *Service) getArtifactTool(ctx context.Context, in, out interface{}) erro
 }
 
 // GetSharedArtifact returns a shared artifact visible to the current principal.
+func isArchivedReport(artifact *SharedArtifact) bool {
+	return artifact.Lifecycle == "archived" && (artifact.Kind == savedReportArtifactKind || artifact.Kind == "reportBuilder.publishedSnapshot")
+}
+
 func (s *Service) GetSharedArtifact(ctx context.Context, artifactID string) (*SharedArtifact, error) {
 	artifact, err := s.store.GetSharedArtifact(ctx, strings.TrimSpace(artifactID))
 	if err != nil {
 		return nil, err
 	}
 	if artifact == nil || !isVisibleToActor(ctx, artifact.GetOwnerID()) {
+		return nil, ErrNotFound
+	}
+	if isArchivedReport(artifact) {
 		return nil, ErrNotFound
 	}
 	if artifact.Resource == nil && s.requiresCanonicalSharedReport(artifact) {
@@ -1929,6 +1944,9 @@ func (s *Service) ListSharedArtifacts(ctx context.Context, input *ListSharedArti
 	filtered := make([]*SharedArtifact, 0, len(artifacts))
 	for _, artifact := range artifacts {
 		if artifact == nil || !isVisibleToActor(ctx, artifact.GetOwnerID()) {
+			continue
+		}
+		if isArchivedReport(artifact) && normalized.Lifecycle != "archived" {
 			continue
 		}
 		if artifact.Resource == nil && s.requiresCanonicalSharedReport(artifact) {
@@ -2243,7 +2261,7 @@ func (s *Service) saveReportTool(ctx context.Context, in, out interface{}) error
 }
 
 func (s *Service) getCompleteReport(ctx context.Context, input *GetReportInput) (*SharedArtifact, error) {
-	if s.usesReportResources() || input != nil && (input.Resource != nil || input.ResolvedResource != nil) {
+	if s.usesReportResources() || input != nil && (input.Resource != nil || input.ResolvedResource != nil || input.SourceProvider != "") {
 		return s.getResourceReport(ctx, input)
 	}
 	if input == nil {
@@ -2272,7 +2290,7 @@ func (s *Service) getCompleteReport(ctx context.Context, input *GetReportInput) 
 		if artifact == nil || !isVisibleToActor(ctx, artifact.GetOwnerID()) {
 			continue
 		}
-		if strings.TrimSpace(artifact.Kind) != savedReportArtifactKind {
+		if isArchivedReport(artifact) || strings.TrimSpace(artifact.Kind) != savedReportArtifactKind {
 			continue
 		}
 		if artifactRef != "" && strings.TrimSpace(artifact.ArtifactRef) == artifactRef {
@@ -2312,6 +2330,9 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 	var normalized ListReportsInput
 	if input != nil {
 		normalized = *input
+	}
+	if strings.TrimSpace(normalized.Search) != "" {
+		return nil, fmt.Errorf("ranked report search requires the indexed resource catalog: %w", errors.ErrUnsupported)
 	}
 	sharedLimit := normalized.Limit
 	if strings.TrimSpace(normalized.OrderID) != "" {
@@ -2435,7 +2456,12 @@ func (s *Service) updateReportTool(ctx context.Context, in, out interface{}) err
 	if err != nil {
 		return err
 	}
-	*output = *cloneSharedArtifact(report)
+	uri, _ := identity.ParseResourceURI(report.ArtifactRef)
+	if uri.Namespace == "users" {
+		*output = *personalReportReceipt(report)
+	} else {
+		*output = *cloneSharedArtifact(report)
+	}
 	return nil
 }
 
@@ -2492,7 +2518,12 @@ func (s *Service) duplicateReportTool(ctx context.Context, in, out interface{}) 
 	if err != nil {
 		return err
 	}
-	*output = *cloneSharedArtifact(report)
+	uri, _ := identity.ParseResourceURI(report.ArtifactRef)
+	if uri.Namespace == "users" {
+		*output = *personalReportReceipt(report)
+	} else {
+		*output = *cloneSharedArtifact(report)
+	}
 	return nil
 }
 
@@ -2753,6 +2784,9 @@ func (s *Service) findVisibleSharedArtifactByRef(ctx context.Context, artifactRe
 			continue
 		}
 		if strings.TrimSpace(artifact.ArtifactRef) == normalizedRef {
+			if isArchivedReport(artifact) {
+				return nil, identity.ErrResourceStale
+			}
 			return cloneSharedArtifact(artifact), nil
 		}
 	}
@@ -3462,6 +3496,7 @@ func cloneSharedArtifact(input *SharedArtifact) *SharedArtifact {
 		SavedViewOverlay: cloneJSON(input.SavedViewOverlay),
 		Metadata:         cloneJSON(input.Metadata),
 		sharedActorScope: cloneSharedReportActorScope(input.sharedActorScope),
+		personalSource:   clonePersonalReportSource(input.personalSource),
 		CreatedAt:        input.CreatedAt,
 	}
 	if input.UpdatedAt != nil {

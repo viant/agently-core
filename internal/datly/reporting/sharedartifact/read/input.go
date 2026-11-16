@@ -8,6 +8,7 @@ type Input struct {
 	ReadMode     string    `parameter:"ReadMode,kind=artifactaccess,in=mode,dataType=string,required=true"`
 	OwnerSubject *string   `parameter:"OwnerSubject,kind=visibility,in=subject,dataType=*string,required=true"`
 	ArtifactID   string    `parameter:"ArtifactID,kind=query,in=artifactId,dataType=string,required=false" predicate:"equal,r,artifact_id"`
+	ArtifactIDs  []string  `parameter:"ArtifactIDs,kind=query,in=artifactIds,dataType=[]string,required=false" predicate:"in,r,artifact_id"`
 	Fields       []string  `parameter:"Fields,kind=query,in=fields,dataType=[]string,required=false,cacheable=false" querySelector:"view=reader,property=fields"`
 	Limit        int       `parameter:"Limit,kind=query,in=limit,dataType=int,required=false,cacheable=false" querySelector:"view=reader,property=limit"`
 	Offset       int       `parameter:"Offset,kind=query,in=offset,dataType=int,required=false,cacheable=false" querySelector:"view=reader,property=offset"`
@@ -25,6 +26,7 @@ type InputHas struct {
 	ReadMode     bool
 	OwnerSubject bool
 	ArtifactID   bool
+	ArtifactIDs  bool
 	Fields       bool
 	Limit        bool
 	Offset       bool

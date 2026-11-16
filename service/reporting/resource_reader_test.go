@@ -37,3 +37,15 @@ func TestMissingResourceReaderDeniesBeforeGetOrCompiler(t *testing.T) {
 		})
 	}
 }
+
+func TestResourceReaderCancellationRetainsCauseBeforeFactory(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := 0
+	service := New(Options{Store: NewMemoryStore()})
+	service.SetResourceReaderFactory(func(context.Context, string) (ResourceReader, error) { calls++; return nil, nil })
+	_, err := service.ResourceReaderFor(ctx, "report.retrieve")
+	if !errors.Is(err, context.Canceled) || errors.Is(err, identity.ErrResourceDenied) || calls != 0 {
+		t.Fatalf("cancelled read: %v calls=%d", err, calls)
+	}
+}

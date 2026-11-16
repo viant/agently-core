@@ -23,7 +23,7 @@ import (
 	"github.com/viant/agently-core/workspace"
 )
 
-var errNotFound = errors.New("reporting fs store: not found")
+var errNotFound = reportstore.ErrNotFound
 var reportingStateLocks sync.Map
 
 // Store is a StateStore-backed durable reporting store.
@@ -989,4 +989,27 @@ func cloneArtifact(input *reportartifactmodel.Record) *reportartifactmodel.Recor
 	out := *input
 	out.Data = append([]byte(nil), input.Data...)
 	return &out
+}
+
+func (s *Store) UpdateSharedArtifactCAS(ctx context.Context, artifact *reportshareartifactmodel.Record, expected int) error {
+	if artifact == nil {
+		return reportstore.ErrNotFound
+	}
+	lock, err := s.reportingStateLock(ctx)
+	if err != nil {
+		return err
+	}
+	lock.Lock()
+	defer lock.Unlock()
+	previous, err := s.GetSharedArtifact(ctx, artifact.ArtifactID)
+	if err != nil {
+		return err
+	}
+	if previous.OwnerID != artifact.OwnerID {
+		return reportstore.ErrNotFound
+	}
+	if previous.Version != expected || artifact.Version != expected+1 {
+		return reportstore.ErrCASMismatch
+	}
+	return s.UpdateSharedArtifact(ctx, artifact)
 }

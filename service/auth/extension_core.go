@@ -50,6 +50,9 @@ func newAuthExtension(cfg *Config, sessions *Manager, jwtSignKey string, tokenSt
 }
 
 func (a *authExtension) Register(mux *http.ServeMux) {
+	// Runtime hosts mount this extension instead of the SDK's standalone auth
+	// handler. Reuse the same preference endpoints and native user store.
+	NewHandler(a.cfg, a.sessions, WithUserService(a.users)).RegisterPreferences(mux)
 	mux.HandleFunc("GET /v1/api/auth/me", a.handleMe())
 	mux.HandleFunc("POST /v1/api/auth/local/login", a.handleLocalLogin())
 	mux.HandleFunc("POST /v1/api/auth/logout", a.handleLogout())

@@ -124,7 +124,8 @@ func (h *MetadataHandler) Metadata(ctx context.Context) (*MetadataResponse, erro
 	resp.NamespaceStarterTasks = starterTasks
 	if h.starterTaskPreferences != nil {
 		preferences, err := h.starterTaskPreferences(ctx)
-		if err == nil {
+		if err == nil && preferences != nil {
+			resp.PreferenceOwnerID = preferences.OwnerID
 			resp.StarterTaskPreferences = preferences
 		}
 	}

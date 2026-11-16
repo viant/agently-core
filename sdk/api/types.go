@@ -261,6 +261,7 @@ type WorkspaceStarterTaskPreferences struct {
 }
 
 type WorkspaceMetadata struct {
+	PreferenceOwnerID      string                           `json:"preferenceOwnerId,omitempty"`
 	StarterTaskPreferences *WorkspaceStarterTaskPreferences `json:"starterTaskPreferences,omitempty"`
 	NamespaceStarterTasks  *WorkspaceStarterTasks           `json:"namespaceStarterTasks,omitempty"`
 

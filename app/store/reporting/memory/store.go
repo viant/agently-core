@@ -3,7 +3,6 @@ package memory
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -18,7 +17,7 @@ import (
 	reportshareartifactmodel "github.com/viant/agently-core/model/reportshareartifact"
 )
 
-var errNotFound = errors.New("reporting memory store: not found")
+var errNotFound = reportstore.ErrNotFound
 
 // Store is an in-memory reporting persistence implementation.
 type Store struct {

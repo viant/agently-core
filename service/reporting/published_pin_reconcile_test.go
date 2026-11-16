@@ -290,3 +290,23 @@ func TestPublishedClosedRootReaderExportsCSV(t *testing.T) {
 	_, err = f.service.SubmitExport(ctx, &SubmitExportRequest{Resource: &identity.ResourceRef{URI: pin.URI}, ResolvedResource: pin, Format: ExportFormatCSV, TableBlockID: "details"})
 	require.Error(t, err, "producer revocation must deny a new export")
 }
+
+func TestGetReportAtSavedPublisherBypassesPersonalDefaults(t *testing.T) {
+	f := newPublishedPinFixture(t, "account-one")
+	ctx := authsvc.InjectUser(t.Context(), "reader")
+	ref := &identity.ResourceRef{URI: "report://example/summary"}
+	f.service.SetPersonalWorkspacePreferences(func(context.Context) (*authsvc.WorkspacePreferences, error) {
+		t.Fatal("explicit publisher must not read a personal default")
+		return nil, nil
+	})
+	current, err := f.service.GetReport(ctx, &GetReportInput{Resource: ref, SourceProvider: "publisher", PreferPersonal: true})
+	require.NoError(t, err)
+	require.Equal(t, "publisher", current.Resource.ProviderIdentity)
+	require.NotEmpty(t, current.ResourceDefinition)
+	for _, bookmark := range []*identity.ResolvedResource{nil, current.Resource} {
+		wrong, err := f.service.GetReport(ctx, &GetReportInput{Resource: ref, ResolvedResource: bookmark, SourceProvider: "retired", PreferPersonal: true})
+		require.ErrorIs(t, err, identity.ErrResourceDenied)
+		require.Nil(t, wrong)
+	}
+	require.Zero(t, f.calls)
+}

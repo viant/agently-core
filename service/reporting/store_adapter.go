@@ -4,13 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"reflect"
+	"sort"
 	"strings"
 	"time"
 
 	reportstore "github.com/viant/agently-core/app/store/reporting"
+	iauth "github.com/viant/agently-core/internal/auth"
 	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
 	reportjobmodel "github.com/viant/agently-core/model/reportjob"
 	reportshareartifactmodel "github.com/viant/agently-core/model/reportshareartifact"
+	identity "github.com/viant/agently-core/protocol/resource"
+	forgeresource "github.com/viant/forge/backend/resource"
 )
 
 // NewStoreAdapter bridges the generic reporting store client into the
@@ -174,7 +180,11 @@ func (s *storeAdapter) ListArtifacts(ctx context.Context) ([]*Artifact, error) {
 }
 
 func (s *storeAdapter) CreateSharedArtifact(ctx context.Context, artifact *SharedArtifact) error {
-	return translateStoreError(s.client.CreateSharedArtifact(ctx, encodeSharedArtifact(artifact)))
+	row, err := encodeSharedArtifact(artifact)
+	if err != nil {
+		return err
+	}
+	return translateStoreError(s.client.CreateSharedArtifact(ctx, row))
 }
 
 func (s *storeAdapter) GetSharedArtifact(ctx context.Context, artifactID string) (*SharedArtifact, error) {
@@ -188,12 +198,100 @@ func (s *storeAdapter) GetSharedArtifact(ctx context.Context, artifactID string)
 	return decodeSharedArtifact(artifact)
 }
 
+// SharedArtifactRead keeps an unreadable stored definition local to its row.
+type SharedArtifactRead struct {
+	Artifact *SharedArtifact
+	Err      error
+}
+
+// ReadSharedArtifactBatch holds one metadata operation's rows. The final check
+// compares the exact persisted columns, including records removed or replaced
+// without changing their version, before releasing the page to its caller.
+func (s *storeAdapter) ReadSharedArtifactBatch(ctx context.Context, ids []string) (map[string]SharedArtifactRead, func() error, error) {
+	source, ok := s.client.(interface {
+		GetSharedArtifacts(context.Context, []string) ([]*reportshareartifactmodel.Record, error)
+	})
+	if !ok {
+		return nil, nil, nil
+	}
+	read := func() (map[string]*reportshareartifactmodel.Record, error) {
+		rows, err := source.GetSharedArtifacts(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+		result := make(map[string]*reportshareartifactmodel.Record, len(rows))
+		for _, row := range rows {
+			if row != nil {
+				result[row.ArtifactID] = row
+			}
+		}
+		return result, nil
+	}
+	original, err := read()
+	if err != nil {
+		return nil, nil, err
+	}
+	decoded := make(map[string]SharedArtifactRead, len(original))
+	for id, row := range original {
+		artifact, err := decodeSharedArtifact(row)
+		decoded[id] = SharedArtifactRead{Artifact: artifact, Err: err}
+	}
+	finish := func() error {
+		current, err := read()
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(current, original) {
+			return identity.ErrResourceStale
+		}
+		return nil
+	}
+	return decoded, finish, nil
+}
+
+// ListSharedArtifactHeaders returns discovery fields without decoding stored report content.
+func (s *storeAdapter) ListSharedArtifactHeaders(ctx context.Context, offset, limit int) ([]*SharedArtifact, error) {
+	if offset < 0 || limit <= 0 {
+		return nil, identity.ErrResource
+	}
+	var rows []*reportshareartifactmodel.Record
+	var err error
+	if source, ok := s.client.(interface {
+		ListSharedArtifactHeaders(context.Context, int, int) ([]*reportshareartifactmodel.Record, error)
+	}); ok {
+		rows, err = source.ListSharedArtifactHeaders(ctx, offset, limit)
+	} else {
+		rows, err = s.client.ListSharedArtifacts(ctx)
+		if err == nil {
+			visible := make([]*reportshareartifactmodel.Record, 0, len(rows))
+			for _, row := range rows {
+				if row != nil && row.OwnerID == iauth.EffectiveUserID(ctx) {
+					visible = append(visible, row)
+				}
+			}
+			rows = visible
+			sort.SliceStable(rows, func(i, j int) bool {
+				return rows[i].ArtifactID < rows[j].ArtifactID
+			})
+			start := min(offset, len(rows))
+			rows = rows[start : start+min(limit, len(rows)-start)]
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*SharedArtifact, 0, len(rows))
+	for _, row := range rows {
+		if row != nil {
+			result = append(result, &SharedArtifact{ArtifactID: row.ArtifactID, ArtifactRef: row.ArtifactRef, OwnerID: row.OwnerID, Title: row.Title, Kind: row.Kind, Lifecycle: row.Lifecycle, Version: row.Version})
+		}
+	}
+	return result, nil
+}
+
 func (s *storeAdapter) ListSharedArtifacts(ctx context.Context) ([]*SharedArtifact, error) {
 	artifacts, err := s.client.ListSharedArtifacts(ctx)
 	if err != nil {
-		if isStoreNotFound(err) {
-			return []*SharedArtifact{}, nil
-		}
 		return nil, err
 	}
 	result := make([]*SharedArtifact, 0, len(artifacts))
@@ -210,7 +308,11 @@ func (s *storeAdapter) ListSharedArtifacts(ctx context.Context) ([]*SharedArtifa
 }
 
 func (s *storeAdapter) UpdateSharedArtifact(ctx context.Context, artifact *SharedArtifact) error {
-	return translateStoreError(s.client.UpdateSharedArtifact(ctx, encodeSharedArtifact(artifact)))
+	row, err := encodeSharedArtifact(artifact)
+	if err != nil {
+		return err
+	}
+	return translateStoreError(s.client.UpdateSharedArtifact(ctx, row))
 }
 
 func (s *storeAdapter) DeleteSharedArtifact(ctx context.Context, artifactID string) error {
@@ -340,11 +442,14 @@ func cloneTime(value *time.Time) *time.Time {
 	return &next
 }
 
-func encodeSharedArtifact(input *SharedArtifact) *reportshareartifactmodel.Record {
+func encodeSharedArtifact(input *SharedArtifact) (*reportshareartifactmodel.Record, error) {
 	if input == nil {
-		return nil
+		return nil, nil
 	}
-	metadata := encodeSharedArtifactMetadata(input.Metadata, input.Resource, input.sharedActorScope, input.ResourceDefinition)
+	metadata, err := encodeSharedArtifactMetadata(input.Metadata, input.Resource, input.sharedActorScope, input.ResourceDefinition, input.personalSource)
+	if err != nil {
+		return nil, err
+	}
 	return &reportshareartifactmodel.Record{
 		ArtifactID:       strings.TrimSpace(input.ArtifactID),
 		ArtifactRef:      strings.TrimSpace(input.ArtifactRef),
@@ -368,16 +473,16 @@ func encodeSharedArtifact(input *SharedArtifact) *reportshareartifactmodel.Recor
 		Metadata:         cloneJSON(metadata),
 		CreatedAt:        input.CreatedAt,
 		UpdatedAt:        cloneTime(input.UpdatedAt),
-	}
+	}, nil
 }
 
 func decodeSharedArtifact(input *reportshareartifactmodel.Record) (*SharedArtifact, error) {
 	if input == nil {
 		return nil, nil
 	}
-	metadata, resource, actorScope, definition, err := decodeSharedArtifactMetadata(input.Metadata)
+	metadata, resource, actorScope, definition, personalSource, err := decodeSharedArtifactMetadata(input.Metadata)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(forgeresource.ErrStoredDefinition, err)
 	}
 	return &SharedArtifact{
 		ArtifactID:         strings.TrimSpace(input.ArtifactID),
@@ -403,13 +508,14 @@ func decodeSharedArtifact(input *reportshareartifactmodel.Record) (*SharedArtifa
 		Resource:           resource,
 		ResourceDefinition: definition,
 		sharedActorScope:   actorScope,
+		personalSource:     personalSource,
 		CreatedAt:          input.CreatedAt,
 		UpdatedAt:          cloneTime(input.UpdatedAt),
 	}, nil
 }
 
 func isStoreNotFound(err error) bool {
-	return errors.Is(err, ErrNotFound) || strings.Contains(strings.ToLower(err.Error()), "not found")
+	return errors.Is(err, ErrNotFound) || errors.Is(err, reportstore.ErrNotFound)
 }
 
 func translateStoreError(err error) error {
@@ -417,13 +523,32 @@ func translateStoreError(err error) error {
 		return nil
 	}
 	if errors.Is(err, reportstore.ErrAlreadyExists) {
-		return ErrAlreadyExists
+		return fmt.Errorf("%w: %w", ErrAlreadyExists, err)
 	}
 	if errors.Is(err, reportstore.ErrConflict) {
 		return ErrConflict
 	}
 	if errors.Is(err, reportstore.ErrNotFound) {
 		return ErrNotFound
+	}
+	return err
+}
+
+// UpdateSharedArtifactCAS exposes the existing store's optional atomic write.
+func (s *storeAdapter) UpdateSharedArtifactCAS(ctx context.Context, artifact *SharedArtifact, expected int) error {
+	writer, ok := s.client.(interface {
+		UpdateSharedArtifactCAS(context.Context, *reportshareartifactmodel.Record, int) error
+	})
+	if !ok {
+		return fmt.Errorf("reporting store does not support atomic report updates")
+	}
+	row, err := encodeSharedArtifact(artifact)
+	if err != nil {
+		return err
+	}
+	err = writer.UpdateSharedArtifactCAS(ctx, row, expected)
+	if errors.Is(err, reportstore.ErrCASMismatch) {
+		return fmt.Errorf("%w: %w", identity.ErrResourceStale, err)
 	}
 	return err
 }

@@ -68,6 +68,7 @@ type GetOutput struct {
 }
 
 type OpenInput struct {
+	WindowID   string                   `json:"windowId,omitempty"`
 	Target     *forgetypes.WindowTarget `json:"target,omitempty"`
 	Resource   *identity.ResourceRef    `json:"resource,omitempty"`
 	ID         string                   `json:"id,omitempty"`
@@ -128,6 +129,7 @@ type OpenResultItem struct {
 }
 
 type preparedOpenItem struct {
+	targetWindow           *uireg.WindowSnapshot
 	item                   *ListItem
 	openMode               string
 	searchText             string
@@ -228,7 +230,7 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "list", Description: "List workspace-defined dynamic UI views that can be opened for the user.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "get", Description: "Get a workspace-defined dynamic UI view by id.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
-		{Name: "open", Description: "Open an existing published report resource or workspace UI view for the active conversation. For a report use {resource:{uri:'report://namespace/name'},parameters:{...}} with the exact catalog URI; omit id. For a workspace view use {id:'catalog-view-id',parameters:{...}}. Filters belong inside parameters, never at the top level; resourceUri is not an input field. Report parameters are forwarded unchanged; parameters.executeOnOpen=true requests the normal authorized report run, while omission honors authored defaults. Waits for the UI acknowledgement; an opening lifecycle is not proof of completed report data. A list view with declared quickSearch also accepts searchText. For ordered multi-open use items[] with the same per-item shape and optional openMode. parameters.reportStarterId may be a canonical ReportPresets id, a unique label, or __blank__.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
+		{Name: "open", Description: "Open an existing authorized report resource or workspace UI view for the active conversation. For a report use {resource:{uri:'report://namespace/name'},parameters:{...}} with the exact catalog URI; omit id. For a workspace view use {id:'catalog-view-id',parameters:{...}}. Filters belong inside parameters, never at the top level; resourceUri is not an input field. Report parameters are forwarded unchanged; parameters.executeOnOpen=true requests the normal authorized report run, while omission honors authored defaults. After an acknowledgement error or timeout, check ui/window:list. If the requested window is still listed, retry with its windowId. If it is missing, omit windowId to open the same authorized report in a new window. Opening or retrying a report does not require a copy. Present friendly names rather than technical URIs unless requested. Optional windowId replaces that live window while retaining its placement; use the exact ID from ui/window:list with a single destination. Omit windowId to open normally. Waits for the UI acknowledgement; an opening lifecycle is not proof of completed report data. A list view with declared quickSearch also accepts searchText. For ordered multi-open use items[] with the same per-item shape and optional openMode. parameters.reportStarterId may be a canonical ReportPresets id, a unique label, or __blank__.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
 	}
 }
 
@@ -302,6 +304,9 @@ func (s *Service) open(ctx context.Context, in, out interface{}) (resultErr erro
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
+	if strings.TrimSpace(input.WindowID) != "" && len(input.Items) > 1 {
+		return fmt.Errorf("windowId requires a single destination")
+	}
 	ctx = forgeuisvc.WithoutMetadataReadScope(ctx, s.metadataScope)
 	baseCtx := ctx
 	readCtx, finish, err := s.bridge.BeginWindowReadDecision(ctx)
@@ -320,6 +325,16 @@ func (s *Service) open(ctx context.Context, in, out interface{}) (resultErr erro
 	clientID, namespace, conversationID, err := s.resolveOpenClient(ctx, input.ClientID)
 	if err != nil {
 		return err
+	}
+	var targetWindow *uireg.WindowSnapshot
+	if windowID := strings.TrimSpace(input.WindowID); windowID != "" {
+		_, _, _, targetWindow, err = s.reg.FindWindow(ctx, conversationID, clientID, windowID, "")
+		if err != nil {
+			return err
+		}
+		if targetWindow == nil || targetWindow.WindowID == "chat/new" || targetWindow.WindowKey == "chat/new" {
+			return fmt.Errorf("windowId must select a live content window")
+		}
 	}
 	items := make([]OpenItem, 0, max(1, len(input.Items)))
 	if len(input.Items) > 0 {
@@ -354,6 +369,7 @@ func (s *Service) open(ctx context.Context, in, out interface{}) (resultErr erro
 			return prepareErr
 		}
 		preparedItems = append(preparedItems, prepared)
+		prepared.targetWindow = targetWindow
 	}
 	if finish != nil {
 		checkpoint := finish
@@ -568,6 +584,15 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 	}
 	windowParameters := prepared.windowParameters
 	windowID := computeWindowID(item.WindowKey, windowParameters, conversationID, item)
+	if target := prepared.targetWindow; target != nil {
+		windowID = target.WindowID
+		// Placement is owned by the live window, not supplied by the caller or
+		// borrowed from the new resource's default navigation metadata.
+		placed := *item
+		placed.Presentation, placed.Region = target.Presentation, target.Region
+		placed.WorkspaceSharePct, placed.WorkspaceMinHeight = target.WorkspaceSharePct, target.WorkspaceMinHeight
+		item = &placed
+	}
 	descriptor := s.workspaceDescriptor(ctx, windowID, conversationID, item, windowParameters)
 	options := buildOpenWindowOptions(item, conversationID, prepared.openMode)
 	options["workspaceObject"] = descriptor
@@ -579,6 +604,10 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 		"windowId": windowID, "windowKey": item.WindowKey,
 		"windowTitle": item.Title, "parameters": windowParameters,
 		"options": options,
+	}
+	if target := prepared.targetWindow; target != nil {
+		options["parentKey"], options["replaceHostedRegion"], options["newInstance"] = target.ParentKey, false, false
+		params["inTab"], params["expectedRevision"] = target.InTab, target.OperationRevision
 	}
 	if item.Resource != nil {
 		params["target"] = item.Target
@@ -637,6 +666,9 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 		ReportPresetResolution: prepared.reportPresetResolution,
 		OK:                     resp.OK,
 		Error:                  resp.Error,
+	}
+	if prepared.targetWindow != nil {
+		output.ParentKey = prepared.targetWindow.ParentKey
 	}
 	if len(resp.Result) > 0 {
 		var payload map[string]interface{}

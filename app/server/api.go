@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/browsermcp"
+	primitiveprovider "github.com/viant/agently-core/service/primitiveprovider"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +18,7 @@ import (
 	reportingrunhttp "github.com/viant/agently-core/adapter/http/reportingrun"
 	"github.com/viant/agently-core/app/executor"
 	"github.com/viant/agently-core/genai/llm"
+	iauth "github.com/viant/agently-core/internal/auth"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -72,6 +76,41 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	metadataVersion := strings.TrimSpace(opts.Version)
 	if metadataVersion == "" {
 		metadataVersion = "agently-core"
+	}
+	if opts.AuthRuntime != nil && opts.Runtime.Registry != nil {
+		workspaceTools := svcauth.NewWorkspaceTools(opts.AuthRuntime)
+		workspaceTools.SetBrowserVisibility = func(ctx context.Context, mutation *svcauth.WorkspaceMutation) (*svcauth.WorkspaceMutationReceipt, error) {
+			conversationID := requestctx.ConversationIDFromContext(ctx)
+			clientID := requestctx.PreferredUIClientIDFromContext(ctx)
+			if opts.Runtime.UIBridge == nil || conversationID == "" || clientID == "" {
+				return nil, fmt.Errorf("browser workspace visibility requires an active chat in this browser")
+			}
+			actor := iauth.User(ctx)
+			if actor == nil || strings.TrimSpace(actor.Subject) == "" {
+				return nil, fmt.Errorf("browser workspace visibility requires a signed-in user")
+			}
+			result, err := opts.Runtime.UIBridge.UICommand(ctx, &primitiveprovider.UICommandInput{ClientID: clientID, Method: "ui.workspace.setVisibility", Params: map[string]any{"conversationId": conversationID, "expectedSubject": strings.TrimSpace(actor.Subject), "action": mutation.Action, "applicationId": mutation.ApplicationID, "menuId": mutation.MenuID, "hidden": *mutation.Hidden}})
+			if err != nil {
+				return nil, fmt.Errorf("browser visibility update: %w", err)
+			}
+			if result == nil || !result.OK {
+				return nil, fmt.Errorf("browser did not save the visibility change")
+			}
+			var receipt svcauth.WorkspaceMutationReceipt
+			if err = json.Unmarshal(result.Result, &receipt); err != nil {
+				return nil, fmt.Errorf("invalid browser visibility receipt: %w", err)
+			}
+			return &receipt, nil
+		}
+		if opts.Runtime.Reporting != nil {
+			if err := opts.AuthRuntime.SetWorkspaceDefaultVerifier(opts.Runtime.Reporting.ValidatePersonalDefault); err != nil {
+				return nil, err
+			}
+			opts.Runtime.Reporting.SetPersonalWorkspacePreferences(opts.AuthRuntime.WorkspacePreferences)
+		}
+		if err := tool.AddInternalService(opts.Runtime.Registry, workspaceTools); err != nil {
+			return nil, err
+		}
 	}
 	metadataHandler := svcworkspace.NewMetadataHandler(opts.Runtime.Defaults, opts.Runtime.Store, metadataVersion)
 	metadataHandler.SetLayoutDefault(opts.LayoutDefault)

@@ -388,6 +388,7 @@ type SharedArtifact struct {
 	CreatedAt          time.Time                  `json:"createdAt,omitempty"`
 	UpdatedAt          *time.Time                 `json:"updatedAt,omitempty"`
 	sharedActorScope   *sharedReportActorScope
+	personalSource     *PersonalReportSource
 }
 
 type SaveReportRequest struct {
@@ -411,7 +412,9 @@ type SaveReportRequest struct {
 }
 
 type GetReportInput struct {
-	Include *sharedregistry.ReportInclude `json:"include,omitempty" description:"Opt-in report definition sections. Omit for the complete legacy response; an empty object returns identity only. Never executes the report."`
+	SourceProvider string                        `json:"sourceProvider,omitempty" description:"Exact publisher identity from a saved shortcut or catalog entry. Read only from this publisher. Omit for unqualified discovery."`
+	PreferPersonal bool                          `json:"preferPersonal,omitempty" description:"Use only for an unqualified conversational report request. Resolve the explicit personal default if present; leave false for exact URI requests, menu pins, current windows, or requests for the original."`
+	Include        *sharedregistry.ReportInclude `json:"include,omitempty" description:"Opt-in report definition sections. Omit for the complete legacy response; an empty object returns identity only. Never executes the report."`
 	// RefreshMetadata selects a new grant for a new action at the bookmarked
 	// provider. It never renews a grant held by an active execution.
 	RefreshMetadata  bool                       `json:"refreshMetadata,omitempty"`
@@ -423,6 +426,7 @@ type GetReportInput struct {
 }
 
 type ListReportsInput struct {
+	Search          string `json:"search,omitempty" description:"Search the authorized report catalog by name or description. Use the same search with nextCursor for further matches."`
 	Namespace       string `json:"namespace,omitempty" description:"Exact namespace ID from discovery; omit when unknown. A display label is not a namespace ID."`
 	CurrentUserOnly bool   `json:"currentUserOnly,omitempty"`
 	Cursor          string `json:"cursor,omitempty"`
@@ -435,6 +439,7 @@ type ListReportsInput struct {
 // ReportSummary is the lightweight catalog projection. Full authored and
 // compiled payloads remain available through get_report.
 type ReportSummary struct {
+	Unavailable        bool                        `json:"unavailable,omitempty"`
 	Resource           *identity.ResolvedResource  `json:"resource,omitempty"`
 	ResourceURI        string                      `json:"resourceUri,omitempty"`
 	Namespace          string                      `json:"namespace,omitempty"`
@@ -503,11 +508,12 @@ type UpdateReportRequest struct {
 }
 
 type DuplicateReportRequest struct {
+	Definition        json.RawMessage            `json:"definition,omitempty" description:"Optional complete modified definition to validate and save as a personal copy; omit for an explicitly requested unchanged copy."`
 	TargetURI         string                     `json:"targetUri,omitempty"`
 	TargetWorkspaceID string                     `json:"targetWorkspaceId,omitempty"`
 	Resource          *identity.ResourceRef      `json:"resource,omitempty"`
 	ResolvedResource  *identity.ResolvedResource `json:"resolvedResource,omitempty"`
-	IdempotencyKey    string                     `json:"idempotencyKey,omitempty"`
+	IdempotencyKey    string                     `json:"idempotencyKey,omitempty" description:"Retry the same copy with the same key and identical arguments, including the edited definition. On a conflict, read the target report before issuing another write."`
 
 	ArtifactID  string `json:"artifactId,omitempty"`
 	ArtifactRef string `json:"artifactRef,omitempty"`

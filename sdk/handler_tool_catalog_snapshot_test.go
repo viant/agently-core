@@ -26,7 +26,7 @@ func (p *httpToolSnapshotProvider) Names(context.Context) ([]string, error) {
 func (p *httpToolSnapshotProvider) Options(context.Context, string) (*cfg.MCPClient, error) {
 	return &cfg.MCPClient{ToolsListVisibility: cfg.ToolsListVisibilityPrivate, OutputArtifacts: map[string]cfg.OutputArtifact{"Download": {Name: "file.xlsx"}}, ClientOptions: &mcp.ClientOptions{Name: "fixture", ProtocolVersion: "2025-11-25", Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: p.endpoint}}, Auth: &mcp.ClientAuth{UseIdToken: true}}}, nil
 }
-func TestHTTPToolsListingRetainsPrivateSourceSnapshotPerUser(t *testing.T) {
+func TestHTTPToolsListingHonorsPrivateZeroTTLAcrossRequests(t *testing.T) {
 	t.Setenv("AGENTLY_MCP_SERVERS", "steward")
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +68,7 @@ func TestHTTPToolsListingRetainsPrivateSourceSnapshotPerUser(t *testing.T) {
 	for _, testCase := range []struct {
 		user        string
 		sourceCalls int32
-	}{{"alice", 1}, {"alice", 1}, {"bob", 2}, {"alice", 2}, {"bob", 2}} {
+	}{{"alice", 1}, {"alice", 2}, {"bob", 3}, {"alice", 4}, {"bob", 5}} {
 		user := testCase.user
 		ctx := authctx.WithIDToken(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: user}), "token-"+user)
 		out := httptest.NewRecorder()
@@ -82,6 +82,6 @@ func TestHTTPToolsListingRetainsPrivateSourceSnapshotPerUser(t *testing.T) {
 			other = "bob"
 		}
 		require.NotContains(t, out.Body.String(), "Bearer token-"+other, "private catalogs must never cross principals")
-		require.Equal(t, testCase.sourceCalls, calls.Load(), "host retention keeps zero-TTL discovery across requests, isolated per user")
+		require.Equal(t, testCase.sourceCalls, calls.Load(), "a zero-TTL producer without change notifications is fetched once per request")
 	}
 }

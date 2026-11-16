@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	dsproto "github.com/viant/agently-core/protocol/datasource"
 	identity "github.com/viant/agently-core/protocol/resource"
 	requestctx "github.com/viant/forge/backend/requestctx"
 	"io"
@@ -12,6 +14,86 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestToolExecutionDatasetDenialPreservesScopeWithoutPartialData(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		for _, tc := range []struct {
+			name    string
+			err     error
+			status  int
+			dataset bool
+		}{
+			{"dataset", fmt.Errorf("dataset execution: %w", dsproto.ErrDatasourceDenied), 403, true},
+			{"artifact takes precedence", errors.Join(dsproto.ErrDatasourceDenied, identity.ErrResourceDenied), 403, false},
+			{"text cannot create dataset denial", errors.New(dsproto.ErrDatasourceDenied.Error()), 500, false},
+		} {
+			t.Run(fmt.Sprintf("%s/stream=%t", tc.name, stream), func(t *testing.T) {
+				client := streamToolClient{execute: func(ctx context.Context) (string, error) {
+					if stream {
+						requestctx.EmitToolProgress(ctx, map[string]string{"phase": "started"})
+					}
+					return `{"restricted":"must not escape"}`, tc.err
+				}}
+				r := httptest.NewRequest(http.MethodPost, "/v1/tools/reporting:run_report/execute", strings.NewReader(`{}`))
+				r.SetPathValue("name", "reporting:run_report")
+				if stream {
+					r.Header.Set("Accept", "text/event-stream")
+				}
+				w := httptest.NewRecorder()
+				handleExecuteTool(client)(w, r)
+				body := w.Body.String()
+				if stream {
+					if !strings.Contains(body, fmt.Sprintf(`"status":%d`, tc.status)) {
+						t.Fatal(body)
+					}
+				} else if w.Code != tc.status {
+					t.Fatalf("status=%d body=%s", w.Code, body)
+				}
+				if strings.Contains(body, `"code":"datasource_denied"`) != tc.dataset {
+					t.Fatal(body)
+				}
+				if tc.status == 403 && strings.Contains(body, "must not escape") {
+					t.Fatal("partial data leaked after denial")
+				}
+			})
+		}
+	}
+}
+
+func TestToolPresentationConflictDeadlineAndCancellationKeepTransportStatus(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		status int
+	}{
+		{identity.ErrResourceStale, http.StatusConflict},
+		{identity.ErrResource, http.StatusBadRequest},
+		{context.DeadlineExceeded, http.StatusGatewayTimeout},
+		{context.Canceled, http.StatusRequestTimeout},
+	} {
+		for _, stream := range []bool{false, true} {
+			client := streamToolClient{execute: func(ctx context.Context) (string, error) {
+				if stream {
+					requestctx.EmitToolProgress(ctx, map[string]string{"phase": "opening"})
+				}
+				return "", fmt.Errorf("presentation: %w", tc.err)
+			}}
+			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+			r.SetPathValue("name", "ui/view:open")
+			if stream {
+				r.Header.Set("Accept", "text/event-stream")
+			}
+			w := httptest.NewRecorder()
+			handleExecuteTool(client)(w, r)
+			if stream {
+				if !strings.Contains(w.Body.String(), fmt.Sprintf(`"status":%d`, tc.status)) {
+					t.Fatal(w.Body.String())
+				}
+			} else if w.Code != tc.status {
+				t.Fatalf("got %d want %d: %s", w.Code, tc.status, w.Body.String())
+			}
+		}
+	}
+}
 
 type streamToolClient struct {
 	Client

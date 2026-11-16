@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,10 +95,16 @@ func TestUserReportsStoreOwnershipDraftsAndFreshWorkingBytes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, unchanged, []byte(update.Definition))
 	require.NotEqual(t, before.ContentFingerprint, after.ContentFingerprint)
-	for _, unsupported := range []primitive.UpdateDraftInput{{FormatVersion: 1, Definition: update.Definition, ExpectedRowEtag: 1}, {FormatVersion: 1, Definition: update.Definition, ExpectedDraftRevision: 1}, {FormatVersion: 1, Definition: update.Definition, ExpectedContentFingerprint: "not-atomic"}} {
-		_, err = source.UpdateDraft(alice, uri.String(), unsupported)
-		require.ErrorIs(t, err, ErrUserReportOperationUnsupported)
+
+	_, err = source.UpdateDraft(alice, uri.String(), primitive.UpdateDraftInput{FormatVersion: 1, Definition: update.Definition, ExpectedRowEtag: after.RowEtag, ExpectedContentFingerprint: after.ContentFingerprint})
+	require.NoError(t, err)
+	for _, stale := range []primitive.UpdateDraftInput{{FormatVersion: 1, Definition: update.Definition, ExpectedRowEtag: 999}, {FormatVersion: 1, Definition: update.Definition, ExpectedContentFingerprint: "stale"}} {
+		_, err = source.UpdateDraft(alice, uri.String(), stale)
+		require.ErrorIs(t, err, identity.ErrResourceStale)
 	}
+	_, err = source.UpdateDraft(alice, uri.String(), primitive.UpdateDraftInput{FormatVersion: 1, Definition: update.Definition, ExpectedDraftRevision: 1})
+	require.ErrorIs(t, err, ErrUserReportOperationUnsupported)
+
 	_, _, err = resolver.ReadResolved(alice, *before)
 	require.ErrorIs(t, err, identity.ErrResourceStale)
 	_, err = source.Lookup(bob, userActor(), uri)
@@ -162,9 +169,9 @@ func TestUserReportsUnsupportedConcurrencyAndCollisions(t *testing.T) {
 	_, err = source.StampResource(ctx, uri.String(), primitive.StampResourceInput{})
 	require.ErrorIs(t, err, ErrUserReportOperationUnsupported)
 	_, err = source.CloneResource(ctx, primitive.CloneResourceInput{})
-	require.ErrorIs(t, err, ErrUserReportOperationUnsupported)
-	_, err = source.CreateResource(ctx, primitive.CreateResourceInput{URI: "report://users/alice-id/report2", FormatVersion: 1, Definition: draftDefinition("A"), IdempotencyKey: "unsupported"})
-	require.ErrorIs(t, err, ErrUserReportOperationUnsupported)
+	require.ErrorIs(t, err, identity.ErrResource)
+	_, err = source.CreateResource(ctx, primitive.CreateResourceInput{URI: "report://users/alice-id/report2", FormatVersion: 1, Definition: draftDefinition("A"), IdempotencyKey: strings.Repeat("x", 513)})
+	require.ErrorContains(t, err, "idempotency key too long")
 }
 
 func TestUserNamespaceWorkspaceWitnessAndWorkingAuthority(t *testing.T) {
@@ -193,4 +200,95 @@ func TestUserNamespaceWorkspaceWitnessAndWorkingAuthority(t *testing.T) {
 	for _, missing := range []context.Context{context.Background(), iauth.WithProvider(iauth.WithCanonicalUserID(context.Background(), "alice-id"), "verified"), iauth.WithCanonicalUserID(iauth.WithUserInfo(context.Background(), &iauth.UserInfo{Subject: "alice@example.test"}), "alice-id")} {
 		require.ErrorIs(t, Authorize(missing, public, uri, "resource.get"), identity.ErrResourceDenied)
 	}
+}
+
+func TestUserReportUpdatePreservesUntouchedOpaqueFields(t *testing.T) {
+	ctx := userContext("alice-id", "alice@example.test")
+	store := reporting.NewMemoryStore()
+	source, err := NewReports(store, "user-owner")
+	require.NoError(t, err)
+	uri := userURI(t, "report://users/alice-id/personal/summary")
+	original := draftDefinition("Original")
+	metadata := json.RawMessage("{\n  \"unrelated\": {\"integer\":9007199254740993, \"text\":\"preserve me\"}\n}")
+	stored := &reporting.SharedArtifact{
+		ArtifactID: userReportStorageID(uri), ArtifactRef: uri.String(), OwnerID: "alice-id",
+		Kind: "reportBuilder.savedReportPayload", Lifecycle: "draft", Version: 4,
+		Title: "Original", ResourceDefinition: original, Metadata: metadata,
+		SourceArtifactID: "root-original", BaseArtifactRef: "report://example/summary",
+		SavedViewOverlay: json.RawMessage("{\n \"filter\":\"unchanged\"\n}"),
+		CreatedAt:        time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	require.NoError(t, store.CreateSharedArtifact(ctx, stored))
+	title := "Renamed"
+	updated := draftDefinition(title)
+	result, err := source.UpdateDraft(ctx, uri.String(), primitive.UpdateDraftInput{
+		FormatVersion: 1, Definition: updated, Title: &title,
+		ExpectedRowEtag: 4, ExpectedContentFingerprint: identity.ContentFingerprint(original),
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 5, result.RowEtag)
+	readback, err := store.GetSharedArtifact(ctx, stored.ArtifactID)
+	require.NoError(t, err)
+	require.Equal(t, []byte(metadata), []byte(readback.Metadata), "an unrelated update must not serialize existing opaque fields")
+	require.Equal(t, []byte(stored.SavedViewOverlay), []byte(readback.SavedViewOverlay))
+	require.Equal(t, []byte(updated), []byte(readback.ResourceDefinition))
+	require.Equal(t, stored.SourceArtifactID, readback.SourceArtifactID)
+	require.Equal(t, stored.BaseArtifactRef, readback.BaseArtifactRef)
+	require.Equal(t, stored.CreatedAt, readback.CreatedAt)
+	require.Equal(t, 4, stored.Version, "the loaded row must not be mutated")
+	require.Equal(t, []byte(original), []byte(stored.ResourceDefinition))
+}
+
+func TestLegacyPersonalReportRemainsReadableWithoutTrustingItsSource(t *testing.T) {
+	ctx := userContext("alice-id", "alice@example.test")
+	store := reporting.NewMemoryStore()
+	source, err := NewReports(store, "user-owner")
+	require.NoError(t, err)
+	uri := userURI(t, "report://users/alice-id/legacy-copy")
+	raw := json.RawMessage(`{"schemaVersion":1,"reportDocument":{"title":"Legacy personal report"},"metadata":{"personalReport":{"uri":"report://example/unverified","definition":{"schemaVersion":1,"reportDocument":{"title":"Unverified"}}},"note":"keep"}}`)
+	row := &reporting.SharedArtifact{ArtifactID: userReportStorageID(uri), ArtifactRef: uri.String(), OwnerID: "alice-id", Kind: "reportBuilder.savedReportPayload", Version: 1, ResourceDefinition: raw}
+	require.NoError(t, store.CreateSharedArtifact(ctx, row))
+	got, err := source.GetResource(ctx, uri.String())
+	require.NoError(t, err)
+	stored, err := store.GetSharedArtifact(ctx, row.ArtifactID)
+	require.NoError(t, err)
+	require.Equal(t, []byte(raw), []byte(stored.ResourceDefinition), "read must not mutate old records")
+	projected, err := userReportDefinition(stored)
+	require.NoError(t, err)
+	require.NotContains(t, string(projected), "personalReport")
+	require.Contains(t, string(projected), "Legacy personal report")
+	require.Contains(t, string(projected), `"note":"keep"`)
+	_, err = source.UpdateDraft(ctx, uri.String(), primitive.UpdateDraftInput{FormatVersion: 1, Definition: projected, ExpectedContentFingerprint: got.ContentFingerprint})
+	require.NoError(t, err, "same report remains editable")
+}
+
+func TestLegacyCreateReplayUsesDeliveredDefinitionFingerprint(t *testing.T) {
+	raw := json.RawMessage(`{"schemaVersion":1,"reportDocument":{"title":"Legacy"},"metadata":{"personalReport":{"uri":"report://example/old"}}}`)
+	row := &reporting.SharedArtifact{OwnerID: "alice", ArtifactRef: "report://users/alice/legacy", Version: 1, Title: "Legacy", ResourceDefinition: raw, Metadata: json.RawMessage(`{"createOperation":"retry"}`)}
+	receipt, err := replayUserReportCreate(row, row, "retry")
+	require.NoError(t, err)
+	projected, err := userReportDefinition(row)
+	require.NoError(t, err)
+	require.Equal(t, identity.ContentFingerprint(projected), receipt.ContentFingerprint)
+	require.NotEqual(t, identity.ContentFingerprint(raw), receipt.ContentFingerprint)
+}
+
+func TestAbsentReportSourceManifestFormsUseOrdinaryWritePath(t *testing.T) {
+	for _, manifest := range []json.RawMessage{nil, json.RawMessage("null"), json.RawMessage(" \nnull "), json.RawMessage("  ")} {
+		ctx := userContext("alice-id", "alice@example.test")
+		provider, err := NewReports(reporting.NewMemoryStore(), "user-owner")
+		require.NoError(t, err)
+		created, err := provider.CreateResource(ctx, primitive.CreateResourceInput{URI: "report://users/alice-id/ordinary", FormatVersion: 1, Definition: draftDefinition("Original"), SourceManifest: manifest})
+		require.NoError(t, err)
+		_, err = provider.UpdateDraft(ctx, created.URI, primitive.UpdateDraftInput{FormatVersion: 1, Definition: draftDefinition("Edited"), SourceManifest: manifest})
+		require.NoError(t, err)
+	}
+}
+
+func TestCreateReplayRejectsArchivedLegacyReceipt(t *testing.T) {
+	raw := draftDefinition("Saved")
+	existing := &reporting.SharedArtifact{OwnerID: "alice-id", ArtifactRef: "report://users/alice-id/saved", Lifecycle: "archived", Version: 2, Title: "Saved", ResourceDefinition: raw, Metadata: json.RawMessage(`{"createOperation":"same-operation"}`)}
+	candidate := &reporting.SharedArtifact{OwnerID: existing.OwnerID, ArtifactRef: existing.ArtifactRef, Title: existing.Title, ResourceDefinition: raw}
+	_, err := replayUserReportCreate(existing, candidate, "same-operation")
+	require.ErrorIs(t, err, identity.ErrResourceStale)
 }

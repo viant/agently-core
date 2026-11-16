@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/stretchr/testify/require"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/runtime/requestctx"
@@ -121,4 +122,61 @@ func TestCanonicalConversationFeedCommandsRecheckConversationAfterClientResponse
 	require.Error(t, err)
 	require.Nil(t, out)
 	require.NoError(t, <-worker)
+}
+
+func TestWorkspaceVisibilityRequiresAttachedChatAndRechecksOwner(t *testing.T) {
+	svc, ctx, revoked := feedOwnershipFixture(t)
+	ctx = requestctx.WithPreferredUIClientID(ctx, "client-a")
+	input := &UICommandInput{ClientID: "client-a", Method: "ui.workspace.setVisibility", Params: map[string]any{"conversationId": "conv-a", "hidden": true}}
+	for _, client := range []string{"", "other"} {
+		bad := *input
+		bad.ClientID = client
+		_, err := svc.UICommand(ctx, &bad)
+		require.ErrorIs(t, err, identity.ErrResourceDenied)
+	}
+	wrong := *input
+	wrong.Params = map[string]any{"conversationId": "wrong"}
+	_, err := svc.UICommand(ctx, &wrong)
+	require.ErrorIs(t, err, identity.ErrResourceDenied)
+	for _, revoke := range []bool{false, true} {
+		worker := make(chan error, 1)
+		go func(revoke bool) {
+			poll, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			req, err := svc.Hub().dequeueCommand(poll, "alice", "client-a")
+			if err == nil {
+				revoked.Store(revoke)
+				svc.Hub().deliverResponse(&rpcResponse{ID: req.ID, OK: true, Result: json.RawMessage(`{"status":"saved","storage":"browser"}`)})
+			}
+			worker <- err
+		}(revoke)
+		out, err := svc.UICommand(ctx, input)
+		require.NoError(t, <-worker)
+		if revoke {
+			require.ErrorContains(t, err, "could not confirm the visibility change")
+			require.Nil(t, out)
+		} else {
+			require.NoError(t, err)
+			require.True(t, out.OK)
+		}
+	}
+}
+
+func BenchmarkChatAttachmentCheck(b *testing.B) {
+	for _, clients := range []int{1, 1000} {
+		b.Run(fmt.Sprintf("clients-%d", clients), func(b *testing.B) {
+			svc := NewService(&Config{})
+			snapshot := json.RawMessage(`{"conversationId":"expected","windows":[]}`)
+			for i := 0; i < clients; i++ {
+				svc.Hub().setSnapshot(fmt.Sprintf("owner-%d", i), "browser", snapshot)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := svc.authorizeConversationClient(context.Background(), "owner-0", "browser", "expected"); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }

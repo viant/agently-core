@@ -1,60 +1,47 @@
 package user
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
+	"errors"
+	forgeresource "github.com/viant/forge/backend/resource"
 
-	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/reporting"
 	"github.com/viant/forge/backend/reporting/registry"
+	resourcehost "github.com/viant/forge/backend/resourcehost"
 )
 
 func decodeUserReport(raw json.RawMessage) (registry.ReportEnvelope, error) {
 	var envelope registry.ReportEnvelope
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&envelope); err != nil {
+	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return envelope, err
 	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		return envelope, identity.ErrResource
-	}
-	object := func(v json.RawMessage) bool {
-		var value map[string]json.RawMessage
-		return json.Unmarshal(v, &value) == nil && value != nil
-	}
-	if envelope.SchemaVersion != 1 || !object(envelope.ReportDocument) && !object(envelope.ReportSpec) || len(envelope.ReportDocument) > 0 && !object(envelope.ReportDocument) || (len(envelope.ReportSpec) > 0 && !object(envelope.ReportSpec)) {
-		return envelope, identity.ErrResource
-	}
-	switch envelope.Format {
-	case "":
-		if len(envelope.BuilderDefinition) != 0 {
-			return envelope, identity.ErrResource
-		}
-	case registry.AuthoredReportFormat:
-		if !object(envelope.ReportDocument) || envelope.BuilderRef == "" || !object(envelope.BuilderDefinition) {
-			return envelope, identity.ErrResource
-		}
-	default:
-		return envelope, identity.ErrResource
+	if err := resourcehost.ValidateReportEnvelope(int64(envelope.SchemaVersion), raw); err != nil {
+		return envelope, err
 	}
 	return envelope, nil
 }
 func userReportDefinition(row *reporting.SharedArtifact) (json.RawMessage, error) {
-	if len(row.ResourceDefinition) > 0 {
-		if _, err := decodeUserReport(row.ResourceDefinition); err != nil {
-			return nil, err
+	raw, _, err := userReportDefinitionAndVersion(row)
+	return raw, err
+}
+
+func userReportDefinitionAndVersion(row *reporting.SharedArtifact) (json.RawMessage, int64, error) {
+	raw := row.ResourceDefinition
+	if len(raw) == 0 {
+		var err error
+		raw, err = json.Marshal(registry.ReportEnvelope{SchemaVersion: 1, ReportDocument: cloneReportJSON(row.Document), ReportSpec: cloneReportJSON(row.ReportSpec), ReportFill: cloneReportJSON(row.ReportFill), ReportPrint: cloneReportJSON(row.ReportPrint), CompileState: cloneReportJSON(row.CompileState), Metadata: cloneReportJSON(row.Metadata)})
+		if err != nil {
+			return nil, 0, errors.Join(forgeresource.ErrStoredDefinition, err)
 		}
-		return cloneReportJSON(row.ResourceDefinition), nil
 	}
-	raw, err := json.Marshal(registry.ReportEnvelope{SchemaVersion: 1, ReportDocument: cloneReportJSON(row.Document), ReportSpec: cloneReportJSON(row.ReportSpec), ReportFill: cloneReportJSON(row.ReportFill), ReportPrint: cloneReportJSON(row.ReportPrint), CompileState: cloneReportJSON(row.CompileState), Metadata: cloneReportJSON(row.Metadata)})
+	envelope, err := decodeUserReport(raw)
 	if err != nil {
-		return nil, err
+		return nil, 0, errors.Join(forgeresource.ErrStoredDefinition, err)
 	}
-	if _, err = decodeUserReport(raw); err != nil {
-		return nil, err
+	// The delivery projection only changes provenance metadata.
+	projected, err := reporting.UserReportDefinition(row, raw)
+	if err != nil {
+		return nil, 0, errors.Join(forgeresource.ErrStoredDefinition, err)
 	}
-	return raw, nil
+	return projected, int64(envelope.SchemaVersion), nil
 }

@@ -324,29 +324,34 @@ type SnapshotEntry struct {
 	Transport  string
 }
 
+// snapshotEntryLocked reads both transport and snapshot under the caller's hub lock.
+func (h *Hub) snapshotEntryLocked(ns, clientID string) (SnapshotEntry, bool) {
+	snap := h.snapshots[ns][clientID]
+	if len(snap.Data) == 0 {
+		return SnapshotEntry{}, false
+	}
+	transport := "http"
+	if client := h.clients[ns][clientID]; client != nil && client.ws != nil {
+		transport = "ws"
+	}
+	return SnapshotEntry{Namespace: ns, ClientID: clientID, Snapshot: snap.Data, UpdatedAt: snap.UpdatedAt, LastPollAt: snap.LastPollAt, Transport: transport}, true
+}
+
+func (h *Hub) snapshotEntry(ns, clientID string) (SnapshotEntry, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.snapshotEntryLocked(ns, clientID)
+}
+
 func (h *Hub) SnapshotEntries() []SnapshotEntry {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	var out []SnapshotEntry
 	for ns, clients := range h.snapshots {
-		for clientID, snap := range clients {
-			if len(snap.Data) == 0 {
-				continue
+		for clientID := range clients {
+			if entry, ok := h.snapshotEntryLocked(ns, clientID); ok {
+				out = append(out, entry)
 			}
-			transportMode := "http"
-			if h.clients[ns] != nil {
-				if client := h.clients[ns][clientID]; client != nil && client.ws != nil {
-					transportMode = "ws"
-				}
-			}
-			out = append(out, SnapshotEntry{
-				Namespace:  ns,
-				ClientID:   clientID,
-				Snapshot:   snap.Data,
-				UpdatedAt:  snap.UpdatedAt,
-				LastPollAt: snap.LastPollAt,
-				Transport:  transportMode,
-			})
 		}
 	}
 	return out

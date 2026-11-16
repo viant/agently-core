@@ -3,6 +3,7 @@ package reporting
 import (
 	"context"
 	"fmt"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"sync"
 )
 
@@ -200,6 +201,7 @@ func cloneMemorySharedArtifact(input *SharedArtifact) *SharedArtifact {
 	out := *input
 	out.Resource = cloneResolvedResource(input.Resource)
 	out.sharedActorScope = cloneSharedReportActorScope(input.sharedActorScope)
+	out.personalSource = clonePersonalReportSource(input.personalSource)
 	if len(input.Document) > 0 {
 		out.Document = cloneJSON(input.Document)
 	}
@@ -223,4 +225,21 @@ func cloneMemorySharedArtifact(input *SharedArtifact) *SharedArtifact {
 		out.UpdatedAt = &updatedAt
 	}
 	return &out
+}
+
+func (s *MemoryStore) UpdateSharedArtifactCAS(ctx context.Context, artifact *SharedArtifact, expected int) error {
+	if s == nil || artifact == nil {
+		return ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.sharedArtifacts[artifact.ArtifactID]
+	if previous == nil || previous.OwnerID != artifact.OwnerID {
+		return ErrNotFound
+	}
+	if previous.Version != expected || artifact.Version != expected+1 {
+		return identity.ErrResourceStale
+	}
+	s.sharedArtifacts[artifact.ArtifactID] = cloneMemorySharedArtifact(artifact)
+	return nil
 }

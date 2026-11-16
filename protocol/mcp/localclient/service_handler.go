@@ -207,9 +207,12 @@ func (h *serviceHandler) CallTool(ctx context.Context, req *jsonrpc.TypedRequest
 		inVal = &struct{}{}
 	}
 	if len(req.Request.Params.Arguments) > 0 {
-		raw, err := json.Marshal(req.Request.Params.Arguments)
-		if err != nil {
-			return nil, jsonrpc.NewInvalidParamsError(fmt.Sprintf("unable to marshal tool arguments %q due to: %v", name, err), nil)
+		raw, retained := mcpserver.ToolArgumentsJSON(ctx, req.Request)
+		if !retained {
+			raw, err = json.Marshal(req.Request.Params.Arguments)
+			if err != nil {
+				return nil, jsonrpc.NewInvalidParamsError(fmt.Sprintf("unable to marshal tool arguments %q due to: %v", name, err), nil)
+			}
 		}
 		err = json.Unmarshal(raw, inVal)
 		if err != nil {

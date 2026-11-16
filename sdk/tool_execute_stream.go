@@ -3,7 +3,9 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	dsproto "github.com/viant/agently-core/protocol/datasource"
 	"mime"
 	"net/http"
 	"strings"
@@ -96,6 +98,9 @@ func executeToolStream(w http.ResponseWriter, r *http.Request, ctx context.Conte
 		// Reuse exactly the JSON path's authorization sanitization and error body.
 		status, safeError, safeResult := toolExecuteErrorResponse(err, result)
 		body := map[string]interface{}{"status": status, "error": safeError.Error()}
+		if status == http.StatusForbidden && errors.Is(safeError, dsproto.ErrDatasourceDenied) {
+			body["code"], body["scope"] = "datasource_denied", "dataset"
+		}
 		if strings.TrimSpace(safeResult) != "" {
 			body["result"] = safeResult
 		}

@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 
 	reporting "github.com/viant/forge/backend/reporting/engine"
@@ -24,12 +25,18 @@ func (e *mcpAppToolError) Error() string {
 		return "MCP app tool access denied (403)"
 	case 400, 422:
 		return fmt.Sprintf("MCP app tool rejected the supplied inputs (%d)", e.status)
+	case http.StatusServiceUnavailable:
+		return "The MCP service is temporarily unavailable (503)."
 	default:
+		if e.status >= 400 && e.status <= 599 {
+			return fmt.Sprintf("MCP service returned %s (%d)", http.StatusText(e.status), e.status)
+		}
 		return "MCP app tool returned an error"
 	}
 }
 
-func (e *mcpAppToolError) Unwrap() error { return e.cause }
+func (e *mcpAppToolError) Unwrap() error       { return e.cause }
+func (e *mcpAppToolError) HTTPStatusCode() int { return e.status }
 
 // Explicit authorization statuses outrank validation statuses when a producer
 // supplies more than one error field. Text alone never creates numeric status.
@@ -68,6 +75,12 @@ func numericMCPErrorStatus(result *schema.CallToolResult) int {
 				status = preferredMCPErrorStatus(status, numericMCPErrorPayload(value))
 			}
 		}
+	}
+	if wire, ok := schema.ToolErrorHTTPStatus(result); ok {
+		if status == 0 {
+			return wire
+		}
+		return preferredMCPErrorStatus(status, wire)
 	}
 	return status
 }

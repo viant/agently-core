@@ -939,6 +939,7 @@ func (r *Registry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 }
 
 func (r *Registry) Execute(ctx context.Context, name string, args map[string]interface{}) (result string, retErr error) {
+	ctx, originalHTTPArgs := dispatchpayload.ClaimHTTPArguments(ctx, name, args)
 	totalTiming := startRegistryTiming(ctx, "tool.registry.execute")
 	defer func() { finishRegistryTiming(totalTiming, retErr) }()
 	execStart := time.Now()
@@ -974,7 +975,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	r.mu.RLock()
 	guard := r.executionProtection
 	authGuard := r.authorizationGuard
-	reuseAllowed := authGuard == nil && !r.resultReuseDisabled
+	reuseAllowed := authGuard == nil && !r.resultReuseDisabled && originalHTTPArgs == nil
 	if exactJSONScope(ctx) != nil {
 		reuseAllowed = false
 	}
@@ -1228,6 +1229,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			return "", resolveErr
 		}
 		executionArgs = r.promoteLegacyBodyArgs(ctx, server, method, executionArgs)
+		executionArgs = originalHTTPArgs.Wire(executionArgs)
 		dispatchClient := cli
 		finishDispatch := func() {}
 		if artifactDispatch {
@@ -1339,7 +1341,10 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 				case 400, 422:
 					terr = newMCPInputError(res, status, terr)
 				}
-				if mcpapps.Active(ctx) || appActivity {
+				// For other explicit MCP result statuses, provide safe client text
+				// even when the producer's body is empty or JSON null.
+				explicitStatus := status != 0 && status != 400 && status != 401 && status != 403 && status != 422
+				if mcpapps.Active(ctx) || appActivity || explicitStatus {
 					terr = &mcpAppToolError{cause: terr, status: status}
 				}
 				debugMCPExecf("registry calltool tool-error server=%s base=%s attempt=%d err=%v content=%d structured=%d", server, baseName, attempt+1, terr, len(res.Content), structuredContentSize(res.StructuredContent))

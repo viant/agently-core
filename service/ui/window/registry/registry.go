@@ -388,6 +388,12 @@ func windowVisibleToConversation(win WindowSnapshot, conversationID string) bool
 	if strings.TrimSpace(win.ConversationID) == conversationID {
 		return true
 	}
+	// Application-section destinations are independent workspace windows. Their
+	// hosted presentation controls layout; it does not give them conversation
+	// ownership. The enclosing snapshot still has to belong to this conversation.
+	if strings.TrimSpace(win.ConversationID) == "" && strings.TrimSpace(win.Region) == "app.section" {
+		return true
+	}
 	if strings.TrimSpace(win.Presentation) != "hosted" {
 		return true
 	}

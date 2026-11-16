@@ -46,6 +46,39 @@ func TestSnapshotBelongsToConversation_DoesNotMatchChatOnly(t *testing.T) {
 	}
 }
 
+func TestApplicationSectionWindowUsesCurrentSnapshotWithoutClaimingConversationOwnership(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "section-client"})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{"clientId": "section-client", "data": map[string]interface{}{
+		"conversationId": "current-chat", "selected": map[string]interface{}{"windowId": "app-report"},
+		"windows": []interface{}{
+			map[string]interface{}{"windowId": "app-report", "windowKey": "report://example/summary", "presentation": "hosted", "region": "app.section"},
+			map[string]interface{}{"windowId": "foreign-report", "windowKey": "report://example/private", "conversationId": "other-chat", "presentation": "hosted", "region": "app.section"},
+			map[string]interface{}{"windowId": "unscoped-chat-output", "windowKey": "report://example/draft", "presentation": "hosted", "region": "chat.top"},
+		},
+	}})
+	registry := New(bridge)
+	postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "section-client", "timeoutMs": 1})
+	items, err := registry.ListReadableByConversation(context.Background(), "current-chat")
+	if err != nil || len(items) != 1 || len(items[0].Snapshot.Windows) != 1 {
+		t.Fatalf("unexpected current section snapshot: items=%+v error=%v", items, err)
+	}
+	if win := items[0].Snapshot.Windows[0]; win.WindowID != "app-report" || win.ConversationID != "" {
+		t.Fatalf("application window ownership changed: %+v", win)
+	}
+	_, _, _, win, err := registry.FindWindow(context.Background(), "current-chat", "section-client", "app-report", "")
+	if err != nil || win == nil {
+		t.Fatalf("current application report is unavailable: %v", err)
+	}
+	for _, request := range []struct{ conversation, window string }{
+		{"current-chat", "foreign-report"}, {"current-chat", "unscoped-chat-output"}, {"unrelated-chat", "app-report"},
+	} {
+		if _, _, _, _, err := registry.FindWindow(context.Background(), request.conversation, "section-client", request.window, ""); err == nil {
+			t.Fatalf("unrelated conversation/window became visible: %+v", request)
+		}
+	}
+}
+
 func TestFilterSnapshotForConversation_FiltersHostedWindowsByConversation(t *testing.T) {
 	snapshot := &Snapshot{
 		ConversationID: "conv-new",

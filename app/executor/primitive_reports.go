@@ -14,6 +14,8 @@ import (
 	resources "github.com/viant/agently-core/service/resource"
 )
 
+const userReportsProviderIdentity = "workspace-users"
+
 // Report delivery is assembled independently of local report storage. The
 // gateway retains the provider's original pin; managing MCP owns dataset ACLs.
 func (b *Builder) configurePrimitiveReports(out *Runtime) error {
@@ -32,13 +34,8 @@ func (b *Builder) configurePrimitiveReports(out *Runtime) error {
 			return nil
 		}
 	}
-	if b.reportResourceService == nil {
-		if err := b.configureUserReports(out); err != nil {
-			return err
-		}
-	}
 	out.Reporting.SetResourceDatasetExecutor(reporting.NewResourceDatasetExecutorWithProvider(out.Registry, out.Reporting.AuthorizeResourceDataset, out.providerReportDatasource, out.ComponentDispatcher))
-	catalog := &resources.ReportGatewayCatalog{Gateway: out.PrimitiveProviders, BeginMetadataRead: out.DatasourceReadSequence, Capabilities: func(ctx context.Context, _ identity.VerifiedActor, _ reportcatalog.ReportCatalogCandidate, pin identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
+	catalog := &resources.ReportGatewayCatalog{Gateway: out.PrimitiveProviders, BeginMetadataRead: out.DatasourceReadSequence, Capabilities: func(ctx context.Context, actor identity.VerifiedActor, _ reportcatalog.ReportCatalogCandidate, pin identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
 		result := reportcatalog.ReportCapabilities{}
 		for _, check := range []struct {
 			operation string
@@ -47,9 +44,26 @@ func (b *Builder) configurePrimitiveReports(out *Runtime) error {
 
 			*check.allowed = true
 		}
+		if pin.ProviderIdentity == userReportsProviderIdentity {
+			uri, err := identity.ParseResourceURI(pin.URI)
+			if err != nil {
+				return result, err
+			}
+			if err = userprovider.Authorize(ctx, actor, uri, "resource.update"); err != nil {
+				return result, err
+			}
+			// The same user provider owns create/update/archive. These flags
+			// describe its existing operations; they do not authorize writes.
+			result.Edit, result.Duplicate, result.Rename, result.Delete = true, true, true, true
+		}
 		return result, nil
 	}}
 
+	if b.reportResourceService == nil {
+		if err := b.configureUserReports(out, catalog); err != nil {
+			return err
+		}
+	}
 	if b.reportCatalog != nil && out.LocalPrimitiveProvider == nil {
 		local, ok := b.reportCatalog.(*reportcatalog.ReportCatalogService)
 		if !ok || b.reportResourceResolver == nil {
@@ -81,12 +95,14 @@ func (b *Builder) configurePrimitiveReports(out *Runtime) error {
 // configureUserReports registers an owning source through the same in-memory
 // MCP protocol as workspace YAML. The reporting consumer receives only its
 // generic gateway authoring facade; it never gets a direct store write path.
-func (b *Builder) configureUserReports(out *Runtime) error {
-	const name = "workspace-users"
-	source, err := userprovider.NewReports(out.Reporting.Store(), name)
+func (b *Builder) configureUserReports(out *Runtime, catalog *resources.ReportGatewayCatalog) error {
+	const name = userReportsProviderIdentity
+	source, err := userprovider.NewReports(out.Reporting.Store(), name, out.Reporting.ResourceReaderFor)
 	if err != nil {
 		return err
 	}
+	catalog.PreparePage = source.PrepareCatalogPage
+	source.SetDefinitionValidator(out.Reporting.ValidateDefinition)
 	local, err := provider.NewLocalProvider(provider.LocalConfig{
 		ProviderIdentity: name, Actor: out.PrimitiveProviders.Actor, Verify: out.PrimitiveProviders.Verify,
 		Catalog: source, Authoring: source, Authorize: userprovider.Authorize,

@@ -28,6 +28,7 @@ import (
 
 // MetadataResponse is the response for the workspace metadata endpoint.
 type MetadataResponse struct {
+	PreferenceOwnerID      string                          `json:"preferenceOwnerId,omitempty"`
 	StarterTaskPreferences *svcauth.StarterTaskPreferences `json:"starterTaskPreferences,omitempty"`
 	NamespaceStarterTasks  *NamespaceStarterTasks          `json:"namespaceStarterTasks,omitempty"`
 

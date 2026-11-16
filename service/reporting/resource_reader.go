@@ -26,6 +26,12 @@ type ResourceFreshDefinitionReader interface {
 	ReadDefinitionFresh(context.Context, identity.ResourceRef, *identity.ResolvedResource) (*primitive.GetResult, error)
 }
 
+// ReportProviderSelector keeps selection, complete definition reads and refresh
+// on the same publisher without first fetching a definition to obtain a pin.
+type ReportProviderSelector interface {
+	ReportReaderForProvider(context.Context, identity.ResourceRef, string) (ResourceReader, error)
+}
+
 // ProviderResourceReader refreshes a durable bookmark only at its stored provider.
 type ProviderResourceReader interface {
 	ResourceReader
@@ -46,9 +52,15 @@ func (s *Service) SetResourceReaderFactory(factory ResourceReaderFactory) {
 func (s *Service) hasResourceReader() bool {
 	return s != nil && (s.resourceReaderFactory != nil || s.resourceResolver != nil)
 }
-func (s *Service) resourceReaderFor(ctx context.Context, operation string) (ResourceReader, error) {
-	if s == nil || ctx == nil || ctx.Err() != nil {
+
+// ResourceReaderFor is the existing operation-scoped source admission path.
+// Owning providers use this same factory for source-derived writes.
+func (s *Service) ResourceReaderFor(ctx context.Context, operation string) (ResourceReader, error) {
+	if s == nil || ctx == nil {
 		return nil, identity.ErrResourceDenied
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if s.resourceReaderFactory != nil {
 		return checkedResourceReader(s.resourceReaderFactory(ctx, operation))

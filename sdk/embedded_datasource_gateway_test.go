@@ -41,12 +41,13 @@ func (p datasourcePeerOptions) Options(_ context.Context, n string) (*mcpcfg.MCP
 }
 
 type datasourceHTTPPeer struct {
-	mu            sync.Mutex
-	private       bool
-	denied        bool
-	sourceHeaders []string
-	args          []map[string]any
-	dataHeaders   []string
+	mu                 sync.Mutex
+	private            bool
+	denied             bool
+	legacyLibraryError bool
+	sourceHeaders      []string
+	args               []map[string]any
+	dataHeaders        []string
 }
 
 func (f *datasourceHTTPPeer) serve(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +120,14 @@ func (f *datasourceHTTPPeer) serve(w http.ResponseWriter, r *http.Request) {
 			uri, _ := p.Args["uri"].(string)
 			library := json.RawMessage(`{"id":"library","name":"Library","lookupOverlays":[{"id":"accounts","target":{"kind":"template","id":"form"},"bindings":[{"match":{"fieldName":"account"},"named":{"name":"account"},"lookup":{"dataSource":"datasource://private/unique"}}]}]}`)
 			if strings.HasSuffix(uri, "/library") && subject != "alice" {
-				value = map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "403 Forbidden"}}}
+				failed := true
+				denial := &schema.CallToolResult{IsError: &failed, Content: []schema.CallToolResultContentElem{schema.TextContent{Type: "text", Text: "403 Forbidden"}}}
+				f.mu.Lock()
+				if !f.legacyLibraryError {
+					schema.SetToolErrorHTTPStatus(denial, http.StatusForbidden)
+				}
+				f.mu.Unlock()
+				value = denial
 				break
 			}
 			raw := library
@@ -387,12 +395,23 @@ func TestSDKDatasourceGatewayUsesFreshActorDefinitionsAndManagingMCP(t *testing.
 		for _, caller := range []struct {
 			ctx    context.Context
 			status int
-		}{{alice, http.StatusOK}, {bob, http.StatusForbidden}} {
+			legacy bool
+		}{{alice, http.StatusOK, false}, {bob, http.StatusForbidden, false}, {bob, http.StatusInternalServerError, true}} {
+			// Text alone cannot establish the cause of an older peer's tool failure.
+			private.mu.Lock()
+			private.legacyLibraryError = caller.legacy
+			private.mu.Unlock()
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/v1/api/lookups/registry?context=template%3Aform&owner=template%3A%2F%2Fprivate%2Fform&revision=working&providerIdentity=private-peer", nil).WithContext(caller.ctx)
 			handleListLookupRegistry(client)(recorder, req)
 			require.Equal(t, caller.status, recorder.Code)
+			if caller.legacy {
+				require.NotContains(t, recorder.Body.String(), "403 Forbidden")
+			}
 		}
+		private.mu.Lock()
+		private.legacyLibraryError = false
+		private.mu.Unlock()
 		owner, err := client.primitiveProviders.GetForProvider(alice, "private-peer", *request.Owner, nil)
 		require.NoError(t, err)
 		require.NotNil(t, client.elicSvc)

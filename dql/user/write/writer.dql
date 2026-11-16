@@ -7,11 +7,15 @@
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
 #setting($_ = $writer_omit_empty(true))
+#define($_ = $ExpectedSettings<string>(query/expectedSettings).Optional().WithPredicate(12,'equal','users','settings'))
+#define($_ = $ExpectedSettingsNull<bool>(query/expectedSettingsNull).Optional().WithPredicate(12,'is_null','users','settings'))
+#define($_ = $CompareSettings<bool>(query/compareSettings).Optional())
 #define($_ = $Users<[]*User>(body/data))
 #define($_ = $Data<[]*User>(output/body))
 
 SELECT t.*,
        type(t,'User'),
+       mutation_predicate(t,12),
        lifecycle_type(t,'Lifecycle'),
        required(t.id),
        tag(t.id,'validate:"required" sqlx:"id,primaryKey"'),

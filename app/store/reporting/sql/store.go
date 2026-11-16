@@ -26,7 +26,7 @@ import (
 	dexec "github.com/viant/datly/exec"
 )
 
-var errNotFound = errors.New("reporting sql store: not found")
+var errNotFound = reportstore.ErrNotFound
 
 type internalAccessKey struct{}
 
@@ -261,21 +261,17 @@ func (s *Store) ListArtifacts(ctx context.Context) ([]*reportartifactmodel.Recor
 }
 
 func (s *Store) CreateSharedArtifact(ctx context.Context, artifact *reportshareartifactmodel.Record) error {
-	if artifact == nil {
-		return errNotFound
-	}
-	ownerID := effectiveOwnerID(ctx)
-	if ownerID == "" || ownerID != strings.TrimSpace(artifact.OwnerID) {
-		return errNotFound
-	}
-	existing, err := s.GetSharedArtifact(ctx, artifact.ArtifactID)
+	// The native create intent owns the scoped Previous check and INSERT. The
+	// database's existing identity constraint resolves concurrent insert races.
+	err := s.sharedArtifactStore().Create(ctx, toNativeSharedArtifact(artifact))
 	switch {
-	case err == nil && existing != nil:
-		return fmt.Errorf("reporting sql store: shared artifact %s already exists: %w", strings.TrimSpace(artifact.ArtifactID), reportstore.ErrAlreadyExists)
-	case err != nil && !errors.Is(err, errNotFound):
+	case errors.Is(err, sharedartifact.ErrAlreadyExists):
+		return fmt.Errorf("%w: %w", reportstore.ErrAlreadyExists, err)
+	case errors.Is(err, sharedartifact.ErrNotFound):
+		return fmt.Errorf("%w: %w", errNotFound, err)
+	default:
 		return err
 	}
-	return s.sharedArtifactStore().Create(ctx, toNativeSharedArtifact(artifact))
 }
 
 func (s *Store) GetSharedArtifact(ctx context.Context, artifactID string) (*reportshareartifactmodel.Record, error) {
@@ -291,6 +287,20 @@ func (s *Store) GetSharedArtifact(ctx context.Context, artifactID string) (*repo
 
 func (s *Store) ListSharedArtifacts(ctx context.Context) ([]*reportshareartifactmodel.Record, error) {
 	records, err := s.sharedArtifactStore().List(ctx)
+	return sharedArtifactRecords(records, err)
+}
+
+func (s *Store) GetSharedArtifacts(ctx context.Context, ids []string) ([]*reportshareartifactmodel.Record, error) {
+	records, err := s.sharedArtifactStore().GetMany(ctx, ids)
+	return sharedArtifactRecords(records, err)
+}
+
+func (s *Store) ListSharedArtifactHeaders(ctx context.Context, offset, limit int) ([]*reportshareartifactmodel.Record, error) {
+	records, err := s.sharedArtifactStore().ListHeaders(ctx, offset, limit)
+	return sharedArtifactRecords(records, err)
+}
+
+func sharedArtifactRecords(records []*sharedartifact.Record, err error) ([]*reportshareartifactmodel.Record, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -480,4 +490,12 @@ func (s *Store) importAudits(ctx context.Context) error {
 
 func effectiveOwnerID(ctx context.Context) string {
 	return strings.TrimSpace(authctx.EffectiveUserID(ctx))
+}
+
+// UpdateSharedArtifactCAS updates only the authenticated owner's expected version.
+func (s *Store) UpdateSharedArtifactCAS(ctx context.Context, artifact *reportshareartifactmodel.Record, expected int) error {
+	if artifact == nil || effectiveOwnerID(ctx) == "" || effectiveOwnerID(ctx) != artifact.OwnerID {
+		return reportstore.ErrNotFound
+	}
+	return s.sharedArtifactStore().UpdateCAS(ctx, toNativeSharedArtifact(artifact), expected)
 }

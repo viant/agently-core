@@ -3,6 +3,8 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 
 	identity "github.com/viant/agently-core/protocol/resource"
 	reporting "github.com/viant/agently-core/service/reporting"
@@ -98,4 +100,25 @@ func (r *primitiveReportLocalReader) ResolveForProvider(ctx context.Context, ref
 		return nil, identity.ErrResourceDenied
 	}
 	return reader.Resolve(ctx, ref)
+}
+
+func (r *primitiveReportLocalReader) ReportReaderForProvider(ctx context.Context, ref identity.ResourceRef, publisher string) (reporting.ResourceReader, error) {
+	local, err := r.owns(ctx, ref.URI)
+	if err != nil {
+		return nil, err
+	}
+	if local {
+		reader, err := r.resolve(ctx, r.operation)
+		if err != nil {
+			return nil, err
+		}
+		if reader == nil || reader.ProviderIdentity != publisher {
+			return nil, identity.ErrResourceDenied
+		}
+		return reader, nil
+	}
+	if reader, ok := r.remote.(reporting.ReportProviderSelector); ok {
+		return reader.ReportReaderForProvider(ctx, ref, publisher)
+	}
+	return nil, fmt.Errorf("publisher-qualified report reads: %w", errors.ErrUnsupported)
 }

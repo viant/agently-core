@@ -31,7 +31,7 @@ func (s *Service) listResourceReports(ctx context.Context, input *ListReportsInp
 	if input == nil {
 		input = &ListReportsInput{}
 	}
-	result, err := s.reportCatalog.List(ctx, catalog.ReportCatalogQuery{Namespace: input.Namespace, CurrentUserOnly: input.CurrentUserOnly, Cursor: input.Cursor, Limit: input.Limit})
+	result, err := s.reportCatalog.List(ctx, catalog.ReportCatalogQuery{Search: input.Search, Namespace: input.Namespace, CurrentUserOnly: input.CurrentUserOnly, Cursor: input.Cursor, Limit: input.Limit})
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func (s *Service) listResourceReports(ctx context.Context, input *ListReportsInp
 			continue
 		}
 		created, _ := time.Parse(time.RFC3339, entry.CreatedAt)
-		summary := &ReportSummary{Resource: cloneResolvedResource(entry.Resource), ResourceURI: entry.URI, Namespace: entry.Namespace, Name: entry.Name, OwnedByCurrentUser: entry.OwnedByCurrentUser, Capabilities: &entry.Capabilities, ArtifactID: entry.ArtifactID, ArtifactRef: entry.URI, ReportID: entry.URI, Title: entry.Title, OwnerID: entry.OwnerID, ReportType: entry.ReportType, BuilderRef: entry.BuilderRef, OrderIDs: append([]string(nil), entry.OrderIDs...), CreatedAt: created}
+		summary := &ReportSummary{Unavailable: entry.Unavailable, Resource: cloneResolvedResource(entry.Resource), ResourceURI: entry.URI, Namespace: entry.Namespace, Name: entry.Name, OwnedByCurrentUser: entry.OwnedByCurrentUser, Capabilities: &entry.Capabilities, ArtifactID: entry.ArtifactID, ArtifactRef: entry.URI, ReportID: entry.URI, Title: entry.Title, OwnerID: entry.OwnerID, ReportType: entry.ReportType, BuilderRef: entry.BuilderRef, OrderIDs: append([]string(nil), entry.OrderIDs...), CreatedAt: created}
 		if updated, err := time.Parse(time.RFC3339, entry.UpdatedAt); err == nil {
 			summary.UpdatedAt = &updated
 		}
@@ -116,7 +116,10 @@ func (s *Service) getResourceReportUnscoped(ctx context.Context, input *GetRepor
 	if err != nil || uri.Kind != "report" {
 		return nil, identity.ErrResourceDenied
 	}
-	resolver, err := s.resourceReaderFor(ctx, "report.retrieve")
+	if input.SourceProvider != "" && input.ResolvedResource != nil && input.ResolvedResource.ProviderIdentity != input.SourceProvider {
+		return nil, identity.ErrResourceDenied
+	}
+	resolver, err := s.ResourceReaderFor(ctx, "report.retrieve")
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +131,30 @@ func (s *Service) getResourceReportUnscoped(ctx context.Context, input *GetRepor
 	var state *primitive.ResourceState
 	if input.RefreshMetadata && (pin == nil || pin.URI != ref.URI || ref.Revision != pin.Selector() || !pin.ResourceCandidate.Valid()) {
 		return nil, identity.ErrResourceDenied
+	}
+	if input.SourceProvider != "" {
+		switch reader := resolver.(type) {
+		case ReportProviderSelector:
+			resolver, err = checkedResourceReader(reader.ReportReaderForProvider(ctx, ref, input.SourceProvider))
+		case *identity.ResourceResolver:
+			if reader.ProviderIdentity != input.SourceProvider {
+				return nil, identity.ErrResourceDenied
+			}
+		case ProviderResourceReader:
+			if pin == nil {
+				pin, err = reader.ResolveForProvider(ctx, ref, input.SourceProvider)
+				if err == nil && (pin == nil || pin.ProviderIdentity != input.SourceProvider || pin.URI != ref.URI) {
+					return nil, identity.ErrResourceDenied
+				}
+			}
+		default:
+			if pin == nil {
+				return nil, fmt.Errorf("publisher-qualified report reads: %w", errors.ErrUnsupported)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	var readDefinition func(context.Context, identity.ResourceRef, *identity.ResolvedResource) (*primitive.GetResult, error)
 	if input.RefreshMetadata {
@@ -159,7 +186,7 @@ func (s *Service) getResourceReportUnscoped(ctx context.Context, input *GetRepor
 			return nil, err
 		}
 	}
-	if pin == nil || pin.URI != ref.URI || ref.Revision != "" && ref.Revision != pin.Selector() {
+	if pin == nil || pin.URI != ref.URI || input.SourceProvider != "" && pin.ProviderIdentity != input.SourceProvider || ref.Revision != "" && ref.Revision != pin.Selector() {
 		return nil, identity.ErrResourceDenied
 	}
 	var definition registry.ReportEnvelope
@@ -167,12 +194,20 @@ func (s *Service) getResourceReportUnscoped(ctx context.Context, input *GetRepor
 		return nil, identity.ErrResource
 	}
 	if definition.SchemaVersion != 1 {
-		verifier, ok := resolver.(sharedengine.PublishedResourceVerifier)
-		if definition.SchemaVersion != 2 || definition.Format != registry.ResourceReportFormat || pin.Kind != publishedidentity.PublishedCandidate || !ok {
+		if definition.SchemaVersion != 2 || definition.Format != registry.ResourceReportFormat {
 			return nil, identity.ErrResource
 		}
-		if err = verifier.VerifyPublishedResource(ctx, *pin); err != nil {
-			return nil, err
+		// A personal working definition is read through the existing owner provider.
+		// Its references remain references; execution still resolves each dependency
+		// using the same trusted dependency resolver as the published original.
+		if uri.Namespace != "users" || pin.Kind != identity.WorkingCandidate {
+			verifier, ok := resolver.(sharedengine.PublishedResourceVerifier)
+			if pin.Kind != publishedidentity.PublishedCandidate || !ok {
+				return nil, identity.ErrResource
+			}
+			if err = verifier.VerifyPublishedResource(ctx, *pin); err != nil {
+				return nil, err
+			}
 		}
 	}
 	report := &SharedArtifact{ArtifactID: pin.URI, Resource: pin, ResourceDefinition: cloneJSON(raw), ArtifactRef: pin.URI, ReportID: pin.URI, Kind: savedReportArtifactKind, Document: cloneJSON(definition.ReportDocument), ReportSpec: cloneJSON(definition.ReportSpec), ReportFill: cloneJSON(definition.ReportFill), ReportPrint: cloneJSON(definition.ReportPrint), CompileState: cloneJSON(definition.CompileState), Metadata: cloneJSON(definition.Metadata), Title: jsonObjectText(definition.ReportDocument, "title")}
@@ -182,7 +217,7 @@ func (s *Service) getResourceReportUnscoped(ctx context.Context, input *GetRepor
 		if state.Title != "" {
 			report.Title = state.Title
 		}
-	} else if s.reportResourceService != nil {
+	} else if s.reportResourceService != nil && input.SourceProvider == "" {
 		header, err := s.reportResourceService.GetResource(ctx, pin.URI)
 		if err != nil {
 			return nil, err

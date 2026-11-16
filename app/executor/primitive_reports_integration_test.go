@@ -1,8 +1,10 @@
 package executor_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -156,6 +158,10 @@ func TestBuilderRunsAuthoredExternalReportThroughPrimitiveHTTPMCP(t *testing.T) 
 	runPrimitiveReportFixture(t, "windows")
 }
 
+func TestPersonalReportCopiesAuthoredHTTPMCPSourceAndRunsReferences(t *testing.T) {
+	runPrimitiveReportFixture(t, "personal")
+}
+
 func TestBuilderPrimitiveReportsHeadless(t *testing.T) {
 	t.Run("missing proof denies before datasource", func(t *testing.T) { runPrimitiveReportFixture(t, "headless-missing-proof") })
 	t.Run("existing proof binds exact provider pins", func(t *testing.T) { runPrimitiveReportFixture(t, "headless-proof") })
@@ -183,6 +189,11 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	require.NoError(t, err)
 	var envelope registry.ReportEnvelope
 	require.NoError(t, json.Unmarshal(raw, &envelope))
+	for _, dependency := range envelope.Dependencies {
+		if dependency.Kind == "builder" {
+			require.Equal(t, dependency.ContentFingerprint, identity.ContentFingerprint(envelope.BuilderDefinition), "fixture builder closure before transport")
+		}
+	}
 	envelope.SchemaVersion = 2
 	envelope.Format = registry.ResourceReportFormat
 	envelope.SourceFormat = registry.AuthoredReportFormat
@@ -234,6 +245,14 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	require.NoError(t, err)
 	content, err := json.Marshal(&envelope)
 	require.NoError(t, err)
+	if mode == "personal" {
+		var published registry.ReportEnvelope
+		require.NoError(t, json.Unmarshal(content, &published))
+		var pretty bytes.Buffer
+		require.NoError(t, json.Indent(&pretty, published.BuilderDefinition, "", "  "))
+		content = bytes.Replace(content, published.BuilderDefinition, pretty.Bytes(), 1)
+		content = bytes.ReplaceAll(content, []byte(identity.ContentFingerprint(published.BuilderDefinition)), []byte(identity.ContentFingerprint(pretty.Bytes())))
+	}
 	reportIdentity, parseErr := identity.ParseResourceURI(reportURI)
 	require.NoError(t, parseErr)
 	var reportBodyMu sync.Mutex
@@ -317,7 +336,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	builder := executor.NewBuilder().WithAgentFinder(stubAgentFinder{}).WithModelFinder(stubModelFinder{}).WithMCPManager(mgr).WithPrimitiveAuthority(func(context.Context) (identity.VerifiedActor, error) { return actor, nil }, verify, "local-workspace").WithDefaults(&execconfig.Defaults{Reporting: execconfig.ReportingDefaults{Enabled: true, QueueIntervalMs: 60000}})
 	if mode == "windows" {
 		builder = builder.WithUIBridge(primitiveprovider.NewService(&primitiveprovider.Config{})).WithPrimitiveWindows(proof)
-	} else if mode == "headless-proof" {
+	} else if mode == "headless-proof" || mode == "personal" {
 		builder = builder.WithPrimitiveReportDependencyProof(proof)
 	}
 	built, err := builder.Build(ctx)
@@ -345,6 +364,59 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	require.NotEmpty(t, run.ReportFill)
 	require.NotEmpty(t, run.ReportPrint)
 	require.NotEmpty(t, run.Datasets)
+	if mode == "personal" {
+		ordinary.mu.Lock()
+		beforeCopy := len(ordinary.calls)
+		ordinary.mu.Unlock()
+		phaseStarted = time.Now()
+		personal, err := built.Reporting.DuplicateReport(ctx, &reportingsvc.DuplicateReportRequest{ReportID: reportURI, Title: "Personal external report", IdempotencyKey: "external-copy"})
+		t.Logf("personal report phase=copy elapsed_ms=%d error=%t", time.Since(phaseStarted).Milliseconds(), err != nil)
+		require.NoError(t, err)
+		var storedEnvelope registry.ReportEnvelope
+		require.NoError(t, json.Unmarshal(personal.ResourceDefinition, &storedEnvelope))
+		for _, dep := range storedEnvelope.Dependencies {
+			if dep.Kind == "builder" {
+				require.Equal(t, dep.ContentFingerprint, identity.ContentFingerprint(storedEnvelope.BuilderDefinition), "stored personal builder fingerprint")
+			}
+		}
+		renamed, renameErr := built.Reporting.UpdateReport(ctx, &reportingsvc.UpdateReportRequest{ReportID: personal.ArtifactRef, Title: "Renamed external report", ExpectedContentFingerprint: personal.Resource.ContentFingerprint})
+		require.NoError(t, renameErr)
+		restored, resetErr := built.Reporting.ResetReport(ctx, &reportingsvc.ResetReportRequest{Resource: &identity.ResourceRef{URI: personal.ArtifactRef}, ExpectedContentFingerprint: renamed.Resource.ContentFingerprint})
+		require.NoError(t, resetErr)
+		var restoredEnvelope registry.ReportEnvelope
+		require.NoError(t, json.Unmarshal(restored.ResourceDefinition, &restoredEnvelope))
+		require.Equal(t, string(storedEnvelope.BuilderDefinition), string(restoredEnvelope.BuilderDefinition), "rename and reset retain exact producer builder bytes")
+		ordinary.mu.Lock()
+		require.Equal(t, beforeCopy, len(ordinary.calls), "copying does not execute data tools")
+		ordinary.mu.Unlock()
+		phaseStarted = time.Now()
+		personalRun, err := built.Reporting.ExecuteResource(ctx, &reportingsvc.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: personal.ArtifactRef}, FillOnly: true})
+		t.Logf("personal report phase=execute elapsed_ms=%d error=%t", time.Since(phaseStarted).Milliseconds(), err != nil)
+		if err != nil {
+			var category interface{ AuthoredDependencyKind() string }
+			if errors.As(err, &category) {
+				t.Logf("copy compilation dependency kind=%s", category.AuthoredDependencyKind())
+			}
+		}
+		require.NoError(t, err)
+		require.Equal(t, personal.ArtifactRef, personalRun.Resource.URI)
+		require.NotEmpty(t, personalRun.ReportFill)
+		require.Len(t, personalRun.DependencyPins, len(envelope.DataSourceResources))
+		for _, result := range personalRun.Datasets {
+			require.Len(t, result.Rows, 3)
+		}
+		for id, pin := range personalRun.DependencyPins {
+			require.Equal(t, reportProviderID, pin.ProviderIdentity)
+			require.Equal(t, envelope.DataSourceResources[id].Resource.URI, pin.URI)
+		}
+		ordinary.mu.Lock()
+		require.Greater(t, len(ordinary.calls), beforeCopy)
+		for _, header := range ordinary.authSeen {
+			require.Equal(t, "Bearer "+reportFixtureToken, header)
+		}
+		ordinary.mu.Unlock()
+		return
+	}
 	if mode == "headless-proof" {
 		require.NotNil(t, run.Resource)
 		require.Equal(t, reportProviderID, run.Resource.ProviderIdentity, "the parent report remains pinned to its original external source")

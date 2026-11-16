@@ -127,7 +127,7 @@ func (s *Service) validateExportResourcePinUnscoped(ctx context.Context, job *Ex
 	if err != nil || uri.Kind != "report" || strings.TrimSpace(job.ArtifactRef) != pin.URI || !exportPinLeaseValid(pin, s.now()) {
 		return identity.ErrResourceDenied
 	}
-	resolver, err := s.resourceReaderFor(ctx, action)
+	resolver, err := s.ResourceReaderFor(ctx, action)
 	if err != nil {
 		return err
 	}
@@ -251,7 +251,7 @@ func (s *Service) prepareUnifiedExportRequestUnscoped(ctx context.Context, reque
 	if ref == nil || originalPin != nil && (originalPin.URI != ref.URI || ref.Revision != "" && ref.Revision != originalPin.Selector()) {
 		return nil, nil, identity.ErrResourceDenied
 	}
-	exportReader, err := s.resourceReaderFor(ctx, "report.export")
+	exportReader, err := s.ResourceReaderFor(ctx, "report.export")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -364,7 +364,7 @@ func (s *Service) prepareReferenceExportRequest(ctx context.Context, request *Su
 	if selected == nil || selected.Resource == nil {
 		return nil, nil, identity.ErrResourceDenied
 	}
-	reader, err := s.resourceReaderFor(ctx, "report.export")
+	reader, err := s.ResourceReaderFor(ctx, "report.export")
 	if err != nil {
 		return nil, nil, err
 	}

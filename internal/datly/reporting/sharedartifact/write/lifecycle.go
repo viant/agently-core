@@ -105,7 +105,14 @@ func (hooks *Lifecycle) Init(ctx context.Context, entity *SharedArtifact, state 
 		}
 	}
 	if entity.CreatedAt.IsZero() {
-		entity.SetCreatedAt(*hooks.now)
+		if state.Previous != nil && (entity.Has == nil || !entity.Has.CreatedAt) {
+			// Sparse updates keep the existing creation time without making it
+			// part of the requested mutation. Insert/explicit-zero defaults stay
+			// with their existing lifecycle behavior.
+			entity.CreatedAt = state.Previous.CreatedAt
+		} else {
+			entity.SetCreatedAt(*hooks.now)
+		}
 	}
 	if entity.UpdatedAt == nil {
 		entity.SetUpdatedAt(hooks.now)

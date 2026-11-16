@@ -16,9 +16,10 @@ import (
 
 type windowPinKey struct{ Namespace, ClientID, WindowID string }
 type windowResourcePin struct {
-	WindowKey string
-	Resource  identity.ResolvedResource
-	Target    *types.WindowTarget
+	pendingReport *reportPresentation
+	WindowKey     string
+	Resource      identity.ResolvedResource
+	Target        *types.WindowTarget
 	// PresentedTarget is the original integrity target delivered to this exact
 	// native public instance; fresh server admission uses Target.
 	PresentedTarget   *types.WindowTarget
@@ -114,8 +115,11 @@ func (s *Service) revalidateWindowPin(ctx context.Context, pin *windowResourcePi
 			}
 		} else {
 			fresh := report.Resource
-			if fresh.URI != pin.Resource.URI || fresh.ProviderIdentity != pin.Resource.ProviderIdentity || fresh.ResourceCandidate != pin.Resource.ResourceCandidate || fresh.AuthorityBinding == "" || !identity.MetadataExpiryValid(fresh.ValidUntil, time.Now()) || ctx.Err() != nil {
+			if fresh.URI != pin.Resource.URI || fresh.ProviderIdentity != pin.Resource.ProviderIdentity || fresh.AuthorityBinding == "" || !identity.MetadataExpiryValid(fresh.ValidUntil, time.Now()) || ctx.Err() != nil {
 				return nil, identity.ErrResourceDenied
+			}
+			if fresh.ResourceCandidate != pin.Resource.ResourceCandidate {
+				return nil, identity.ErrResourceStale
 			}
 			s.resourceMu.Lock()
 			held, ok := s.resourcePins[*instance]
@@ -156,6 +160,12 @@ func (s *Service) revalidateWindowPin(ctx context.Context, pin *windowResourcePi
 	return catalog.RevalidateResource(ctx, pin.WindowKey, pin.Resource)
 }
 func (s *Service) rememberWindowPin(ctx context.Context, key windowPinKey, pin windowResourcePin) error {
+	s.resourceMu.Lock()
+	defer s.resourceMu.Unlock()
+	return s.rememberWindowPinLocked(ctx, key, pin)
+}
+
+func (s *Service) rememberWindowPinLocked(ctx context.Context, key windowPinKey, pin windowResourcePin) error {
 	if pin.Target != nil {
 		normalized, err := pin.Target.Normalize()
 		if err != nil {
@@ -163,8 +173,6 @@ func (s *Service) rememberWindowPin(ctx context.Context, key windowPinKey, pin w
 		}
 		pin.Target = &normalized
 	}
-	s.resourceMu.Lock()
-	defer s.resourceMu.Unlock()
 	if ctx == nil || ctx.Err() != nil || !identity.MetadataExpiryValid(pin.Resource.ValidUntil, time.Now()) {
 		return identity.ErrResourceDenied
 	}
@@ -172,7 +180,7 @@ func (s *Service) rememberWindowPin(ctx context.Context, key windowPinKey, pin w
 		s.resourcePins = map[windowPinKey]windowResourcePin{}
 	}
 	for key, value := range s.resourcePins {
-		if !identity.MetadataExpiryValid(value.Resource.ValidUntil, time.Now()) && !defaultPresentationPin(value) {
+		if !identity.MetadataExpiryValid(value.Resource.ValidUntil, time.Now()) && !defaultPresentationPin(value) && (value.pendingReport == nil || value.pendingReport.ctx.Err() != nil) {
 			delete(s.resourcePins, key)
 		}
 	}
@@ -180,6 +188,9 @@ func (s *Service) rememberWindowPin(ctx context.Context, key windowPinKey, pin w
 		if _, exists := s.resourcePins[key]; !exists {
 			return errors.New("window resource capacity exceeded")
 		}
+	}
+	if previous, ok := s.resourcePins[key]; ok && previous.pendingReport != nil && sameReportCandidate(previous.Resource, pin.Resource) {
+		pin.pendingReport = previous.pendingReport
 	}
 	s.resourcePins[key] = pin
 	return nil
@@ -260,6 +271,13 @@ func (s *Service) filterResourceSnapshot(ctx context.Context, ns, clientID strin
 			continue
 		}
 		if _, err := s.revalidateWindowPin(ctx, &pin, windowPinKey{ns, clientID, item.WindowID}); err != nil {
+			if errors.Is(err, identity.ErrResourceStale) && strings.HasPrefix(pin.Resource.URI, "report://") {
+				shell, shellErr := staleReportRoutingShell(window)
+				if shellErr != nil {
+					return nil, shellErr
+				}
+				result.Windows = append(result.Windows, shell)
+			}
 			continue
 		}
 		if strings.HasPrefix(pin.Resource.URI, "report://") {
@@ -526,4 +544,22 @@ func (s *Service) WindowResourceTarget(ctx context.Context, namespace, clientID,
 		return nil, err
 	}
 	return &target, nil
+}
+
+// A successful current-owner selection that found a newer report candidate
+// may expose the existing frame's routing only. It supplies no resource pin,
+// definition, control values, parameters or dataset state.
+func staleReportRoutingShell(raw json.RawMessage) (json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	shell := map[string]json.RawMessage{}
+	for _, key := range []string{"windowId", "windowKey", "conversationId", "presentation", "region", "parentKey", "operationRevision", "inTab", "isModal", "isMinimized", "workspaceSharePct", "workspaceMinHeight"} {
+		if value, ok := fields[key]; ok {
+			shell[key] = value
+		}
+	}
+	shell["windowTitle"], _ = json.Marshal("Report needs reopening")
+	return json.Marshal(shell)
 }

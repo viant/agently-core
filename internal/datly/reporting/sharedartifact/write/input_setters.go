@@ -35,6 +35,17 @@ func (input *Input) SetOwnerSubject(value *string) {
 	input.Has.OwnerSubject = true
 }
 
+func (input *Input) SetExpectedVersion(value int) {
+	if input == nil {
+		return
+	}
+	input.ExpectedVersion = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.ExpectedVersion = true
+}
+
 func (input *Input) SetArtifact(value *SharedArtifact) {
 	if input == nil {
 		return

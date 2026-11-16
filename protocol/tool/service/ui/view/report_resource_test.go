@@ -60,7 +60,8 @@ func reportOpenFixture(t *testing.T) (*Service, *forgeuisvc.Service, *reportOpen
 
 func TestOpenExistingReportResourceUsesSingleNativeCommand(t *testing.T) {
 	views, bridge, _, ctx := reportOpenFixture(t)
-	for _, parameters := range []map[string]any{{}, {"entityId": 17, "from": "2026-01-01", "to": "2026-02-01", "regions": []any{"north"}, "executeOnOpen": true, "customProducerInput": false}} {
+	previousWindowID := ""
+	for index, parameters := range []map[string]any{{}, {"entityId": 17, "from": "2026-01-01", "to": "2026-02-01", "regions": []any{"north"}, "executeOnOpen": true, "customProducerInput": false}} {
 		delivered := make(chan map[string]any, 1)
 		done := make(chan error, 1)
 		go func() {
@@ -80,7 +81,7 @@ func TestOpenExistingReportResourceUsesSingleNativeCommand(t *testing.T) {
 			done <- nil
 		}()
 		out := &OpenOutput{}
-		require.NoError(t, views.open(ctx, &OpenInput{Resource: &identity.ResourceRef{URI: "report://example/summary"}, Parameters: parameters}, out))
+		require.NoError(t, views.open(ctx, &OpenInput{WindowID: previousWindowID, Resource: &identity.ResourceRef{URI: "report://example/summary"}, Parameters: parameters}, out))
 		require.NoError(t, <-done)
 		command := <-delivered
 		require.True(t, out.OK)
@@ -93,11 +94,26 @@ func TestOpenExistingReportResourceUsesSingleNativeCommand(t *testing.T) {
 		actual, _ := json.Marshal(command["parameters"])
 		require.JSONEq(t, string(expected), string(actual))
 		options := command["options"].(map[string]any)
-		require.Equal(t, "conversation", options["conversationId"])
+		if index == 0 {
+			require.Equal(t, "conversation", options["conversationId"])
+		} else {
+			require.Equal(t, "", options["conversationId"], "independent application frame must not become conversation-owned")
+		}
 		ref := options["resourceRef"].(map[string]any)
 		require.Equal(t, "report://example/summary", ref["uri"])
 		require.NotContains(t, options, "inlineMetadata", "opening a predefined report does not send a designer window")
-		postUIRPC(t, bridge, "ui.snapshot", map[string]any{"clientId": "client", "data": map[string]any{"conversationId": "conversation", "clientId": "client", "selected": map[string]any{"windowId": out.WindowID}, "windows": []any{map[string]any{"windowId": out.WindowID, "windowKey": out.WindowKey, "windowTitle": "Summary", "conversationId": "conversation", "parameters": parameters, "viewState": map[string]any{"report": map[string]any{"resourceUri": out.WindowKey, "status": "ready", "parameters": parameters}}}}}})
+		if index == 0 {
+			require.NotContains(t, command, "expectedRevision", "ordinary callers keep the original command shape")
+		} else {
+			require.Equal(t, previousWindowID, command["windowId"])
+			require.EqualValues(t, 17, command["expectedRevision"])
+			require.Equal(t, "app.section", options["region"])
+			require.Equal(t, "", options["parentKey"])
+			require.Equal(t, false, options["replaceHostedRegion"])
+			require.Equal(t, true, command["inTab"])
+		}
+		previousWindowID = out.WindowID
+		postUIRPC(t, bridge, "ui.snapshot", map[string]any{"clientId": "client", "data": map[string]any{"conversationId": "conversation", "clientId": "client", "selected": map[string]any{"windowId": out.WindowID}, "windows": []any{map[string]any{"windowId": out.WindowID, "windowKey": out.WindowKey, "windowTitle": "Summary", "conversationId": "", "presentation": "hosted", "region": "app.section", "inTab": true, "operationRevision": 17, "parameters": parameters, "viewState": map[string]any{"report": map[string]any{"resourceUri": out.WindowKey, "status": "ready", "parameters": parameters}}}}}})
 		windows := windowtool.New(bridge)
 		getWindow, _ := windows.Method("get")
 		windowOut := &windowtool.GetOutput{}
@@ -119,6 +135,22 @@ func TestReportResourceOpenRetainsAdmissionAndConversationBoundaries(t *testing.
 	require.Error(t, views.open(ctx, &OpenInput{Resource: &identity.ResourceRef{URI: "report://foreign/summary"}}, &OpenOutput{}))
 	require.Error(t, views.open(ctx, &OpenInput{Resource: &identity.ResourceRef{URI: "datasource://example/summary"}}, &OpenOutput{}))
 	require.Error(t, views.open(ctx, &OpenInput{ID: "report://example/summary", Resource: &identity.ResourceRef{URI: "report://foreign/summary"}}, &OpenOutput{}))
+}
+
+func TestExistingReportWindowTargetRejectsMissingForeignAndPrimaryWindows(t *testing.T) {
+	views, bridge, _, ctx := reportOpenFixture(t)
+	postUIRPC(t, bridge, "ui.poll", map[string]any{"clientId": "client", "timeoutMs": 1})
+	for _, input := range []*OpenInput{
+		{WindowID: "missing", Resource: &identity.ResourceRef{URI: "report://example/summary"}},
+		{WindowID: "chat/new", Resource: &identity.ResourceRef{URI: "report://example/summary"}},
+		{WindowID: "missing", Items: []OpenItem{{Resource: &identity.ResourceRef{URI: "report://example/summary"}}, {Resource: &identity.ResourceRef{URI: "report://example/summary"}}}},
+	} {
+		output := &OpenOutput{}
+		require.Error(t, views.open(ctx, input, output))
+		require.Empty(t, output.Items)
+	}
+	postUIRPC(t, bridge, "ui.snapshot", map[string]any{"clientId": "client", "data": map[string]any{"conversationId": "conversation", "windows": []any{map[string]any{"windowId": "foreign", "windowKey": "report://example/summary", "conversationId": "other-conversation", "presentation": "hosted"}}}})
+	require.Error(t, views.open(ctx, &OpenInput{WindowID: "foreign", Resource: &identity.ResourceRef{URI: "report://example/summary"}}, &OpenOutput{}))
 }
 
 func TestDirectReportCommandRejectsForgedPinAndForeignConversation(t *testing.T) {

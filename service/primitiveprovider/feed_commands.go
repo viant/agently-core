@@ -45,32 +45,30 @@ func (s *Service) authorizeConversationFeedCommand(ctx context.Context, namespac
 // authorizeConversationClient retains the existing current conversation attachment check.
 func (s *Service) authorizeConversationClient(ctx context.Context, namespace, clientID, conversation string) error {
 	now := time.Now()
-	for _, entry := range s.hub.SnapshotEntries() {
-		if entry.Namespace != namespace || entry.ClientID != clientID {
-			continue
-		}
-		attached := !entry.UpdatedAt.IsZero() && now.Sub(entry.UpdatedAt) <= 15*time.Second || entry.Transport == "ws" || !entry.LastPollAt.IsZero() && now.Sub(entry.LastPollAt) <= 30*time.Second
-		if !attached {
-			return identity.ErrResourceDenied
-		}
-		var snapshot struct {
+	entry, ok := s.hub.snapshotEntry(namespace, clientID)
+	if !ok {
+		return identity.ErrResourceDenied
+	}
+	attached := !entry.UpdatedAt.IsZero() && now.Sub(entry.UpdatedAt) <= 15*time.Second || entry.Transport == "ws" || !entry.LastPollAt.IsZero() && now.Sub(entry.LastPollAt) <= 30*time.Second
+	if !attached {
+		return identity.ErrResourceDenied
+	}
+	var snapshot struct {
+		ConversationID string `json:"conversationId"`
+		Windows        []struct {
 			ConversationID string `json:"conversationId"`
-			Windows        []struct {
-				ConversationID string `json:"conversationId"`
-			} `json:"windows"`
-		}
-		if json.Unmarshal(entry.Snapshot, &snapshot) != nil {
-			return identity.ErrResourceDenied
-		}
-		if snapshot.ConversationID == conversation {
+		} `json:"windows"`
+	}
+	if json.Unmarshal(entry.Snapshot, &snapshot) != nil {
+		return identity.ErrResourceDenied
+	}
+	if snapshot.ConversationID == conversation {
+		return nil
+	}
+	for _, window := range snapshot.Windows {
+		if window.ConversationID == conversation {
 			return nil
 		}
-		for _, window := range snapshot.Windows {
-			if window.ConversationID == conversation {
-				return nil
-			}
-		}
-		return identity.ErrResourceDenied
 	}
 	return identity.ErrResourceDenied
 }

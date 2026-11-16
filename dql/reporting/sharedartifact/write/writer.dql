@@ -10,6 +10,7 @@
 #define($_ = $Internal<bool>(artifactAccess/internal).Required())
 #define($_ = $WriteIntent<string>(query/intent).Optional())
 #define($_ = $OwnerSubject<*string>(visibility/subject).Optional().WithPredicate(9,'equal','report_shared_artifact','owner_id'))
+#define($_ = $ExpectedVersion<int>(query/expectedVersion).Optional().WithPredicate(9,'equal','report_shared_artifact','version'))
 #define($_ = $Artifact<*SharedArtifact>(body/data))
 #define($_ = $Data<*SharedArtifact>(output/body))
 

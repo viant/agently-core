@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,8 +21,13 @@ import (
 	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
 	reportjobmodel "github.com/viant/agently-core/model/reportjob"
 	reportrunmodel "github.com/viant/agently-core/model/reportrun"
+	reportshareartifactmodel "github.com/viant/agently-core/model/reportshareartifact"
+	"github.com/viant/agently-core/protocol/primitive"
+	identity "github.com/viant/agently-core/protocol/resource"
 	reporting "github.com/viant/agently-core/service/reporting"
+	userprovider "github.com/viant/agently-core/service/resource/provider/user"
 	"github.com/viant/datly/bootstrap/connector"
+	xhandler "github.com/viant/xdatly/handler"
 )
 
 func TestNativeReportingMySQLIndependentConnectionsAdoptionExportAndAudit(t *testing.T) {
@@ -162,4 +168,184 @@ func TestNativeReportingMySQLIndependentConnectionsAdoptionExportAndAudit(t *tes
 	require.NoError(t, err)
 	require.Equal(t, "running", stillRunning.Status)
 
+}
+
+func TestNativeReportingMySQLPersonalReportCASIndependentPools(t *testing.T) {
+	dsn := os.Getenv("AGENTLY_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("AGENTLY_TEST_MYSQL_DSN is not set")
+	}
+	ctx := context.Background()
+	db, err := sql.Open("mysql", dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	id := fmt.Sprintf("personal-cas-%d", time.Now().UnixNano())
+	owner := authctx.WithProvider(authctx.WithCanonicalUserID(authctx.WithUserInfo(ctx, &authctx.UserInfo{Subject: id}), id), "fixture")
+	t.Cleanup(func() {
+		_, err := db.ExecContext(ctx, "DELETE FROM report_shared_artifact WHERE artifact_id=?", id)
+		require.NoError(t, err)
+	})
+	_, file, _, _ := runtime.Caller(0)
+	root := filepath.Join(filepath.Dir(file), "../../../..")
+	stores := make([]*Store, 2)
+	for i := range stores {
+		server, err := native.New(ctx, native.Options{SourceRoot: root, Connectors: []connector.Config{{Name: "agently", Driver: "mysql", DSN: dsn}}})
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, server.Shutdown(ctx)) })
+		client, err := New(ctx, server, nil, nil)
+		require.NoError(t, err)
+		stores[i] = client.(*Store)
+	}
+	original := &reportshareartifactmodel.Record{ArtifactID: id, ArtifactRef: "report://users/" + id + "/" + id, OwnerID: id, Kind: "reportBuilder.savedReportPayload", Lifecycle: "draft", Version: 0, Document: []byte(`{"title":"Original"}`), CreatedAt: time.Now().UTC()}
+	require.NoError(t, stores[0].CreateSharedArtifact(owner, original))
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for i := range stores {
+		go func(index int) {
+			<-start
+			copy := *original
+			copy.Version = 1
+			copy.Title = fmt.Sprintf("winner-%d", index)
+			results <- stores[index].UpdateSharedArtifactCAS(owner, &copy, 0)
+		}(i)
+	}
+	close(start)
+	wins, conflicts := 0, 0
+	for range stores {
+		err := <-results
+		if err == nil {
+			wins++
+		} else {
+			var conflict *xhandler.Conflict
+			require.ErrorAs(t, err, &conflict)
+			conflicts++
+		}
+	}
+	require.Equal(t, 1, wins)
+	require.Equal(t, 1, conflicts)
+	saved, err := stores[0].GetSharedArtifact(owner, id)
+	require.NoError(t, err)
+	require.Equal(t, 1, saved.Version)
+	require.Contains(t, saved.Title, "winner-")
+	provider, err := userprovider.NewReports(reporting.NewStoreAdapter(stores[1]), "example")
+	require.NoError(t, err)
+	receipt, err := provider.ArchiveResource(owner, original.ArtifactRef, primitive.ArchiveResourceInput{ExpectedHeadRevision: 1})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, receipt.RowEtag)
+	retained, err := stores[0].GetSharedArtifact(owner, id)
+	require.NoError(t, err)
+	require.Equal(t, "archived", retained.Lifecycle)
+	require.Equal(t, saved.Document, retained.Document)
+	require.Equal(t, saved.Title, retained.Title)
+	_, err = provider.ArchiveResource(owner, original.ArtifactRef, primitive.ArchiveResourceInput{ExpectedHeadRevision: 3})
+	require.ErrorIs(t, err, identity.ErrResourceStale)
+	t.Run("oversized definition leaves no partial row", func(t *testing.T) {
+		// Only the base64 definition in metadata_json exceeds MEDIUMBLOB.
+		// The document and spec columns stay small.
+		adapter := reporting.NewStoreAdapter(stores[0])
+		largeID := id + "-large"
+		t.Cleanup(func() {
+			_, err := db.ExecContext(ctx, "DELETE FROM report_shared_artifact WHERE artifact_id=?", largeID)
+			require.NoError(t, err)
+		})
+		large := &reporting.SharedArtifact{
+			OwnerID: id, ArtifactID: largeID, ArtifactRef: "report://users/" + id + "/large",
+			Kind: "reportBuilder.savedReportPayload", Lifecycle: "draft", Version: 1, CreatedAt: time.Now().UTC(),
+			ResourceDefinition: []byte(`{"schemaVersion":1,"reportDocument":{"title":"Example"},"metadata":{"fixture":"` + strings.Repeat("x", 13<<20) + `"}}`),
+		}
+		err := adapter.CreateSharedArtifact(owner, large)
+		require.Error(t, err, "oversized definition must never be acknowledged as saved")
+		var tooLong interface{ HTTPStatusCode() int }
+		require.ErrorAs(t, err, &tooLong)
+		require.EqualValues(t, 413, tooLong.HTTPStatusCode())
+		var count int
+		require.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM report_shared_artifact WHERE artifact_id=?", largeID).Scan(&count))
+		require.Zero(t, count)
+		oversized := large.ResourceDefinition
+		large.ResourceDefinition = []byte(`{"schemaVersion":1,"reportDocument":{"title":"Keep"}}`)
+		require.NoError(t, adapter.CreateSharedArtifact(owner, large))
+		prior, err := stores[1].GetSharedArtifact(owner, largeID)
+		require.NoError(t, err)
+		large.ResourceDefinition = oversized
+		large.Version++
+		large.Title = "Oversized update"
+		writer := adapter.(interface {
+			UpdateSharedArtifactCAS(context.Context, *reporting.SharedArtifact, int) error
+		})
+		err = writer.UpdateSharedArtifactCAS(owner, large, prior.Version)
+		var updateTooLong interface{ HTTPStatusCode() int }
+		require.ErrorAs(t, err, &updateTooLong)
+		require.EqualValues(t, 413, updateTooLong.HTTPStatusCode())
+		after, err := stores[1].GetSharedArtifact(owner, largeID)
+		require.NoError(t, err)
+		require.Equal(t, prior.Version, after.Version)
+		require.Equal(t, prior.Title, after.Title)
+		require.Equal(t, prior.Metadata, after.Metadata)
+
+	})
+
+}
+
+func TestNativeReportingMySQLCreateOnlyRaceDoesNotOverwrite(t *testing.T) {
+	dsn := os.Getenv("AGENTLY_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("AGENTLY_TEST_MYSQL_DSN is not set")
+	}
+	ctx := context.Background()
+	db, err := sql.Open("mysql", dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	id := fmt.Sprintf("personal-create-%d", time.Now().UnixNano())
+	owner := authctx.WithUserInfo(ctx, &authctx.UserInfo{Subject: id})
+	t.Cleanup(func() {
+		_, err := db.ExecContext(ctx, "DELETE FROM report_shared_artifact WHERE artifact_id=?", id)
+		require.NoError(t, err)
+	})
+	_, file, _, _ := runtime.Caller(0)
+	root := filepath.Join(filepath.Dir(file), "../../../..")
+	stores := make([]*Store, 2)
+	for i := range stores {
+		server, err := native.New(ctx, native.Options{SourceRoot: root, Connectors: []connector.Config{{Name: "agently", Driver: "mysql", DSN: dsn}}})
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, server.Shutdown(ctx)) })
+		store, err := New(ctx, server, nil, nil)
+		require.NoError(t, err)
+		stores[i] = store.(*Store)
+	}
+	original := &reportshareartifactmodel.Record{ArtifactID: id, ArtifactRef: "report://users/example/create-only", OwnerID: id, Kind: "reportBuilder.savedReportPayload", Lifecycle: "draft", Version: 1, CreatedAt: time.Now().UTC()}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for i := range stores {
+		go func(index int) {
+			<-start
+			candidate := *original
+			candidate.Title = fmt.Sprintf("Candidate %d", index)
+			results <- stores[index].CreateSharedArtifact(owner, &candidate)
+		}(i)
+	}
+	close(start)
+	winners, duplicates := 0, 0
+	for range stores {
+		err := <-results
+		if err == nil {
+			winners++
+		} else {
+			require.ErrorIs(t, err, reportstore.ErrAlreadyExists)
+			duplicates++
+		}
+	}
+	require.Equal(t, 1, winners)
+	require.Equal(t, 1, duplicates)
+	saved, err := stores[0].GetSharedArtifact(owner, id)
+	require.NoError(t, err)
+	retry := *original
+	retry.Title = "Must not replace the winner"
+	require.ErrorIs(t, stores[1].CreateSharedArtifact(owner, &retry), reportstore.ErrAlreadyExists)
+	retained, err := stores[0].GetSharedArtifact(owner, id)
+	require.NoError(t, err)
+	require.Equal(t, saved.Title, retained.Title)
+	require.Equal(t, 1, retained.Version)
+	var rows int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM report_shared_artifact WHERE artifact_id=?", id).Scan(&rows))
+	require.Equal(t, 1, rows)
 }

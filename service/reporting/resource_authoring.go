@@ -3,7 +3,9 @@ package reporting
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/tidwall/sjson"
 	iauth "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/primitive"
 	useruri "github.com/viant/agently-core/protocol/resource/user"
@@ -56,25 +58,38 @@ func authoringRef(ref *identity.ResourceRef, pin *identity.ResolvedResource, art
 	}
 	return result, nil
 }
-func (s *Service) readAuthoringResource(ctx context.Context, ref identity.ResourceRef, pin *identity.ResolvedResource, operation string) (json.RawMessage, *identity.ResolvedResource, error) {
+func (s *Service) readAuthoringResource(ctx context.Context, ref identity.ResourceRef, pin *identity.ResolvedResource, operation, provider string) (json.RawMessage, *identity.ResolvedResource, error) {
 	if err := s.requireReportWriter(); err != nil {
 		return nil, nil, err
 	}
-	resolver, err := s.resourceReaderFor(ctx, operation)
+	resolver, err := s.ResourceReaderFor(ctx, operation)
 	if err != nil {
 		return nil, nil, err
 	}
 	if resolver == nil {
 		return nil, nil, identity.ErrResourceDenied
 	}
+	return readAuthoringReport(ctx, resolver, ref, pin, provider)
+}
+
+func readAuthoringReport(ctx context.Context, resolver ResourceReader, ref identity.ResourceRef, pin *identity.ResolvedResource, provider string) (json.RawMessage, *identity.ResolvedResource, error) {
+	var err error
 	selected := cloneResolvedResource(pin)
 	if selected == nil {
-		selected, err = resolver.Resolve(ctx, ref)
+		if provider != "" {
+			scoped, ok := resolver.(ProviderResourceReader)
+			if !ok {
+				return nil, nil, fmt.Errorf("report source provider selection: %w", errors.ErrUnsupported)
+			}
+			selected, err = scoped.ResolveForProvider(ctx, ref, provider)
+		} else {
+			selected, err = resolver.Resolve(ctx, ref)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
 	}
-	if selected.URI != ref.URI || ref.Revision != "" && selected.Selector() != ref.Revision {
+	if provider != "" && selected.ProviderIdentity != provider || selected.URI != ref.URI || ref.Revision != "" && selected.Selector() != ref.Revision {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	return resolver.ReadResolved(ctx, *selected)
@@ -147,7 +162,11 @@ func (s *Service) saveResourceReport(ctx context.Context, input *SaveReportReque
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.reportResourceService.CreateResource(ctx, primitive.CreateResourceInput{URI: ref.URI, WorkspaceID: input.WorkspaceID, Title: input.Title, FormatVersion: 1, Definition: raw, IdempotencyKey: input.IdempotencyKey})
+	formatVersion, err := reportDefinitionFormatVersion(raw)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.reportResourceService.CreateResource(ctx, primitive.CreateResourceInput{URI: ref.URI, WorkspaceID: input.WorkspaceID, Title: input.Title, FormatVersion: formatVersion, Definition: raw, IdempotencyKey: input.IdempotencyKey})
 	if err != nil {
 		return nil, err
 	}
@@ -161,42 +180,66 @@ func (s *Service) updateResourceReport(ctx context.Context, input *UpdateReportR
 	if err != nil {
 		return nil, err
 	}
-	raw, pin, err := s.readAuthoringResource(ctx, ref, input.ResolvedResource, "report.edit")
+	raw, pin, err := s.readAuthoringResource(ctx, ref, input.ResolvedResource, "report.edit", "")
 	if err != nil {
 		return nil, err
 	}
 	if pin.Kind != identity.WorkingCandidate {
 		return nil, fmt.Errorf("only the mutable report draft can be updated")
 	}
+	originalDefinition := cloneJSON(raw)
+	personalSource, sourceErr := personalReportSource(raw)
+	if sourceErr != nil {
+		return nil, sourceErr
+	}
+	if personalSource != nil && input.ExpectedContentFingerprint == "" {
+		return nil, fmt.Errorf("personal report update requires expectedContentFingerprint from get_report")
+	}
 	expectedFP := input.ExpectedContentFingerprint
 	if expectedFP != "" && expectedFP != pin.ContentFingerprint {
-		return nil, identity.ErrResourceDenied
+		return nil, identity.ErrResourceStale
 	}
 	if len(input.Definition) > 0 {
 		raw = cloneJSON(input.Definition)
+		if input.Title != "" {
+			raw, err = setPersonalReportTitle(raw, input.Title)
+			if err != nil {
+				return nil, err
+			}
+		}
 	} else {
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(raw, &fields) != nil {
 			return nil, identity.ErrResource
 		}
 		if len(input.ReportDocument) > 0 {
-			fields["reportDocument"] = normalizeToolJSONPayload(input.ReportDocument)
+			raw, err = sjson.SetRawBytes(raw, "reportDocument", normalizeToolJSONPayload(input.ReportDocument))
+			if err != nil {
+				return nil, err
+			}
 		}
 		if len(input.ReportSpec) > 0 {
 			if _, authored := fields["format"]; authored {
 				return nil, fmt.Errorf("authored report updates require their complete authored envelope")
 			}
-			fields["reportSpec"] = normalizeToolJSONPayload(input.ReportSpec)
+			raw, err = sjson.SetRawBytes(raw, "reportSpec", normalizeToolJSONPayload(input.ReportSpec))
+			if err != nil {
+				return nil, err
+			}
 		}
 		if input.Title != "" {
-			var doc map[string]json.RawMessage
-			if json.Unmarshal(fields["reportDocument"], &doc) != nil {
-				return nil, identity.ErrResource
+			raw, err = setPersonalReportTitle(raw, input.Title)
+			if err != nil {
+				return nil, err
 			}
-			doc["title"], _ = json.Marshal(input.Title)
-			fields["reportDocument"], _ = json.Marshal(doc)
 		}
-		raw, err = json.Marshal(fields)
+	}
+	raw, err = preservePersonalLineage(originalDefinition, raw)
+	if err != nil {
+		return nil, err
+	}
+	if personalSource != nil {
+		raw, err = bindPersonalReportRoot(raw, ref.URI, ref.URI)
 		if err != nil {
 			return nil, err
 		}
@@ -205,7 +248,11 @@ func (s *Service) updateResourceReport(ctx context.Context, input *UpdateReportR
 	if input.Title != "" {
 		title = &input.Title
 	}
-	result, err := s.reportResourceService.UpdateDraft(ctx, ref.URI, primitive.UpdateDraftInput{Title: title, ExpectedRowEtag: input.ExpectedRowEtag, ExpectedDraftRevision: input.ExpectedDraftRevision, ExpectedContentFingerprint: expectedFP, FormatVersion: 1, Definition: raw, IdempotencyKey: input.IdempotencyKey})
+	formatVersion, err := reportDefinitionFormatVersion(raw)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.reportResourceService.UpdateDraft(ctx, ref.URI, primitive.UpdateDraftInput{Title: title, ExpectedRowEtag: input.ExpectedRowEtag, ExpectedDraftRevision: input.ExpectedDraftRevision, ExpectedContentFingerprint: expectedFP, FormatVersion: formatVersion, Definition: raw, IdempotencyKey: input.IdempotencyKey})
 	if err != nil {
 		return nil, err
 	}
@@ -219,12 +266,19 @@ func (s *Service) duplicateResourceReport(ctx context.Context, input *DuplicateR
 	if err != nil {
 		return nil, err
 	}
-	_, pin, err := s.readAuthoringResource(ctx, ref, input.ResolvedResource, "report.duplicate")
-	if err != nil {
-		return nil, err
+	target, targetErr := identity.ParseResourceURI(input.TargetURI)
+	personal := input.TargetURI == "" || targetErr == nil && target.Namespace == "users"
+	if personal {
+		if err := s.requireReportWriter(); err != nil {
+			return nil, err
+		}
+		return s.duplicatePersonalReport(ctx, input, ref)
 	}
-	target, err := identity.ParseResourceURI(input.TargetURI)
-	if err != nil || target.Kind != "report" {
+	_, pin, err := s.readAuthoringResource(ctx, ref, input.ResolvedResource, "report.duplicate", "")
+	if err != nil {
+		return nil, fmt.Errorf("report copy phase=source-read: %w", err)
+	}
+	if targetErr != nil || target.Kind != "report" {
 		return nil, identity.ErrResourceDenied
 	}
 	result, err := s.reportResourceService.CloneResource(ctx, primitive.CloneResourceInput{Source: identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, ExpectedSourceFingerprint: pin.ContentFingerprint, TargetURI: input.TargetURI, TargetWorkspaceID: input.TargetWorkspaceID, Title: input.Title, IdempotencyKey: input.IdempotencyKey})
@@ -241,7 +295,7 @@ func (s *Service) deleteResourceReport(ctx context.Context, input *DeleteReportR
 	if err != nil {
 		return nil, err
 	}
-	_, _, err = s.readAuthoringResource(ctx, ref, input.ResolvedResource, "report.delete")
+	_, _, err = s.readAuthoringResource(ctx, ref, input.ResolvedResource, "report.delete", "")
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +313,7 @@ func (s *Service) StampReport(ctx context.Context, input *StampReportRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	_, pin, err := s.readAuthoringResource(ctx, ref, input.ResolvedResource, "report.stamp")
+	_, pin, err := s.readAuthoringResource(ctx, ref, input.ResolvedResource, "report.stamp", "")
 	if err != nil {
 		return nil, err
 	}
@@ -283,4 +337,16 @@ func (s *Service) stampReportTool(ctx context.Context, in, out interface{}) erro
 	}
 	*output = *result
 	return nil
+}
+
+// reportDefinitionFormatVersion carries the envelope's declared version to the
+// existing managing writer; that writer owns validation of the complete form.
+func reportDefinitionFormatVersion(raw json.RawMessage) (int64, error) {
+	var header struct {
+		SchemaVersion int64 `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(raw, &header); err != nil {
+		return 0, err
+	}
+	return header.SchemaVersion, nil
 }

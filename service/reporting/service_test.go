@@ -2901,3 +2901,34 @@ func validTestReportExportRequestEnvelope() *ReportExportRequest {
 func jsonNumber(value int) string {
 	return strconv.Itoa(value)
 }
+
+func TestStandaloneReportReadsRespectArchive(t *testing.T) {
+	store := NewMemoryStore()
+	service := New(Options{Store: store})
+	ctx := authsvc.InjectUser(context.Background(), "owner")
+	for i, id := range []string{"active", "retired"} {
+		lifecycle := "draft"
+		if i == 1 {
+			lifecycle = "archived"
+		}
+		require.NoError(t, store.CreateSharedArtifact(ctx, &SharedArtifact{OwnerID: "owner", ArtifactID: id, ArtifactRef: "report://users/owner/" + id, ReportID: id, Kind: savedReportArtifactKind, Lifecycle: lifecycle, CreatedAt: time.Unix(int64(i), 0)}))
+	}
+	for _, input := range []*GetReportInput{{ArtifactID: "retired"}, {ReportID: "retired"}, {ArtifactRef: "report://users/owner/retired"}} {
+		_, err := service.GetReport(ctx, input)
+		require.ErrorIs(t, err, ErrNotFound)
+	}
+	list, err := service.ListReports(ctx, &ListReportsInput{Limit: 1})
+	require.NoError(t, err)
+	require.Equal(t, 1, list.TotalCount)
+	require.Len(t, list.Reports, 1)
+	require.Equal(t, "active", list.Reports[0].ReportID)
+	history, err := service.ListSharedArtifacts(ctx, &ListSharedArtifactsInput{Lifecycle: "archived"})
+	require.NoError(t, err)
+	require.Len(t, history.Artifacts, 1)
+	require.Equal(t, "retired", history.Artifacts[0].ReportID)
+	_, err = service.TransitionArtifact(ctx, &TransitionArtifactRequest{ArtifactRef: "report://users/owner/retired", To: "published"})
+	require.Error(t, err)
+	row, err := store.GetSharedArtifact(ctx, "retired")
+	require.NoError(t, err)
+	require.Equal(t, "archived", row.Lifecycle)
+}

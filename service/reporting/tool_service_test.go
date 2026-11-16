@@ -24,7 +24,20 @@ func TestServiceMethodsExposeReportingSurface(t *testing.T) {
 	})
 
 	signatures := service.Methods()
-	require.Len(t, signatures, 29)
+	require.Len(t, signatures, 30)
+	foundReset := false
+	for i, signature := range signatures {
+		if signature.Name == "reset_report" {
+			require.Equal(t, reflect.TypeOf(&ResetReportRequest{}), signature.Input)
+			require.Equal(t, reflect.TypeOf(&SharedArtifact{}), signature.Output)
+			_, err := service.Method("reset_report")
+			require.NoError(t, err)
+			signatures = append(signatures[:i], signatures[i+1:]...)
+			foundReset = true
+			break
+		}
+	}
+	require.True(t, foundReset)
 	require.Equal(t, "run_report", signatures[1].Name)
 	signatures = append(signatures[:1], signatures[2:]...)
 	require.Equal(t, "stamp_report", signatures[15].Name)

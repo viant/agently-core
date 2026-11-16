@@ -71,7 +71,7 @@ func testPrivateSurfaceIdentity(t *testing.T, serverName string) {
 			result = map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "surface", "version": "1"}}
 		case "tools/list":
 			calls.Add(1)
-			result = map[string]any{"tools": []any{map[string]any{"name": "secret", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"secret": map[string]any{"type": "string"}}}}}, "cacheScope": "private", "ttlMs": 0}
+			result = map[string]any{"tools": []any{map[string]any{"name": "secret", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"secret": map[string]any{"type": "string"}}}}}, "cacheScope": "private", "ttlMs": 60000}
 		default:
 			w.WriteHeader(202)
 			return
@@ -108,7 +108,7 @@ func testPrivateSurfaceIdentity(t *testing.T, serverName string) {
 		requestCtx := manager.WithToolCatalogReadSnapshot(manager.WithNamesMemo(ctx))
 		require.Len(t, r.DefinitionsWithContext(requestCtx), 1)
 	}
-	require.EqualValues(t, 1, calls.Load(), "100 warm requests must not repeat remote tools/list even with zero producer TTL")
+	require.EqualValues(t, 1, calls.Load(), "100 warm requests must not repeat remote tools/list during the producer TTL")
 	require.EqualValues(t, 1, initializes.Load(), "100 warm requests must not renegotiate the connection")
 	cachedCtx := runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{CachedCatalog: true})
 	require.Len(t, r.DefinitionsWithContext(cachedCtx), 1, "cached-only binding retains the caller private catalog")

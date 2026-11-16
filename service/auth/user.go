@@ -4,6 +4,7 @@ import "context"
 
 // User represents a registered user.
 type User struct {
+	settingsRaw *string
 	ID          string                 `json:"id,omitempty"`
 	Username    string                 `json:"username"`
 	Email       string                 `json:"email,omitempty"`

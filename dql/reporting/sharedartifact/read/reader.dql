@@ -11,6 +11,7 @@
 #define($_ = $ReadMode<string>(artifactAccess/mode).Required())
 #define($_ = $OwnerSubject<*string>(visibility/subject).Required())
 #define($_ = $ArtifactID<string>(query/artifactId).Optional().WithPredicate(0,'equal','r','artifact_id'))
+#define($_ = $ArtifactIDs<[]string>(query/artifactIds).Optional().WithPredicate(0,'in','r','artifact_id'))
 #define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
 #define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
 #define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))

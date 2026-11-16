@@ -15,12 +15,20 @@ import (
 	"github.com/viant/datly/runtime/handler/provider"
 	writer "github.com/viant/datly/runtime/handler/writer"
 	"github.com/viant/datly/spec"
+	"github.com/viant/sqlx/io/errx"
 )
 
 var (
 	ErrNotFound      = errors.New("shared artifact not found")
 	ErrAlreadyExists = errors.New("shared artifact already exists")
 )
+
+type errReportTooLarge struct{}
+
+func (errReportTooLarge) Error() string {
+	return "report content exceeds the MySQL storage limit of 16,777,215 bytes per field"
+}
+func (errReportTooLarge) HTTPStatusCode() int { return 413 }
 
 // Record is the application-owned shared artifact shell. JSON blobs are opaque
 // to Core and copied at the adapter boundary.
@@ -98,21 +106,42 @@ func (s *Store) read(ctx context.Context, owner, mode string, input *read.Input)
 	return out.Data, nil
 }
 
-func (s *Store) write(ctx context.Context, owner, intent string, record *Record, remove bool) error {
+func (s *Store) write(ctx context.Context, owner, intent string, record *Record, remove bool, expected ...int) error {
+	// Avoid MySQL silently truncating MEDIUMBLOB values when strict mode is off.
+	// Normal writes need no driver or schema lookup. SQLite has a different capacity.
+	const mediumBlobLimit = (1 << 24) - 1
+	if !remove && max(len(record.Metadata), len(record.Document), len(record.ReportSpec), len(record.CompileState), len(record.ReportFill), len(record.ReportPrint), len(record.SavedViewOverlay)) > mediumBlobLimit {
+		driver, ok := s.Invoker.(interface {
+			ConfiguredDriver(context.Context, string) (string, error)
+		})
+		if !ok {
+			return fmt.Errorf("cannot verify the storage capacity for this report")
+		}
+		name, err := driver.ConfiguredDriver(ctx, "agently")
+		if err != nil {
+			return err
+		}
+		if strings.EqualFold(name, "mysql") {
+			return errReportTooLarge{}
+		}
+	}
 	entity := toWrite(record)
 	if remove {
 		entity.SetShouldDelete(true)
 	}
 	input := &write.Input{}
 	input.SetArtifact(entity)
+	if len(expected) > 0 {
+		input.SetExpectedVersion(expected[0])
+	}
 	if intent != "" {
 		input.SetWriteIntent(intent)
 	}
 	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: writerTarget, Input: input, Providers: accessProviders(owner, "")})
 	if err != nil {
 		switch {
-		case errors.Is(err, write.ErrAlreadyExists):
-			return ErrAlreadyExists
+		case errors.Is(err, write.ErrAlreadyExists), intent == "create" && errx.IsDuplicateKey(err):
+			return fmt.Errorf("%w: %w", ErrAlreadyExists, err)
 		case errors.Is(err, write.ErrNotFound), errors.Is(err, write.ErrOwnerDenied), errors.Is(err, writer.ErrDeleteNotFound):
 			return ErrNotFound
 		default:
@@ -159,7 +188,39 @@ func (s *Store) Get(ctx context.Context, artifactID string) (*Record, error) {
 	return fromRead(rows[0]), nil
 }
 
+// ListHeaders uses the existing owner-scoped reader without fetching definition blobs.
+func (s *Store) ListHeaders(ctx context.Context, offset, limit int) ([]*Record, error) {
+	input := &read.Input{}
+	input.SetLimit(limit)
+	input.SetOffset(offset)
+	input.SetFields([]string{"artifact_id", "artifact_ref", "owner_id", "kind", "lifecycle", "version", "title"})
+	return s.list(ctx, input)
+}
+
+// GetMany reads exact IDs using the same owner predicate as List and Get.
+func (s *Store) GetMany(ctx context.Context, ids []string) ([]*Record, error) {
+	var records []*Record
+	// Leave room for the reader's other bound inputs on SQLite.
+	const batchSize = 500
+	for len(ids) > 0 {
+		n := min(len(ids), batchSize)
+		input := &read.Input{}
+		input.SetArtifactIDs(ids[:n])
+		rows, err := s.list(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, rows...)
+		ids = ids[n:]
+	}
+	return records, nil
+}
+
 func (s *Store) List(ctx context.Context) ([]*Record, error) {
+	return s.list(ctx, &read.Input{})
+}
+
+func (s *Store) list(ctx context.Context, input *read.Input) ([]*Record, error) {
 	owner, err := s.owner(ctx)
 	if err != nil {
 		return nil, err
@@ -168,7 +229,7 @@ func (s *Store) List(ctx context.Context) ([]*Record, error) {
 	if owner == "" {
 		return result, nil
 	}
-	rows, err := s.read(ctx, owner, "rows", &read.Input{})
+	rows, err := s.read(ctx, owner, "rows", input)
 	if err != nil {
 		return nil, err
 	}
@@ -256,4 +317,19 @@ func copyTime(value *time.Time) *time.Time {
 	}
 	copy := *value
 	return &copy
+}
+
+// UpdateCAS reuses the native mutation predicate against the existing version.
+func (s *Store) UpdateCAS(ctx context.Context, record *Record, expected int) error {
+	owner, err := s.owner(ctx)
+	if err != nil {
+		return err
+	}
+	if record == nil || owner == "" || owner != record.OwnerID {
+		return ErrNotFound
+	}
+	if record.Version != expected+1 {
+		return fmt.Errorf("shared artifact version must advance by one")
+	}
+	return s.write(ctx, owner, "update", record, false, expected)
 }

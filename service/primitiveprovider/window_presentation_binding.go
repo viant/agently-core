@@ -28,11 +28,21 @@ func (s *Service) BindAdmittedNativePresentationWindow(ctx context.Context, clie
 		return true, identity.ErrResourceDenied
 	}
 	key := windowPinKey{Namespace: session.ns, ClientID: clientID, WindowID: windowID}
+	if uri.Kind == "report" {
+		if handled, err := s.activateReportPresentation(ctx, key, requestctx.UIBridgeSessionIDFromContext(ctx), windowResourcePin{WindowKey: windowKey, Resource: *admitted.Resource}); handled {
+			return true, err
+		}
+	}
 	// A report loader has already reauthorized this exact candidate for the
 	// current native owner. Credential rotation may replace its authority while
 	// retaining the mounted instance and its observed output. Direct reads with
 	// the old pin still fail at the owning report catalog.
-	if old, exists := s.getWindowPin(key); exists {
+	if bridge.sessionInfoByID(requestctx.UIBridgeSessionIDFromContext(ctx)) != session {
+		return true, identity.ErrResourceDenied
+	}
+	s.resourceMu.Lock()
+	defer s.resourceMu.Unlock()
+	if old, exists := s.resourcePins[key]; exists {
 		if old.Resource.URI != admitted.Resource.URI || old.Resource.ProviderIdentity != admitted.Resource.ProviderIdentity {
 			return true, identity.ErrResourceDenied
 		}
@@ -46,8 +56,5 @@ func (s *Service) BindAdmittedNativePresentationWindow(ctx context.Context, clie
 			return true, identity.ErrResourceDenied
 		}
 	}
-	if bridge.sessionInfoByID(requestctx.UIBridgeSessionIDFromContext(ctx)) != session {
-		return true, identity.ErrResourceDenied
-	}
-	return true, s.rememberWindowPin(ctx, key, windowResourcePin{WindowKey: windowKey, Resource: *admitted.Resource, Target: admitted.ResourceTarget})
+	return true, s.rememberWindowPinLocked(ctx, key, windowResourcePin{WindowKey: windowKey, Resource: *admitted.Resource, Target: admitted.ResourceTarget})
 }

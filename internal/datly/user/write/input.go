@@ -4,7 +4,10 @@ package write
 
 // Input is the generated input scaffold for writer.
 type Input struct {
-	Users                     []*User                   `parameter:"Users,kind=body,in=data,dataType=[]*User" view:"writer,type=User,entityHooks=Lifecycle,table=users" sql:"uri=datly_user_write_writer:sql/writer.sql"`
+	ExpectedSettings          string                    `parameter:"ExpectedSettings,kind=query,in=expectedSettings,dataType=string,required=false" predicate:"equal,group=12,users,settings"`
+	ExpectedSettingsNull      bool                      `parameter:"ExpectedSettingsNull,kind=query,in=expectedSettingsNull,dataType=bool,required=false" predicate:"is_null,group=12,users,settings"`
+	CompareSettings           bool                      `parameter:"CompareSettings,kind=query,in=compareSettings,dataType=bool,required=false"`
+	Users                     []*User                   `parameter:"Users,kind=body,in=data,dataType=[]*User" view:"writer,type=User,entityHooks=Lifecycle,table=users,mutationPredicate=12" sql:"uri=datly_user_write_writer:sql/writer.sql"`
 	WriterKeys                []WriterKeysRow           `parameter:"WriterKeys,kind=param,in=Users,cardinality=Many" codec:"structql,'uri=datly_user_write_writer:sql/writer_keys.sql'"`
 	CurrentWriter             []*CurrentWriterView      `parameter:"CurrentWriter,kind=view,in=CurrentWriter,cardinality=Many" view:"CurrentWriter,table=users" sql:"uri=datly_user_write_writer:sql/current_writer.sql"`
 	_writerHandlerReadIndexes *WriterHandlerReadIndexes `json:"-" sqlx:"-"`
@@ -12,7 +15,10 @@ type Input struct {
 }
 
 type InputHas struct {
-	Users         bool
-	WriterKeys    bool
-	CurrentWriter bool
+	ExpectedSettings     bool
+	ExpectedSettingsNull bool
+	CompareSettings      bool
+	Users                bool
+	WriterKeys           bool
+	CurrentWriter        bool
 }

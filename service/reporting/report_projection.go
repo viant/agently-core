@@ -7,7 +7,13 @@ import (
 )
 
 func (s *Service) GetReport(ctx context.Context, input *GetReportInput) (*SharedArtifact, error) {
-	report, err := s.getCompleteReport(ctx, input)
+	report, selected, err := s.preferredPersonalReport(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if !selected {
+		report, err = s.getCompleteReport(ctx, input)
+	}
 	if err != nil || report == nil || input == nil || input.Include == nil {
 		return report, err
 	}

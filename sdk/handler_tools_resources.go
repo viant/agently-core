@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/internal/tool/dispatchpayload"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	"github.com/viant/agently-core/workspace"
 	"io"
@@ -17,11 +18,14 @@ import (
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
+	dsproto "github.com/viant/agently-core/protocol/datasource"
 	identity "github.com/viant/agently-core/protocol/resource"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	svcauth "github.com/viant/agently-core/service/auth"
 	resourcepolicy "github.com/viant/agently-core/service/policy"
+	primitiveprovider "github.com/viant/agently-core/service/primitiveprovider"
+	personalreporting "github.com/viant/agently-core/service/reporting"
 	resourcesvc "github.com/viant/agently-core/service/resource"
 	"github.com/viant/authz"
 	reporting "github.com/viant/forge/backend/reporting/engine"
@@ -104,6 +108,21 @@ func handleActivateSkill(client Client) http.HandlerFunc {
 	}
 }
 
+// A tool call consumes one complete JSON document before dispatching a mutation.
+func decodeToolRequest(body io.Reader, request any) error {
+	if body == nil {
+		return io.EOF
+	}
+	decoder := json.NewDecoder(body)
+	if err := decoder.Decode(request); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("unexpected data after tool request")
+	}
+	return nil
+}
+
 func handleExecuteTool(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r, finishTiming := prepareToolTiming(r)
@@ -113,11 +132,13 @@ func handleExecuteTool(client Client) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("tool name is required"))
 			return
 		}
-		var args map[string]interface{}
-		if r.Body != nil {
-			_ = json.NewDecoder(r.Body).Decode(&args)
+		var input dispatchpayload.HTTPArguments
+		if err := decodeToolRequest(r.Body, &input); err != nil && err != io.EOF {
+			httpError(w, http.StatusBadRequest, errors.New("invalid tool arguments"))
+			return
 		}
-		ctx := r.Context()
+		args := input.Values
+		ctx := input.Context(r.Context(), name)
 		ctx = withTrustedExportRequest(ctx, r)
 		if convID := strings.TrimSpace(r.URL.Query().Get("conversationId")); convID != "" {
 			ctx = runtimerequestctx.WithConversationID(ctx, convID)
@@ -145,11 +166,11 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 		r, finishTiming := prepareToolTiming(r)
 		start := time.Now()
 		var req struct {
-			Name string                 `json:"name"`
-			Args map[string]interface{} `json:"args"`
+			Name string                        `json:"name"`
+			Args dispatchpayload.HTTPArguments `json:"args"`
 		}
-		if err := decodeJSON(r, &req); err != nil {
-			httpError(w, http.StatusBadRequest, err)
+		if err := decodeToolRequest(r.Body, &req); err != nil {
+			httpError(w, http.StatusBadRequest, errors.New("invalid tool request"))
 			return
 		}
 		name := strings.TrimSpace(req.Name)
@@ -157,18 +178,20 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("tool name is required"))
 			return
 		}
-		ctx := r.Context()
+		ctx := req.Args.Context(r.Context(), name)
 		ctx = withTrustedExportRequest(ctx, r)
 		if convID := strings.TrimSpace(r.URL.Query().Get("conversationId")); convID != "" {
 			ctx = runtimerequestctx.WithConversationID(ctx, convID)
 		}
 		ctx = ensureDirectToolPolicy(ctx)
 		if wantsToolStream(r) {
-			executeToolStream(w, r, ctx, func(streamCtx context.Context) (string, error) { return client.ExecuteTool(streamCtx, name, req.Args) }, finishTiming)
+			executeToolStream(w, r, ctx, func(streamCtx context.Context) (string, error) {
+				return client.ExecuteTool(streamCtx, name, req.Args.Values)
+			}, finishTiming)
 			return
 		}
-		debugMCPExecf("http execute-by-name start name=%s argsKeys=%d", name, len(req.Args))
-		result, err := client.ExecuteTool(ctx, name, req.Args)
+		debugMCPExecf("http execute-by-name start name=%s argsKeys=%d", name, len(req.Args.Values))
+		result, err := client.ExecuteTool(ctx, name, req.Args.Values)
 		finishTiming(w)
 		debugMCPExecf("http execute-by-name done name=%s elapsed=%s resultBytes=%d err=%v", name, time.Since(start).Round(time.Millisecond), len(result), err)
 		if err != nil {
@@ -351,6 +374,21 @@ func statusForToolExecuteError(err error) int {
 	if errors.Is(err, authz.ErrUnavailable) {
 		return http.StatusServiceUnavailable
 	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return http.StatusGatewayTimeout
+	}
+	if errors.Is(err, context.Canceled) {
+		return http.StatusRequestTimeout
+	}
+	if errors.Is(err, identity.ErrResourceStale) || errors.Is(err, personalreporting.ErrPersonalDefaultAmbiguous) {
+		return http.StatusConflict
+	}
+	if errors.Is(err, personalreporting.ErrReportHasNoOriginal) {
+		return http.StatusNotImplemented
+	}
+	if errors.Is(err, dsproto.ErrDatasourceDenied) {
+		return http.StatusForbidden
+	}
 	var statusError interface{ HTTPStatusCode() int }
 	if errors.As(err, &statusError) && isAuthStatus(statusError.HTTPStatusCode()) {
 		return statusError.HTTPStatusCode()
@@ -376,6 +414,11 @@ func statusForToolExecuteError(err error) int {
 	if status, ok := upstreamInputStatusFromError(err); ok {
 		return status
 	}
+	if errors.As(err, &statusError) {
+		if status := statusError.HTTPStatusCode(); status >= 400 && status <= 599 {
+			return status
+		}
+	}
 	msg := strings.ToLower(strings.TrimSpace(fmt.Sprint(err)))
 	if strings.Contains(msg, "permission denied") || strings.Contains(msg, "forbidden") {
 		return http.StatusForbidden
@@ -394,6 +437,30 @@ func statusForToolExecuteError(err error) int {
 
 func toolExecuteErrorResponse(err error, result string) (int, error, string) {
 	status := statusForToolExecuteError(err)
+	if status == http.StatusConflict && errors.Is(err, personalreporting.ErrPersonalDefaultAmbiguous) {
+		return status, personalreporting.ErrPersonalDefaultAmbiguous, ""
+	}
+	if status == http.StatusNotImplemented && errors.Is(err, personalreporting.ErrReportHasNoOriginal) {
+		return status, errors.New("This report has no verified original to restore."), ""
+	}
+	if errors.Is(err, primitiveprovider.ErrReportOpenUnconfirmed) {
+		var binding interface{ ReportBindingActivated() bool }
+		if errors.As(err, &binding) && binding.ReportBindingActivated() {
+			return status, errors.New("The new report binding was activated. Check the open report before retrying."), ""
+		}
+		return status, primitiveprovider.ErrReportOpenUnconfirmed, ""
+	}
+	if errors.Is(err, personalreporting.ErrPersonalDefaultUnavailable) && (status == http.StatusForbidden || status == http.StatusNotFound || status == http.StatusConflict) {
+		// The user already owns the default mapping. Only its recovery advice
+		// is public; keep provider diagnostics and any partial payload private.
+		return status, personalreporting.ErrPersonalDefaultUnavailable, ""
+	}
+	if status == http.StatusForbidden && errors.Is(err, dsproto.ErrDatasourceDenied) &&
+		!errors.Is(err, authz.ErrDenied) && !errors.Is(err, resourcepolicy.ErrDenied) && !errors.Is(err, identity.ErrResourceDenied) {
+		// Preserve the existing dataset-scoped denial contract without any
+		// producer text or partial result. Artifact denial takes precedence.
+		return status, dsproto.ErrDatasourceDenied, ""
+	}
 	if status == http.StatusNotFound && errors.Is(err, fs.ErrNotExist) {
 		if errors.Is(err, resourcesvc.ErrKnowledgeDocumentNotFound) {
 			return status, errors.New("published knowledge document not found"), ""
