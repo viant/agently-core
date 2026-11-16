@@ -49,20 +49,15 @@ type (
 )
 
 const (
-	AuthoringExtension           = shared.AuthoringExtension
-	NamespaceMeta                = shared.NamespaceMeta
-	RevisionMeta                 = shared.RevisionMeta
-	AuthoringResourcesMeta       = shared.AuthoringResourcesMeta
-	ResourcePinsMeta             = shared.ResourcePinsMeta
-	LegacyAuthoringExtension     = shared.LegacyAuthoringExtension
-	LegacyNamespaceMeta          = shared.LegacyNamespaceMeta
-	LegacyRevisionMeta           = shared.LegacyRevisionMeta
-	LegacyAuthoringResourcesMeta = shared.LegacyAuthoringResourcesMeta
-	LegacyResourcePinsMeta       = shared.LegacyResourcePinsMeta
-	MaxCatalogPageSize           = shared.MaxCatalogPageSize
-	ToolfeedKind                 = shared.ToolfeedKind
-	ToolfeedFormatVersion        = shared.ToolfeedFormatVersion
-	ToolfeedSchemaURI            = shared.ToolfeedSchemaURI
+	AuthoringExtension     = shared.AuthoringExtension
+	NamespaceMeta          = shared.NamespaceMeta
+	RevisionMeta           = shared.RevisionMeta
+	AuthoringResourcesMeta = shared.AuthoringResourcesMeta
+	ResourcePinsMeta       = shared.ResourcePinsMeta
+	MaxCatalogPageSize     = shared.MaxCatalogPageSize
+	ToolfeedKind           = shared.ToolfeedKind
+	ToolfeedFormatVersion  = shared.ToolfeedFormatVersion
+	ToolfeedSchemaURI      = shared.ToolfeedSchemaURI
 )
 
 var ErrCatalogCursor = shared.ErrCatalogCursor
