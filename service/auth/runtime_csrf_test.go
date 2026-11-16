@@ -33,19 +33,19 @@ func TestRuntimeCookieUnsafeRoutesRequireSameOriginBeforeDispatch(t *testing.T) 
 				name, origin, referer, fetchSite, forwarded string
 				want                                        int
 			}{
-				{"same origin", "http://steward.test", "", "same-origin", "", http.StatusNoContent},
-				{"same referer", "", "http://steward.test/ui", "", "", http.StatusNoContent},
+				{"same origin", "http://guide.test", "", "same-origin", "", http.StatusNoContent},
+				{"same referer", "", "http://guide.test/ui", "", "", http.StatusNoContent},
 				{"same fetch site", "", "", "same-origin", "", http.StatusNoContent},
 				{"foreign origin", "http://intruder.test", "", "cross-site", "", http.StatusForbidden},
-				{"same site sibling", "http://sibling.steward.test", "", "same-site", "", http.StatusForbidden},
+				{"same site sibling", "http://sibling.guide.test", "", "same-site", "", http.StatusForbidden},
 				{"null origin", "null", "", "cross-site", "", http.StatusForbidden},
 				{"missing browser proof", "", "", "", "", http.StatusForbidden},
-				{"forged origin scheme", "http://steward.test", "", "same-origin", "https", http.StatusForbidden},
-				{"reverse proxy https", "https://steward.test", "", "same-origin", "https", http.StatusNoContent},
+				{"forged origin scheme", "http://guide.test", "", "same-origin", "https", http.StatusForbidden},
+				{"reverse proxy https", "https://guide.test", "", "same-origin", "https", http.StatusNoContent},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					request := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/rows/fetch", nil)
-					request.Host = "steward.test"
+					request.Host = "guide.test"
 					request.AddCookie(&http.Cookie{Name: "agently_session", Value: "verified-session"})
 					if tc.origin != "" {
 						request.Header.Set("Origin", tc.origin)
@@ -79,7 +79,7 @@ func TestRuntimeCookieCheckUsesAuthenticatedSessionEvenWithInvalidBearerHeader(t
 	calls := 0
 	handler := runtime.protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls++; w.WriteHeader(http.StatusNoContent) }))
 	request := httptest.NewRequest(http.MethodPost, "/v1/tools/reporting:run_report/execute", nil)
-	request.Host = "steward.test"
+	request.Host = "guide.test"
 	request.Header.Set("Origin", "http://intruder.test")
 	request.Header.Set("Authorization", "Bearer invalid")
 	request.AddCookie(&http.Cookie{Name: "agently_session", Value: "verified-session"})
@@ -93,7 +93,7 @@ func TestRuntimeAuthCallbackPostIsUnaffectedByCookieOriginCheck(t *testing.T) {
 	runtime := cookieProtectedRuntime(t)
 	handler := runtime.protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	request := httptest.NewRequest(http.MethodPost, "/v1/api/auth/oauth/callback", nil)
-	request.Host = "steward.test"
+	request.Host = "guide.test"
 	request.Header.Set("Origin", "http://identity-provider.test")
 	request.AddCookie(&http.Cookie{Name: "agently_session", Value: "verified-session"})
 	response := httptest.NewRecorder()
@@ -112,7 +112,7 @@ func TestRuntimeVerifiedBearerPostDoesNotNeedBrowserOrigin(t *testing.T) {
 	calls := 0
 	handler := runtime.protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls++; w.WriteHeader(http.StatusNoContent) }))
 	request := httptest.NewRequest(http.MethodPost, "/v1/tools/reporting:run_report/execute", nil)
-	request.Host = "steward.test"
+	request.Host = "guide.test"
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Origin", "http://other.test")
 	request.AddCookie(&http.Cookie{Name: "agently_session", Value: "verified-session"})
@@ -127,9 +127,9 @@ func TestSessionCookieSecureOnHTTPSAndProxyHTTPS(t *testing.T) {
 		name, url, forwarded string
 		secure               bool
 	}{
-		{"direct local http", "http://steward.test/login", "", false},
-		{"direct https", "https://steward.test/login", "", true},
-		{"proxy https", "http://steward.test/login", "https", true},
+		{"direct local http", "http://guide.test/login", "", false},
+		{"direct https", "https://guide.test/login", "", true},
+		{"proxy https", "http://guide.test/login", "https", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, tc.url, nil)

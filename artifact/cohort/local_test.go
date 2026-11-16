@@ -23,25 +23,25 @@ func TestLocalCohortConfigMultipleProviders(t *testing.T) {
 	}{
 		{"legacy object", func() any { return entry("catalog") }, 1},
 		{"subject pin optional", func() any { config := entry("catalog"); delete(config, "expectedSubject"); return config }, 1},
-		{"two providers", func() any { return []any{entry("catalog"), entry("dspui")} }, 2},
+		{"two providers", func() any { return []any{entry("catalog"), entry("navigation-example")} }, 2},
 		{"empty list", func() any { return []any{} }, 0},
 		{"duplicate provider", func() any {
-			a, b := entry("catalog"), entry("dspui")
+			a, b := entry("catalog"), entry("navigation-example")
 			b["providerIdentity"] = a["providerIdentity"]
 			return []any{a, b}
 		}, 0},
 		{"duplicate connection", func() any {
-			a, b := entry("catalog"), entry("dspui")
+			a, b := entry("catalog"), entry("navigation-example")
 			b["connectionName"] = a["connectionName"]
 			return []any{a, b}
 		}, 0},
 		{"unknown second field", func() any {
-			a, b := entry("catalog"), entry("dspui")
+			a, b := entry("catalog"), entry("navigation-example")
 			b["browserRole"] = "admin"
 			return []any{a, b}
 		}, 0},
 		{"missing second pin", func() any {
-			a, b := entry("catalog"), entry("dspui")
+			a, b := entry("catalog"), entry("navigation-example")
 			delete(b, "expectedEndpoint")
 			return []any{a, b}
 		}, 0},
@@ -70,7 +70,7 @@ func TestLocalCohortConfigMultipleProviders(t *testing.T) {
 					t.Fatal("default scope missing")
 				}
 			}
-			if tc.want == 2 && configs[1].ProviderIdentity != "dspui" {
+			if tc.want == 2 && configs[1].ProviderIdentity != "navigation-example" {
 				t.Fatal("provider ordering changed")
 			}
 			if err = os.WriteFile(path, append(raw, []byte("\n---\nignored: true\n")...), 0600); err != nil {

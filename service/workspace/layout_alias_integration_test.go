@@ -90,7 +90,7 @@ func TestLayoutPreservesConfiguredAliasesThroughAuthenticatedMCPBridge(t *testin
 	for _, summary := range list.Windows {
 		require.NotEqual(t, summary.Name, summary.WindowID, "real gateway emits encoded locators, not invented bare IDs")
 	}
-	layout := &Layout{Applications: []LayoutApplication{{ID: "steward", Title: "Workspace", Menus: []LayoutMenu{
+	layout := &Layout{Applications: []LayoutApplication{{ID: "library", Title: "Workspace", Menus: []LayoutMenu{
 		{ID: "advertisers", Title: "Advertisers", Action: &LayoutAction{Type: "window", WindowKey: "advertiserList", Parameters: map[string]interface{}{"original": "parameter"}}},
 		{ID: "campaigns", Title: "Campaigns", Action: &LayoutAction{Type: "window", WindowKey: "campaignList", RefreshDataSources: []string{"campaigns"}}},
 		{ID: "foreign", Title: "Unknown bare external", Action: &LayoutAction{Type: "window", WindowKey: "unknown"}},

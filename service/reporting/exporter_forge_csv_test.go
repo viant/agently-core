@@ -23,7 +23,7 @@ func TestForgeCSVExporter_ExportRendersCanonicalReportFill(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "text/csv", result.ContentType)
-	require.Equal(t, "Channel,Spend\nDisplay,$42.50\nCTV,$30.00\n", string(result.Data))
+	require.Equal(t, "Group,Cost\nAlpha,$42.50\nBeta,$30.00\n", string(result.Data))
 }
 
 func TestForgeCSVExporter_RejectsUnsupportedFormatsAndInvalidFill(t *testing.T) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -300,70 +299,49 @@ reportBuilder:
 	}
 }
 
-func TestConfiguredStewardReportingRootEnrichesCanonicalWindow(t *testing.T) {
-	workspaceRoot := strings.TrimSpace(os.Getenv("FORGE_REPORTING_TEST_WORKSPACE"))
-	if workspaceRoot == "" {
-		t.Skip("FORGE_REPORTING_TEST_WORKSPACE is not set")
+func TestConfiguredReportingRootEnrichesPublishedWindows(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	writeReportingTestAsset(t, workspaceRoot, "config.yaml", "forge: {reporting: {root: extension/forge/reporting}}\n")
+	writeReportingTestAsset(t, workspaceRoot, "extension/forge/windows/library.yaml", "windowKey: library\nview: {content: {id: editor, kind: dashboard.reportBuilder, dashboard: {reportBuilderRef: notes, reportBuilders: {}}}}\n")
+	writeReportingTestAsset(t, workspaceRoot, "extension/forge/windows/index.yaml", "windowKey: index\nview: {content: {id: index, kind: dashboard.reportCatalog, dashboard: {reportCatalog: {}}}}\n")
+	for _, family := range []string{"notes", "guides"} {
+		writeReportingTestAsset(t, workspaceRoot, "extension/forge/reporting/"+family+"/builder.yaml", "kind: forge.reporting.builder\nid: "+family+"\nreportBuilder: {document: {title: "+family+"}}\n")
+		writeReportingTestAsset(t, workspaceRoot, "extension/forge/reporting/"+family+"/preset.yaml", "kind: forge.reporting.preset\nid: "+family+"_overview\nbuilderRef: "+family+"\ndocument: {blocks: []}\n")
 	}
 	config, err := wscfg.Load(workspaceRoot)
 	if err != nil {
-		t.Fatalf("load workspace config: %v", err)
+		t.Fatal(err)
 	}
-	if got := config.ForgeReportingRoot(); got == "" {
-		t.Fatalf("workspace config does not declare forge.reporting.root")
-	}
-
 	previousRoot := workspace.Root()
 	workspace.SetRoot(workspaceRoot)
 	t.Cleanup(func() { workspace.SetRoot(previousRoot) })
-
 	runtime, err := Configure(context.Background(), workspaceRoot, config, false)
 	if err != nil {
-		t.Fatalf("configure workspace reporting: %v", err)
+		t.Fatal(err)
 	}
 	t.Cleanup(runtime.Close)
-
-	window, err := windowloader.LoadWorkspaceWindow(context.Background(), "reportBuilder", &metasvc.TargetContext{
-		Platform:   "web",
-		FormFactor: "desktop",
-		Surface:    "browser",
-	})
+	target := &metasvc.TargetContext{Platform: "web", FormFactor: "desktop", Surface: "browser"}
+	window, err := windowloader.LoadWorkspaceWindow(context.Background(), "library", target)
 	if err != nil {
-		t.Fatalf("load canonical report window: %v", err)
+		t.Fatal(err)
 	}
 	if window == nil || window.View.Content == nil || window.View.Content.Dashboard == nil {
-		t.Fatalf("canonical report window is incomplete: %#v", window)
+		t.Fatal("builder window did not load")
 	}
 	builders := window.View.Content.Dashboard.ReportBuilders
-	registry := runtime.loader.Current()
-	if registry == nil || len(builders) != len(registry.Builders) {
-		t.Fatalf("expected every discovered workspace report builder, got %d of %d", len(builders), len(registry.Builders))
+	for _, family := range []string{"notes", "guides"} {
+		assertDiscoveredPresetCount(t, builders, family, 1)
 	}
-	assertDiscoveredPresetCount(t, builders, "metricsCubeBuilder", 4)
-	assertDiscoveredPresetCount(t, builders, "forecastingCubeBuilder", 3)
-
-	actionCode := ""
-	if window.Actions != nil {
-		actionCode = window.Actions.Code
-	}
-	if !strings.Contains(actionCode, "stewardReportBuilder") || !strings.Contains(actionCode, "stewardForecastingBuilder") {
-		t.Fatalf("canonical report window did not merge both workspace hook families")
-	}
-
-	catalogWindow, err := windowloader.LoadWorkspaceWindow(context.Background(), "reports", &metasvc.TargetContext{
-		Platform:   "web",
-		FormFactor: "desktop",
-		Surface:    "browser",
-	})
+	index, err := windowloader.LoadWorkspaceWindow(context.Background(), "index", target)
 	if err != nil {
-		t.Fatalf("load report catalog window: %v", err)
+		t.Fatal(err)
 	}
-	if catalogWindow == nil || catalogWindow.View.Content == nil || catalogWindow.View.Content.Dashboard == nil {
-		t.Fatalf("report catalog window is incomplete: %#v", catalogWindow)
+	if index == nil || index.View.Content == nil || index.View.Content.Dashboard == nil {
+		t.Fatal("catalog window did not load")
 	}
-	groups, _ := catalogWindow.View.Content.Dashboard.ReportCatalog["groups"].([]any)
-	if len(groups) != len(registry.Groups) {
-		t.Fatalf("expected every discovered workspace report group, got %d of %d", len(groups), len(registry.Groups))
+	groups, _ := index.View.Content.Dashboard.ReportCatalog["groups"].([]any)
+	if len(groups) != len(runtime.loader.Current().Groups) {
+		t.Fatal("discovered groups differ from catalog")
 	}
 }
 

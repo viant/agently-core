@@ -386,7 +386,7 @@ func TestServiceToolMethodSavesGetsListsAndUpdatesReports(t *testing.T) {
 		ReportDocument:  json.RawMessage(`{"kind":"reportDocument","id":"forecastingQ3","title":"Forecasting Q3"}`),
 		ReportSpec:      json.RawMessage(validTestReportSpecJSON()),
 		CompileState:    json.RawMessage(`{"status":"clean"}`),
-		Metadata:        json.RawMessage(`{"workspaceId":"steward"}`),
+		Metadata:        json.RawMessage(`{"workspaceId":"example"}`),
 	}, saved))
 	require.Equal(t, savedReportArtifactKind, saved.Kind)
 	require.Equal(t, "forecastingQ3", saved.ReportID)

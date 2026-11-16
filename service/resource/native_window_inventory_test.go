@@ -4,23 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/stretchr/testify/require"
+	"github.com/viant/agently-core/internal/testutil/catalogfixture"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/forge/backend/types"
-	"os"
 	"testing"
 )
 
-func TestOriginalStewardDefaultWindowInventoryCompilesOwningBundles(t *testing.T) {
-	root := os.Getenv("AGENTLY_AUTHORED_FIXTURE_ROOT")
-	if root == "" {
-		t.Skip("original Steward fixture not configured")
-	}
+func TestFixtureDefaultWindowInventoryCompilesOwningBundles(t *testing.T) {
+	root := catalogfixture.New(t)
 	bindings, err := NativeWorkspaceWindowBindings(context.Background(), root, "workspace")
 	require.NoError(t, err)
 	require.NotEmpty(t, bindings)
 	var found bool
 	for _, b := range bindings {
-		if b.WindowKey == "advertiserList" {
+		if b.WindowKey == "documents" {
 			found = true
 		}
 		require.NotContains(t, b.URI, "/shared/")
@@ -32,7 +29,7 @@ func TestOriginalStewardDefaultWindowInventoryCompilesOwningBundles(t *testing.T
 	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	require.EqualValues(t, len(defs), snapshot.CompileCount())
-	for key, title := range map[string]string{"advertiserList": "Advertisers", "order": "Order"} {
+	for key, title := range map[string]string{"documents": "Documents", "collections": "Collections"} {
 		uri, err := identity.ParseResourceURI("window://workspace/" + key)
 		require.NoError(t, err)
 		candidates, err := snapshot.Candidates(context.Background(), uri)

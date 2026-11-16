@@ -60,7 +60,7 @@ func reportGatewayFixture(t *testing.T) (*ReportGatewayCatalog, *localFixtureSou
 			return identity.ErrResourceDenied
 		}
 		return nil
-	}, Bindings: []LocalResourceBinding{{Changes: source, URI: "report://steward/sales", Title: "Approved", FormatVersion: 1, Resolver: func(_ context.Context, a identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
+	}, Bindings: []LocalResourceBinding{{Changes: source, URI: "report://library/sales", Title: "Approved", FormatVersion: 1, Resolver: func(_ context.Context, a identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
 		return &identity.ResourceResolver{ProviderIdentity: "internal", Source: source, Policy: boundedReportFixturePolicy{actor: a, until: until}}, nil
 	}}}, Validators: map[string]LocalResourceValidator{"report": ValidateReportEnvelope}})
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestReportingServiceUsesGatewayForListGetCompileAndRechecks(t *testing.T) {
 		return &reporting.CompileResult{ReportSpec: request.Document}, nil
 	})})
 	service.SetResourceReaderFactory(catalog.Reader)
-	listed, err := service.ListReports(ctx, &reporting.ListReportsInput{Namespace: "steward"})
+	listed, err := service.ListReports(ctx, &reporting.ListReportsInput{Namespace: "library"})
 	require.NoError(t, err)
 	require.Len(t, listed.Reports, 1)
 	original := *listed.Reports[0].Resource
@@ -137,7 +137,7 @@ func TestReportGatewayManagingReadCannotReleaseExpiredPinOrChangedActor(t *testi
 			}
 			reader, err := catalog.Reader(context.Background(), "report.compile")
 			require.NoError(t, err)
-			pin, err := reader.Resolve(context.Background(), identity.ResourceRef{URI: "report://steward/sales"})
+			pin, err := reader.Resolve(context.Background(), identity.ResourceRef{URI: "report://library/sales"})
 			require.ErrorIs(t, err, identity.ErrResourceDenied)
 			require.Nil(t, pin)
 		})
@@ -149,7 +149,7 @@ func TestReportGatewayManagingMCPRevocationDiscardsRead(t *testing.T) {
 	source.onRead = func() { allowed.Store(false) }
 	reader, err := catalog.Reader(context.Background(), "report.compile")
 	require.NoError(t, err)
-	pin, err := reader.Resolve(context.Background(), identity.ResourceRef{URI: "report://steward/sales"})
+	pin, err := reader.Resolve(context.Background(), identity.ResourceRef{URI: "report://library/sales"})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	require.Nil(t, pin)
 }
@@ -161,7 +161,7 @@ func TestReportGatewayCatalogSnapshotDoesNotReReadForUIProjection(t *testing.T) 
 		source.mu.Unlock()
 		return reportcatalog.ReportCapabilities{Open: true}, nil
 	}
-	result, err := catalog.List(context.Background(), reportcatalog.ReportCatalogQuery{Namespace: "steward"})
+	result, err := catalog.List(context.Background(), reportcatalog.ReportCatalogQuery{Namespace: "library"})
 	require.NoError(t, err)
 	require.Len(t, result.Reports, 1)
 	require.Equal(t, "Approved", result.Reports[0].Title)
@@ -184,7 +184,7 @@ func TestReportGatewayMetadataFinishCannotReleaseExpiredPins(t *testing.T) {
 	catalog.BeginMetadataRead = func(ctx context.Context) (context.Context, func() error, error) {
 		return ctx, func() error { now = expires.Add(time.Nanosecond); return nil }, nil
 	}
-	result, err := catalog.List(context.Background(), reportcatalog.ReportCatalogQuery{Namespace: "steward"})
+	result, err := catalog.List(context.Background(), reportcatalog.ReportCatalogQuery{Namespace: "library"})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	require.Nil(t, result)
 }
@@ -197,8 +197,8 @@ func TestReportGatewayListHidesOrdinaryDenialButRejectsIdentityAndOutages(t *tes
 	}{{"managing-permission", identity.ErrResourceDenied, true}, {"identity", policy.ErrIdentityRejected, false}, {"identity-joined-denial", errors.Join(identity.ErrResourceDenied, authz.ErrIdentityDenied), false}, {"outage", errors.New("host report policy unavailable"), false}} {
 		t.Run(scenario.name, func(t *testing.T) {
 			catalog, _, _, _, provider := reportGatewayFixture(t)
-			hidden := localProviderBinding(provider, "report://steward/sales")
-			hidden.URI = "report://steward/hidden"
+			hidden := localProviderBinding(provider, "report://library/sales")
+			hidden.URI = "report://library/hidden"
 			hidden.Title = "Hidden"
 			updateLocalProvider(t, provider, func(config *LocalConfig) { setLocalConfigBinding(config, hidden) })
 			attachReportConsumerClient(t, catalog, provider, func(_ context.Context, request *schema.CallToolRequestParams) error {
@@ -207,11 +207,11 @@ func TestReportGatewayListHidesOrdinaryDenialButRejectsIdentityAndOutages(t *tes
 				}
 				return nil
 			})
-			result, err := catalog.List(context.Background(), reportcatalog.ReportCatalogQuery{Namespace: "steward"})
+			result, err := catalog.List(context.Background(), reportcatalog.ReportCatalogQuery{Namespace: "library"})
 			if scenario.hide {
 				require.NoError(t, err)
 				require.Len(t, result.Reports, 1)
-				require.Equal(t, "report://steward/sales", result.Reports[0].URI)
+				require.Equal(t, "report://library/sales", result.Reports[0].URI)
 			} else {
 				require.ErrorIs(t, err, scenario.failure)
 				require.Nil(t, result)

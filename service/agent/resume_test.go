@@ -173,19 +173,19 @@ func TestRunLeaseTimestamp_UTCSecondPrecision(t *testing.T) {
 }
 
 func TestResolveResumeAgentID_PrefersAdmittedTurnAgent(t *testing.T) {
-	turnAgent := "steward"
+	turnAgent := "guide"
 	conversationAgent := "default-agent"
 	conv := &apiconv.Conversation{AgentId: &conversationAgent}
-	if got := resolveResumeAgentID("intake_sidecar", &turnAgent, conv); got != "steward" {
+	if got := resolveResumeAgentID("intake_sidecar", &turnAgent, conv); got != "guide" {
 		t.Fatalf("resolveResumeAgentID()=%q, want admitted turn agent", got)
 	}
 }
 
 func TestResolveResumeAgentID_SkipsInternalHelperTurn(t *testing.T) {
 	helper := "intake_sidecar"
-	steward := "steward"
-	conv := &apiconv.Conversation{AgentId: &steward}
-	if got := resolveResumeAgentID("", &helper, conv); got != "steward" {
+	guide := "guide"
+	conv := &apiconv.Conversation{AgentId: &guide}
+	if got := resolveResumeAgentID("", &helper, conv); got != "guide" {
 		t.Fatalf("resolveResumeAgentID()=%q, want conversation agent", got)
 	}
 }

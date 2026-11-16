@@ -225,7 +225,7 @@ func TestBuilderBuild_ReportingRegistryExportsMaterializedPresetViaUnifiedPreset
 			},
 		},
 		"conversationId": "conv-preset",
-		"workspaceId":    "steward",
+		"workspaceId":    "library",
 	})
 	require.NoError(t, err)
 
@@ -235,7 +235,7 @@ func TestBuilderBuild_ReportingRegistryExportsMaterializedPresetViaUnifiedPreset
 	require.Equal(t, "report://preset/metricReportBuilder/performance_inventory_brief", job.ArtifactRef)
 	persisted, err := rt.Reporting.GetExportStatus(ctx, job.JobID)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"conversationId":"conv-preset","workspaceId":"steward","source":"preset-runtime","sourceKind":"preset","windowKey":"metricReportBuilder","presetId":"performance_inventory_brief"}`, string(persisted.Metadata))
+	require.JSONEq(t, `{"conversationId":"conv-preset","workspaceId":"library","source":"preset-runtime","sourceKind":"preset","windowKey":"metricReportBuilder","presetId":"performance_inventory_brief"}`, string(persisted.Metadata))
 
 	completed, err := rt.Reporting.RunExport(context.Background(), job.JobID)
 	require.NoError(t, err)

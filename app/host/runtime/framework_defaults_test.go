@@ -64,7 +64,7 @@ func TestAuthenticatedDefaultFrameworkHTTPWindowsDoNotDiscoverUnlinkedConnector(
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "extension/forge"), 0700))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "ui"), 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "config.yaml"), []byte("auth:\n  enabled: true\nui:\n  layout:\n    ref: ui/layout.yaml\n"), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "ui/layout.yaml"), []byte("version: 1\nid: steward\napplications:\n  - id: steward\n    title: Workspace\n    menus:\n      - id: advertisers\n        title: Advertisers\n        action: {type: window, windowKey: advertiserList}\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "ui/layout.yaml"), []byte("version: 1\nid: library\napplications:\n  - id: library\n    title: Workspace\n    menus:\n      - id: advertisers\n        title: Advertisers\n        action: {type: window, windowKey: advertiserList}\n"), 0600))
 	var connectorCalls atomic.Int32
 	linkRequired := &authcfg.OAuthLinkRequiredError{ServerName: "asana", ProviderRef: "asana-oauth", Resource: "https://asana.example/mcp"}
 	mgr, err := manager.New(defaultFrameworkUnlinkedProvider{}, manager.WithClientFactory(func(_ context.Context, _ string, name string) (mcpclient.Interface, error) {

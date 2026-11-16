@@ -34,27 +34,27 @@ func (f *publishedWindowFixture) OpenWindowVariant(_ context.Context, uri string
 }
 
 func TestClaimedPublishedNamespaceNeverFallsBackForOldCanonicalLocator(t *testing.T) {
-	legacy := &windowAccessFixture{allow: true, allowedID: "window://datastudio/connectors"}
+	legacy := &windowAccessFixture{allow: true, allowedID: "window://catalog/connectors"}
 	published := &publishedWindowFixture{}
 	handler := NewEmbeddedHandlerWithAuthorization(t.TempDir(), nil, nil, nil,
 		WithWindowResourceProvider(legacy),
-		WithArtifactCohortWindowSourceForNamespaces("datastudio-management", published, nil, "datastudio"))
+		WithArtifactCohortWindowSourceForNamespaces("catalog-owner", published, nil, "catalog"))
 	request := func(path string) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		return response
 	}
-	canonical := "/window/" + url.PathEscape("window://datastudio/connectors")
-	if got := request(canonical); got.Code != http.StatusOK || legacy.calls != 0 || published.calls != 1 || published.uri != "window://datastudio/connectors" {
+	canonical := "/window/" + url.PathEscape("window://catalog/connectors")
+	if got := request(canonical); got.Code != http.StatusOK || legacy.calls != 0 || published.calls != 1 || published.uri != "window://catalog/connectors" {
 		t.Fatalf("old canonical locator did not use local admission: status=%d legacy=%d published=%d uri=%q", got.Code, legacy.calls, published.calls, published.uri)
 	}
 	published.err = errors.New("revoked")
 	for _, path := range []string{
 		canonical,
-		"/window/connectors?namespace=datastudio",
+		"/window/connectors?namespace=catalog",
 		canonical + "?providerIdentity=other",
 		canonical + "?resourceRef=malformed",
-		"/window/" + url.PathEscape("window://datastudio/removed"),
+		"/window/" + url.PathEscape("window://catalog/removed"),
 	} {
 		if got := request(path); got.Code != http.StatusForbidden || legacy.calls != 0 {
 			t.Fatalf("claimed namespace fell through legacy route: path=%s status=%d legacy=%d", path, got.Code, legacy.calls)
@@ -67,21 +67,21 @@ func TestClaimedPublishedNamespaceNeverFallsBackForOldCanonicalLocator(t *testin
 }
 
 func TestAmbiguousPublishedNamespaceClaimDeniesWithoutLegacyLookup(t *testing.T) {
-	legacy := &windowAccessFixture{allow: true, allowedID: "window://datastudio/connectors"}
+	legacy := &windowAccessFixture{allow: true, allowedID: "window://catalog/connectors"}
 	first, second := &publishedWindowFixture{}, &publishedWindowFixture{}
 	handler := NewEmbeddedHandlerWithAuthorization(t.TempDir(), nil, nil, nil,
 		WithWindowResourceProvider(legacy),
-		WithArtifactCohortWindowSourceForNamespaces("one", first, nil, "datastudio"),
-		WithArtifactCohortWindowSourceForNamespaces("two", second, nil, "datastudio"))
+		WithArtifactCohortWindowSourceForNamespaces("one", first, nil, "catalog"),
+		WithArtifactCohortWindowSourceForNamespaces("two", second, nil, "catalog"))
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/window/"+url.PathEscape("window://datastudio/connectors"), nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/window/"+url.PathEscape("window://catalog/connectors"), nil))
 	if response.Code != http.StatusForbidden || legacy.calls != 0 || first.calls != 0 || second.calls != 0 {
 		t.Fatalf("ambiguous namespace escaped deny: status=%d legacy=%d first=%d second=%d", response.Code, legacy.calls, first.calls, second.calls)
 	}
 }
 
 func TestPublishedWindowLowersClosedDatasourceDescriptorsForBrowser(t *testing.T) {
-	remote := json.RawMessage(`{"id":"connectors","selectors":{"data":"rows"},"backend":{"kind":"mcp_tool","service":"datastudio-management","method":"studio.sdk.connectors.list"}}`)
+	remote := json.RawMessage(`{"id":"connectors","selectors":{"data":"rows"},"backend":{"kind":"mcp_tool","service":"catalog-owner","method":"catalog.rows.list"}}`)
 	local := json.RawMessage(`{"id":"connector_filter","autoFetch":true,"backend":{"kind":"inline","rows":[]}}`)
 	fixture := &publishedWindowFixture{variant: &forgetypes.WindowResourceVariant{Window: &forgetypes.Window{WindowKey: "connectors", View: forgetypes.View{Content: &forgetypes.Container{ID: "published"}}, DataSource: map[string]forgetypes.DataSource{"connectors": {}}}, DataSources: map[string]json.RawMessage{"connectors": remote, "connector_filter": local}}}
 	handler := NewEmbeddedHandlerWithAuthorization(t.TempDir(), nil, nil, nil, WithArtifactCohortWindowSource("studio", fixture, nil))

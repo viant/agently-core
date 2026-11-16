@@ -60,7 +60,7 @@ func TestRealSchema2BundleReplicaBindAndDatasourceRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	published, _, err := publisher.Publish(ctx, cohort.RootRef{URI: "window://datastudio/connectors", Kind: "window", Version: 1}, raw, func(_ context.Context, body json.RawMessage) error {
+	published, _, err := publisher.Publish(ctx, cohort.RootRef{URI: "window://catalog/connectors", Kind: "window", Version: 1}, raw, func(_ context.Context, body json.RawMessage) error {
 		_, e := types.SelectWindowResource(body, nil)
 		return e
 	})
@@ -74,7 +74,7 @@ func TestRealSchema2BundleReplicaBindAndDatasourceRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	caller := &integrationCaller{publisher: publisher}
-	replica, err := cohort.NewReplica(cohort.Config{Enabled: true, Source: "datastudio", Tenant: "tenant", Account: "acct", Caller: caller, Facts: integrationFacts{}, SessionKey: func(ctx context.Context) (string, error) {
+	replica, err := cohort.NewReplica(cohort.Config{Enabled: true, Source: "catalog", Tenant: "tenant", Account: "acct", Caller: caller, Facts: integrationFacts{}, SessionKey: func(ctx context.Context) (string, error) {
 		value := runtimerequestctx.UIBridgeSessionIDFromContext(ctx)
 		if value == "" {
 			return "", cohort.ErrDenied
@@ -100,7 +100,7 @@ func TestRealSchema2BundleReplicaBindAndDatasourceRoute(t *testing.T) {
 	tool := &publishedTool{}
 	backend := &backendClient{datasourceSvc: dssvc.New(dssvc.Options{Executor: tool, ReadContext: func(context.Context) (context.Context, error) { t.Fatal("legacy metadata read"); return nil, nil }})}
 	opener := func(ctx context.Context, provider, uri string, target *types.WindowTarget) (*types.WindowResourceVariant, string, error) {
-		if provider != "datastudio" {
+		if provider != "catalog" {
 			return nil, "", cohort.ErrDenied
 		}
 		return replica.OpenWindowVariant(ctx, uri, target)
@@ -113,7 +113,7 @@ func TestRealSchema2BundleReplicaBindAndDatasourceRoute(t *testing.T) {
 		return value, nil
 	}
 	bindings := NewPublishedWindowBindings(opener, backend.FetchPublishedDatasource, owner)
-	if err := bindings.Bind(actor, "client-1", "window-1", "datastudio", published.Root.URI, hash, selected); err != nil {
+	if err := bindings.Bind(actor, "client-1", "window-1", "catalog", published.Root.URI, hash, selected); err != nil {
 		t.Fatal(err)
 	}
 	priorFetches := caller.fetches.Load()
@@ -166,7 +166,7 @@ func TestRealSchema2BundleReplicaBindAndDatasourceRoute(t *testing.T) {
 	if err != nil || previewHash == hash || previewVariant.Window.WindowKey != "connectors-preview" {
 		t.Fatalf("preview revision selection: hash=%s err=%v", previewHash, err)
 	}
-	if err = bindings.Bind(previewActor, "client-2", "window-1", "datastudio", published.Root.URI, previewHash, previewVariant); err != nil {
+	if err = bindings.Bind(previewActor, "client-2", "window-1", "catalog", published.Root.URI, previewHash, previewVariant); err != nil {
 		t.Fatal(err)
 	}
 	priorFetches = caller.fetches.Load()

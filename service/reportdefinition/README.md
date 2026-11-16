@@ -39,7 +39,7 @@ artifacts. It preserves authored page sizes and starting offsets. `Compile`
 retains its existing fetch contract for callers that do not need this bound.
 
 For a bounded, renderable preview, call `CompilePreview` with a positive row cap
-per dataset (AI Studio uses `200`):
+per dataset:
 
 ```go
 preview, err := reportdefinition.CompilePreview(ctx, definition, parameters, fetcher, 200)

@@ -683,8 +683,8 @@ CREATE INDEX IF NOT EXISTS idx_tool_execution_claim_turn_hash
 CREATE INDEX IF NOT EXISTS idx_tool_execution_claim_rule_tool_state_updated
     ON tool_execution_claim(rule_id, canonical_tool_name, state, updated_at);
 
--- Disposable SQLite mirror of Platform/Steward Skeema
--- skeema/agently/schedule_run.sql (also present in agently_steward).
+-- Disposable SQLite fixture for the deployment table
+-- skeema/agently/schedule_run.sql.
 -- This supports Endly transcription/E2E only; public Core schemas stay unchanged.
 CREATE TABLE IF NOT EXISTS schedule_run (
     id TEXT PRIMARY KEY,
@@ -711,8 +711,8 @@ CREATE INDEX IF NOT EXISTS idx_schedule_run_schedule_status ON schedule_run(sche
 CREATE UNIQUE INDEX IF NOT EXISTS ux_run_schedule_scheduled_for ON schedule_run(schedule_id, scheduled_for);
 CREATE INDEX IF NOT EXISTS fk_run_conversation ON schedule_run(conversation_id);
 
--- Disposable SQLite mirror of Platform/Steward Skeema
--- skeema/agently/investigation.sql (also present in agently_steward).
+-- Disposable SQLite fixture for the deployment table
+-- skeema/agently/investigation.sql.
 -- MySQL's FULLTEXT title index is dialect-specific and is not used by the
 -- Core deletion/orphan contracts exercised here.
 CREATE TABLE IF NOT EXISTS investigation (

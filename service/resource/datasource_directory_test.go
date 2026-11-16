@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"github.com/viant/agently-core/internal/testutil/catalogfixture"
 	"os"
 	"path/filepath"
 	"testing"
@@ -96,10 +97,7 @@ func TestDatasourceTemplateAuthoringUsesConfinedExistingImports(t *testing.T) {
 }
 
 func TestDatasourceOriginalWorkspaceSnapshotCompatibility(t *testing.T) {
-	root := os.Getenv("AGENTLY_STEWARD_FIXTURE_ROOT")
-	if root == "" {
-		t.Skip("explicit read-only original workspace fixture not supplied")
-	}
+	root := catalogfixture.New(t)
 	definitions, err := SnapshotExtensionDefinitions(context.Background(), root, []ExtensionDirectory{DatasourceDirectory("workspace", "extension/forge/datasources")})
 	require.NoError(t, err)
 	require.NotEmpty(t, definitions)

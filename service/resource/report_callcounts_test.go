@@ -96,7 +96,7 @@ func runThreePageReportCounts(t *testing.T, httpScope bool) {
 		require.NoError(t, service.AuthorizeResourceDataset(ctx, exact, args))
 		return result, nil
 	})
-	result, err := service.ExecuteResource(context.Background(), &reporting.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: "report://steward/sales"}})
+	result, err := service.ExecuteResource(context.Background(), &reporting.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: "report://library/sales"}})
 	require.NoError(t, err)
 	require.Len(t, result.Datasets["rows"].Rows, 3)
 	counter.mu.Lock()

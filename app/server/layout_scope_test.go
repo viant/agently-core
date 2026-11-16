@@ -51,7 +51,7 @@ func TestENGManagedInternalLayoutScopesDiscoveryAndPreservesRoleVisibility(t *te
 	}
 	write("extension/forge/windows/restricted.yaml", "id: restricted\nwindowKey: restricted\nview: {content: {id: restricted}}\n")
 	menus.WriteString("      - {id: restricted, title: Restricted, authorization: {resourceType: window}, visibleWhen: {source: authorization, field: principal.roles, contains: admin}, action: {type: window, windowKey: restricted}}\n      - {id: missing, title: Missing, action: {type: window, windowKey: nonexistentAlias}}\n")
-	write("ui/layout.yaml", "version: 1\nid: steward\ntopbar:\n  actions: [{id: automation, title: Automation, action: {type: window, windowKey: schedule}}]\napplications:\n  - id: steward\n    title: Workspace\n    menus:\n"+menus.String())
+	write("ui/layout.yaml", "version: 1\nid: library\ntopbar:\n  actions: [{id: automation, title: Automation, action: {type: window, windowKey: schedule}}]\napplications:\n  - id: library\n    title: Workspace\n    menus:\n"+menus.String())
 	write("mcp/unrelated.yaml", "name: unrelated\ntransport: {type: streamable, url: 'https://unrelated.invalid/mcp'}\n")
 	var attempts atomic.Int32
 	blocked := errors.New("unrelated MCP must not block internal navigation")

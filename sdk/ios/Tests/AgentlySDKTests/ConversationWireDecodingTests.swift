@@ -4,10 +4,10 @@ import XCTest
 
 final class ConversationWireDecodingTests: XCTestCase {
     func testCanonicalRowsDecodeWithoutDiscardingConversationIdentity() throws {
-        let data = Data(#"{"Rows":[{"id":"canonical","agentId":"Steward","title":"Plan","lastActivity":"2026-10-04T20:00:00Z","promptTokens":7}],"HasMore":false}"#.utf8)
+        let data = Data(#"{"Rows":[{"id":"canonical","agentId":"Guide","title":"Plan","lastActivity":"2026-10-04T20:00:00Z","promptTokens":7}],"HasMore":false}"#.utf8)
         let page = try JSONDecoder.agently().decode(ConversationPage.self, from: data)
         XCTAssertEqual(page.rows.first?.id, "canonical")
-        XCTAssertEqual(page.rows.first?.agentID, "Steward")
+        XCTAssertEqual(page.rows.first?.agentID, "Guide")
         XCTAssertEqual(page.rows.first?.title, "Plan")
         XCTAssertEqual(page.rows.first?.promptTokens, 7)
     }

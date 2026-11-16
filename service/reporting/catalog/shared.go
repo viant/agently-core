@@ -10,6 +10,10 @@ type Provider = shared.Provider
 type ReportCatalogCandidate = shared.ReportCatalogCandidate
 type ReportCapabilities = shared.ReportCapabilities
 type ReportCatalogEntry = shared.ReportCatalogEntry
+type ScopeFilter = shared.ScopeFilter
+
+var DeclaredScopeValues = shared.DeclaredScopeValues
+
 type ReportCatalogQuery = shared.ReportCatalogQuery
 type ReportCatalogResult = shared.ReportCatalogResult
 type ReportInventory = shared.ReportInventory

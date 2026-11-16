@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/stretchr/testify/require"
+	"github.com/viant/agently-core/internal/testutil/catalogfixture"
 	intent "github.com/viant/agently-core/protocol/intent"
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
@@ -139,11 +140,8 @@ func TestAuthoredStartupRejectsUnknownAuthorityAndEscapingSupportingURI(t *testi
 	require.Nil(t, snap)
 }
 
-func TestOriginalStewardAuthoredDefinitionsCompileOnNativeMCP(t *testing.T) {
-	root := os.Getenv("AGENTLY_AUTHORED_FIXTURE_ROOT")
-	if root == "" {
-		t.Skip("original Steward authoring fixture not configured")
-	}
+func TestAuthoredDefinitionsCompileOnNativeMCP(t *testing.T) {
+	root := catalogfixture.New(t)
 	ctx := context.Background()
 	templates := NewAuthoredCompilation("templates")
 	intents := NewIntentCompilation("intents", "tools/bundles")
@@ -164,7 +162,7 @@ func TestOriginalStewardAuthoredDefinitionsCompileOnNativeMCP(t *testing.T) {
 	require.NoError(t, err)
 	templates.Release()
 	intents.Release()
-	uri, err := identity.ParseResourceURI("intent://team/media_plan_management")
+	uri, err := identity.ParseResourceURI("intent://team/review_documents")
 	require.NoError(t, err)
 	candidates, err := snap.Candidates(ctx, uri)
 	require.NoError(t, err)
@@ -172,23 +170,23 @@ func TestOriginalStewardAuthoredDefinitionsCompileOnNativeMCP(t *testing.T) {
 	_, err = snap.ReadCandidate(ctx, uri, candidates[0])
 	require.NoError(t, err)
 	actor, verify := PublicReadActors()
-	bindings, err := snap.Bindings("steward-authored-test", func(_ context.Context, a identity.VerifiedActor, _ identity.ResourceURI, _ string) (identity.ResourceRevisionPolicy, error) {
+	bindings, err := snap.Bindings("library-authoring", func(_ context.Context, a identity.VerifiedActor, _ identity.ResourceURI, _ string) (identity.ResourceRevisionPolicy, error) {
 		return authoredTestPolicy{a}, nil
 	})
 	require.NoError(t, err)
-	provider, err := NewLocalProvider(LocalConfig{ProviderIdentity: "steward-authored-test", Actor: actor, Verify: verify, Authorize: func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) error { return nil }, Bindings: bindings, Validators: map[string]LocalResourceValidator{"template": ValidateTemplateDefinition, "intent": ValidateIntentDefinition}})
+	provider, err := NewLocalProvider(LocalConfig{ProviderIdentity: "library-authoring", Actor: actor, Verify: verify, Authorize: func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) error { return nil }, Bindings: bindings, Validators: map[string]LocalResourceValidator{"template": ValidateTemplateDefinition, "intent": ValidateIntentDefinition}})
 	require.NoError(t, err)
 	cli, err := NewLocalMCPClient(provider)
 	require.NoError(t, err)
 	mgr, err := manager.New(nil)
 	require.NoError(t, err)
-	require.NoError(t, mgr.RegisterLocal(ctx, "steward-authored-test", &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: provider.ProviderIdentity()}, func(context.Context) (mcpclient.Interface, error) { return cli, nil }))
+	require.NoError(t, mgr.RegisterLocal(ctx, "library-authoring", &cfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: provider.ProviderIdentity()}, func(context.Context) (mcpclient.Interface, error) { return cli, nil }))
 	gateway := NewGateway(mgr, actor, verify, "")
 	defer gateway.Close()
-	p, err := NewIntentReader(gateway).Load(ctx, "media_plan_management")
+	p, err := NewIntentReader(gateway).Load(ctx, "review_documents")
 	require.NoError(t, err)
-	require.Equal(t, "intent://team/media_plan_management", p.ResourceURI)
-	require.Equal(t, "media_plan_management", p.ID)
+	require.Equal(t, "intent://team/review_documents", p.ResourceURI)
+	require.Equal(t, "review_documents", p.ID)
 	require.NotEmpty(t, p.Messages)
 	require.NotContains(t, p.Messages[0].Text, "$import(")
 	require.NotEmpty(t, p.ToolBundleDefinitions)

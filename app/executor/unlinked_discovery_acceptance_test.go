@@ -62,7 +62,7 @@ func TestBuilderUnlinkedConnectorsPreserveTemplateAndLayoutDiscovery(t *testing.
 		require.NoError(t, os.MkdirAll(filepath.Dir(file), 0700))
 		require.NoError(t, os.WriteFile(file, []byte(raw), 0600))
 	}
-	write("ui/layout.yaml", "version: 1\nid: steward\napplications:\n  - id: workspace\n    title: Workspace\n    menus: [{id: orders, title: Orders, action: {type: window, windowKey: order}}]\n")
+	write("ui/layout.yaml", "version: 1\nid: example\napplications:\n  - id: workspace\n    title: Workspace\n    menus: [{id: orders, title: Orders, action: {type: window, windowKey: order}}]\n")
 	write("extension/forge/windows/order.yaml", "id: order\nwindowKey: order\ntitle: Orders\nview: {content: {id: order, items: []}}\n")
 	write("templates/analytics_dashboard.yaml", "id: analytics_dashboard\nname: analytics_dashboard\nformat: json\ninstructions: Preserve the bid-potential result.\n")
 	var providers []*authcfg.OAuthProvider

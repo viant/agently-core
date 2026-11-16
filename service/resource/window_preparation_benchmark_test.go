@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"github.com/stretchr/testify/require"
 	"github.com/tiendc/go-deepcopy"
+	"github.com/viant/agently-core/internal/testutil/catalogfixture"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	"github.com/viant/forge/backend/types"
-	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -25,22 +25,19 @@ func (f profilePresentationFacts) ResolvePresentation(context.Context, *permitte
 	return f.snapshot, nil
 }
 
-// Opt-in readonly preparation profile using the actual nested advertiser assets.
+// Opt-in readonly preparation profile using the actual nested documents assets.
 // Source capture occurs once; phase samples exclude startup/filesystem work and
 // UI-facts network latency. There is no production cache/clone optimization here.
-func TestOriginalAdvertiserWindowPreparationProfile(t *testing.T) {
-	root := os.Getenv("AGENTLY_NATIVE_SOURCE_BENCH_ROOT")
-	if root == "" {
-		t.Skip("opt-in original assets preparation profile")
-	}
+func TestFixtureWindowPreparationProfile(t *testing.T) {
+	root := catalogfixture.New(t)
 	ctx := context.Background()
-	before := stewardAssetDigest(t, root)
-	defer func() { require.Equal(t, before, stewardAssetDigest(t, root)) }()
-	definitions, err := SnapshotWindowDefinitions(ctx, root, []windowloader.ResourceBinding{{WindowKey: "advertiser", URI: "window://workspace/advertiser"}}, nil)
+	before := workspaceAssetDigest(t, root)
+	defer func() { require.Equal(t, before, workspaceAssetDigest(t, root)) }()
+	definitions, err := SnapshotWindowDefinitions(ctx, root, []windowloader.ResourceBinding{{WindowKey: "documents", URI: "window://workspace/documents"}}, nil)
 	require.NoError(t, err)
 	snapshot, err := NewNativeAssetSnapshot(ctx, root, definitions)
 	require.NoError(t, err)
-	uri, err := identity.ParseResourceURI("window://workspace/advertiser")
+	uri, err := identity.ParseResourceURI("window://workspace/documents")
 	require.NoError(t, err)
 	candidates, err := snapshot.Candidates(ctx, uri)
 	require.NoError(t, err)
@@ -53,7 +50,7 @@ func TestOriginalAdvertiserWindowPreparationProfile(t *testing.T) {
 	require.NoError(t, err)
 	variantRaw, err := json.Marshal(selected)
 	require.NoError(t, err)
-	// Exercise isolation on the actual nested advertiser definition, before timing.
+	// Exercise isolation on the actual nested documents definition, before timing.
 	selected.Window.View.Content.ID = "caller-mutated"
 	for name := range selected.Window.DataSource {
 		delete(selected.Window.DataSource, name)
@@ -62,7 +59,7 @@ func TestOriginalAdvertiserWindowPreparationProfile(t *testing.T) {
 	require.NoError(t, err)
 	detachedRaw, err := json.Marshal(selected)
 	require.NoError(t, err)
-	require.JSONEq(t, string(variantRaw), string(detachedRaw), "caller mutation cannot alter captured advertiser metadata")
+	require.JSONEq(t, string(variantRaw), string(detachedRaw), "caller mutation cannot alter captured documents metadata")
 	windowRaw, err := json.Marshal(selected.Window)
 	require.NoError(t, err)
 	var tree map[string]any
@@ -100,7 +97,7 @@ func TestOriginalAdvertiserWindowPreparationProfile(t *testing.T) {
 	provider, err := NewLocalProvider(LocalConfig{ProviderIdentity: "profile-owner", Actor: actor, Verify: verify, Authorize: func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) error { return nil }, Bindings: bindings, Validators: map[string]LocalResourceValidator{"window": ValidateWindowBundle}})
 	require.NoError(t, err)
 	_ = provider // Capture validates actual owning-source preparation; measured phases are detached metadata work only.
-	facts := profilePresentationFacts{snapshot: &permittedview.Snapshot{AuthorizationVersion: "fixed-ui-facts", ExpiresAt: time.Date(2999, 1, 1, 0, 0, 0, 0, time.UTC), Principal: map[string]any{"roles": []string{"editor"}, "features": []string{"history"}}, Resources: map[string]*permittedview.Resource{"42": {ID: 42, Type: "advertiser", Capabilities: map[string]bool{"read": false, "write": true, "history": true}}}}}
+	facts := profilePresentationFacts{snapshot: &permittedview.Snapshot{AuthorizationVersion: "fixed-ui-facts", ExpiresAt: time.Date(2999, 1, 1, 0, 0, 0, 0, time.UTC), Principal: map[string]any{"roles": []string{"editor"}, "features": []string{"history"}}, Resources: map[string]*permittedview.Resource{"42": {ID: 42, Type: "documents", Capabilities: map[string]bool{"read": false, "write": true, "history": true}}}}}
 	projection := permittedview.NewRuntime(facts)
 	presentation := &permittedview.BoundView{Window: selected.Window, ResourceID: 42, ResourceIDString: "42"}
 	phases := map[string]func(){

@@ -149,7 +149,7 @@ func TestHTTPClient_GetPublicAgents(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(&api.PublicAgentsResponse{
-			AgentInfos: []api.WorkspaceAgentInfo{{ID: "steward", Name: "Steward"}},
+			AgentInfos: []api.WorkspaceAgentInfo{{ID: "guide", Name: "Guide"}},
 		})
 	}))
 
@@ -157,7 +157,7 @@ func TestHTTPClient_GetPublicAgents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetPublicAgents: %v", err)
 	}
-	if len(agents) != 1 || agents[0].ID != "steward" {
+	if len(agents) != 1 || agents[0].ID != "guide" {
 		t.Fatalf("unexpected agents: %#v", agents)
 	}
 }

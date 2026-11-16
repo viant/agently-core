@@ -205,12 +205,12 @@ func TestDirectActionAssistantText_FallsBackToRawToolResult(t *testing.T) {
 	require.Equal(t, "plain tool result", directActionAssistantText(action, " plain tool result "))
 }
 
-func TestDirectActionAssistantText_DoesNotSpecialCaseStewardDiagnostic(t *testing.T) {
+func TestDirectActionAssistantText_PreservesProducerDiagnostic(t *testing.T) {
 	action := &intakesvc.DirectActionContext{
 		ToolName:      "sample/Diagnostic",
 		AssistantText: directActionToolResultAssistantText,
 	}
-	result := ` {"explanation":{"primaryBlockerClass":"DEEPER_PROOF_REQUIRED"}} `
+	result := ` {"result":{"status":"review-required"}} `
 	require.Equal(t, strings.TrimSpace(result), directActionAssistantText(action, result))
 }
 

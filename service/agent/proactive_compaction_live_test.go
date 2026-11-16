@@ -64,7 +64,7 @@ func (r *proactiveLiveRegistry) GetDefinition(string) (*llm.ToolDefinition, bool
 }
 
 // This test is deliberately skipped in normal suites. It uses existing API
-// credentials and a private conversation, never Steward. Explicit native mode
+// credentials and a disposable test conversation. Explicit native mode
 // uses the application's Datly API against an isolated temporary SQLite file.
 func TestProactiveCompactionLiveNano(t *testing.T) {
 	if os.Getenv("AGENTLY_PROACTIVE_LIVE") != "1" {

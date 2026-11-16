@@ -36,7 +36,7 @@ func presentationRuntime(t *testing.T, source gating.PrincipalResolver) (*execut
 	old := workspace.Root()
 	workspace.SetRoot(root)
 	t.Cleanup(func() { workspace.SetRoot(old) })
-	require.NoError(t, os.WriteFile(filepath.Join(root, "config.yaml"), []byte("ui:\n  authorization:\n    tool: steward:ResourceAuthorization\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config.yaml"), []byte("ui:\n  authorization:\n    tool: library:ResourceAuthorization\n"), 0600))
 	pool, err := manager.New(nil)
 	require.NoError(t, err)
 	base, err := internalregistry.NewWithManager(pool)

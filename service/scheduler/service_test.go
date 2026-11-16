@@ -614,7 +614,7 @@ func TestService_applyUserCred_IncludesConfiguredHeadlessScope(t *testing.T) {
 				Client: &svcauth.OAuthClient{
 					ConfigURL:   "file:///tmp/oauth.client.json",
 					Scopes:      []string{"openid", "profile", "email"},
-					WebUIScopes: []string{"ROLE_STEWARD_WEB"},
+					WebUIScopes: []string{"ROLE_EXAMPLE_WEB"},
 				},
 			},
 		}),
@@ -633,7 +633,7 @@ func TestService_applyUserCred_IncludesConfiguredHeadlessScope(t *testing.T) {
 		t.Fatal("expected authorize command")
 	}
 	got := strings.Join(fakeAuthz.lastCmd.Scopes, " ")
-	if got != "openid profile email ROLE_STEWARD_WEB" {
+	if got != "openid profile email ROLE_EXAMPLE_WEB" {
 		t.Fatalf("scheduler OAuth scopes = %q, want scoped headless grant", got)
 	}
 }
@@ -949,7 +949,7 @@ func TestService_executeRun_UserCredAuthFailureSkipsQuery(t *testing.T) {
 		Id:           scheduleID,
 		Name:         "User credential auth failure",
 		UserCredUrl:  &credRef,
-		AgentRef:     "steward",
+		AgentRef:     "guide",
 		ScheduleType: "adhoc",
 		Timezone:     "UTC",
 		Enabled:      true,
@@ -1744,7 +1744,7 @@ func TestService_executeRun_SkipsExecutionWhenRunWasDeletedBeforeClaim(t *testin
 	}
 	row := &schedulemodel.ScheduleView{
 		Id:           "sched-deleted-before-claim",
-		AgentRef:     "steward",
+		AgentRef:     "guide",
 		ScheduleType: "adhoc",
 		Timezone:     "UTC",
 		Enabled:      true,

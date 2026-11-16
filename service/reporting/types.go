@@ -3,6 +3,7 @@
 package reporting
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"github.com/viant/agently-core/protocol/primitive"
@@ -426,14 +427,28 @@ type GetReportInput struct {
 }
 
 type ListReportsInput struct {
-	Search          string `json:"search,omitempty" description:"Search the authorized report catalog by name or description. Use the same search with nextCursor for further matches."`
-	Namespace       string `json:"namespace,omitempty" description:"Exact namespace ID from discovery; omit when unknown. A display label is not a namespace ID."`
-	CurrentUserOnly bool   `json:"currentUserOnly,omitempty"`
-	Cursor          string `json:"cursor,omitempty"`
-	ArtifactRef     string `json:"artifactRef,omitempty"`
-	ReportID        string `json:"reportId,omitempty"`
-	OrderID         string `json:"orderId,omitempty"`
-	Limit           int    `json:"limit,omitempty"`
+	Search          string               `json:"search,omitempty" description:"Search the authorized report catalog by name or description. Use the same search with nextCursor for further matches."`
+	Namespace       string               `json:"namespace,omitempty" description:"Exact namespace ID from discovery; omit when unknown. A display label is not a namespace ID."`
+	CurrentUserOnly bool                 `json:"currentUserOnly,omitempty"`
+	Cursor          string               `json:"cursor,omitempty"`
+	ArtifactRef     string               `json:"artifactRef,omitempty"`
+	ReportID        string               `json:"reportId,omitempty"`
+	Scope           *catalog.ScopeFilter `json:"scope,omitempty" description:"Match a typed value (or any of several values) of a report-defined scope parameter in the selected namespace."`
+	Limit           int                  `json:"limit,omitempty"`
+}
+
+// Reject unsupported list filters before discovery. Ignoring an unknown selector
+// would silently broaden the result set.
+func (in *ListReportsInput) UnmarshalJSON(data []byte) error {
+	type wire ListReportsInput
+	var decoded wire
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&decoded); err != nil {
+		return err
+	}
+	*in = ListReportsInput(decoded)
+	return nil
 }
 
 // ReportSummary is the lightweight catalog projection. Full authored and
@@ -453,16 +468,17 @@ type ReportSummary struct {
 	OwnerID            string                      `json:"ownerId,omitempty"`
 	ReportType         string                      `json:"reportType,omitempty"`
 	BuilderRef         string                      `json:"builderRef,omitempty"`
-	OrderIDs           []string                    `json:"orderIds,omitempty"`
-	DefaultFrom        string                      `json:"defaultFrom,omitempty"`
-	DefaultTo          string                      `json:"defaultTo,omitempty"`
-	LastRunAt          *time.Time                  `json:"lastRunAt,omitempty"`
-	Lifecycle          string                      `json:"lifecycle,omitempty"`
-	Version            int                         `json:"version,omitempty"`
-	DocumentVersion    int                         `json:"documentVersion,omitempty"`
-	SourceArtifactID   string                      `json:"sourceArtifactId,omitempty"`
-	CreatedAt          time.Time                   `json:"createdAt,omitempty"`
-	UpdatedAt          *time.Time                  `json:"updatedAt,omitempty"`
+	BuilderWindow      string                      `json:"builderWindow,omitempty"`
+
+	DefaultFrom      string     `json:"defaultFrom,omitempty"`
+	DefaultTo        string     `json:"defaultTo,omitempty"`
+	LastRunAt        *time.Time `json:"lastRunAt,omitempty"`
+	Lifecycle        string     `json:"lifecycle,omitempty"`
+	Version          int        `json:"version,omitempty"`
+	DocumentVersion  int        `json:"documentVersion,omitempty"`
+	SourceArtifactID string     `json:"sourceArtifactId,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt,omitempty"`
+	UpdatedAt        *time.Time `json:"updatedAt,omitempty"`
 }
 
 type ListReportsResult struct {

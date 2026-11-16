@@ -55,12 +55,12 @@ class AgentlyClientTest {
     fun `schedule endpoints decode single and list data envelopes once`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
-                """{"data":{"id":"one","name":"Hello","agentRef":"steward","scheduleType":"cron"}}"""
+                """{"data":{"id":"one","name":"Hello","agentRef":"guide","scheduleType":"cron"}}"""
             )
         )
         server.enqueue(
             MockResponse().setBody(
-                """{"data":{"schedules":[{"id":"two","name":"World","agentRef":"steward","scheduleType":"interval"}]}}"""
+                """{"data":{"schedules":[{"id":"two","name":"World","agentRef":"guide","scheduleType":"interval"}]}}"""
             )
         )
         server.start()
@@ -1143,11 +1143,11 @@ class AgentlyClientTest {
 
     @Test
     fun `createConversation decodes native camelCase response without legacy query dispatch`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"id":"conv-native","agentId":"steward","title":"Native plan","lastTurnId":null,"createdByUserId":"owner","createdAt":"2026-10-04T21:00:00Z"}"""))
+        server.enqueue(MockResponse().setBody("""{"id":"conv-native","agentId":"guide","title":"Native plan","lastTurnId":null,"createdByUserId":"owner","createdAt":"2026-10-04T21:00:00Z"}"""))
         server.start()
-        val result = client().createConversation(CreateConversationInput(agentId = "steward", title = "Native plan"))
+        val result = client().createConversation(CreateConversationInput(agentId = "guide", title = "Native plan"))
         assertEquals("conv-native", result.id)
-        assertEquals("steward", result.agentId)
+        assertEquals("guide", result.agentId)
         assertEquals("Native plan", result.title)
         assertEquals("owner", result.createdByUserId)
         val request = server.takeRequest()

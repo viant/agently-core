@@ -14,7 +14,6 @@ import (
 	forgetypes "github.com/viant/forge/backend/types"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -2334,8 +2333,12 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 	if strings.TrimSpace(normalized.Search) != "" {
 		return nil, fmt.Errorf("ranked report search requires the indexed resource catalog: %w", errors.ErrUnsupported)
 	}
+	scope, err := normalized.Scope.Prepare(normalized.Namespace)
+	if err != nil {
+		return nil, err
+	}
 	sharedLimit := normalized.Limit
-	if strings.TrimSpace(normalized.OrderID) != "" {
+	if normalized.Scope != nil || normalized.Namespace != "" {
 		sharedLimit = 0
 	}
 	result, err := s.ListSharedArtifacts(ctx, &ListSharedArtifactsInput{
@@ -2349,12 +2352,21 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 	}
 	reports := make([]*ReportSummary, 0, len(result.Artifacts))
 	for _, artifact := range result.Artifacts {
-		if summary := reportSummary(artifact); summary != nil && reportSummaryMatchesOrder(summary, normalized.OrderID) {
+		if normalized.Namespace != "" {
+			uri, parseErr := identity.ParseResourceURI(artifact.ArtifactRef)
+			if parseErr != nil || uri.Kind != "report" || uri.Namespace != normalized.Namespace {
+				continue
+			}
+		}
+		if scope != nil && !scope.Matches(catalog.DeclaredScopeValues(artifact.ReportSpec, artifact.Document)) {
+			continue
+		}
+		if summary := reportSummary(artifact); summary != nil {
 			reports = append(reports, summary)
 		}
 	}
 	totalCount := result.TotalCount
-	if strings.TrimSpace(normalized.OrderID) != "" {
+	if normalized.Scope != nil || normalized.Namespace != "" {
 		totalCount = len(reports)
 	}
 	if normalized.Limit > 0 && len(reports) > normalized.Limit {
@@ -2381,7 +2393,7 @@ func (s *Service) listReportsTool(ctx context.Context, in, out interface{}) erro
 	}
 	// The shared catalog supports continuation; the legacy store does not.
 	// Bound model discovery without changing ordinary catalog API defaults.
-	if request.Limit == 0 && s.usesReportResources() && request.ReportID == "" && request.ArtifactRef == "" && request.OrderID == "" {
+	if request.Limit == 0 && s.usesReportResources() && request.ReportID == "" && request.ArtifactRef == "" {
 		request.Limit = 7
 	}
 	result, err := s.ListReports(ctx, &request)
@@ -3281,7 +3293,6 @@ func reportSummary(input *SharedArtifact) *ReportSummary {
 		OwnerID:          strings.TrimSpace(input.OwnerID),
 		ReportType:       catalog.ReportType,
 		BuilderRef:       catalog.BuilderRef,
-		OrderIDs:         catalog.OrderIDs,
 		DefaultFrom:      catalog.DefaultFrom,
 		DefaultTo:        catalog.DefaultTo,
 		LastRunAt:        catalog.LastRunAt,
@@ -3304,127 +3315,25 @@ func cloneReportSummary(input *ReportSummary) *ReportSummary {
 		value := *input.Capabilities
 		result.Capabilities = &value
 	}
-	result.OrderIDs = append([]string{}, input.OrderIDs...)
 	result.LastRunAt = cloneTime(input.LastRunAt)
 	result.UpdatedAt = cloneTime(input.UpdatedAt)
 	return &result
 }
 
 type reportCatalogMetadata struct {
-	ReportType  string
-	BuilderRef  string
-	OrderIDs    []string
-	DefaultFrom string
-	DefaultTo   string
-	LastRunAt   *time.Time
+	ReportType  string     `json:"reportType"`
+	BuilderRef  string     `json:"builderRef"`
+	DefaultFrom string     `json:"defaultFrom"`
+	DefaultTo   string     `json:"defaultTo"`
+	LastRunAt   *time.Time `json:"lastRunAt"`
 }
 
 func deriveReportCatalogMetadata(input *SharedArtifact) reportCatalogMetadata {
 	result := reportCatalogMetadata{ReportType: "Saved report"}
-	values := make([]interface{}, 0, 3)
-	for _, raw := range []json.RawMessage{input.Metadata, input.Document, input.ReportSpec} {
-		var value interface{}
-		if len(bytes.TrimSpace(raw)) > 0 && json.Unmarshal(raw, &value) == nil {
-			values = append(values, value)
-		}
-	}
-	orderIDs := map[string]struct{}{}
-	for _, value := range values {
-		collectReportCatalogValues(value, &result, orderIDs)
-	}
-	for value := range orderIDs {
-		result.OrderIDs = append(result.OrderIDs, value)
-	}
-	sort.Strings(result.OrderIDs)
-	if result.BuilderRef != "" {
-		result.ReportType = "Performance report"
+	if len(input.Metadata) > 0 {
+		_ = json.Unmarshal(input.Metadata, &result)
 	}
 	return result
-}
-
-func collectReportCatalogValues(value interface{}, result *reportCatalogMetadata, orderIDs map[string]struct{}) {
-	switch actual := value.(type) {
-	case map[string]interface{}:
-		for key, child := range actual {
-			normalizedKey := strings.ToLower(strings.TrimSpace(key))
-			switch normalizedKey {
-			case "builderref", "reportbuilderref", "workspaceid":
-				if result.BuilderRef == "" {
-					result.BuilderRef = strings.TrimSpace(fmt.Sprint(child))
-				}
-			case "reporttype":
-				if text := strings.TrimSpace(fmt.Sprint(child)); text != "" {
-					result.ReportType = text
-				}
-			case "orderid", "adorderid", "orderids", "adorderids":
-				collectCatalogIDs(child, orderIDs)
-			case "lastrunat":
-				if result.LastRunAt == nil {
-					if parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(fmt.Sprint(child))); err == nil {
-						parsed = parsed.UTC()
-						result.LastRunAt = &parsed
-					}
-				}
-			case "from":
-				if result.DefaultFrom == "" && looksLikeISODate(child) {
-					result.DefaultFrom = strings.TrimSpace(fmt.Sprint(child))
-				}
-			case "to":
-				if result.DefaultTo == "" && looksLikeISODate(child) {
-					result.DefaultTo = strings.TrimSpace(fmt.Sprint(child))
-				}
-			}
-			collectReportCatalogValues(child, result, orderIDs)
-		}
-	case []interface{}:
-		for _, child := range actual {
-			collectReportCatalogValues(child, result, orderIDs)
-		}
-	}
-}
-
-func collectCatalogIDs(value interface{}, target map[string]struct{}) {
-	switch actual := value.(type) {
-	case []interface{}:
-		for _, child := range actual {
-			collectCatalogIDs(child, target)
-		}
-	case float64:
-		if actual == float64(int64(actual)) {
-			target[strconv.FormatInt(int64(actual), 10)] = struct{}{}
-		}
-	case json.Number:
-		if text := strings.TrimSpace(actual.String()); text != "" {
-			target[text] = struct{}{}
-		}
-	default:
-		text := strings.TrimSpace(fmt.Sprint(actual))
-		if text != "" && text != "<nil>" {
-			target[text] = struct{}{}
-		}
-	}
-}
-
-func looksLikeISODate(value interface{}) bool {
-	text := strings.TrimSpace(fmt.Sprint(value))
-	if len(text) < len("2006-01-02") {
-		return false
-	}
-	_, err := time.Parse("2006-01-02", text[:10])
-	return err == nil
-}
-
-func reportSummaryMatchesOrder(summary *ReportSummary, orderID string) bool {
-	normalized := strings.TrimSpace(orderID)
-	if normalized == "" {
-		return true
-	}
-	for _, candidate := range summary.OrderIDs {
-		if strings.TrimSpace(candidate) == normalized {
-			return true
-		}
-	}
-	return false
 }
 
 func mergeJSONObject(raw json.RawMessage, additions map[string]interface{}) json.RawMessage {

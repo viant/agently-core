@@ -12,7 +12,7 @@ func TestLayoutMenuCanonicalWindowIdentity(t *testing.T) {
 	for _, key := range []string{"overview", "Window-A", "window://example/StudioRecords", "window://example/Studio/Records"} {
 		t.Run(key, func(t *testing.T) {
 			var layout Layout
-			require.NoError(t, yaml.Unmarshal([]byte(fmt.Sprintf("version: 1\nid: main\napplications:\n  - id: steward\n    title: Steward\n    menus:\n      - id: owned-studio-records\n        title: Studio Records\n        action: {type: window, windowKey: %q}\n", key)), &layout))
+			require.NoError(t, yaml.Unmarshal([]byte(fmt.Sprintf("version: 1\nid: main\napplications:\n  - id: library\n    title: Library\n    menus:\n      - id: owned-studio-records\n        title: Studio Records\n        action: {type: window, windowKey: %q}\n", key)), &layout))
 			require.NoError(t, validateLayout(&layout))
 			require.Equal(t, key, layout.Applications[0].Menus[0].Action.WindowKey)
 		})
@@ -26,7 +26,7 @@ func TestLayoutMenuCanonicalWindowIdentity(t *testing.T) {
 		"window://example/Records://other", "Studio/Records", "../Records", "Records?x=1", "provider:studio:Records",
 	} {
 		t.Run(key, func(t *testing.T) {
-			layout := &Layout{Version: 1, ID: "main", Applications: []LayoutApplication{{ID: "steward", Title: "Steward", Menus: []LayoutMenu{{ID: "records", Title: "Records", Action: &LayoutAction{Type: "window", WindowKey: key}}}}}}
+			layout := &Layout{Version: 1, ID: "main", Applications: []LayoutApplication{{ID: "library", Title: "Library", Menus: []LayoutMenu{{ID: "records", Title: "Records", Action: &LayoutAction{Type: "window", WindowKey: key}}}}}}
 			require.ErrorContains(t, validateLayout(layout), "invalid window key")
 		})
 	}

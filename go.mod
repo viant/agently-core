@@ -29,13 +29,13 @@ require (
 	github.com/tdewolff/parse/v2 v2.8.16
 	github.com/viant/afs v1.30.1
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core/protocol/primitive v0.1.0
+	github.com/viant/agently-core/protocol/primitive v0.1.1-0.20261116175539-0774cb0aa2b2
 	github.com/viant/agently-core/protocol/resource v0.1.0
 	github.com/viant/agently-core/protocol/window v0.1.0
 	github.com/viant/bindly v0.4.1
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.8-0.20261108015858-2dbb2e0a515a
-	github.com/viant/forge v0.3.47-0.20261116170527-8e2248224af3
+	github.com/viant/forge v0.3.47-0.20261116204541-f406d4ee1d92
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.1
 	github.com/viant/jsonrpc v0.25.2-0.20261113180529-6b4100cf455d

@@ -837,7 +837,7 @@
       "route": "/v1/internal/agently/scheduler/legacy-run",
       "status": "sqlite-legacy-delete-parity-and-native-scope",
       "table": "schedule_run",
-      "hooks": "Private trusted reader; schedule, conversation, status, exact ID and batched ID/conversation predicates. The linked host checks optional table presence through Datly SQLX metadata before invoking this component. Disposable SQLite schema mirrors Platform/Steward Skeema.",
+      "hooks": "Private trusted reader; schedule, conversation, status, exact ID and batched ID/conversation predicates. The linked host checks optional table presence through Datly SQLX metadata before invoking this component. The disposable SQLite fixture mirrors the deployment table.",
       "input_type": "Input",
       "output_type": "Output",
       "root_tables": [
@@ -867,7 +867,7 @@
       "route": "/v1/internal/agently/investigation",
       "status": "sqlite-legacy-delete-parity-and-native-scope",
       "table": "investigation",
-      "hooks": "Private trusted reader with ID, conversation and created-by predicates; disposable SQLite fixture mirrors the separate internal Skeema table.",
+      "hooks": "Private trusted reader with ID, conversation and created-by predicates; the disposable SQLite fixture mirrors the deployment table.",
       "input_type": "Input",
       "output_type": "Output",
       "root_tables": [

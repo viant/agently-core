@@ -51,7 +51,64 @@ func (c *primitiveReportLocalCatalog) Read(ctx context.Context, ref identity.Res
 	}
 	return c.remote.Read(ctx, ref, pin)
 }
+
+// A declared scope belongs to a namespace. Select its one owning catalog so
+// the cursor returned by that source is also the cursor it receives next.
+func (c *primitiveReportLocalCatalog) listScoped(ctx context.Context, query catalog.ReportCatalogQuery) (*catalog.ReportCatalogResult, error) {
+	if _, err := query.Scope.Prepare(query.Namespace); err != nil {
+		return nil, err
+	}
+	actor, err := c.local.CurrentActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	local := false
+	for _, inventory := range c.local.Inventories {
+		if inventory == nil {
+			return nil, identity.ErrResourceDenied
+		}
+		entries, err := inventory.ListReportResources(ctx, actor)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			uri, err := identity.ParseResourceURI(entry.URI)
+			if err != nil || uri.Kind != "report" {
+				return nil, identity.ErrResource
+			}
+			if uri.Namespace == query.Namespace {
+				local = true
+				break
+			}
+		}
+		if local {
+			break
+		}
+	}
+	if !local {
+		return c.remote.List(ctx, query)
+	}
+	namespaces, err := c.remote.Gateway.Discover(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, ns := range namespaces {
+		if ns.Namespace != query.Namespace {
+			continue
+		}
+		for _, kind := range ns.Kinds {
+			if kind.Kind == "report" {
+				return nil, resources.ErrCollision
+			}
+		}
+	}
+	return c.local.List(ctx, query)
+}
+
 func (c *primitiveReportLocalCatalog) List(ctx context.Context, query catalog.ReportCatalogQuery) (*catalog.ReportCatalogResult, error) {
+	if query.Scope != nil {
+		return c.listScoped(ctx, query)
+	}
 	limit := query.Limit
 	if limit == 0 {
 		limit = 1000

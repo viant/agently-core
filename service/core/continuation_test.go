@@ -193,7 +193,7 @@ func TestBuildContinuationRequest_AllowsSystemMessagesWhenToolReplayIsComplete(t
 
 	req := &llm.GenerateRequest{}
 	req.Messages = append(req.Messages,
-		llm.NewSystemMessage("You are Steward."),
+		llm.NewSystemMessage("You are Guide."),
 		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "forecasting-Total"}}},
 		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"jobStatus":"WAITING"}`},
 		llm.NewSystemMessage("Use the existing system knowledge bundle."),

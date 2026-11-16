@@ -65,7 +65,7 @@ func (a *ActivatedReport) Validate() error {
 	return nil
 }
 
-// DecodeActivatedMCPReport accepts AI Studio's ordinary MCP result envelope
+// DecodeActivatedMCPReport accepts a producer's MCP result envelope
 // with a single ActivatedReport in data. The caller pins the expected
 // group/report identity independently of the response body.
 func DecodeActivatedMCPReport(body []byte, groupID, reportID string) (*ActivatedReport, error) {

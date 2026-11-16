@@ -392,7 +392,7 @@ func TestListServerTools_ProtectedBackgroundDoesNotRetry(t *testing.T) {
 func TestListServerTools_CachesTransportFailureForCooldown(t *testing.T) {
 	stub := &discoveryManagerStub{
 		getFunc: func(convID, server string) (mcpclient.Interface, error) {
-			return nil, errors.New(`Post "http://helper-soak.viantinc.com:5000/mcp": dial tcp 10.55.132.138:5000: i/o timeout`)
+			return nil, errors.New(`Post "http://helper.example.invalid:5000/mcp": dial tcp 192.0.2.30:5000: i/o timeout`)
 		},
 	}
 	reg := &Registry{
@@ -434,7 +434,7 @@ func TestListServerTools_ToolSurfaceSkipsCooldownWithoutManagerCall(t *testing.T
 	}
 	const scope = "conv-shared"
 	reg.discoveryFailUntil[reg.discoveryFailureKey("helper", scope)] = time.Now().Add(5 * time.Minute)
-	reg.discoveryFailErr[reg.discoveryFailureKey("helper", scope)] = "dial tcp 10.55.132.138:5000: i/o timeout"
+	reg.discoveryFailErr[reg.discoveryFailureKey("helper", scope)] = "dial tcp 192.0.2.30:5000: i/o timeout"
 
 	ctx := memory.WithConversationID(discoveryUserContext(), scope)
 	ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true})
@@ -456,7 +456,7 @@ func TestListServerTools_ToolSurfaceSkipsCooldownWithoutManagerCall(t *testing.T
 func TestListServerTools_ToolSurfaceTransportFailureReturnsEmptyAndCachesCooldown(t *testing.T) {
 	stub := &discoveryManagerStub{
 		getFunc: func(convID, server string) (mcpclient.Interface, error) {
-			return nil, errors.New(`Post "http://creative-operation.viantinc.com:5000/mcp": context deadline exceeded`)
+			return nil, errors.New(`Post "http://worker.example.invalid:5000/mcp": context deadline exceeded`)
 		},
 	}
 	reg := &Registry{
@@ -505,7 +505,7 @@ func TestListServerTools_StrictToolSurfaceReturnsCooldown(t *testing.T) {
 	}
 	const scope = "conv-strict"
 	reg.discoveryFailUntil[reg.discoveryFailureKey("helper", scope)] = time.Now().Add(5 * time.Minute)
-	reg.discoveryFailErr[reg.discoveryFailureKey("helper", scope)] = "dial tcp 10.55.132.138:5000: i/o timeout"
+	reg.discoveryFailErr[reg.discoveryFailureKey("helper", scope)] = "dial tcp 192.0.2.30:5000: i/o timeout"
 
 	ctx := memory.WithConversationID(discoveryUserContext(), scope)
 	ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Strict: true})

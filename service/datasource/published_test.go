@@ -50,7 +50,7 @@ func TestFetchPublishedMCPLeavesBusinessDecisionToProducer(t *testing.T) {
 		consumerChecks++
 		return errors.New("consumer would deny business data")
 	}})
-	source := &dsproto.DataSource{ID: "orders", DataSource: types.DataSource{Selectors: &types.Selectors{Data: "items"}}, Backend: &dsproto.Backend{Kind: dsproto.BackendMCPTool, Service: "datastudio", Method: "AdvancedReportingRun"}}
+	source := &dsproto.DataSource{ID: "orders", DataSource: types.DataSource{Selectors: &types.Selectors{Data: "items"}}, Backend: &dsproto.Backend{Kind: dsproto.BackendMCPTool, Service: "catalog", Method: "AdvancedReportingRun"}}
 	result, err := service.FetchPublished(context.Background(), source, nil, nil)
 	if err != nil || len(result.Rows) != 1 || consumerChecks != 0 || executor.calls != 1 {
 		t.Fatalf("producer-authorized fetch: result=%+v err=%v consumer=%d calls=%d", result, err, consumerChecks, executor.calls)

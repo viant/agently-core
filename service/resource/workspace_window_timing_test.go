@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/viant/agently-core/internal/testutil/catalogfixture"
 	"os"
 	"path/filepath"
 	"runtime/pprof"
@@ -36,22 +37,19 @@ func (s *countedNativeSource) ReadCandidate(ctx context.Context, uri identity.Re
 	s.reads.Add(1)
 	return s.source.ReadCandidate(ctx, uri, c)
 }
-func TestStewardReadonlyNativeWindowNormalPhaseTimings(t *testing.T) {
-	root := os.Getenv("STEWARD_NATIVE_YAML_ROOT")
-	if root == "" || os.Getenv("STEWARD_NATIVE_YAML_TIMINGS") != "1" {
-		t.Skip("opt-in unchanged Steward normal-mode phase timing")
-	}
+func TestFixtureReadonlyNativeWindowNormalPhaseTimings(t *testing.T) {
+	root := catalogfixture.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	before := stewardAssetDigest(t, root)
-	defer func() { require.Equal(t, before, stewardAssetDigest(t, root)) }()
+	before := workspaceAssetDigest(t, root)
+	defer func() { require.Equal(t, before, workspaceAssetDigest(t, root)) }()
 	raw, err := os.ReadFile(filepath.Join(root, "authorization/window-resources.json"))
 	require.NoError(t, err)
 	var entries []workspacewindow.ResourceBinding
 	require.NoError(t, json.Unmarshal(raw, &entries))
 	var binding workspacewindow.ResourceBinding
 	for _, entry := range entries {
-		if entry.WindowKey == "advertiserList" {
+		if entry.WindowKey == "documents" {
 			binding = entry
 		}
 	}
@@ -83,7 +81,7 @@ func TestStewardReadonlyNativeWindowNormalPhaseTimings(t *testing.T) {
 		}
 		return r, err
 	}
-	if output := os.Getenv("STEWARD_NATIVE_YAML_CPU_PROFILE"); output != "" {
+	if output := os.Getenv("AGENTLY_TEST_WINDOW_CPU_PROFILE"); output != "" {
 		file, err := os.Create(output)
 		require.NoError(t, err)
 		require.NoError(t, pprof.StartCPUProfile(file))
@@ -130,23 +128,20 @@ func TestStewardReadonlyNativeWindowNormalPhaseTimings(t *testing.T) {
 	})
 }
 
-func TestStewardReadonlyPreloadedSameGetTiming(t *testing.T) {
-	root := os.Getenv("STEWARD_NATIVE_YAML_ROOT")
-	if root == "" || os.Getenv("STEWARD_NATIVE_YAML_PRELOADED_TIMINGS") != "1" {
-		t.Skip("opt-in unchanged Steward normal-mode phase timing")
-	}
+func TestFixtureReadonlyPreloadedSameGetTiming(t *testing.T) {
+	root := catalogfixture.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	before := stewardAssetDigest(t, root)
-	defer func() { require.Equal(t, before, stewardAssetDigest(t, root)) }()
+	before := workspaceAssetDigest(t, root)
+	defer func() { require.Equal(t, before, workspaceAssetDigest(t, root)) }()
 	raw, err := os.ReadFile(filepath.Join(root, "authorization/window-resources.json"))
 	require.NoError(t, err)
 	var entries []workspacewindow.ResourceBinding
 	require.NoError(t, json.Unmarshal(raw, &entries))
 	var binding workspacewindow.ResourceBinding
-	windowKey := os.Getenv("STEWARD_NATIVE_YAML_TIMING_WINDOW")
+	windowKey := os.Getenv("AGENTLY_TEST_WINDOW_KEY")
 	if windowKey == "" {
-		windowKey = "advertiserList"
+		windowKey = "documents"
 	}
 	for _, entry := range entries {
 		if entry.WindowKey == windowKey {
@@ -190,7 +185,7 @@ func TestStewardReadonlyPreloadedSameGetTiming(t *testing.T) {
 	startCount := snapshot.CompileCount()
 	for _, mode := range []string{"direct-get", "sdk-toolcall-get", "gateway-get"} {
 		var profileFile *os.File
-		if prefix := os.Getenv("STEWARD_NATIVE_YAML_GET_PROFILE_PREFIX"); prefix != "" {
+		if prefix := os.Getenv("AGENTLY_TEST_WINDOW_GET_PROFILE_PREFIX"); prefix != "" {
 			profileFile, err = os.Create(prefix + "-" + mode + ".cpu")
 			require.NoError(t, err)
 			require.NoError(t, pprof.StartCPUProfile(profileFile))
@@ -227,15 +222,12 @@ func TestStewardReadonlyPreloadedSameGetTiming(t *testing.T) {
 	}
 }
 
-func TestStewardPreloadedTwentyItemWindowListTiming(t *testing.T) {
-	root := os.Getenv("STEWARD_NATIVE_YAML_ROOT")
-	if root == "" || os.Getenv("STEWARD_NATIVE_YAML_PRELOADED_TIMINGS") != "1" {
-		t.Skip("opt-in20cached entries backed by originalStewardwindow payload")
-	}
+func TestFixturePreloadedTwentyItemWindowListTiming(t *testing.T) {
+	root := catalogfixture.New(t)
 	ctx := context.Background()
-	before := stewardAssetDigest(t, root)
-	defer func() { require.Equal(t, before, stewardAssetDigest(t, root)) }()
-	actualBinding := workspacewindow.ResourceBinding{WindowKey: "advertiserList", URI: "window://steward/advertiserList"}
+	before := workspaceAssetDigest(t, root)
+	defer func() { require.Equal(t, before, workspaceAssetDigest(t, root)) }()
+	actualBinding := workspacewindow.ResourceBinding{WindowKey: "documents", URI: "window://library/documents"}
 	definitions, err := SnapshotWindowDefinitions(ctx, root, []workspacewindow.ResourceBinding{actualBinding}, nil)
 	require.NoError(t, err)
 	actual, err := NewNativeAssetSnapshot(ctx, root, definitions, NativeSnapshotOptions{})
@@ -248,7 +240,7 @@ func TestStewardPreloadedTwentyItemWindowListTiming(t *testing.T) {
 	var bodyLoads atomic.Int64
 	entries := make([]NativeSnapshotDefinition, 20)
 	for i := range entries {
-		entries[i] = NativeSnapshotDefinition{URI: fmt.Sprintf("window://steward/list%d", i), Title: fmt.Sprintf("Cached window %d", i), FormatVersion: 2, File: definitions[0].File, Load: func(context.Context, *ExtensionReader, string) (json.RawMessage, error) {
+		entries[i] = NativeSnapshotDefinition{URI: fmt.Sprintf("window://library/list%d", i), Title: fmt.Sprintf("Cached window %d", i), FormatVersion: 2, File: definitions[0].File, Load: func(context.Context, *ExtensionReader, string) (json.RawMessage, error) {
 			bodyLoads.Add(1)
 			return raw, nil
 		}}
@@ -266,7 +258,7 @@ func TestStewardPreloadedTwentyItemWindowListTiming(t *testing.T) {
 	verify := func(context.Context, identity.VerifiedActor) error { return nil }
 	var groupChecks atomic.Int64
 	provider, err := NewLocalProvider(LocalConfig{ProviderIdentity: "internal", Actor: actorFn, Verify: verify, Authorize: func(_ context.Context, _ identity.VerifiedActor, uri identity.ResourceURI, _ string) error {
-		if uri.Namespace != "steward" {
+		if uri.Namespace != "library" {
 			return identity.ErrResourceDenied
 		}
 		return nil
@@ -290,11 +282,11 @@ func TestStewardPreloadedTwentyItemWindowListTiming(t *testing.T) {
 		start := time.Now()
 		for i := 0; i < 5; i++ {
 			if mode == "direct-list" {
-				got, err := provider.List(ctx, "window", primitive.ListRequest{Namespace: "steward", Limit: 20})
+				got, err := provider.List(ctx, "window", primitive.ListRequest{Namespace: "library", Limit: 20})
 				require.NoError(t, err)
 				require.Len(t, got.Resources, 20)
 			} else {
-				got, err := gateway.List(ctx, "window", "steward")
+				got, err := gateway.List(ctx, "window", "library")
 				require.NoError(t, err)
 				require.Len(t, got, 20)
 			}

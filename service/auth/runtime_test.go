@@ -351,7 +351,7 @@ func TestRuntimeProtect_UnderScopedStoredSessionIsPreservedButRejected(t *testin
 			Name: "oauth",
 			Mode: "bff",
 			Client: &OAuthClient{
-				Scopes: []string{"openid", "ROLE_STEWARD_WEB"},
+				Scopes: []string{"openid", "ROLE_EXAMPLE_WEB"},
 			},
 		},
 	}
@@ -366,7 +366,7 @@ func TestRuntimeProtect_UnderScopedStoredSessionIsPreservedButRejected(t *testin
 		UserID:   "user-42",
 		Subject:  "provider-subject",
 		Provider: "oauth",
-		Scopes:   []string{"openid", "ROLE_STEWARD_WEB"},
+		Scopes:   []string{"openid", "ROLE_EXAMPLE_WEB"},
 		Tokens: &scyauth.Token{
 			Token: oauth2.Token{
 				AccessToken:  underScoped,

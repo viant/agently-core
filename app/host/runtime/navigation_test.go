@@ -26,7 +26,7 @@ import (
 func TestHostMenuConfigurationIsExplicitAndConfinedToTrustedPaths(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "authorization.json")
-	require.NoError(t, os.WriteFile(path, []byte(`{"schemaVersion":1,"catalogPath":"catalog.yaml","navigationSources":[{"uri":"navigation://steward/navigation","localLayoutPath":"layout.yaml"}]}`), 0600))
+	require.NoError(t, os.WriteFile(path, []byte(`{"schemaVersion":1,"catalogPath":"catalog.yaml","navigationSources":[{"uri":"navigation://library/navigation","localLayoutPath":"layout.yaml"}]}`), 0600))
 	config, err := readHostAuthorization(path)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "layout.yaml"), config.NavigationSources[0].LocalLayoutPath)
@@ -39,7 +39,7 @@ func TestHostMenuConfigurationIsExplicitAndConfinedToTrustedPaths(t *testing.T) 
 }
 
 func TestHostMenuVisibilityUsesOnlyDeclaredCatalogAndNamespace(t *testing.T) {
-	config := &hostAuthorizationFile{linkedMetadata: &testmetadata.FS, CatalogPath: filepath.Join(t.TempDir(), "catalog.yaml"), WindowResources: []windowloader.ResourceBinding{{URI: "window://steward/plain", WindowKey: "plain"}, {URI: "window://steward/guarded", WindowKey: "guarded"}}}
+	config := &hostAuthorizationFile{linkedMetadata: &testmetadata.FS, CatalogPath: filepath.Join(t.TempDir(), "catalog.yaml"), WindowResources: []windowloader.ResourceBinding{{URI: "window://library/plain", WindowKey: "plain"}, {URI: "window://library/guarded", WindowKey: "guarded"}}}
 	require.NoError(t, os.WriteFile(config.CatalogPath, []byte("windows:\n  - windowId: guarded\n    roles: [admin]\n"), 0600))
 	lease := time.Now().Add(time.Minute)
 	principal := &visibilityPrincipal{principal: gating.Principal{Facts: authz.Facts{Subject: "alice", Issuer: "issuer", Tenant: "tenant", Roles: []string{"reader"}, ValidUntil: lease}, AccountID: "account", IdentityRevision: "one"}}
@@ -51,12 +51,12 @@ func TestHostMenuVisibilityUsesOnlyDeclaredCatalogAndNamespace(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	menuURI, _ := identity.ParseResourceURI("navigation://steward/navigation")
+	menuURI, _ := identity.ParseResourceURI("navigation://library/navigation")
 	ok, err := visible(context.Background(), actor, menuURI, json.RawMessage(`{"type":"window","windowKey":"plain","parameters":{"foreignBusinessId":7}}`))
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Zero(t, principal.calls, "plain metadata cannot evaluate invented business permission")
-	ok, err = visible(context.Background(), actor, menuURI, json.RawMessage(`{"type":"window","resourceUri":"window://steward/plain"}`))
+	ok, err = visible(context.Background(), actor, menuURI, json.RawMessage(`{"type":"window","resourceUri":"window://library/plain"}`))
 	require.NoError(t, err)
 	require.True(t, ok)
 	ok, err = visible(context.Background(), actor, menuURI, json.RawMessage(`{"type":"window","resourceUri":"window://foreign/plain"}`))
@@ -84,8 +84,8 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	ctx := context.Background()
 	root := t.TempDir()
 	layoutPath := filepath.Join(root, "layout.yaml")
-	uri := "navigation://steward/navigation"
-	raw := []byte("version: 1\nid: steward\ntopbar: {actions: [{id: automation, title: Automation, action: {type: window, windowKey: schedule}}]}\napplications:\n  - id: steward\n    title: Workspace\n    icon: applications\n    menus:\n      - id: advertisers\n        title: Advertisers\n        icon: office\n        action: {type: window, windowKey: advertiserList, parameters: {selected: 9}}\n      - id: campaigns\n        title: Campaigns\n        icon: timeline-events\n        action: {type: window, windowKey: campaignList}\n      - id: denied\n        title: Denied group\n        children:\n          - id: secret\n            title: Secret\n            action: {type: window, windowKey: secretWindow}\n")
+	uri := "navigation://library/navigation"
+	raw := []byte("version: 1\nid: library\ntopbar: {actions: [{id: automation, title: Automation, action: {type: window, windowKey: schedule}}]}\napplications:\n  - id: library\n    title: Workspace\n    icon: applications\n    menus:\n      - id: advertisers\n        title: Advertisers\n        icon: office\n        action: {type: window, windowKey: advertiserList, parameters: {selected: 9}}\n      - id: campaigns\n        title: Campaigns\n        icon: timeline-events\n        action: {type: window, windowKey: campaignList}\n      - id: denied\n        title: Denied group\n        children:\n          - id: secret\n            title: Secret\n            action: {type: window, windowKey: secretWindow}\n")
 	require.NoError(t, os.WriteFile(layoutPath, raw, 0600))
 	catalogPath := filepath.Join(root, "catalog.yaml")
 	require.NoError(t, os.WriteFile(catalogPath, []byte("windows:\n  - windowId: secretWindow\n    roles: [admin]\n"), 0600))
@@ -98,7 +98,7 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	config.Requirements = []gating.Binding{{Resource: resource, Action: "read", Document: gating.RequirementsDocument{Revision: "one", Requirements: gating.Requirements{SchemaVersion: 1}}}}
 	config.ResourceRevisionBindings = []policy.ResourceRevisionBinding{{Operation: hostNavigationOperation, URI: uri, Resource: family, Action: "read"}}
 	for _, key := range []string{"advertiserList", "campaignList", "secretWindow"} {
-		windowURI := "window://steward/" + key
+		windowURI := "window://library/" + key
 		config.WindowResources = append(config.WindowResources, windowloader.ResourceBinding{WindowKey: key, URI: windowURI})
 		config.ResourceRevisionBindings = append(config.ResourceRevisionBindings, policy.ResourceRevisionBinding{Operation: policy.OperationWindowView, URI: windowURI, Resource: authz.ResourceFamily{Kind: "window", ID: windowURI, Tenant: "tenant"}, Action: "read"})
 	}
@@ -118,7 +118,7 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	sharedResolver, err := bindings[0].Resolver(ctx, heldActor, "resource.get")
 	require.NoError(t, err)
 	require.Same(t, sharedSnapshot, sharedResolver.Source, "same-root menus share the existing workspace native snapshot")
-	namespace, err := internalNamespaceIsolation(config, append(append([]resources.LocalResourceBinding(nil), bindings...), resources.LocalResourceBinding{URI: "window://steward/advertiserList"}, resources.LocalResourceBinding{URI: "window://steward/campaignList"}, resources.LocalResourceBinding{URI: "window://steward/secretWindow"}))
+	namespace, err := internalNamespaceIsolation(config, append(append([]resources.LocalResourceBinding(nil), bindings...), resources.LocalResourceBinding{URI: "window://library/advertiserList"}, resources.LocalResourceBinding{URI: "window://library/campaignList"}, resources.LocalResourceBinding{URI: "window://library/secretWindow"}))
 	require.NoError(t, err)
 	visible, err := configuredMenuVisibility(config, principal, namespace)
 	require.NoError(t, err)
@@ -192,7 +192,7 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	require.NoError(t, got.Revalidate(ctx))
 	got, err = freshReader(ctx)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(layoutPath, []byte("version: 1\nid: steward\napplications: []\n"), 0600))
+	require.NoError(t, os.WriteFile(layoutPath, []byte("version: 1\nid: library\napplications: []\n"), 0600))
 	require.NoError(t, got.Revalidate(ctx), "mere file edits cannot replace captured source generation")
 	_ = got.Close()
 

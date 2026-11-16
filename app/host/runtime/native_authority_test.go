@@ -29,7 +29,7 @@ func TestNativeTemplateOpensWithoutRoleAdmissionAndRetainsDataAuthority(t *testi
 	root := t.TempDir()
 	path := filepath.Join(root, "catalog.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("windows:\n  - windowId: baseline\n  - windowId: restricted\n    roles: [operator]\n"), 0600))
-	config := &hostAuthorizationFile{linkedMetadata: &testmetadata.FS, nativeWindows: true, CatalogPath: path, WindowResources: []windowloader.ResourceBinding{{WindowKey: "baseline", URI: "window://steward/baseline"}, {WindowKey: "restricted", URI: "window://steward/restricted"}}}
+	config := &hostAuthorizationFile{linkedMetadata: &testmetadata.FS, nativeWindows: true, CatalogPath: path, WindowResources: []windowloader.ResourceBinding{{WindowKey: "baseline", URI: "window://library/baseline"}, {WindowKey: "restricted", URI: "window://library/restricted"}}}
 	principal := gating.Principal{Facts: authz.Facts{Subject: "alice", Issuer: "verified", Tenant: "tenant", ValidUntil: time.Now().Add(time.Minute)}, AccountID: "account", IdentityRevision: "credential-revision"}
 	native := &nativeWindowAuthority{principal: func(context.Context) (gating.Principal, error) { return principal, nil }, allowed: map[string]resources.LocalResourceBinding{}}
 	for _, b := range config.WindowResources {
@@ -37,19 +37,19 @@ func TestNativeTemplateOpensWithoutRoleAdmissionAndRetainsDataAuthority(t *testi
 	}
 	candidate := identity.ResourceCandidate{Kind: identity.WorkingCandidate, ContentFingerprint: identity.ContentFingerprint(json.RawMessage(`{"native":true}`))}
 	p := &nativeWindowPolicy{authority: native}
-	decision, err := p.SelectRevision(ctx, identity.ResourceRef{URI: "window://steward/baseline"}, []identity.ResourceCandidate{candidate})
+	decision, err := p.SelectRevision(ctx, identity.ResourceRef{URI: "window://library/baseline"}, []identity.ResourceCandidate{candidate})
 	require.NoError(t, err)
 	require.NotEmpty(t, decision.AuthorityBinding)
-	restrictedDecision, err := p.SelectRevision(ctx, identity.ResourceRef{URI: "window://steward/restricted"}, []identity.ResourceCandidate{candidate})
+	restrictedDecision, err := p.SelectRevision(ctx, identity.ResourceRef{URI: "window://library/restricted"}, []identity.ResourceCandidate{candidate})
 	require.NoError(t, err, "declared roles must not gate opening an operator-installed template")
 	require.False(t, restrictedDecision.ValidUntil.After(principal.Facts.ValidUntil), "verified identity must bound delivered definition")
-	_, err = p.SelectRevision(ctx, identity.ResourceRef{URI: "window://steward/baseline", Revision: "2"}, []identity.ResourceCandidate{candidate})
+	_, err = p.SelectRevision(ctx, identity.ResourceRef{URI: "window://library/baseline", Revision: "2"}, []identity.ResourceCandidate{candidate})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	_, err = p.SelectRevision(ctx, identity.ResourceRef{URI: "window://users/baseline"}, []identity.ResourceCandidate{candidate})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	validUntil := principal.Facts.ValidUntil
 	principal.Facts.ValidUntil = time.Now().Add(-time.Second)
-	_, err = p.SelectRevision(ctx, identity.ResourceRef{URI: "window://steward/restricted"}, []identity.ResourceCandidate{candidate})
+	_, err = p.SelectRevision(ctx, identity.ResourceRef{URI: "window://library/restricted"}, []identity.ResourceCandidate{candidate})
 	require.ErrorIs(t, err, policy.ErrIdentityRejected, "opening still requires a current verified identity")
 	principal.Facts.ValidUntil = validUntil
 	// Scope affects identity only inside trusted native metadata calls and ends
@@ -83,15 +83,15 @@ func TestNativeTemplateScopeSurvivesActualLocalMCPListAndGet(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "extension/forge/windows"), 0700))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "extension/forge/reporting"), 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "extension/forge/windows/baseline.yaml"), []byte("view:\n content: {id: baseline}\n"), 0600))
-	config := &hostAuthorizationFile{linkedMetadata: &testmetadata.FS, WindowResources: []windowloader.ResourceBinding{{WindowKey: "baseline", URI: "window://steward/baseline"}}}
+	config := &hostAuthorizationFile{linkedMetadata: &testmetadata.FS, WindowResources: []windowloader.ResourceBinding{{WindowKey: "baseline", URI: "window://library/baseline"}}}
 	snapshot, err := newInternalWindowSnapshot(ctx, root, "", config)
 	require.NoError(t, err)
 	principal := gating.Principal{Facts: authz.Facts{Subject: "alice", Issuer: "verified", Tenant: "tenant", ValidUntil: time.Now().Add(time.Minute)}, AccountID: "account", IdentityRevision: "credential-revision"}
-	native := &nativeWindowAuthority{principal: func(context.Context) (gating.Principal, error) { return principal, nil }, allowed: map[string]resources.LocalResourceBinding{"window://steward/baseline": {URI: "window://steward/baseline"}}}
+	native := &nativeWindowAuthority{principal: func(context.Context) (gating.Principal, error) { return principal, nil }, allowed: map[string]resources.LocalResourceBinding{"window://library/baseline": {URI: "window://library/baseline"}}}
 	actor := native.resolveActor(func(context.Context) (identity.VerifiedActor, error) {
 		return identity.VerifiedActor{}, policy.ErrIdentityRejected
 	})
-	binding := native.allowed["window://steward/baseline"]
+	binding := native.allowed["window://library/baseline"]
 	binding.FormatVersion = 2
 	binding.Resolver = func(context.Context, identity.VerifiedActor, string) (*identity.ResourceResolver, error) {
 		return &identity.ResourceResolver{ProviderIdentity: "internal", Source: snapshot, Policy: &nativeWindowPolicy{authority: native}}, nil
@@ -234,7 +234,7 @@ func TestNativeSnapshotCapturesAfterStartupAndKeepsBytesUntilExplicitReload(t *t
 			imported := filepath.Join(dir, "card.yaml")
 			require.NoError(t, os.WriteFile(main, []byte("$import(shared/card.yaml)\n"), 0644))
 			require.NoError(t, os.WriteFile(imported, []byte("view:\n content: {id: baseline}\n"), 0644))
-			config := &hostAuthorizationFile{linkedMetadata: &testmetadata.FS, WindowResources: []windowloader.ResourceBinding{{WindowKey: "baseline", URI: "window://steward/baseline"}}}
+			config := &hostAuthorizationFile{linkedMetadata: &testmetadata.FS, WindowResources: []windowloader.ResourceBinding{{WindowKey: "baseline", URI: "window://library/baseline"}}}
 			snapshot, err := newInternalWindowSnapshot(ctx, root, "", config, true)
 			require.NoError(t, err)
 			require.Zero(t, snapshot.CompileCount())

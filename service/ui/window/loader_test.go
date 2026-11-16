@@ -555,7 +555,7 @@ view:
 `)
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "metricReportBuilder.js"), `
 (() => ({
-  stewardReportBuilder: {
+  libraryReportBuilder: {
     buildRequest() {
       return {};
     },
@@ -597,7 +597,7 @@ $import('../shared/main.yaml')
 `)
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "metricReportBuilder.js"), `
 (() => ({
-  stewardReportBuilder: {
+  libraryReportBuilder: {
     buildRequest() {
       return {};
     },

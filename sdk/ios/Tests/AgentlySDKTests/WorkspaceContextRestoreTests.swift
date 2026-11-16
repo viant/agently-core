@@ -6,7 +6,7 @@ final class WorkspaceContextRestoreTests: XCTestCase {
         func window(_ id: String, conversation: String = "conversation", state: [String: Any]) -> [String: Any] {
             ["windowId": id, "conversationId": conversation, "windowKey": "report", "presentation": "hosted", "region": "chat.top", "parentKey": "chat/new", "windowForm": ["reportBuilder:builder": state]]
         }
-        let admitted: [String: Any] = ["activeDynamicFilterKeys": ["orderIds"], "dynamicFilterValues": ["orderIds": "7"], "opaque": "original"]
+        let admitted: [String: Any] = ["activeDynamicFilterKeys": ["collectionIds"], "dynamicFilterValues": ["collectionIds": "7"], "opaque": "original"]
         let known = window("report__conversation", state: admitted)
         let context: [String: Any] = ["windows": [["window": known], ["window": window("unknown", state: ["opaque": "unknown"])], ["window": window("report__conversation", conversation: "foreign", state: ["opaque": "foreign"])]]]
         var steps: [[String: Any]] = [
@@ -19,7 +19,7 @@ final class WorkspaceContextRestoreTests: XCTestCase {
         }
         let initial = try restore()
         XCTAssertEqual(initial?.windows.count, 1)
-        XCTAssertEqual(initial?.windows.first?.windowForm?["reportBuilder:builder"], .object(["activeDynamicFilterKeys": .array([.string("orderIds")]), "dynamicFilterValues": .object(["orderIds": .string("7")]), "opaque": .string("original")]))
+        XCTAssertEqual(initial?.windows.first?.windowForm?["reportBuilder:builder"], .object(["activeDynamicFilterKeys": .array([.string("collectionIds")]), "dynamicFilterValues": .object(["collectionIds": .string("7")]), "opaque": .string("original")]))
         steps.append(["toolCallId": "edit", "toolName": "ui/window/setFormData", "status": "completed", "requestPayload": ["windowId": "report__conversation", "values": ["reportBuilder:builder": ["opaque": "edited"]]], "responsePayload": ["ok": true]])
         let edited = try restore()
         guard case .object(let editedState)? = edited?.windows.first?.windowForm?["reportBuilder:builder"] else { return XCTFail("Missing edited state") }

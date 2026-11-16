@@ -31,7 +31,7 @@ func (s *Service) listResourceReports(ctx context.Context, input *ListReportsInp
 	if input == nil {
 		input = &ListReportsInput{}
 	}
-	result, err := s.reportCatalog.List(ctx, catalog.ReportCatalogQuery{Search: input.Search, Namespace: input.Namespace, CurrentUserOnly: input.CurrentUserOnly, Cursor: input.Cursor, Limit: input.Limit})
+	result, err := s.reportCatalog.List(ctx, catalog.ReportCatalogQuery{Search: input.Search, Namespace: input.Namespace, Scope: input.Scope, CurrentUserOnly: input.CurrentUserOnly, Cursor: input.Cursor, Limit: input.Limit})
 	if err != nil {
 		return nil, err
 	}
@@ -41,13 +41,11 @@ func (s *Service) listResourceReports(ctx context.Context, input *ListReportsInp
 			continue
 		}
 		created, _ := time.Parse(time.RFC3339, entry.CreatedAt)
-		summary := &ReportSummary{Unavailable: entry.Unavailable, Resource: cloneResolvedResource(entry.Resource), ResourceURI: entry.URI, Namespace: entry.Namespace, Name: entry.Name, OwnedByCurrentUser: entry.OwnedByCurrentUser, Capabilities: &entry.Capabilities, ArtifactID: entry.ArtifactID, ArtifactRef: entry.URI, ReportID: entry.URI, Title: entry.Title, OwnerID: entry.OwnerID, ReportType: entry.ReportType, BuilderRef: entry.BuilderRef, OrderIDs: append([]string(nil), entry.OrderIDs...), CreatedAt: created}
+		summary := &ReportSummary{Unavailable: entry.Unavailable, Resource: cloneResolvedResource(entry.Resource), ResourceURI: entry.URI, Namespace: entry.Namespace, Name: entry.Name, OwnedByCurrentUser: entry.OwnedByCurrentUser, Capabilities: &entry.Capabilities, ArtifactID: entry.ArtifactID, ArtifactRef: entry.URI, ReportID: entry.URI, Title: entry.Title, OwnerID: entry.OwnerID, ReportType: entry.ReportType, BuilderRef: entry.BuilderRef, BuilderWindow: entry.BuilderWindow, CreatedAt: created}
 		if updated, err := time.Parse(time.RFC3339, entry.UpdatedAt); err == nil {
 			summary.UpdatedAt = &updated
 		}
-		if reportSummaryMatchesOrder(summary, input.OrderID) {
-			out.Reports = append(out.Reports, summary)
-		}
+		out.Reports = append(out.Reports, summary)
 	}
 	// A total is unknown while the shared catalog has further pages.
 	if result.NextCursor == "" {

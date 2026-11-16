@@ -1345,7 +1345,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 				// even when the producer's body is empty or JSON null.
 				explicitStatus := status != 0 && status != 400 && status != 401 && status != 403 && status != 422
 				if mcpapps.Active(ctx) || appActivity || explicitStatus {
-					terr = &mcpAppToolError{cause: terr, status: status}
+					terr = &mcpAppToolError{cause: terr, status: status, code: safeToolErrorCode(status, res)}
 				}
 				debugMCPExecf("registry calltool tool-error server=%s base=%s attempt=%d err=%v content=%d structured=%d", server, baseName, attempt+1, terr, len(res.Content), structuredContentSize(res.StructuredContent))
 				if r.mgr != nil && isReconnectableError(terr) && attempt < maxAttempts-1 {

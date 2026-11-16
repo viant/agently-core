@@ -52,18 +52,18 @@ func TestCheckStarterTaskCoverageValidatesOptionalCategories(t *testing.T) {
 		t.Fatal(err)
 	}
 	agents := map[string]AgentDoc{
-		"steward": {
-			ID:                    "steward",
+		"guide": {
+			ID:                    "guide",
 			StarterTaskCategories: []StarterTaskCategoryDoc{{ID: "plan", Title: "Plan"}},
 			StarterTasks:          []StarterTaskDoc{{ID: "forecast", CategoryID: "missing", CoverageEvalIDs: []string{"ok"}}},
 		},
 	}
-	agent := agents["steward"]
+	agent := agents["guide"]
 	agent.Profile.Publish = true
-	agents["steward"] = agent
+	agents["guide"] = agent
 
 	got := CheckStarterTaskCoverage(evals, agents)
-	if len(got) != 1 || got[0] != "starter task forecast on published agent steward references unknown category missing" {
+	if len(got) != 1 || got[0] != "starter task forecast on published agent guide references unknown category missing" {
 		t.Fatalf("unexpected category validation errors: %v", got)
 	}
 }

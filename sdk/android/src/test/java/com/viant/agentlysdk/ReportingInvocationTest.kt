@@ -7,7 +7,7 @@ import kotlin.test.assertNull
 
 class ReportingInvocationTest {
     @Test fun beginRetainsAdmittedBuilderAndScope() {
-        val params = Json.parseToJsonElement("""{"filters":{"adOrderId":[910004]}}""")
+        val params = Json.parseToJsonElement("""{"filters":{"collectionId":[910004]}}""")
         val input = BeginReportRunInput("request", "conversation", "prompt", "delivery", "preset", "preset", "source", params, params, reportAdmissionRef = "opaque ref")
         val encoded = Json.encodeToJsonElement(input).jsonObject
         assertEquals(JsonPrimitive("delivery"), encoded["builderRef"])

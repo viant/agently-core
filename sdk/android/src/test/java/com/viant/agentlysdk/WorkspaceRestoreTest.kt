@@ -19,7 +19,7 @@ import kotlinx.serialization.json.JsonPrimitive
 class WorkspaceRestoreTest {
     @Test fun `context snapshots restore exact known author state in chronological order`() {
         fun window(id:String="report",convo:String="conv-1",form:JsonObject=buildJsonObject { })=buildJsonObject { put("windowId",id);put("windowKey","reportBuilder");put("conversationId",convo);put("windowForm",form) }
-        val admitted=buildJsonObject { put("reportBuilder:builder",buildJsonObject { put("scopeParams",buildJsonObject { put("orderIds",buildJsonArray { add(JsonPrimitive(910004)) }) });put("opaque",buildJsonObject { put("unchanged","😀/é") });put("dynamicFilterDrafts",buildJsonObject { put("draft","original") }) }) }
+        val admitted=buildJsonObject { put("reportBuilder:builder",buildJsonObject { put("scopeParams",buildJsonObject { put("collectionIds",buildJsonArray { add(JsonPrimitive(910004)) }) });put("opaque",buildJsonObject { put("unchanged","😀/é") });put("dynamicFilterDrafts",buildJsonObject { put("draft","original") }) }) }
         val open=ToolStepState(toolCallId="open",toolName="ui/window/open",status="completed",responsePayload=window())
         val context=ToolStepState(toolCallId="context",toolName="ui/context/get",status="completed",content=buildJsonObject { put("windows",buildJsonArray {
             add(buildJsonObject { put("window",window(form=admitted)) })
@@ -30,9 +30,9 @@ class WorkspaceRestoreTest {
         fun state(steps:List<ToolStepState>)=ConversationStateResponse(conversation=ConversationState(conversationId="conv-1",turns=listOf(TurnState(turnId="turn",execution=ExecutionState(pages=listOf(ExecutionPageState(pageId="page",toolSteps=steps)))))))
         val exact=deriveHostedWorkspaceRestoreState(state(listOf(open,context,laterOpen)))!!
         assertEquals(listOf("report"),exact.windows.map { it.windowId });assertEquals(admitted,exact.windows.single().windowForm)
-        val edit=ToolStepState(toolCallId="edit",toolName="ui/window/setFormData",status="completed",requestPayload=buildJsonObject { put("windowId","report");put("values",buildJsonObject { put("reportBuilder:builder",buildJsonObject { put("scopeParams",buildJsonObject { put("orderIds",buildJsonArray { add(JsonPrimitive(2703801)) }) }) }) }) },responsePayload=buildJsonObject { put("windowId","report") })
+        val edit=ToolStepState(toolCallId="edit",toolName="ui/window/setFormData",status="completed",requestPayload=buildJsonObject { put("windowId","report");put("values",buildJsonObject { put("reportBuilder:builder",buildJsonObject { put("scopeParams",buildJsonObject { put("collectionIds",buildJsonArray { add(JsonPrimitive(2703801)) }) }) }) }) },responsePayload=buildJsonObject { put("windowId","report") })
         val edited=deriveHostedWorkspaceRestoreState(state(listOf(open,context,laterOpen,edit)))!!.windows.single().windowForm!!
-        assertEquals(JsonArray(listOf(JsonPrimitive(2703801))),edited.getValue("reportBuilder:builder").jsonObject.getValue("scopeParams").jsonObject["orderIds"])
+        assertEquals(JsonArray(listOf(JsonPrimitive(2703801))),edited.getValue("reportBuilder:builder").jsonObject.getValue("scopeParams").jsonObject["collectionIds"])
         assertEquals(admitted.getValue("reportBuilder:builder").jsonObject["opaque"],edited.getValue("reportBuilder:builder").jsonObject["opaque"])
         assertNull(edited["forged"])
     }

@@ -99,11 +99,11 @@ describe('portable AG-UI conversation sessions', () => {
             const input = JSON.parse(String(init.body)); posts.push(input); return stream(resultEvents(input));
         };
         const generic = new AgUiSession({ connectionId: 'other', threadId: 'thread', url: '/run', fetch });
-        await expect(generic.send({ id: 'u', role: 'user', content: 'hi' }, {}, { agentId: 'steward' })).rejects.toThrow('Agently profile');
+        await expect(generic.send({ id: 'u', role: 'user', content: 'hi' }, {}, { agentId: 'guide' })).rejects.toThrow('Agently profile');
         expect(posts).toHaveLength(0);
         const agently = new AgUiSession({ connectionId: 'agently', profile: 'agently', threadId: 'thread', url: '/run', fetch });
-        await agently.send({ id: 'u', role: 'user', content: 'hi' }, { runId: 'r' }, { agentId: 'steward' });
-        expect(posts[0].forwardedProps).toEqual({ agently: { version: '1', operation: 'chat', payload: { agentId: 'steward' } } });
+        await agently.send({ id: 'u', role: 'user', content: 'hi' }, { runId: 'r' }, { agentId: 'guide' });
+        expect(posts[0].forwardedProps).toEqual({ agently: { version: '1', operation: 'chat', payload: { agentId: 'guide' } } });
     });
 
     it('retains interrupts and resumes with a new run instead of another user message', async () => {

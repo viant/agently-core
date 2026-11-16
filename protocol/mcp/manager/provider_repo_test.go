@@ -10,7 +10,7 @@ import (
 func TestRepoProviderOptions_ExpandsTransportURLTemplates(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	t.Setenv("AGENTLY_WORKSPACE", workspaceRoot)
-	t.Setenv("STEWARD_MCP_URL", "https://override.example.com/mcp")
+	t.Setenv("EXAMPLE_MCP_URL", "https://override.example.com/mcp")
 
 	mcpDir := filepath.Join(workspaceRoot, "mcp")
 	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
@@ -19,7 +19,7 @@ func TestRepoProviderOptions_ExpandsTransportURLTemplates(t *testing.T) {
 	config := []byte(`name: analyst
 transport:
   type: streamable
-  url: ${STEWARD_MCP_URL:-http://localhost:5002/mcp}
+  url: ${EXAMPLE_MCP_URL:-http://localhost:5002/mcp}
 auth:
   backendForFrontend: true
   useIdToken: true
@@ -49,7 +49,7 @@ func TestRepoProviderOptions_UsesTemplateDefaultWhenEnvUnset(t *testing.T) {
 	config := []byte(`name: analyst
 transport:
   type: streamable
-  url: ${STEWARD_MCP_URL:-http://localhost:5002/mcp}
+  url: ${EXAMPLE_MCP_URL:-http://localhost:5002/mcp}
 `)
 	if err := os.WriteFile(filepath.Join(mcpDir, "analyst.yaml"), config, 0o644); err != nil {
 		t.Fatalf("failed to write config: %v", err)

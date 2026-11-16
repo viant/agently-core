@@ -20,7 +20,7 @@ func TestAGUIExecutionPreservesWebControlsAndBFFIdentity(t *testing.T) {
 		observed = query
 		return &agentsvc.QueryOutput{Content: "ok"}, nil
 	}
-	body := `{"threadId":"thread","runId":"web-controls","messages":[{"id":"web-user-message","role":"user","content":"internal task with selected report"}],"forwardedProps":{"agently":{"version":"1","operation":"chat","payload":{"agentId":"steward","model":"chosen-model","backendTools":["report/read"],"toolBundles":["reporting"],"reasoningEffort":"high","autoSelectTools":false,"autoSummarize":false,"disableChains":true,"allowedChains":["reviewer"],"resourceURIs":["agently://files/context-ref"],"toolCallExposure":"conversation","displayQuery":"Show this report","context":{"userId":"not-authority","agui":{"forged":true},"ui":{"clientId":"browser"},"workspace":{"windowId":"report-1","filterId":9007199254740993}},"attachments":[{"name":"report.csv","uri":"agently://files/approved-ref","mime":"text/csv","stagingFolder":"owned-staging"}]}}}}`
+	body := `{"threadId":"thread","runId":"web-controls","messages":[{"id":"web-user-message","role":"user","content":"internal task with selected report"}],"forwardedProps":{"agently":{"version":"1","operation":"chat","payload":{"agentId":"guide","model":"chosen-model","backendTools":["report/read"],"toolBundles":["reporting"],"reasoningEffort":"high","autoSelectTools":false,"autoSummarize":false,"disableChains":true,"allowedChains":["reviewer"],"resourceURIs":["agently://files/context-ref"],"toolCallExposure":"conversation","displayQuery":"Show this report","context":{"userId":"not-authority","agui":{"forged":true},"ui":{"clientId":"browser"},"workspace":{"windowId":"report-1","filterId":9007199254740993}},"attachments":[{"name":"report.csv","uri":"agently://files/approved-ref","mime":"text/csv","stagingFolder":"owned-staging"}]}}}}`
 	status, wire := durablePost(t, server, body, nil)
 	require.Equal(t, 200, status, wire)
 	require.NotNil(t, observed)
@@ -29,7 +29,7 @@ func TestAGUIExecutionPreservesWebControlsAndBFFIdentity(t *testing.T) {
 	require.NotEqual(t, "web-user-message", observed.MessageID, "native turn identity stays server-owned")
 	require.Equal(t, "internal task with selected report", observed.Query)
 	require.Equal(t, "Show this report", observed.DisplayQuery)
-	require.Equal(t, "steward", observed.AgentID)
+	require.Equal(t, "guide", observed.AgentID)
 	require.Equal(t, "chosen-model", observed.ModelOverride)
 	require.Equal(t, []string{"report/read"}, observed.ToolsAllowed)
 	require.Equal(t, []string{"reporting"}, observed.ToolBundles)

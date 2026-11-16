@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/viant/agently-core/internal/testutil/catalogfixture"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -43,24 +44,24 @@ func (p lookupTestPolicy) SelectRevision(_ context.Context, _ identity.ResourceR
 	return identity.ResourceDecision{Candidate: candidates[0], AuthorityBinding: "lookup-fixture", ValidUntil: p.actor.ValidUntil}, nil
 }
 
-func TestPrimitiveLookupRegistryUsesCapturedOriginalOverlayNotRawWorkspace(t *testing.T) {
+func TestPrimitiveLookupRegistryUsesCapturedOverlayNotRawWorkspace(t *testing.T) {
 	ctx := context.Background()
 	backend, store := primitiveLookupFixture(t)
-	first, err := backend.ListLookupRegistry(ctx, &api.ListLookupRegistryInput{Context: "window:order", ProviderIdentity: "lookup-owner"})
+	first, err := backend.ListLookupRegistry(ctx, &api.ListLookupRegistryInput{Context: "window:document", ProviderIdentity: "lookup-owner"})
 	require.NoError(t, err)
 	require.Len(t, first.Entries, 1)
 	entry := first.Entries[0]
-	require.Equal(t, "order", entry.Name)
-	require.Equal(t, "ad_order_lookup", entry.DataSource)
-	require.Equal(t, "adOrderPicker", entry.DialogId)
-	require.Equal(t, "${adOrderId}", entry.Token.Store)
+	require.Equal(t, "document", entry.Name)
+	require.Equal(t, "document_lookup", entry.DataSource)
+	require.Equal(t, "chooseDocument", entry.DialogId)
+	require.Equal(t, "${entryKey}", entry.Token.Store)
 	require.Equal(t, "${id}", entry.Token.ModelForm)
-	require.Equal(t, "datasource://external/ad_order_lookup", entry.DataSourceResource.URI)
-	require.Equal(t, "window://external/adOrderPicker", entry.PickerResource.URI)
+	require.Equal(t, "datasource://external/document_lookup", entry.DataSourceResource.URI)
+	require.Equal(t, "window://external/chooseDocument", entry.PickerResource.URI)
 	require.Equal(t, "lookup-owner", entry.ProviderIdentity)
-	require.Equal(t, "adOrderId", entry.Outputs[0].Location)
-	require.Equal(t, "order_id", entry.Outputs[0].Name)
-	second, err := backend.ListLookupRegistry(ctx, &api.ListLookupRegistryInput{Context: "window:order", ProviderIdentity: "lookup-owner"})
+	require.Equal(t, "entryKey", entry.Outputs[0].Location)
+	require.Equal(t, "document_key", entry.Outputs[0].Name)
+	second, err := backend.ListLookupRegistry(ctx, &api.ListLookupRegistryInput{Context: "window:document", ProviderIdentity: "lookup-owner"})
 	require.NoError(t, err)
 	require.Equal(t, first, second)
 	encoded, err := json.Marshal(entry)
@@ -68,13 +69,13 @@ func TestPrimitiveLookupRegistryUsesCapturedOriginalOverlayNotRawWorkspace(t *te
 	require.Contains(t, string(encoded), "pickerResource")
 	service, err := backend.primitiveLookupService(ctx, nil, "lookup-owner")
 	require.NoError(t, err)
-	properties := map[string]interface{}{"order_id": map[string]interface{}{"type": "integer"}}
-	applied := service.Apply("window", "order", properties)
+	properties := map[string]interface{}{"document_key": map[string]interface{}{"type": "integer"}}
+	applied := service.Apply("window", "document", properties)
 	require.Len(t, applied, 1)
-	projected := properties["order_id"].(map[string]interface{})["x-ui-lookup"].(map[string]interface{})
-	require.Equal(t, "ad_order_lookup", projected["dataSource"])
-	require.Equal(t, "datasource://external/ad_order_lookup", projected["dataSourceResource"].(*identity.ResourceRef).URI)
-	require.Equal(t, "window://external/adOrderPicker", projected["pickerResource"].(*identity.ResourceRef).URI)
+	projected := properties["document_key"].(map[string]interface{})["x-ui-lookup"].(map[string]interface{})
+	require.Equal(t, "document_lookup", projected["dataSource"])
+	require.Equal(t, "datasource://external/document_lookup", projected["dataSourceResource"].(*identity.ResourceRef).URI)
+	require.Equal(t, "window://external/chooseDocument", projected["pickerResource"].(*identity.ResourceRef).URI)
 	require.Equal(t, "lookup-owner", projected["providerIdentity"])
 	require.Zero(t, store.calls.Load(), "primitive lookup mode never enters legacy raw workspace loading")
 	require.Zero(t, store.unrelatedCalls.Load(), "explicit managing owner bounds discovery before enumeration")
@@ -83,12 +84,8 @@ func TestPrimitiveLookupRegistryUsesCapturedOriginalOverlayNotRawWorkspace(t *te
 func primitiveLookupFixture(t testing.TB) (*backendClient, *forbiddenLookupStore) {
 	t.Helper()
 	ctx := context.Background()
-	root := t.TempDir()
-	original, err := os.ReadFile("../service/resource/testdata/lookups/ad_order_lookup.yaml")
-	require.NoError(t, err)
-	path := filepath.Join(root, workspace.KindForgeLookup, "ad_order_lookup.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
-	require.NoError(t, os.WriteFile(path, original, 0600))
+	root := catalogfixture.Lookup(t)
+	path := filepath.Join(root, workspace.KindForgeLookup, "document_lookup.yaml")
 	definitions, err := resources.SnapshotExtensionDefinitions(ctx, root, []resources.ExtensionDirectory{resources.LookupDirectory("external", "extension/forge/lookups")})
 	require.NoError(t, err)
 	snapshot, err := resources.NewNativeAssetSnapshot(ctx, root, definitions)
@@ -119,7 +116,7 @@ func primitiveLookupFixture(t testing.TB) (*backendClient, *forbiddenLookupStore
 func BenchmarkPrimitiveLookupRegistryWarm(b *testing.B) {
 	backend, store := primitiveLookupFixture(b)
 	ctx := context.Background()
-	request := &api.ListLookupRegistryInput{Context: "window:order", ProviderIdentity: "lookup-owner"}
+	request := &api.ListLookupRegistryInput{Context: "window:document", ProviderIdentity: "lookup-owner"}
 	if _, err := backend.ListLookupRegistry(ctx, request); err != nil {
 		b.Fatal(err)
 	}
@@ -136,11 +133,8 @@ func BenchmarkPrimitiveLookupRegistryWarm(b *testing.B) {
 	}
 }
 
-func TestPrimitiveLookupRegistryCapturedStewardChatOwner(t *testing.T) {
-	root := os.Getenv("AGENTLY_STEWARD_FIXTURE_ROOT")
-	if root == "" {
-		t.Skip("set AGENTLY_STEWARD_FIXTURE_ROOT to the read-only captured Steward workspace")
-	}
+func TestPrimitiveLookupRegistryPublishedChatOwner(t *testing.T) {
+	root := catalogfixture.Lookup(t)
 	ctx := context.Background()
 	definitions, err := resources.SnapshotExtensionDefinitions(ctx, root, []resources.ExtensionDirectory{resources.LookupDirectory("workspace", workspace.KindForgeLookup)})
 	require.NoError(t, err)
@@ -163,15 +157,15 @@ func TestPrimitiveLookupRegistryCapturedStewardChatOwner(t *testing.T) {
 	gateway := resources.NewGateway(mgr, actor, verify, "consumer")
 	defer gateway.Close()
 	backend := &backendClient{primitiveProviders: gateway}
-	registry, err := backend.ListLookupRegistry(ctx, &api.ListLookupRegistryInput{Context: "chat-composer:agent/steward", Owner: &identity.ResourceRef{URI: chat.URI}, ProviderIdentity: "captured"})
+	registry, err := backend.ListLookupRegistry(ctx, &api.ListLookupRegistryInput{Context: "chat-composer:agent/reviewer", Owner: &identity.ResourceRef{URI: chat.URI}, ProviderIdentity: "captured"})
 	require.NoError(t, err)
 	found := false
 	for _, entry := range registry.Entries {
-		if entry.Name == "order" {
+		if entry.Name == "document" {
 			found = true
-			require.Equal(t, "adOrderPicker", entry.DialogId)
-			require.Equal(t, "ad_order_lookup", entry.DataSource)
-			require.Equal(t, "window://workspace/adOrderPicker", entry.PickerResource.URI)
+			require.Equal(t, "chooseDocument", entry.DialogId)
+			require.Equal(t, "document_lookup", entry.DataSource)
+			require.Equal(t, "window://workspace/chooseDocument", entry.PickerResource.URI)
 		}
 	}
 	require.True(t, found, "captured original Order lookup must remain available for the owning chat composer")

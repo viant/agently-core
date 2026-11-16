@@ -59,11 +59,11 @@ func TestTokenScopesFromStrings_MergesAcrossTokens(t *testing.T) {
 		"scope": "openid profile email",
 	})
 	accessToken := fakeJWTWithScopeOnlyClaims(t, map[string]any{
-		"scope": "openid ROLE_STEWARD_WEB",
+		"scope": "openid ROLE_EXAMPLE_WEB",
 	})
 
 	got := tokenScopesFromStrings(idToken, accessToken)
-	want := []string{"openid", "profile", "email", "ROLE_STEWARD_WEB"}
+	want := []string{"openid", "profile", "email", "ROLE_EXAMPLE_WEB"}
 	if len(got) != len(want) {
 		t.Fatalf("tokenScopesFromStrings() len = %d, want %d (%v)", len(got), len(want), got)
 	}
@@ -77,12 +77,12 @@ func TestTokenScopesFromStrings_MergesAcrossTokens(t *testing.T) {
 func TestValidateConfiguredOAuthScopes_ExplicitExpectedJWTRequiresCompleteSet(t *testing.T) {
 	client := &OAuthClient{
 		Scopes:         []string{"openid", "profile", "email"},
-		WebUIScopes:    []string{"ROLE_STEWARD_WEB"},
-		MobileUIScopes: []string{"ROLE_STEWARD_MOBILE"},
+		WebUIScopes:    []string{"ROLE_EXAMPLE_WEB"},
+		MobileUIScopes: []string{"ROLE_EXAMPLE_MOBILE"},
 	}
-	expected := []string{"openid", "profile", "email", "ROLE_STEWARD_WEB"}
+	expected := []string{"openid", "profile", "email", "ROLE_EXAMPLE_WEB"}
 	roleOnly := fakeJWTWithScopeOnlyClaims(t, map[string]any{
-		"scope": "ROLE_STEWARD_WEB",
+		"scope": "ROLE_EXAMPLE_WEB",
 	})
 	if err := validateConfiguredOAuthScopes(client, expected, roleOnly); err == nil {
 		t.Fatal("validateConfiguredOAuthScopes() accepted role-only JWT for explicit expected scopes")
@@ -92,7 +92,7 @@ func TestValidateConfiguredOAuthScopes_ExplicitExpectedJWTRequiresCompleteSet(t 
 		"scope": "openid profile email",
 	})
 	accessToken := fakeJWTWithScopeOnlyClaims(t, map[string]any{
-		"scope": "openid ROLE_STEWARD_WEB",
+		"scope": "openid ROLE_EXAMPLE_WEB",
 	})
 	if err := validateConfiguredOAuthScopes(client, expected, idToken, accessToken, ""); err != nil {
 		t.Fatalf("validateConfiguredOAuthScopes() rejected complete merged JWT scope set: %v", err)
@@ -100,7 +100,7 @@ func TestValidateConfiguredOAuthScopes_ExplicitExpectedJWTRequiresCompleteSet(t 
 }
 
 func TestValidateRefreshedOAuthScopes_ExplicitOpaqueResponseRequiresCompleteExpectedSet(t *testing.T) {
-	expected := []string{"openid", "profile", "email", "ROLE_STEWARD_WEB"}
+	expected := []string{"openid", "profile", "email", "ROLE_EXAMPLE_WEB"}
 	tests := []struct {
 		name    string
 		scope   string
@@ -108,12 +108,12 @@ func TestValidateRefreshedOAuthScopes_ExplicitOpaqueResponseRequiresCompleteExpe
 	}{
 		{
 			name:    "role only rejected",
-			scope:   "ROLE_STEWARD_WEB",
+			scope:   "ROLE_EXAMPLE_WEB",
 			wantErr: true,
 		},
 		{
 			name:  "full set accepted",
-			scope: "ROLE_STEWARD_WEB email openid profile",
+			scope: "ROLE_EXAMPLE_WEB email openid profile",
 		},
 	}
 	for _, test := range tests {
@@ -134,7 +134,7 @@ func TestValidateRefreshedOAuthScopes_ExplicitOpaqueResponseRequiresCompleteExpe
 }
 
 func TestValidateOAuthTokenScopes_ResponseScopeHandling(t *testing.T) {
-	expected := []string{"openid", "profile", "email", "ROLE_STEWARD_WEB"}
+	expected := []string{"openid", "profile", "email", "ROLE_EXAMPLE_WEB"}
 	tests := []struct {
 		name    string
 		extra   any
@@ -154,7 +154,7 @@ func TestValidateOAuthTokenScopes_ResponseScopeHandling(t *testing.T) {
 		},
 		{
 			name:  "complete scope accepted",
-			extra: map[string]any{"scope": "ROLE_STEWARD_WEB email openid profile"},
+			extra: map[string]any{"scope": "ROLE_EXAMPLE_WEB email openid profile"},
 		},
 	}
 	for _, test := range tests {
@@ -179,20 +179,20 @@ func TestValidateOAuthTokenScopes_ResponseScopeHandling(t *testing.T) {
 func TestConfiguredOAuthScopeValidation_CombinesBaseWithSurfaceAlternatives(t *testing.T) {
 	client := &OAuthClient{
 		Scopes:         []string{"openid", "profile", "email"},
-		WebUIScopes:    []string{"ROLE_STEWARD_WEB"},
-		MobileUIScopes: []string{"ROLE_STEWARD_MOBILE"},
-		CLIScopes:      []string{"ROLE_STEWARD_CLI"},
+		WebUIScopes:    []string{"ROLE_EXAMPLE_WEB"},
+		MobileUIScopes: []string{"ROLE_EXAMPLE_MOBILE"},
+		CLIScopes:      []string{"ROLE_EXAMPLE_CLI"},
 	}
 	tests := []struct {
 		name    string
 		scopes  string
 		wantErr bool
 	}{
-		{name: "role only rejected", scopes: "ROLE_STEWARD_WEB", wantErr: true},
+		{name: "role only rejected", scopes: "ROLE_EXAMPLE_WEB", wantErr: true},
 		{name: "base only rejected when surfaces configured", scopes: "openid profile email", wantErr: true},
-		{name: "web alternative", scopes: "openid profile email ROLE_STEWARD_WEB"},
-		{name: "mobile alternative", scopes: "openid profile email ROLE_STEWARD_MOBILE"},
-		{name: "cli alternative", scopes: "openid profile email ROLE_STEWARD_CLI"},
+		{name: "web alternative", scopes: "openid profile email ROLE_EXAMPLE_WEB"},
+		{name: "mobile alternative", scopes: "openid profile email ROLE_EXAMPLE_MOBILE"},
+		{name: "cli alternative", scopes: "openid profile email ROLE_EXAMPLE_CLI"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -230,16 +230,16 @@ func TestConfiguredOAuthScopeValidation_BaseOnlyWithoutSurfaceScopes(t *testing.
 func TestConfiguredOAuthScopeValidation_JWTFallbackRequiresBaseAndSurface(t *testing.T) {
 	client := &OAuthClient{
 		Scopes:         []string{"openid", "profile", "email"},
-		WebUIScopes:    []string{"ROLE_STEWARD_WEB"},
-		MobileUIScopes: []string{"ROLE_STEWARD_MOBILE"},
+		WebUIScopes:    []string{"ROLE_EXAMPLE_WEB"},
+		MobileUIScopes: []string{"ROLE_EXAMPLE_MOBILE"},
 	}
-	roleOnly := fakeJWTWithScopeOnlyClaims(t, map[string]any{"scope": "ROLE_STEWARD_WEB"})
+	roleOnly := fakeJWTWithScopeOnlyClaims(t, map[string]any{"scope": "ROLE_EXAMPLE_WEB"})
 	if err := validateConfiguredOAuthScopes(client, nil, roleOnly); err == nil {
 		t.Fatal("JWT fallback accepted role-only token")
 	}
 	for _, scopes := range []string{
-		"openid profile email ROLE_STEWARD_WEB",
-		"openid profile email ROLE_STEWARD_MOBILE",
+		"openid profile email ROLE_EXAMPLE_WEB",
+		"openid profile email ROLE_EXAMPLE_MOBILE",
 	} {
 		token := fakeJWTWithScopeOnlyClaims(t, map[string]any{"scope": scopes})
 		if err := validateConfiguredOAuthScopes(client, nil, token); err != nil {

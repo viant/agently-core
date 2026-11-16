@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,7 +27,7 @@ import (
 )
 
 func TestUnboundUIWindowFetchChecksRevalidatedCohortProvider(t *testing.T) {
-	protected := identity.ResolvedResource{URI: "datasource://datastudio/rows", ProviderIdentity: "datastudio-management", ResourceCandidate: identity.ResourceCandidate{Kind: identity.WorkingCandidate, ContentFingerprint: identity.ContentFingerprint([]byte("rows"))}, AuthorityBinding: "verified", ValidUntil: time.Now().Add(time.Minute)}
+	protected := identity.ResolvedResource{URI: "datasource://catalog/rows", ProviderIdentity: "catalog-owner", ResourceCandidate: identity.ResourceCandidate{Kind: identity.WorkingCandidate, ContentFingerprint: identity.ContentFingerprint([]byte("rows"))}, AuthorityBinding: "verified", ValidUntil: time.Now().Add(time.Minute)}
 	unrelated := protected
 	unrelated.URI = "datasource://other/rows"
 	unrelated.ProviderIdentity = "other"
@@ -52,7 +53,7 @@ func TestUnboundUIWindowFetchChecksRevalidatedCohortProvider(t *testing.T) {
 	})
 	backend := &backendClient{datasourceSvc: service}
 	bindings := NewPublishedWindowBindings(nil, nil, func(context.Context) (string, error) { return "verified-owner", nil })
-	bindings.ProtectProvider("datastudio-management")
+	bindings.ProtectProvider("catalog-owner")
 	request := func(pin identity.ResolvedResource, windowID string) *httptest.ResponseRecorder {
 		body, err := json.Marshal(api.FetchDatasourceInput{Resource: &pin})
 		if err != nil {
@@ -600,5 +601,45 @@ func TestHandleFetchDatasourceRejectsTrailingJSONBeforeDispatch(t *testing.T) {
 		if w.Code != http.StatusBadRequest || backend.calls != 0 {
 			t.Fatalf("status=%d calls=%d", w.Code, backend.calls)
 		}
+	}
+}
+
+type qualifiedPublicationError struct {
+	status int
+	code   string
+}
+
+func (e qualifiedPublicationError) HTTPStatusCode() int   { return e.status }
+func (e qualifiedPublicationError) HTTPErrorCode() string { return e.code }
+func (e qualifiedPublicationError) Error() string         { return "sensitive producer details" }
+func TestPropertyAbsenceRequiresProducerCodeAndStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		cause  error
+		status int
+		code   string
+	}{
+		{"explicit absence", qualifiedPublicationError{404, "not_found"}, 404, "not_found"},
+		{"unclassified 404", qualifiedPublicationError{404, ""}, 404, ""},
+		{"wrong status", qualifiedPublicationError{500, "not_found"}, 500, ""},
+		{"text cannot prove absence", errors.New("MCP service returned Not Found (404)"), 500, ""},
+		{"denial precedence", errors.Join(qualifiedPublicationError{404, "not_found"}, dsproto.ErrDatasourceDenied), 403, ""},
+		{"deadline precedence", errors.Join(qualifiedPublicationError{404, "not_found"}, context.DeadlineExceeded), 504, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := httptest.NewRecorder()
+			writeDatasourceFetchError(out, tc.cause, nil)
+			require.Equal(t, tc.status, out.Code)
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &body))
+			if tc.code != "" {
+				require.Equal(t, tc.code, body["code"])
+			} else {
+				require.NotEqual(t, "not_found", body["code"])
+			}
+			if tc.status == 404 {
+				require.NotContains(t, out.Body.String(), "sensitive producer details")
+			}
+		})
 	}
 }

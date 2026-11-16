@@ -42,7 +42,7 @@ func cohortTestRegistry(t *testing.T, execute PublishedDatasourceExecute) (*Publ
 	denied := false
 	open := func(_ context.Context, provider, uri string, target *types.WindowTarget) (*types.WindowResourceVariant, string, error) {
 		opens++
-		if denied || provider != "studio" || uri != "window://datastudio/connectors" || target == nil || target.Platform != "web" {
+		if denied || provider != "studio" || uri != "window://catalog/connectors" || target == nil || target.Platform != "web" {
 			return nil, "", context.Canceled
 		}
 		return variant, "published-hash", nil
@@ -55,7 +55,7 @@ func cohortTestRegistry(t *testing.T, execute PublishedDatasourceExecute) (*Publ
 		return value, nil
 	}
 	registry := NewPublishedWindowBindings(open, execute, owner)
-	if err := registry.Bind(cohortTestContext("alice", "session-1"), "client-1", "window-1", "studio", "window://datastudio/connectors", "published-hash", variant); err != nil {
+	if err := registry.Bind(cohortTestContext("alice", "session-1"), "client-1", "window-1", "studio", "window://catalog/connectors", "published-hash", variant); err != nil {
 		t.Fatal(err)
 	}
 	return registry, &opens, &denied
@@ -240,9 +240,9 @@ func TestPublishedWindowIDCollisionAllowsOnlyFreshSessionAdmission(t *testing.T)
 		require.Equal(t, index, calls)
 		before := calls
 		// The normal trusted metadata path must admit and bind this session anew.
-		variant, hash, err := registry.open(ctx, "studio", "window://datastudio/connectors", &types.WindowTarget{Platform: "web"})
+		variant, hash, err := registry.open(ctx, "studio", "window://catalog/connectors", &types.WindowTarget{Platform: "web"})
 		require.NoError(t, err)
-		require.NoError(t, registry.Bind(ctx, "new-client", "window-1", "studio", "window://datastudio/connectors", hash, variant))
+		require.NoError(t, registry.Bind(ctx, "new-client", "window-1", "studio", "window://catalog/connectors", hash, variant))
 		result, handled, err = registry.Fetch(ctx, "window-1", "connectors", nil, nil)
 		require.NoError(t, err)
 		require.True(t, handled)

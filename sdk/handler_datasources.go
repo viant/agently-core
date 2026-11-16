@@ -191,7 +191,7 @@ func statusForDatasourceErr(err error) int {
 	if status, ok := upstreamAuthStatusFromError(err); ok {
 		return status
 	}
-	if status, ok := upstreamInputStatusFromError(err); ok {
+	if status := upstreamTypedHTTPStatus(err); status != 0 {
 		return status
 	}
 	return http.StatusInternalServerError
@@ -208,6 +208,16 @@ func writeDatasourceError(w http.ResponseWriter, err error) {
 		}
 	}
 	switch status {
+	case http.StatusNotFound:
+		var producer interface {
+			HTTPStatusCode() int
+			HTTPErrorCode() string
+		}
+		if errors.As(err, &producer) && producer.HTTPStatusCode() == status && producer.HTTPErrorCode() == "not_found" {
+			httpJSON(w, status, map[string]string{"error": "Requested data was not found.", "code": "not_found"})
+			return
+		}
+		err = errors.New("The upstream service returned Not Found.")
 	case http.StatusGatewayTimeout:
 		err = context.DeadlineExceeded
 	case http.StatusServiceUnavailable:
@@ -289,7 +299,7 @@ func upstreamTypedHTTPStatus(err error) int {
 		}
 		return false
 	}
-	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusBadRequest, http.StatusUnprocessableEntity} {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusBadRequest, http.StatusUnprocessableEntity, http.StatusNotFound} {
 		if hasStatus(err, status) {
 			return status
 		}

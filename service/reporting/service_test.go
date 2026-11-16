@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/viant/agently-core/service/reporting/catalog"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -32,7 +33,7 @@ func TestOwningReportStoreRetainsCurrentOwnerAndInputs(t *testing.T) {
 	service := New(Options{Store: NewStoreAdapter(reportmemory.New())})
 	alice := authsvc.InjectUser(context.Background(), "alice")
 	bob := authsvc.InjectUser(context.Background(), "bob")
-	input := &SaveReportRequest{ReportID: "orders", Title: "Orders", ReportDocument: json.RawMessage(`{"kind":"reportDocument","id":"orders"}`), ReportSpec: json.RawMessage(validTestReportSpecJSON())}
+	input := &SaveReportRequest{ReportID: "records", Title: "Records", ReportDocument: json.RawMessage(`{"kind":"reportDocument","id":"records"}`), ReportSpec: json.RawMessage(validTestReportSpecJSON())}
 	before, err := json.Marshal(input)
 	require.NoError(t, err)
 	saved, err := service.SaveReport(alice, input)
@@ -51,7 +52,7 @@ func TestOwningReportStoreRetainsCurrentOwnerAndInputs(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 	current, err := service.GetSharedArtifact(alice, saved.ArtifactID)
 	require.NoError(t, err)
-	require.Equal(t, "Orders", current.Title)
+	require.Equal(t, "Records", current.Title)
 	_, err = service.UpdateReport(alice, &UpdateReportRequest{ArtifactID: saved.ArtifactID, Title: "Changed"})
 	require.NoError(t, err)
 	_, err = service.DeleteReport(alice, &DeleteReportRequest{ArtifactID: saved.ArtifactID})
@@ -708,14 +709,14 @@ func TestServiceSubmitExportResolvesReportSource(t *testing.T) {
 		ReportSpec:  json.RawMessage(validTestReportSpecJSON()),
 		ReportFill:  json.RawMessage(validTestReportFillJSON()),
 		ReportPrint: json.RawMessage(validTestReportPrintJSON()),
-		Metadata:    json.RawMessage(`{"workspaceId":"steward"}`),
+		Metadata:    json.RawMessage(`{"workspaceId":"example"}`),
 	})
 	require.NoError(t, err)
 
 	job, err := svc.SubmitExport(ctx, &SubmitExportRequest{
 		Format:         ExportFormatPDF,
 		ConversationID: "conv-1",
-		WorkspaceID:    "steward",
+		WorkspaceID:    "example",
 		Source: &ExportSource{
 			Kind:     "report",
 			ReportID: "forecastingQ3",
@@ -727,7 +728,7 @@ func TestServiceSubmitExportResolvesReportSource(t *testing.T) {
 	require.JSONEq(t, validTestReportPrintJSON(), string(job.ReportPrint))
 	require.JSONEq(t, validTestReportFillJSON(), string(job.ReportFill))
 	require.JSONEq(t, validTestReportSpecJSON(), string(job.ReportSpec))
-	require.JSONEq(t, `{"conversationId":"conv-1","workspaceId":"steward"}`, string(job.Metadata))
+	require.JSONEq(t, `{"conversationId":"conv-1","workspaceId":"example"}`, string(job.Metadata))
 }
 
 func TestServiceSubmitExportResolvesInlineSource(t *testing.T) {
@@ -746,7 +747,7 @@ func TestServiceSubmitExportResolvesInlineSource(t *testing.T) {
 	job, err := svc.SubmitExport(ctx, &SubmitExportRequest{
 		Format:         ExportFormatPDF,
 		ConversationID: "conv-inline",
-		WorkspaceID:    "steward",
+		WorkspaceID:    "example",
 		Source: &ExportSource{
 			Kind:        "inline",
 			ArtifactRef: "report://inline/test",
@@ -762,15 +763,15 @@ func TestServiceSubmitExportResolvesInlineSource(t *testing.T) {
 	require.JSONEq(t, validTestReportPrintJSON(), string(job.ReportPrint))
 	require.JSONEq(t, validTestReportFillJSON(), string(job.ReportFill))
 	require.JSONEq(t, validTestReportSpecJSON(), string(job.ReportSpec))
-	require.JSONEq(t, `{"conversationId":"conv-inline","workspaceId":"steward","source":"inline"}`, string(job.Metadata))
+	require.JSONEq(t, `{"conversationId":"conv-inline","workspaceId":"example","source":"inline"}`, string(job.Metadata))
 }
 
 func TestServiceInlineReportLifecycleRequiresAuthAndCleanCanonicalArtifacts(t *testing.T) {
 	svc := New(Options{Store: NewStoreAdapter(reportmemory.New())})
 	request := &SaveReportRequest{
-		ReportID:       "inline-delivery",
-		Title:          "Inline delivery",
-		ReportDocument: json.RawMessage(`{"kind":"reportDocument","id":"inline-delivery"}`),
+		ReportID:       "inline-activity",
+		Title:          "Inline activity",
+		ReportDocument: json.RawMessage(`{"kind":"reportDocument","id":"inline-activity"}`),
 		ReportSpec:     json.RawMessage(validTestReportSpecJSON()),
 		CompileState:   json.RawMessage(`{"status":"clean"}`),
 		Metadata:       json.RawMessage(`{"source":"inline","scope":"message","reusableDataSources":true,"resolvedDataSourceRefs":["demo"]}`),
@@ -807,7 +808,7 @@ func TestServiceInlineReportLifecycleRequiresAuthAndCleanCanonicalArtifacts(t *t
 	require.EqualError(t, err, `report store: inline promotion dataset "rows" is not backed by a reusable workspace data source`)
 
 	snapshot := *request
-	snapshot.ReportDocument = json.RawMessage(`{"kind":"reportDocument","id":"inline-delivery","datasets":[{"id":"rows","rows":[{"spend":404}]}]}`)
+	snapshot.ReportDocument = json.RawMessage(`{"kind":"reportDocument","id":"inline-activity","datasets":[{"id":"rows","rows":[{"cost":404}]}]}`)
 	snapshot.ReportSpec = json.RawMessage(`{"kind":"reportSpec","datasets":[{"id":"rows","dataSourceRef":"static_json_rows","request":{"kind":"staticJson"}}]}`)
 	snapshot.Metadata = json.RawMessage(`{"source":"inline_snapshot","reusableDataSources":false,"materializedDatasetIds":["rows"]}`)
 	snapshotSaved, err := svc.SaveReport(ctx, &snapshot)
@@ -847,7 +848,7 @@ func TestServiceSaveReportNormalizesToolJSONAndGeneratesReopenIdentity(t *testin
 		},
 	})
 	ctx := authsvc.InjectUser(context.Background(), "owner-tool")
-	document := `{"title":"Generated delivery review","blocks":[]}`
+	document := `{"title":"Generated activity review","blocks":[]}`
 	spec := `{"kind":"reportSpec","datasets":[],"blocks":[]}`
 
 	saved, err := svc.SaveReport(ctx, &SaveReportRequest{
@@ -856,7 +857,7 @@ func TestServiceSaveReportNormalizesToolJSONAndGeneratesReopenIdentity(t *testin
 	})
 	require.NoError(t, err)
 	require.Equal(t, "generated-1", saved.ReportID)
-	require.Equal(t, "Generated delivery review", saved.Title)
+	require.Equal(t, "Generated activity review", saved.Title)
 	require.JSONEq(t, document, string(saved.Document))
 	require.JSONEq(t, spec, string(saved.ReportSpec))
 
@@ -880,22 +881,22 @@ func TestServiceSavedReportCatalogLifecycle(t *testing.T) {
 	})
 	ownerCtx := authsvc.InjectUser(context.Background(), "catalog-owner")
 	saved, err := svc.SaveReport(ownerCtx, &SaveReportRequest{
-		ReportID:       "delivery-review",
-		Title:          "Delivery review",
-		ReportDocument: json.RawMessage(`{"id":"delivery-review","scopeParams":{"orderIds":[2672373],"dateRange":{"from":"2026-07-20","to":"2026-07-26"}}}`),
+		ArtifactRef:    "report://sample/review",
+		ReportID:       "activity-review",
+		Title:          "Activity review",
+		ReportDocument: json.RawMessage(`{"id":"activity-review","scope":{"params":[{"id":"batch","value":[23]}]}}`),
 		ReportSpec:     json.RawMessage(`{"kind":"reportSpec","blocks":[]}`),
-		Metadata:       json.RawMessage(`{"builderRef":"metricsCubeBuilder"}`),
+		Metadata:       json.RawMessage(`{"builderRef":"sampleBuilder","defaultFrom":"2026-07-20","defaultTo":"2026-07-26","reportType":"Activity report"}`),
 	})
 	require.NoError(t, err)
 
-	listed, err := svc.ListReports(ownerCtx, &ListReportsInput{OrderID: "2672373", Limit: 10})
+	listed, err := svc.ListReports(ownerCtx, &ListReportsInput{Namespace: "sample", Scope: &catalog.ScopeFilter{Key: "batch", Value: json.RawMessage("23")}, Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, listed.Reports, 1)
-	require.Equal(t, []string{"2672373"}, listed.Reports[0].OrderIDs)
 	require.Equal(t, "2026-07-20", listed.Reports[0].DefaultFrom)
 	require.Equal(t, "2026-07-26", listed.Reports[0].DefaultTo)
 	require.Equal(t, "catalog-owner", listed.Reports[0].OwnerID)
-	require.Equal(t, "Performance report", listed.Reports[0].ReportType)
+	require.Equal(t, "Activity report", listed.Reports[0].ReportType)
 
 	ranAt := now.Add(time.Hour)
 	recorded, err := svc.RecordReportRun(ownerCtx, &RecordReportRunRequest{
@@ -909,7 +910,7 @@ func TestServiceSavedReportCatalogLifecycle(t *testing.T) {
 		ArtifactID: saved.ArtifactID,
 	})
 	require.NoError(t, err)
-	require.Equal(t, "Copy of Delivery review", duplicated.Title)
+	require.Equal(t, "Copy of Activity review", duplicated.Title)
 	require.NotEqual(t, saved.ArtifactID, duplicated.ArtifactID)
 	require.NotEqual(t, saved.ReportID, duplicated.ReportID)
 
@@ -942,11 +943,11 @@ func TestServiceSubmitExportResolvesPresetSource(t *testing.T) {
 	job, err := svc.SubmitExport(ctx, &SubmitExportRequest{
 		Format:         ExportFormatPDF,
 		ConversationID: "conv-preset",
-		WorkspaceID:    "steward",
+		WorkspaceID:    "example",
 		Source: &ExportSource{
 			Kind:        "preset",
-			WindowKey:   "metricReportBuilder",
-			PresetID:    "performance_inventory_brief",
+			WindowKey:   "sampleBuilder",
+			PresetID:    "weekly_activity",
 			ReportSpec:  json.RawMessage(validTestReportSpecJSON()),
 			ReportFill:  json.RawMessage(validTestReportFillJSON()),
 			ReportPrint: json.RawMessage(validTestReportPrintJSON()),
@@ -955,11 +956,11 @@ func TestServiceSubmitExportResolvesPresetSource(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, ExportScopeDraft, job.Scope)
-	require.Equal(t, "report://preset/metricReportBuilder/performance_inventory_brief", job.ArtifactRef)
+	require.Equal(t, "report://preset/sampleBuilder/weekly_activity", job.ArtifactRef)
 	require.JSONEq(t, validTestReportPrintJSON(), string(job.ReportPrint))
 	require.JSONEq(t, validTestReportFillJSON(), string(job.ReportFill))
 	require.JSONEq(t, validTestReportSpecJSON(), string(job.ReportSpec))
-	require.JSONEq(t, `{"conversationId":"conv-preset","workspaceId":"steward","source":"preset-runtime","sourceKind":"preset","windowKey":"metricReportBuilder","presetId":"performance_inventory_brief"}`, string(job.Metadata))
+	require.JSONEq(t, `{"conversationId":"conv-preset","workspaceId":"example","source":"preset-runtime","sourceKind":"preset","windowKey":"sampleBuilder","presetId":"weekly_activity"}`, string(job.Metadata))
 }
 
 func TestServiceSubmitExportPresetSourceRequiresMaterializedArtifacts(t *testing.T) {
@@ -972,8 +973,8 @@ func TestServiceSubmitExportPresetSourceRequiresMaterializedArtifacts(t *testing
 		Format: ExportFormatPDF,
 		Source: &ExportSource{
 			Kind:      "preset",
-			WindowKey: "metricReportBuilder",
-			PresetID:  "performance_inventory_brief",
+			WindowKey: "sampleBuilder",
+			PresetID:  "weekly_activity",
 		},
 	})
 	require.EqualError(t, err, "reporting export: preset source requires a materialized reportPrint for pdf export")
@@ -1603,15 +1604,15 @@ func TestServiceSubmitExportPersistsMetadataAndDerivedAuthContextRef(t *testing.
 	})
 	ctx := authsvc.InjectUser(context.Background(), "user-1")
 	envelope := validTestReportExportRequestEnvelope()
-	envelope.Metadata = json.RawMessage(`{"conversationId":"conv-123","workspaceId":"steward","renderHints":{"theme":"print"}}`)
+	envelope.Metadata = json.RawMessage(`{"conversationId":"conv-123","workspaceId":"example","renderHints":{"theme":"print"}}`)
 
 	job, err := svc.SubmitExport(ctx, &SubmitExportRequest{
 		ReportExportRequest: envelope,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "conv-123", job.ConversationID)
-	require.Equal(t, "steward", job.WorkspaceID)
-	require.JSONEq(t, `{"conversationId":"conv-123","workspaceId":"steward","renderHints":{"theme":"print"}}`, string(job.Metadata))
+	require.Equal(t, "example", job.WorkspaceID)
+	require.JSONEq(t, `{"conversationId":"conv-123","workspaceId":"example","renderHints":{"theme":"print"}}`, string(job.Metadata))
 	require.Contains(t, job.AuthContextRef, "actor=user-1")
 }
 
@@ -1773,9 +1774,9 @@ func TestServiceValidatesExportArtifactsByFormat(t *testing.T) {
 			Source: ReportExportSource{
 				From:             "preset",
 				ArtifactKind:     "reportBuilder.reportTemplate",
-				ArtifactRef:      "reportBuilder.reportTemplate://metricReportBuilder:performance_inventory_brief",
+				ArtifactRef:      "reportBuilder.reportTemplate://sampleBuilder:weekly_activity",
 				Title:            "Performance Inventory Brief",
-				SourceArtifactID: "performance_inventory_brief",
+				SourceArtifactID: "weekly_activity",
 			},
 			ReportSpec:  json.RawMessage(validTestReportSpecJSON()),
 			ReportFill:  json.RawMessage(validTestReportFillJSON()),
@@ -1784,7 +1785,7 @@ func TestServiceValidatesExportArtifactsByFormat(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, ExportScopeDraft, job.Scope)
-	require.Equal(t, "reportBuilder.reportTemplate://metricReportBuilder:performance_inventory_brief", job.ArtifactRef)
+	require.Equal(t, "reportBuilder.reportTemplate://sampleBuilder:weekly_activity", job.ArtifactRef)
 }
 
 func TestServiceRunExportUsesConfiguredExporter(t *testing.T) {
@@ -1816,11 +1817,11 @@ func TestServiceRunExportUsesConfiguredExporter(t *testing.T) {
 		Format:         ExportFormatPDF,
 		Scope:          ExportScopeDraft,
 		ConversationID: "conv-456",
-		WorkspaceID:    "steward",
+		WorkspaceID:    "example",
 		ReportSpec:     json.RawMessage(validTestReportSpecJSON()),
 		ReportFill:     json.RawMessage(validTestReportFillJSON()),
 		ReportPrint:    json.RawMessage(validTestReportPrintJSON()),
-		Metadata:       json.RawMessage(`{"conversationId":"conv-456","workspaceId":"steward","renderHints":{"page":"landscape"}}`),
+		Metadata:       json.RawMessage(`{"conversationId":"conv-456","workspaceId":"example","renderHints":{"page":"landscape"}}`),
 	})
 	require.NoError(t, err)
 
@@ -1834,9 +1835,9 @@ func TestServiceRunExportUsesConfiguredExporter(t *testing.T) {
 	require.Equal(t, ExportScopeDraft, exporter.request.Scope)
 	require.Equal(t, "owner-1", exporter.request.OwnerID)
 	require.Equal(t, "conv-456", exporter.request.ConversationID)
-	require.Equal(t, "steward", exporter.request.WorkspaceID)
+	require.Equal(t, "example", exporter.request.WorkspaceID)
 	require.Contains(t, exporter.request.AuthContextRef, "actor=owner-1")
-	require.JSONEq(t, `{"conversationId":"conv-456","workspaceId":"steward","renderHints":{"page":"landscape"}}`, string(exporter.request.Metadata))
+	require.JSONEq(t, `{"conversationId":"conv-456","workspaceId":"example","renderHints":{"page":"landscape"}}`, string(exporter.request.Metadata))
 	require.JSONEq(t, validTestReportPrintJSON(), string(exporter.request.ReportPrint))
 	require.JSONEq(t, validTestReportFillJSON(), string(exporter.request.ReportFill))
 	require.JSONEq(t, validTestReportSpecJSON(), string(exporter.request.ReportSpec))
@@ -2781,30 +2782,30 @@ func validRenderableTestReportFillJSON() string {
 			"dataSourceRef": "demo",
 			"request": {"limit": 25, "offset": 0},
 			"provenance": {"requestHash":"fnv1a:9702fdec","rowCount":2,"truncated":false,"hasMore":false,"diagnostics":[]},
-			"rows": [{"channel":"Display","spend":42.5},{"channel":"CTV","spend":30}]
+			"rows": [{"group":"Alpha","cost":42.5},{"group":"Beta","cost":30}]
 		}],
 		"blocks": [{
 			"id":"primaryTable",
 			"kind":"tableBlock",
 			"datasetRef":"primary",
 			"columns":[
-				{"key":"channel","label":"Channel"},
-				{"key":"spend","label":"Spend","format":"currency"}
+				{"key":"group","label":"Group"},
+				{"key":"cost","label":"Cost","format":"currency"}
 			],
 			"content":{
 				"columns":[
-					{"key":"channel","label":"Channel"},
-					{"key":"spend","label":"Spend","format":"currency"}
+					{"key":"group","label":"Group"},
+					{"key":"cost","label":"Cost","format":"currency"}
 				],
 				"rowCount":2,
 				"resolvedRows":[
 					{"rowIndex":0,"cells":[
-						{"key":"channel","sourceKey":"channel","displayKey":"channel","value":"Display","displayValue":"Display","visualState":null},
-						{"key":"spend","sourceKey":"spend","displayKey":"spend","value":42.5,"displayValue":"$42.50","visualState":null}
+						{"key":"group","sourceKey":"group","displayKey":"group","value":"Alpha","displayValue":"Alpha","visualState":null},
+						{"key":"cost","sourceKey":"cost","displayKey":"cost","value":42.5,"displayValue":"$42.50","visualState":null}
 					]},
 					{"rowIndex":1,"cells":[
-						{"key":"channel","sourceKey":"channel","displayKey":"channel","value":"CTV","displayValue":"CTV","visualState":null},
-						{"key":"spend","sourceKey":"spend","displayKey":"spend","value":30,"displayValue":"$30.00","visualState":null}
+						{"key":"group","sourceKey":"group","displayKey":"group","value":"Beta","displayValue":"Beta","visualState":null},
+						{"key":"cost","sourceKey":"cost","displayKey":"cost","value":30,"displayValue":"$30.00","visualState":null}
 					]}
 				]
 			}
@@ -2828,7 +2829,7 @@ func validTestReportFillJSONWithSpecVersion(specVersion int) string {
 			"dataSourceRef": "demo",
 			"request": {"limit": 25, "offset": 0},
 			"provenance": {"requestHash":"fnv1a:9702fdec","rowCount":1,"truncated":false,"hasMore":false,"diagnostics":[]},
-			"rows": [{"channel":"Display"}]
+			"rows": [{"group":"Alpha"}]
 		}],
 		"blocks": [{"id":"primaryTable","kind":"tableBlock"}],
 		"diagnostics": []

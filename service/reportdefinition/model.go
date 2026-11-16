@@ -220,8 +220,7 @@ func (f DatasetFetcherFunc) FetchDataset(ctx context.Context, request FetchReque
 }
 
 // Result exposes both the Forge authoring source and its canonical outputs.
-// ReportDocument, ReportSpec, ReportFill, and ReportPrint can be handed directly
-// to the AI Studio reporting/export flow.
+// Hosts can render and export ReportDocument, ReportSpec, ReportFill, and ReportPrint.
 type Result struct {
 	Source         json.RawMessage `json:"source"`
 	ReportDocument json.RawMessage `json:"reportDocument"`

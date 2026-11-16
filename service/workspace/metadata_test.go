@@ -84,7 +84,7 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 		},
 	}
 	handler := NewMetadataHandler(&config.Defaults{
-		AppName:    "Steward",
+		AppName:    "Library",
 		AppIconRef: "builtin:viant",
 		Agent:      "chatter",
 		Model:      "openai_gpt4o_mini",
@@ -109,13 +109,13 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	assert.NotEmpty(t, response.WorkspaceRoot)
 	assert.Equal(t, "0.0.0", response.WorkspaceVersion)
 	assert.NotEmpty(t, response.MetadataVersion)
-	assert.Equal(t, "Steward", response.AppName)
+	assert.Equal(t, "Library", response.AppName)
 	assert.Equal(t, "builtin:viant", response.AppIconRef)
 	assert.Equal(t, "chatter", response.DefaultAgent)
 	assert.Equal(t, "openai_gpt4o_mini", response.DefaultModel)
 	assert.Equal(t, "openai_text", response.DefaultEmbedder)
 	if assert.NotNil(t, response.Defaults) {
-		assert.Equal(t, "Steward", response.Defaults.AppName)
+		assert.Equal(t, "Library", response.Defaults.AppName)
 		assert.Equal(t, "builtin:viant", response.Defaults.AppIconRef)
 		assert.Equal(t, "chatter", response.Defaults.Agent)
 		assert.Equal(t, "openai_gpt4o_mini", response.Defaults.Model)
@@ -153,7 +153,7 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 func TestMetadataHandler_PublicAgents(t *testing.T) {
 	store := &metadataTestStore{items: map[string]map[string][]byte{
 		ws.KindAgent: {
-			"steward": []byte("id: steward\nname: Steward\n"),
+			"library": []byte("id: library\nname: Library\n"),
 			"planner": []byte("id: planner\nname: Planner\ninternal: true\n"),
 		},
 	}}
@@ -169,7 +169,7 @@ func TestMetadataHandler_PublicAgents(t *testing.T) {
 	var response PublicAgentsResponse
 	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
 	if assert.Len(t, response.AgentInfos, 1) {
-		assert.Equal(t, "steward", response.AgentInfos[0].ID)
+		assert.Equal(t, "library", response.AgentInfos[0].ID)
 	}
 }
 

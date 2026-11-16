@@ -23,7 +23,7 @@ func (*layoutCatalogFixture) WithoutMetadataRead(ctx context.Context) context.Co
 func (f *layoutCatalogFixture) WindowDefinitionsList(_ context.Context, input *forgeservice.WindowDefinitionListInput) (*forgeservice.WindowDefinitionListOutput, error) {
 	f.pages++
 	if input.Offset == 0 {
-		return &forgeservice.WindowDefinitionListOutput{Windows: []forgeservice.WindowDefinitionSummary{{WindowID: "reports", ResourceURI: "window://steward/reports"}}, HasMore: true}, nil
+		return &forgeservice.WindowDefinitionListOutput{Windows: []forgeservice.WindowDefinitionSummary{{WindowID: "reports", ResourceURI: "window://library/reports"}}, HasMore: true}, nil
 	}
 	return &forgeservice.WindowDefinitionListOutput{Windows: []forgeservice.WindowDefinitionSummary{{WindowID: "chat/new", ResourceURI: "window://agently/chat-new"}}}, nil
 }

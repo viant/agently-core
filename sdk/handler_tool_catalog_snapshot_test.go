@@ -21,13 +21,13 @@ import (
 type httpToolSnapshotProvider struct{ endpoint string }
 
 func (p *httpToolSnapshotProvider) Names(context.Context) ([]string, error) {
-	return []string{"steward"}, nil
+	return []string{"private-catalog"}, nil
 }
 func (p *httpToolSnapshotProvider) Options(context.Context, string) (*cfg.MCPClient, error) {
 	return &cfg.MCPClient{ToolsListVisibility: cfg.ToolsListVisibilityPrivate, OutputArtifacts: map[string]cfg.OutputArtifact{"Download": {Name: "file.xlsx"}}, ClientOptions: &mcp.ClientOptions{Name: "fixture", ProtocolVersion: "2025-11-25", Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: p.endpoint}}, Auth: &mcp.ClientAuth{UseIdToken: true}}}, nil
 }
 func TestHTTPToolsListingHonorsPrivateZeroTTLAcrossRequests(t *testing.T) {
-	t.Setenv("AGENTLY_MCP_SERVERS", "steward")
+	t.Setenv("AGENTLY_MCP_SERVERS", "private-catalog")
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

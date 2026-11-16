@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"github.com/viant/agently-core/internal/testutil/catalogfixture"
 	identity "github.com/viant/forge/backend/resource"
 	"github.com/viant/forge/backend/types"
 	"os"
@@ -12,10 +13,7 @@ import (
 )
 
 func TestLookupOriginalWorkspaceDefinitionsRemainCompatible(t *testing.T) {
-	root := os.Getenv("AGENTLY_STEWARD_FIXTURE_ROOT")
-	if root == "" {
-		t.Skip("explicit read-only original workspace fixture not supplied")
-	}
+	root := catalogfixture.New(t)
 	definitions, err := SnapshotExtensionDefinitions(context.Background(), root, []ExtensionDirectory{LookupDirectory("workspace", "extension/forge/lookups")})
 	require.NoError(t, err)
 	require.NotEmpty(t, definitions)

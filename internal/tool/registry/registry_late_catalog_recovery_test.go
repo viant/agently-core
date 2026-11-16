@@ -21,7 +21,7 @@ func TestEmptyAnonymousCatalogAllowsAuthenticatedRecovery(t *testing.T) {
 			expected := schema.Tool{Name: "SampleMetrics", InputSchema: schema.ToolInputSchema{Type: "object", Required: []string{"From"}, Properties: schema.ToolInputSchemaProperties{"From": {"type": "string"}}}}
 			stub := &discoveryManagerStub{options: &config.MCPClient{}, reconnectFunc: func(string, string) (client.Interface, error) { return &discoveryListClient{}, nil }}
 			stub.getFunc = func(scope, server string) (client.Interface, error) {
-				if scope == "mcp-discovery:steward:background" {
+				if scope == "mcp-discovery:guide:background" {
 					anonymousCalls++
 					if anonymousCalls == 1 {
 						return nil, errors.New("dial tcp: connection refused")
@@ -38,23 +38,23 @@ func TestEmptyAnonymousCatalogAllowsAuthenticatedRecovery(t *testing.T) {
 			}
 			reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}, discoveryFailTTL: time.Nanosecond}
 			bg := discovery.WithBackground(context.Background())
-			if _, err := reg.listServerTools(bg, "steward"); err != nil {
+			if _, err := reg.listServerTools(bg, "guide"); err != nil {
 				t.Fatal(err)
 			}
 			time.Sleep(time.Millisecond)
-			if tools, err := reg.listServerTools(bg, "steward"); err != nil || len(tools) != 0 {
+			if tools, err := reg.listServerTools(bg, "guide"); err != nil || len(tools) != 0 {
 				t.Fatalf("empty recovery: %v %v", tools, err)
 			}
-			if got := reg.toolCatalogVisibility(bg, "steward"); got != "" {
+			if got := reg.toolCatalogVisibility(bg, "guide"); got != "" {
 				t.Fatalf("empty anonymous catalog classified %q", got)
 			}
 			owner := requestctx.WithConversationID(discoveryUserContext(), "conv-owner")
-			tools, err := reg.listServerTools(owner, "steward")
+			tools, err := reg.listServerTools(owner, "guide")
 			if err != nil || len(tools) != 1 || !reflect.DeepEqual(tools[0].InputSchema, expected.InputSchema) {
 				t.Fatalf("authenticated schema recovery: %v %v", tools, err)
 			}
 			other := requestctx.WithConversationID(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "other-user"}), "conv-other")
-			otherTools, err := reg.listServerTools(other, "steward")
+			otherTools, err := reg.listServerTools(other, "guide")
 			if err != nil || len(otherTools) != 1 || otherTools[0].Name != "OtherPrincipal" {
 				t.Fatalf("principal isolation: %v %v", otherTools, err)
 			}

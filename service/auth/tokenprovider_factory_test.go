@@ -198,18 +198,18 @@ func TestOAuthRefreshBroker_Refresh_SendsStoredScopes(t *testing.T) {
 func TestOAuthRefreshBroker_Refresh_DropsExpiredStoredIDToken(t *testing.T) {
 	expiredIDToken := fakeJWTWithClaims(t, map[string]any{
 		"exp":   time.Now().Add(-time.Minute).Unix(),
-		"scope": "ROLE_STEWARD_WEB openid",
+		"scope": "ROLE_EXAMPLE_WEB openid",
 	})
 	ctx := tokenEndpointContext(t, func(values url.Values) {
-		if got := strings.TrimSpace(values.Get("scope")); got != "ROLE_STEWARD_WEB openid" {
-			t.Fatalf("scope = %q, want persisted Steward scope", got)
+		if got := strings.TrimSpace(values.Get("scope")); got != "ROLE_EXAMPLE_WEB openid" {
+			t.Fatalf("scope = %q, want persisted Guide scope", got)
 		}
 	})
 	broker := &oauthRefreshBroker{
 		configURL: writeBrokerOAuthConfig(t),
 		client: &OAuthClient{
 			Scopes:      []string{"openid", "profile", "email"},
-			WebUIScopes: []string{"ROLE_STEWARD_WEB"},
+			WebUIScopes: []string{"ROLE_EXAMPLE_WEB"},
 		},
 		store: &brokerStoreStub{token: &OAuthToken{
 			Username:     "user-1",
@@ -262,7 +262,7 @@ func TestOAuthRefreshBroker_Refresh_RejectsUnderScopedCandidate(t *testing.T) {
 	broker := &oauthRefreshBroker{
 		configURL: writeBrokerOAuthConfig(t),
 		client: &OAuthClient{
-			Scopes: []string{"openid", "ROLE_STEWARD_WEB"},
+			Scopes: []string{"openid", "ROLE_EXAMPLE_WEB"},
 		},
 		store: store,
 	}

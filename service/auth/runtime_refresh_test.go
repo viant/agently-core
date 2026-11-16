@@ -349,7 +349,7 @@ func TestRuntimeRefresh_ScopeFailedCandidateIsNotStoredOrInjected(t *testing.T) 
 	}))
 	defer server.Close()
 	store := &runtimeRefreshTestStore{acquired: true}
-	client := &OAuthClient{Scopes: []string{"openid", "ROLE_STEWARD_WEB"}}
+	client := &OAuthClient{Scopes: []string{"openid", "ROLE_EXAMPLE_WEB"}}
 	runtime, sess := runtimeRefreshHarness(writeRuntimeRefreshOAuthConfig(t, server.URL), client, store)
 
 	if got := runtime.tryRefreshToken(context.Background(), sess); got.state != tokenPreserveWithoutInjection {

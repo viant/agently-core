@@ -11,9 +11,9 @@ import (
 	"testing"
 )
 
-func TestLayoutMenuBindingPreservesCurrentStewardDefinition(t *testing.T) {
+func TestLayoutMenuBindingPreservesCurrentLibraryDefinition(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "layout.yaml")
-	original := []byte("version: 1\ntopbar: {actions: [{id: hidden, action: {type: window, windowKey: hiddenTopbar}}]}\napplications:\n  - id: steward\n    title: Workspace\n    icon: applications\n    className: steward-navigation\n    menus:\n      - id: advertisers\n        title: Advertisers\n        icon: office\n        className: steward-nav-advertisers\n        action: {type: window, windowKey: advertiserList, parameters: {page: 1}}\n      - id: campaigns\n        title: Campaigns\n        icon: timeline-events\n        className: steward-nav-campaigns\n        action: {type: window, windowKey: campaignList}\n")
+	original := []byte("version: 1\ntopbar: {actions: [{id: hidden, action: {type: window, windowKey: hiddenTopbar}}]}\napplications:\n  - id: library\n    title: Workspace\n    icon: applications\n    className: library-navigation\n    menus:\n      - id: collections\n        title: Collections\n        icon: office\n        className: library-nav-collections\n        action: {type: window, windowKey: collectionList, parameters: {page: 1}}\n      - id: entries\n        title: Entries\n        icon: timeline-events\n        className: library-nav-entries\n        action: {type: window, windowKey: entryList}\n")
 	require.NoError(t, os.WriteFile(path, original, 0600))
 	p, _, actor, _ := menuFixtureProvider(t)
 	binding, err := LayoutMenuBinding(path, "navigation://team/navigation", p.ProviderIdentity(), func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) (identity.ResourceRevisionPolicy, error) {
@@ -24,8 +24,8 @@ func TestLayoutMenuBindingPreservesCurrentStewardDefinition(t *testing.T) {
 	got, err := p.Get(context.Background(), "navigation", primitive.GetRequest{URI: binding.URI})
 	require.NoError(t, err)
 	visible := string(got.MenuProjection.DefinitionBytes)
-	require.Contains(t, visible, "advertiserList")
-	require.Contains(t, visible, "campaignList")
+	require.Contains(t, visible, "collectionList")
+	require.Contains(t, visible, "entryList")
 	require.Contains(t, visible, `"parameters":{"page":1}`)
 	require.NotContains(t, visible, "hiddenTopbar")
 	after, err := os.ReadFile(path)

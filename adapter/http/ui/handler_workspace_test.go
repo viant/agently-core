@@ -634,7 +634,7 @@ view:
 
 	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "metricReportBuilder.js"), `
 (() => ({
-  stewardReportBuilder: {
+  libraryReportBuilder: {
     buildRequest() {
       return {};
     },

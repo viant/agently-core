@@ -46,7 +46,7 @@ func TestAuthenticatedCatalogMetadataIsDefaultVisibleWithDeclaredRequirements(t 
 		source := metadataSource{}
 		uris := map[string]string{}
 		for _, id := range []string{"baseline", "role", "feature"} {
-			uri := "window://steward/" + id
+			uri := "window://library/" + id
 			uris[id] = uri
 			mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", id+".yaml"), "id: "+id+"\nwindowKey: "+id+"\ntitle: "+id+"\n")
 			entries = append(entries, forgeuisvc.SavedWindow{WindowDefinitionSummary: forgeuisvc.WindowDefinitionSummary{WindowID: id, Title: id, ResourceURI: uri}, Key: id})
@@ -124,14 +124,14 @@ func TestCanonicalCatalogIDsKeepSharedRendererResourcesIndependent(t *testing.T)
 		entries := []forgeuisvc.SavedWindow{}
 		source := metadataSource{}
 		for _, id := range []string{"forecastingCubeBuilder", "metricReportBuilder", "reportBuilder"} {
-			uri := "window://steward/" + id
+			uri := "window://library/" + id
 			entries = append(entries, forgeuisvc.SavedWindow{WindowDefinitionSummary: forgeuisvc.WindowDefinitionSummary{WindowID: id, Title: id, ResourceURI: uri}, Key: id})
 			source[uri] = json.RawMessage(`{"windowKey":"reportBuilder","view":{"content":{"id":"` + id + `"}}}`)
 		}
 		policy := catalogAliasPolicy{denied: "metricReportBuilder"}
 		resolver := &identity.ResourceResolver{Source: source, Policy: policy}
 		catalog, err := forgeuisvc.NewMetadataWindowCatalog(meta.New(afs.New(), root), root, entries, forgeuisvc.WithWindowResourceResolver(func(_ context.Context, id string) (*identity.ResourceResolver, identity.ResourceRef, error) {
-			return resolver, identity.ResourceRef{URI: "window://steward/" + id}, nil
+			return resolver, identity.ResourceRef{URI: "window://library/" + id}, nil
 		}))
 		if err != nil {
 			t.Fatal(err)
@@ -142,14 +142,14 @@ func TestCanonicalCatalogIDsKeepSharedRendererResourcesIndependent(t *testing.T)
 			t.Fatalf("distinct canonical catalog=%+v %v", items, err)
 		}
 		for _, item := range items {
-			if item.ID == "metricReportBuilder" || item.WindowKey != item.ID || item.Resource.URI != "window://steward/"+item.ID {
+			if item.ID == "metricReportBuilder" || item.WindowKey != item.ID || item.Resource.URI != "window://library/"+item.ID {
 				t.Fatalf("renderer alias replaced identity: %+v", item)
 			}
 		}
 		if _, err := service.loadRequested(context.Background(), "metricReportBuilder", nil); err == nil {
 			t.Fatal("denied exact ID fell through allowed reportBuilder renderer")
 		}
-		item, err := service.loadRequested(context.Background(), "forecastingCubeBuilder", &identity.ResourceRef{URI: "window://steward/forecastingCubeBuilder", Revision: identity.WorkingCandidate})
+		item, err := service.loadRequested(context.Background(), "forecastingCubeBuilder", &identity.ResourceRef{URI: "window://library/forecastingCubeBuilder", Revision: identity.WorkingCandidate})
 		if err != nil || item.WindowKey != "forecastingCubeBuilder" {
 			t.Fatalf("trusted exact catalog mapping=%+v %v", item, err)
 		}
@@ -159,7 +159,7 @@ func TestCanonicalCatalogIDsKeepSharedRendererResourcesIndependent(t *testing.T)
 type catalogAliasPolicy struct{ denied string }
 
 func (p catalogAliasPolicy) SelectRevision(_ context.Context, ref identity.ResourceRef, candidates []identity.ResourceCandidate) (identity.ResourceDecision, error) {
-	if ref.URI == "window://steward/"+p.denied {
+	if ref.URI == "window://library/"+p.denied {
 		return identity.ResourceDecision{}, identity.ErrResourceDenied
 	}
 	return identity.ResourceDecision{Candidate: candidates[0], AuthorityBinding: "alice/account/revision", ValidUntil: time.Now().Add(time.Minute)}, nil

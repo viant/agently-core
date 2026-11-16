@@ -213,7 +213,7 @@ final class AgentlySDKTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
         configuration.httpCookieStorage = HTTPCookieStorage()
-        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "https://steward.agently.viantinc.com")))
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "https://runtime.example.invalid")))
         let storage = MemoryCookieStorage()
         let firstClient = AgentlyClient(
             endpoints: ["appAPI": endpoint],
@@ -255,7 +255,7 @@ final class AgentlySDKTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
         configuration.httpCookieStorage = HTTPCookieStorage()
-        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "https://steward.agently.viantinc.com")))
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "https://runtime.example.invalid")))
         let storage = MemoryCookieStorage()
         let client = AgentlyClient(
             endpoints: ["appAPI": endpoint],
@@ -2408,7 +2408,7 @@ final class AgentlySDKTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
         configuration.httpCookieStorage = HTTPCookieStorage()
-        let baseURL = try XCTUnwrap(URL(string: "https://steward.agently.viantinc.com"))
+        let baseURL = try XCTUnwrap(URL(string: "https://runtime.example.invalid"))
         let endpoint = EndpointConfig(baseURL: baseURL)
         let store = AgentlyPersistentSessionCookieStore(storage: MemoryCookieStorage())
         let cookieResponse = try XCTUnwrap(HTTPURLResponse(

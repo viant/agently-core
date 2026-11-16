@@ -84,8 +84,8 @@ func canonicalLifecycleFixture(t *testing.T, root string) (*Service, *forgeuisvc
 	policy := &lifecyclePolicy{binding: "alice/account/identity-1", omitted: "forbidden-default", allowed: true}
 	source := &lifecycleSource{raw: map[string]json.RawMessage{"1": json.RawMessage(`{"windowKey":"overview","view":{"content":{"id":"approved-stamp"}},"dataSource":{"rows":{}}}`), identity.WorkingCandidate: json.RawMessage(`{"windowKey":"overview","view":{"content":{"id":"approved-working"}},"dataSource":{"rows":{}}}`)}}
 	resolver := &identity.ResourceResolver{Source: source, Policy: policy}
-	catalog, err := forgeuisvc.NewMetadataWindowCatalog(meta.New(afs.New(), root), root, []forgeuisvc.SavedWindow{{WindowDefinitionSummary: forgeuisvc.WindowDefinitionSummary{WindowID: "overview", Title: "Overview", ResourceURI: "window://steward/overview"}, Key: "must-not-load-latest"}}, forgeuisvc.WithWindowResourceResolver(func(context.Context, string) (*identity.ResourceResolver, identity.ResourceRef, error) {
-		return resolver, identity.ResourceRef{URI: "window://steward/overview"}, nil
+	catalog, err := forgeuisvc.NewMetadataWindowCatalog(meta.New(afs.New(), root), root, []forgeuisvc.SavedWindow{{WindowDefinitionSummary: forgeuisvc.WindowDefinitionSummary{WindowID: "overview", Title: "Overview", ResourceURI: "window://library/overview"}, Key: "must-not-load-latest"}}, forgeuisvc.WithWindowResourceResolver(func(context.Context, string) (*identity.ResourceResolver, identity.ResourceRef, error) {
+		return resolver, identity.ResourceRef{URI: "window://library/overview"}, nil
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestExistingUIRoutesKeepHistoricalPinAndRecheckArchivedEvents(t *testing.T)
 		if err := views.list(ctx, &ListInput{}, listed); err != nil || len(listed.Items) != 0 {
 			t.Fatalf("omitted denial list=%+v %v", listed, err)
 		}
-		ref := &identity.ResourceRef{URI: "window://steward/overview", Revision: "1"}
+		ref := &identity.ResourceRef{URI: "window://library/overview", Revision: "1"}
 		got := &GetOutput{}
 		if err := views.get(ctx, &GetInput{Resource: ref}, got); err != nil || got.Item.Resource.Revision != "1" {
 			t.Fatalf("explicit URI get=%+v %v", got, err)
@@ -205,7 +205,7 @@ func TestPreparedWorkingOpenRejectsChangedBytesBeforeDispatch(t *testing.T) {
 	withWorkspaceRoot(t, func(root string) {
 		views, bridge, policy, source, ctx := canonicalLifecycleFixture(t, root)
 		policy.update("alice/account/identity-1", identity.WorkingCandidate, true)
-		prepared, err := views.prepareOpenItem(ctx, OpenItem{ID: "overview", Resource: &identity.ResourceRef{URI: "window://steward/overview", Revision: identity.WorkingCandidate}})
+		prepared, err := views.prepareOpenItem(ctx, OpenItem{ID: "overview", Resource: &identity.ResourceRef{URI: "window://library/overview", Revision: identity.WorkingCandidate}})
 		if err != nil {
 			t.Fatal(err)
 		}

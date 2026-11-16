@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"github.com/viant/agently-core/internal/testutil/catalogfixture"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -57,13 +58,12 @@ func (s *nativeManifestBaselineSource) CheckCandidate(ctx context.Context, uri i
 }
 
 func TestNativeSnapshotOriginalWorkspaceSourceCost(t *testing.T) {
-	root := os.Getenv("AGENTLY_NATIVE_SOURCE_BENCH_ROOT")
-	if root == "" {
-		t.Skip("opt-in readonly original workspace source benchmark")
-	}
+	root := catalogfixture.New(t)
 	ctx := context.Background()
-	digest := stewardAssetDigest(t, root)
-	defer func() { require.Equal(t, digest, stewardAssetDigest(t, root), "original assets must remain unchanged") }()
+	digest := workspaceAssetDigest(t, root)
+	defer func() {
+		require.Equal(t, digest, workspaceAssetDigest(t, root), "original assets must remain unchanged")
+	}()
 	var paths []string
 	var files int
 	require.NoError(t, filepath.WalkDir(filepath.Join(root, "extension/forge"), func(path string, entry fs.DirEntry, err error) error {
@@ -76,7 +76,7 @@ func TestNativeSnapshotOriginalWorkspaceSourceCost(t *testing.T) {
 		}
 		return nil
 	}))
-	binding := workspacewindow.ResourceBinding{WindowKey: "advertiserList", URI: "window://workspace/advertiserList"}
+	binding := workspacewindow.ResourceBinding{WindowKey: "documents", URI: "window://workspace/documents"}
 	defs, err := SnapshotWindowDefinitions(ctx, root, []workspacewindow.ResourceBinding{binding}, nil)
 	require.NoError(t, err)
 	snapshot, err := NewNativeAssetSnapshot(ctx, root, defs)

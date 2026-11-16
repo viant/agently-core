@@ -137,7 +137,7 @@ final class AgUiConversationTransportTests: XCTestCase {
     func testQueryUsesOneStableRunRequestAndProtocolUserIdentityWithoutNativeQuery() async throws {
         let host = client(), script = ConversationScript()
         let transport = AgUiConversationTransport(client: host, run: { try script.run($0) }, nativeIdentity: { id in try await nativeConversationIdentityFixture(id) })
-        let output = try await transport.query(QueryInput(conversationID: "thread", messageID: "request-user", agentID: "Steward", query: "same", resourceURIs: ["workspace://attachment"]))
+        let output = try await transport.query(QueryInput(conversationID: "thread", messageID: "request-user", agentID: "Guide", query: "same", resourceURIs: ["workspace://attachment"]))
         XCTAssertEqual(output.conversationID, "thread"); XCTAssertEqual(output.messageID, "native-turn")
         let post = try XCTUnwrap(script.inputs.first { $0.value["forwardedProps"]?["agently"]?["operation"]?.string == "chat" })
         XCTAssertEqual(post.value["forwardedProps"]?["agently"]?["requestId"]?.string, "request-user")

@@ -857,14 +857,14 @@ func TestNormalizeIntakeTurnContext_AllowsConfiguredModelDirectAction(t *testing
 	cfg := &agentmdl.Intake{ConfidenceThreshold: 0.8, ModelDirectAction: &agentmdl.ModelDirectActionPolicy{
 		AllowedTools: []string{"ui/view:open"}, RequiredProfileID: "workspace_ui", MinConfidence: 0.9,
 	}}
-	input := &QueryInput{ConversationID: "conv-advertisers", Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward"}}}
+	input := &QueryInput{ConversationID: "conv-documents", Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "guide"}}}
 	tc := &intakesvc.Context{
 		Routing:        intakesvc.RoutingContext{Source: intakesvc.SourceAgent},
 		Classification: intakesvc.ClassificationContext{Intent: "workspace_ui_open", Confidence: 0.99},
 		Prompting:      intakesvc.PromptingContext{SuggestedProfileID: "workspace_ui"},
 		DirectAction: intakesvc.DirectActionContext{
-			ToolName: "ui/view:open", AssistantText: "Advertisers are open.",
-			Input: map[string]interface{}{"id": "advertiserList", "openMode": "replace", "timeoutMs": 600000},
+			ToolName: "ui/view:open", AssistantText: "Documents are open.",
+			Input: map[string]interface{}{"id": "documentList", "openMode": "replace", "timeoutMs": 600000},
 		},
 	}
 
@@ -879,14 +879,14 @@ func TestNormalizeIntakeTurnContext_AllowsParameterizedModelDirectAction(t *test
 	cfg := &agentmdl.Intake{ConfidenceThreshold: 0.8, ModelDirectAction: &agentmdl.ModelDirectActionPolicy{
 		AllowedTools: []string{"ui/view:open"}, RequiredProfileID: "workspace_ui", MinConfidence: 0.9,
 	}}
-	input := &QueryInput{ConversationID: "conv-advertiser", Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward"}}}
+	input := &QueryInput{ConversationID: "conv-document", Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "guide"}}}
 	tc := &intakesvc.Context{
 		Routing:        intakesvc.RoutingContext{Source: intakesvc.SourceAgent},
 		Classification: intakesvc.ClassificationContext{Intent: "workspace_ui_open", Confidence: 0.99},
 		Prompting:      intakesvc.PromptingContext{SuggestedProfileID: "workspace_ui"},
 		DirectAction: intakesvc.DirectActionContext{
-			ToolName: "ui/view:open", AssistantText: "Advertiser is open.",
-			Input: map[string]interface{}{"id": "advertiser", "parameters": map[string]interface{}{"AdvertiserId": []interface{}{85141}}},
+			ToolName: "ui/view:open", AssistantText: "Document is open.",
+			Input: map[string]interface{}{"id": "document", "parameters": map[string]interface{}{"DocumentId": []interface{}{85141}}},
 		},
 	}
 

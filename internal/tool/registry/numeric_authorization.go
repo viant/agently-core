@@ -15,6 +15,7 @@ import (
 type mcpAppToolError struct {
 	cause  error
 	status int
+	code   string
 }
 
 func (e *mcpAppToolError) Error() string {
@@ -33,6 +34,25 @@ func (e *mcpAppToolError) Error() string {
 		}
 		return "MCP app tool returned an error"
 	}
+}
+
+// HTTPErrorCode exposes only recognized producer codes paired with their typed status.
+func (e *mcpAppToolError) HTTPErrorCode() string { return e.code }
+
+func safeToolErrorCode(status int, result *schema.CallToolResult) string {
+	if status == http.StatusNotFound && result != nil {
+		switch value := result.StructuredContent.(type) {
+		case map[string]any:
+			if code, ok := value["code"].(string); ok && code == "not_found" {
+				return code
+			}
+		case map[string]string:
+			if value["code"] == "not_found" {
+				return "not_found"
+			}
+		}
+	}
+	return ""
 }
 
 func (e *mcpAppToolError) Unwrap() error       { return e.cause }

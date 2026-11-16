@@ -135,7 +135,7 @@ func sampleProviderDoc(disabled bool) *oauthprovider.Document {
 			Clients: map[string]*authcfg.OAuthClient{
 				"sample-web": {
 					ConfigURL:   "scy://sample-client",
-					RedirectURI: "https://steward.example.com/v1/api/auth/mcp/callback",
+					RedirectURI: "https://guide.example.com/v1/api/auth/mcp/callback",
 					UsePKCE:     true,
 					RefreshLead: "15m",
 				},
@@ -981,7 +981,7 @@ func inlineSampleProvider() *authcfg.OAuthProvider {
 		Clients: map[string]*authcfg.OAuthClient{
 			"inline-web": {
 				ConfigURL:   "scy://inline-client",
-				RedirectURI: "https://steward.example.com/v1/api/auth/mcp/callback",
+				RedirectURI: "https://guide.example.com/v1/api/auth/mcp/callback",
 				UsePKCE:     true,
 				RefreshLead: "15m",
 			},

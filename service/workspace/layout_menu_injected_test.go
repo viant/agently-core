@@ -11,7 +11,7 @@ import (
 )
 
 const menuShell = `version: 1
-id: steward
+id: library
 topbar:
   actions:
     - id: automation
@@ -30,7 +30,7 @@ applications:
         title: Secret
         action: {type: window, windowKey: legacySecret}
 `
-const visibleApplications = `[{"id":"steward","title":"Workspace","icon":"applications","menus":[{"id":"advertisers","title":"Advertisers","icon":"office","action":{"type":"window","windowKey":"advertiserList","parameters":{"selected":9}}},{"id":"campaigns","title":"Campaigns","icon":"timeline-events","action":{"type":"window","windowKey":"campaignList"}}]}]`
+const visibleApplications = `[{"id":"library","title":"Workspace","icon":"applications","menus":[{"id":"advertisers","title":"Advertisers","icon":"office","action":{"type":"window","windowKey":"advertiserList","parameters":{"selected":9}}},{"id":"campaigns","title":"Campaigns","icon":"timeline-events","action":{"type":"window","windowKey":"campaignList"}}]}]`
 
 func TestLayoutInjectedMenuReplacesOnlyApplicationsAndKeepsFallbackOptIn(t *testing.T) {
 	previous := ws.Root()
@@ -52,7 +52,7 @@ func TestLayoutInjectedMenuReplacesOnlyApplicationsAndKeepsFallbackOptIn(t *test
 	require.Equal(t, original.Layout.Topbar, got.Layout.Topbar)
 	require.Equal(t, original.Layout.Left, got.Layout.Left)
 	require.Equal(t, original.Layout.Right, got.Layout.Right)
-	require.Equal(t, "steward", got.Layout.Applications[0].ID)
+	require.Equal(t, "library", got.Layout.Applications[0].ID)
 	require.Equal(t, float64(9), got.Layout.Applications[0].Menus[0].Action.Parameters["selected"])
 	require.Equal(t, 1, checked)
 	require.Equal(t, 1, closed)

@@ -161,7 +161,7 @@ func TestService_executeRun_CreatedByAuthFailureSkipsQuery(t *testing.T) {
 		Id:              scheduleID,
 		Name:            "Created-by auth failure",
 		CreatedByUserId: &subject,
-		AgentRef:        "steward",
+		AgentRef:        "guide",
 		ScheduleType:    "adhoc",
 		Timezone:        "UTC",
 		Enabled:         true,
@@ -210,7 +210,7 @@ func TestService_executeRun_MissingCreatedByTokenSkipsQuery(t *testing.T) {
 		t.Fatal("query was called without an owner token")
 		return nil
 	}
-	row := &schedulemodel.ScheduleView{Id: scheduleID, CreatedByUserId: stringPtr(subject), AgentRef: "steward", ScheduleType: "adhoc", Timezone: "UTC", Enabled: true}
+	row := &schedulemodel.ScheduleView{Id: scheduleID, CreatedByUserId: stringPtr(subject), AgentRef: "guide", ScheduleType: "adhoc", Timezone: "UTC", Enabled: true}
 	insertPendingSchedulerRun(t, db, "run-created-by-token-missing", scheduleID)
 	svc.executeRun(context.Background(), row, "run-created-by-token-missing", time.Now().UTC())
 	var status, message string
@@ -257,7 +257,7 @@ func TestService_executeRun_CreatedByOwnerLookupMissContinuesWithoutTokens(t *te
 		Id:              scheduleID,
 		Name:            "Created-by owner lookup miss",
 		CreatedByUserId: stringPtr(subject),
-		AgentRef:        "steward",
+		AgentRef:        "guide",
 		ScheduleType:    "adhoc",
 		Timezone:        "UTC",
 		Enabled:         true,
@@ -333,7 +333,7 @@ func TestService_executeRun_UsesSchedulerModeAndCreatedByAuth(t *testing.T) {
 		Id:              "sched-created-by",
 		Name:            "Created-by auth",
 		CreatedByUserId: &subject,
-		AgentRef:        "steward",
+		AgentRef:        "guide",
 		ScheduleType:    "adhoc",
 		Timezone:        "UTC",
 		Enabled:         true,

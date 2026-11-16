@@ -37,8 +37,10 @@ func TestCohortMenuUsesRequestIdentityAndKeepsMetadataIdentity(t *testing.T) {
 	publisher := artifactcohort.NewPublisher()
 	artifact, _, err := publisher.Publish(ctx, artifactcohort.RootRef{URI: "navigation://example/main", Kind: "navigation", Version: 1}, json.RawMessage(`{"schemaVersion":1,"source":{"dataSourceRef":{"resource":{"uri":"datasource://example/rows"},"providerIdentity":"example-publisher"}},"applications":[]}`), func(context.Context, json.RawMessage) error { return nil })
 	require.NoError(t, err)
+	target, _, err := publisher.Publish(ctx, artifactcohort.RootRef{URI: "window://example/details", Kind: "window", Version: 1}, json.RawMessage(`{"schemaVersion":1,"window":{"title":"Details"}}`), func(context.Context, json.RawMessage) error { return nil })
+	require.NoError(t, err)
 	policy := authz.Resource{Tenant: "example-tenant", Kind: "cohort", ID: "readers", Version: "logical"}
-	_, err = publisher.ReplaceCatalog(ctx, []authz.Document{{Resource: policy, Revision: 1, Policies: map[string]authz.Policy{artifactcohort.PolicyAction: {Mode: "protected", Rule: &authz.Rule{Kind: "role", Value: "reader"}}}}}, []artifactcohort.Cohort{{Tenant: "example-tenant", Name: "readers", PolicyResource: policy, Roots: []artifactcohort.RootRef{artifact.Root}}}, publisher.Generation())
+	_, err = publisher.ReplaceCatalog(ctx, []authz.Document{{Resource: policy, Revision: 1, Policies: map[string]authz.Policy{artifactcohort.PolicyAction: {Mode: "protected", Rule: &authz.Rule{Kind: "role", Value: "reader"}}}}}, []artifactcohort.Cohort{{Tenant: "example-tenant", Name: "readers", PolicyResource: policy, Roots: []artifactcohort.RootRef{artifact.Root, target.Root}}}, publisher.Generation())
 	require.NoError(t, err)
 	type call struct{ method, credential string }
 	var mu sync.Mutex
@@ -123,7 +125,7 @@ func TestCohortMenuUsesRequestIdentityAndKeepsMetadataIdentity(t *testing.T) {
 					http.Error(w, "wrong admitted root", 400)
 					return
 				}
-				visible, _ := json.Marshal(map[string]any{"schemaVersion": 1, "applications": []map[string]any{{"id": actor, "disabled": true}}})
+				visible, _ := json.Marshal(map[string]any{"schemaVersion": 1, "applications": []map[string]any{{"id": actor, "menus": []map[string]any{{"id": "details", "action": map[string]any{"type": "window", "resourceUri": target.Root.URI}}}}}})
 				body = &primitive.GetResult{Resource: &primitive.ResourceState{URI: artifact.Root.URI, Revision: "1", ContentFingerprint: artifact.Root.Hash}, MenuProjection: &primitive.MenuProjection{SchemaVersion: 1, DefinitionBytes: visible, ContentFingerprint: identity.ContentFingerprint(visible)}}
 			default:
 				http.Error(w, "unsupported tool", 400)

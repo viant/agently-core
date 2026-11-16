@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/viant/agently-core/internal/testutil/catalogfixture"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -26,26 +27,22 @@ import (
 	mcpclient "github.com/viant/mcp/client"
 )
 
-// Explicit opt-in reads original authored assets; it never runs a backend,
-// starts a server, rewrites YAML, or uses production credentials/authorization.
-func TestStewardReadonlyInternalGatewayOriginalYAML(t *testing.T) {
-	root := os.Getenv("STEWARD_NATIVE_YAML_ROOT")
-	if root == "" {
-		t.Skip("set STEWARD_NATIVE_YAML_ROOT to the unchanged Steward workspace")
-	}
+// Read the test-owned window and report sources through the same catalog.
+func TestNativeCatalogReadsDeclaredWindowAndReportSources(t *testing.T) {
+	root := catalogfixture.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	setupStart := time.Now()
-	before := stewardAssetDigest(t, root)
+	before := workspaceAssetDigest(t, root)
 	t.Logf("setup original asset hashing=%s", time.Since(setupStart))
-	defer func() { require.Equal(t, before, stewardAssetDigest(t, root), "original Steward assets changed") }()
+	defer func() { require.Equal(t, before, workspaceAssetDigest(t, root), "original Library assets changed") }()
 	raw, err := os.ReadFile(filepath.Join(root, "authorization/window-resources.json"))
 	require.NoError(t, err)
 	var inventory []workspacewindow.ResourceBinding
 	require.NoError(t, json.Unmarshal(raw, &inventory))
 	selected := []workspacewindow.ResourceBinding{}
 	for _, entry := range inventory {
-		if entry.WindowKey == "advertiserList" || entry.WindowKey == "campaign" {
+		if entry.WindowKey == "documents" || entry.WindowKey == "collections" {
 			selected = append(selected, entry)
 		}
 	}
@@ -54,7 +51,7 @@ func TestStewardReadonlyInternalGatewayOriginalYAML(t *testing.T) {
 	definitions, err := SnapshotWindowDefinitions(ctx, root, selected, nil)
 	require.NoError(t, err)
 	t.Logf("setup confined binding index=%s", time.Since(nativeSetupStart))
-	builderWindows := map[string]string{"forecastingCubeBuilder": "forecastingCubeBuilder", "metricsCubeBuilder": "metricReportBuilder", "spoCubeBuilder": "spoReportBuilder", "supplyHygieneBuilder": "supplyHygieneReportBuilder"}
+	builderWindows := map[string]string{"library": "documents"}
 	reportOptions := reportcatalog.ReportResourceOptions{Options: registry.Options{WorkspaceRoot: root}, BuilderWindows: builderWindows, DataSources: func(ctx context.Context, builder *registry.Asset) (map[string]json.RawMessage, error) {
 		return workspacewindow.LoadWorkspaceDatasourceDescriptorsAt(ctx, root, builderWindows[builder.ID], nil)
 	}}
@@ -63,7 +60,7 @@ func TestStewardReadonlyInternalGatewayOriginalYAML(t *testing.T) {
 	reportSetupStart := time.Now()
 	reportInventory, err := reports.List(ctx)
 	require.NoError(t, err)
-	require.Len(t, reportInventory, 10)
+	require.Len(t, reportInventory, 1)
 	t.Logf("setup original report inventory=%s", time.Since(reportSetupStart))
 	rawReportBindings, err := os.ReadFile(filepath.Join(root, "authorization/report-resources.json"))
 	require.NoError(t, err)
@@ -77,7 +74,7 @@ func TestStewardReadonlyInternalGatewayOriginalYAML(t *testing.T) {
 		paths[entry.URI] = entry.File
 	}
 	for _, entry := range reportInventory {
-		require.Equal(t, "steward", entry.Namespace)
+		require.Equal(t, "library", entry.Namespace)
 		require.NotEmpty(t, paths[entry.URI])
 		definitions = append(definitions, NativeSnapshotDefinition{URI: entry.URI, Title: entry.Title, FormatVersion: 1, File: paths[entry.URI], Load: NativeReportLoader(entry.URI, reportOptions, nil)})
 	}
@@ -91,7 +88,7 @@ func TestStewardReadonlyInternalGatewayOriginalYAML(t *testing.T) {
 	actorResolver := func(context.Context) (identity.VerifiedActor, error) { return actor, nil }
 	verify := func(context.Context, identity.VerifiedActor) error { return nil }
 	provider, err := NewLocalProvider(LocalConfig{ProviderIdentity: "internal", Actor: actorResolver, Verify: verify, Authorize: func(_ context.Context, _ identity.VerifiedActor, uri identity.ResourceURI, _ string) error {
-		if uri.Namespace != "steward" {
+		if uri.Namespace != "library" {
 			return identity.ErrResourceDenied
 		}
 		return nil
@@ -108,17 +105,14 @@ func TestStewardReadonlyInternalGatewayOriginalYAML(t *testing.T) {
 	reportService.SetResourceReaderFactory(reportGateway.Reader)
 
 	kinds := []string{"window", "report"}
-	if os.Getenv("STEWARD_NATIVE_YAML_REPORTS_ONLY") == "1" {
-		kinds = []string{"report"}
-	}
 	for _, kind := range kinds {
 		phaseStart := time.Now()
-		rows, err := gateway.List(ctx, kind, "steward")
+		rows, err := gateway.List(ctx, kind, "library")
 		t.Logf("gateway %s list elapsed=%s", kind, time.Since(phaseStart))
 		require.NoError(t, err)
 		expected := 2
 		if kind == "report" {
-			expected = 10
+			expected = len(reportInventory)
 		}
 		require.Len(t, rows, expected)
 		for _, row := range rows {
@@ -128,7 +122,7 @@ func TestStewardReadonlyInternalGatewayOriginalYAML(t *testing.T) {
 				got, err := gateway.Get(ctx, row.Connection, identity.ResourceRef{URI: row.Resource.URI}, nil)
 				t.Logf("gateway get elapsed=%s", time.Since(getStart))
 				require.NoError(t, err)
-				require.Equal(t, "steward", got.Resource.Namespace)
+				require.Equal(t, "library", got.Resource.Namespace)
 				require.Equal(t, identity.WorkingCandidate, got.ResolvedResource.Kind)
 				require.Empty(t, got.ResolvedResource.Revision)
 				if kind == "window" {
@@ -180,13 +174,13 @@ func TestStewardReadonlyInternalGatewayOriginalYAML(t *testing.T) {
 			})
 		}
 	}
-	serviceList, err := reportService.ListReports(ctx, &reporting.ListReportsInput{Namespace: "steward"})
+	serviceList, err := reportService.ListReports(ctx, &reporting.ListReportsInput{Namespace: "library"})
 	require.NoError(t, err)
-	require.Len(t, serviceList.Reports, 10)
+	require.Len(t, serviceList.Reports, len(reportInventory))
 	require.EqualValues(t, len(definitions), snapshot.CompileCount(), "serving must not recompile native assets")
 	t.Logf("readonly original assets sha256=%s", before)
 }
-func stewardAssetDigest(t *testing.T, root string) string {
+func workspaceAssetDigest(t *testing.T, root string) string {
 	t.Helper()
 	var names []string
 	require.NoError(t, filepath.WalkDir(filepath.Join(root, "extension/forge"), func(name string, entry fs.DirEntry, err error) error {

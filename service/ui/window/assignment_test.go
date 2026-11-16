@@ -16,17 +16,17 @@ import (
 
 func TestEnrichedWindowMissingDatasourceWarnsWithoutWideningAssignment(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
-		writeStewardLikeWorkspace(t, root)
+		writeCollectionWorkspace(t, root)
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "report.yaml"), `
 windowKey: report
 resources:
-  dataSources: [advertiser_properties]
+  dataSources: [collection_details]
 view:
   content: {id: report, kind: dashboard.reportBuilder}
 `)
 		cleanup := SetWorkspaceWindowEnricher(func(_ context.Context, window *forgeTypes.Window) error {
 			window.View.Content.Dashboard = &forgeTypes.Dashboard{ReportBuilder: map[string]interface{}{
-				"sources": []interface{}{map[string]interface{}{"dataSourceRef": "order_properties"}},
+				"sources": []interface{}{map[string]interface{}{"dataSourceRef": "revision_details"}},
 			}}
 			return nil
 		})
@@ -39,101 +39,99 @@ view:
 		if err != nil {
 			t.Fatalf("missing enriched datasource must not halt window: %v", err)
 		}
-		if !strings.Contains(output.String(), `references datasource "order_properties" that is not attached`) {
+		if !strings.Contains(output.String(), `references datasource "revision_details" that is not attached`) {
 			t.Fatalf("enriched references were not checked: %s", output.String())
 		}
-		if _, leaked := got.DataSource["order_properties"]; leaked {
+		if _, leaked := got.DataSource["revision_details"]; leaked {
 			t.Fatal("validation must not attach unassigned datasources")
 		}
 	})
 }
 
-// writeStewardLikeWorkspace seeds a workspace shaped like the Steward
-// deployment: advertiser/campaign/order assets that must never leak into an
-// unrelated window.
-func writeStewardLikeWorkspace(t *testing.T, root string) {
+// writeCollectionWorkspace seeds local datasource, dialog and model dependencies.
+func writeCollectionWorkspace(t *testing.T, root string) {
 	t.Helper()
 	ds := func(domain, id, extra string) {
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDataSource, domain, id+".yaml"), "id: "+id+"\ncardinality: collection\nbackend: {kind: inline, rows: []}\n"+extra)
 	}
-	ds("advertiser", "advertiser_properties", "")
-	ds("advertiser", "advertiser_campaigns", "")
-	ds("advertiser", "advertiser_user_pools", "")
-	ds("campaign", "draft_campaign_create", "resourceModelRef: campaignDraft\n")
-	ds("campaign", "campaign_create_patch", "")
-	ds("campaign", "campaign_flight_draft", "")
-	ds("order", "order_lookup", "")
-	ds("order", "order_properties", "")
-	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeModel, "campaign.yaml"), `
+	ds("collection", "collection_details", "")
+	ds("collection", "collection_entries", "")
+	ds("collection", "collection_members", "")
+	ds("entry", "entry_draft_read", "resourceModelRef: entryDraft\n")
+	ds("entry", "entry_draft_write", "")
+	ds("entry", "entry_stage_read", "")
+	ds("order", "revision_lookup", "")
+	ds("order", "revision_details", "")
+	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeModel, "entry.yaml"), `
 schemas:
-  campaignDraft:
+  entryDraft:
     type: object
     properties:
       name: {type: string}
-      flights: {type: array, items: {$ref: campaignFlight}}
-  campaignFlight:
+      stages: {type: array, items: {$ref: entryStage}}
+  entryStage:
     type: object
     properties: {startDate: {type: string}}
 resourceModels:
-  campaignDraft:
-    schemaRef: campaignDraft
-    read: {dataSourceRef: draft_campaign_create}
-    write: {dataSourceRef: campaign_create_patch, inputPath: Data, mode: full}
+  entryDraft:
+    schemaRef: entryDraft
+    read: {dataSourceRef: entry_draft_read}
+    write: {dataSourceRef: entry_draft_write, inputPath: Data, mode: full}
     fields: {name: {write: Name}}
 `)
-	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeModel, "order.yaml"), `
+	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeModel, "revision.yaml"), `
 schemas:
-  orderDraft: {type: object, properties: {name: {type: string}}}
+  revisionDraft: {type: object, properties: {name: {type: string}}}
 resourceModels:
-  orderDraft: {schemaRef: orderDraft, read: {dataSourceRef: order_properties}}
+  revisionDraft: {schemaRef: revisionDraft, read: {dataSourceRef: revision_details}}
 `)
-	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDialog, "advertiserCampaignCreate.yaml"), `
-id: advertiserCampaignCreate
-title: Create Campaign
-dataSourceRef: draft_campaign_create
+	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDialog, "collectionEntryForm.yaml"), `
+id: collectionEntryForm
+title: Create Entry
+dataSourceRef: entry_draft_read
 content:
-  id: campaignCreateForm
-  dataSourceRef: draft_campaign_create
+  id: entryForm
+  dataSourceRef: entry_draft_read
   items:
     - id: name
       type: text
       on:
         - event: onClick
           handler: window.openDialog
-          args: [campaignFlightDraft]
+          args: [entryStageEditor]
 `)
-	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDialog, "campaignFlightDraft.yaml"), `
-id: campaignFlightDraft
+	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDialog, "entryStageEditor.yaml"), `
+id: entryStageEditor
 title: Flight
-dataSourceRef: campaign_flight_draft
-content: {id: flightForm, dataSourceRef: campaign_flight_draft}
+dataSourceRef: entry_stage_read
+content: {id: flightForm, dataSourceRef: entry_stage_read}
 `)
-	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDialog, "orderDraft.yaml"), `
-id: orderDraft
+	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDialog, "revisionDraft.yaml"), `
+id: revisionDraft
 title: Order
-dataSourceRef: order_properties
-content: {id: orderForm, dataSourceRef: order_properties}
+dataSourceRef: revision_details
+content: {id: orderForm, dataSourceRef: revision_details}
 `)
-	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDialog, "adOrderPicker.yaml"), `
-id: adOrderPicker
-title: Select Ad Order
-dataSourceRef: order_lookup
-content: {id: adOrderTable, dataSourceRef: order_lookup}
+	mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDialog, "chooseRevision.yaml"), `
+id: chooseRevision
+title: Select Revision
+dataSourceRef: revision_lookup
+content: {id: revisionTable, dataSourceRef: revision_lookup}
 `)
 }
 
-func stewardAssetNames() (dataSources, dialogs, models []string) {
-	return []string{"advertiser_properties", "advertiser_campaigns", "advertiser_user_pools", "draft_campaign_create", "campaign_create_patch", "campaign_flight_draft", "order_lookup", "order_properties"},
-		[]string{"advertiserCampaignCreate", "campaignFlightDraft", "orderDraft", "adOrderPicker"},
-		[]string{"campaignDraft", "orderDraft"}
+func collectionAssetNames() (dataSources, dialogs, models []string) {
+	return []string{"collection_details", "collection_entries", "collection_members", "entry_draft_read", "entry_draft_write", "entry_stage_read", "revision_lookup", "revision_details"},
+		[]string{"collectionEntryForm", "entryStageEditor", "revisionDraft", "chooseRevision"},
+		[]string{"entryDraft", "revisionDraft"}
 }
 
-func TestMergeWorkspaceForgeAssetsKeepsAgentWindowFreeOfStewardAssets(t *testing.T) {
+func TestMergeWorkspaceForgeAssetsKeepsAgentWindowFreeOfUnassignedAssets(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
-		writeStewardLikeWorkspace(t, root)
+		writeCollectionWorkspace(t, root)
 		// The Agent window is an application built-in: it owns its datasources,
 		// declares no workspace resources, and must not receive any of the
-		// Steward assets the workspace happens to contain.
+		// workspace assets the workspace happens to contain.
 		agent := &forgeTypes.Window{
 			WindowKey: "agent",
 			DataSource: map[string]forgeTypes.DataSource{
@@ -150,21 +148,21 @@ func TestMergeWorkspaceForgeAssetsKeepsAgentWindowFreeOfStewardAssets(t *testing
 		if len(agent.DataSource) != 2 {
 			t.Fatalf("agent window must keep only its own datasources, got %v", sortedDataSourceKeys(agent))
 		}
-		dataSources, dialogs, models := stewardAssetNames()
+		dataSources, dialogs, models := collectionAssetNames()
 		for _, id := range dataSources {
 			if _, leaked := agent.DataSource[id]; leaked {
-				t.Fatalf("Steward datasource %s leaked into the agent window", id)
+				t.Fatalf("collection workspace datasource %s leaked into the agent window", id)
 			}
 		}
 		if len(agent.Dialogs) != 0 {
-			t.Fatalf("Steward dialogs leaked into the agent window: %v", dialogIDs(agent))
+			t.Fatalf("collection workspace dialogs leaked into the agent window: %v", dialogIDs(agent))
 		}
 		for _, name := range models {
 			if _, leaked := agent.ResourceModels[name]; leaked {
-				t.Fatalf("Steward resource model %s leaked into the agent window", name)
+				t.Fatalf("collection workspace resource model %s leaked into the agent window", name)
 			}
 			if _, leaked := agent.Schemas[name]; leaked {
-				t.Fatalf("Steward schema %s leaked into the agent window", name)
+				t.Fatalf("collection workspace schema %s leaked into the agent window", name)
 			}
 		}
 		_ = dialogs
@@ -173,89 +171,89 @@ func TestMergeWorkspaceForgeAssetsKeepsAgentWindowFreeOfStewardAssets(t *testing
 
 func TestLoadWorkspaceWindowAttachesAssignedAssetsAndTransitiveDependencies(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
-		writeStewardLikeWorkspace(t, root)
-		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "advertiser.yaml"), `
-windowKey: advertiser
-namespace: Advertiser
+		writeCollectionWorkspace(t, root)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "collection.yaml"), `
+windowKey: collection
+namespace: Collection
 resources:
-  dataSources: [advertiser_properties]
-  dialogs: [advertiserCampaignCreate]
+  dataSources: [collection_details]
+  dialogs: [collectionEntryForm]
 view:
   content:
-    id: advertiser
-    dataSourceRef: advertiser_properties
+    id: collection
+    dataSourceRef: collection_details
 `)
-		got, err := LoadWorkspaceWindow(context.Background(), "advertiser", nil)
+		got, err := LoadWorkspaceWindow(context.Background(), "collection", nil)
 		if err != nil {
-			t.Fatalf("load advertiser window: %v", err)
+			t.Fatalf("load collection window: %v", err)
 		}
 		// Assigned directly.
-		for _, id := range []string{"advertiser_properties"} {
+		for _, id := range []string{"collection_details"} {
 			if _, ok := got.DataSource[id]; !ok {
 				t.Fatalf("assigned datasource %s missing: %v", id, sortedDataSourceKeys(got))
 			}
 		}
 		// Transitive: dialog -> its datasource -> resource model -> schemas ($ref) -> write datasource,
 		// and dialog -> nested window.openDialog args -> dialog -> its datasource.
-		for _, id := range []string{"draft_campaign_create", "campaign_create_patch", "campaign_flight_draft"} {
+		for _, id := range []string{"entry_draft_read", "entry_draft_write", "entry_stage_read"} {
 			if _, ok := got.DataSource[id]; !ok {
 				t.Fatalf("transitive datasource %s missing: %v", id, sortedDataSourceKeys(got))
 			}
 		}
-		if !containsDialog(got, "advertiserCampaignCreate") || !containsDialog(got, "campaignFlightDraft") {
+		if !containsDialog(got, "collectionEntryForm") || !containsDialog(got, "entryStageEditor") {
 			t.Fatalf("assigned and nested dialogs must be attached, got %v", dialogIDs(got))
 		}
-		if _, ok := got.ResourceModels["campaignDraft"]; !ok {
+		if _, ok := got.ResourceModels["entryDraft"]; !ok {
 			t.Fatalf("transitive resource model missing: %v", got.ResourceModels)
 		}
-		for _, name := range []string{"campaignDraft", "campaignFlight"} {
+		for _, name := range []string{"entryDraft", "entryStage"} {
 			if _, ok := got.Schemas[name]; !ok {
 				t.Fatalf("transitive schema %s missing: %v", name, got.Schemas)
 			}
 		}
 		// Not assigned and not reachable: order assets stay out.
-		for _, id := range []string{"advertiser_campaigns", "advertiser_user_pools", "order_lookup", "order_properties"} {
+		for _, id := range []string{"collection_entries", "collection_members", "revision_lookup", "revision_details"} {
 			if _, leaked := got.DataSource[id]; leaked {
-				t.Fatalf("unassigned datasource %s leaked into advertiser window", id)
+				t.Fatalf("unassigned datasource %s leaked into collection window", id)
 			}
 		}
-		if containsDialog(got, "orderDraft") || containsDialog(got, "adOrderPicker") {
+		if containsDialog(got, "revisionDraft") || containsDialog(got, "chooseRevision") {
 			t.Fatalf("unassigned dialogs leaked: %v", dialogIDs(got))
 		}
-		if _, leaked := got.ResourceModels["orderDraft"]; leaked {
-			t.Fatal("unassigned order model leaked into advertiser window")
+		if _, leaked := got.ResourceModels["revisionDraft"]; leaked {
+			t.Fatal("unassigned order model leaked into collection window")
 		}
 	})
 }
 
 func TestLoadWorkspaceWindowFailsWhenYAMLReferencesUnassignedWorkspaceAssets(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
-		writeStewardLikeWorkspace(t, root)
-		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "advertiser.yaml"), `
-windowKey: advertiser
+		writeCollectionWorkspace(t, root)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "collection.yaml"), `
+windowKey: collection
 resources:
-  dataSources: [advertiser_properties]
+  dataSources: [collection_details]
 view:
   content:
-    id: advertiser
-    dataSourceRef: advertiser_properties
+    id: collection
+    dataSourceRef: collection_details
     containers:
-      - id: campaigns
-        dataSourceRef: advertiser_campaigns
+      - id: entries
+        dataSourceRef: collection_entries
         table:
           columns:
             - id: name
-              link: {kind: dialog, dialogId: advertiserCampaignCreate}
+              link: {kind: dialog, dialogId: collectionEntryForm}
       - id: picker
         items:
-          - id: adOrder
-            lookup: {dialogId: adOrderPicker, dataSource: order_lookup}
+          - id: revision
+            lookup: {dialogId: chooseRevision, dataSource: revision_lookup}
 `)
-		_, err := LoadWorkspaceWindow(context.Background(), "advertiser", nil)
+		_, err := LoadWorkspaceWindow(context.Background(), "collection", nil)
 		if err == nil {
 			t.Fatal("expected assignment validation error")
 		}
-		for _, want := range []string{"resources.dialogs is missing: adOrderPicker, advertiserCampaignCreate"} {
+		for _, want := range []string{"resources.dialogs is missing: chooseRevision, collectionEntryForm"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Fatalf("error %q does not mention %q", err.Error(), want)
 			}
@@ -265,56 +263,56 @@ view:
 
 func TestLoadWorkspaceWindowValidatesActionCodeDialogAndDataSourceLiterals(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
-		writeStewardLikeWorkspace(t, root)
+		writeCollectionWorkspace(t, root)
 		code := `({
   openFlight: ({context}) => context?.handlers?.window?.openDialog?.({
     context,
-    execution: {args: ['campaignFlightDraft', {awaitResult: false}]},
+    execution: {args: ['entryStageEditor', {awaitResult: false}]},
   }),
-  closeArchive: ({context}) => context?.handlers?.window?.closeDialog?.({dialogId: "orderDraft", context}),
-  refresh: ({context}) => context?.Context?.('advertiser_user_pools')?.handlers?.dataSource?.fetchCollection?.(),
-  // openDialog?.({execution: {args: ['adOrderPicker']}}) commented out code is ignored
+  closeArchive: ({context}) => context?.handlers?.window?.closeDialog?.({dialogId: "revisionDraft", context}),
+  refresh: ({context}) => context?.Context?.('collection_members')?.handlers?.dataSource?.fetchCollection?.(),
+  // openDialog?.({execution: {args: ['chooseRevision']}}) commented out code is ignored
   pick: ({context}) => {
-    const dialogByKind = {create: 'advertiserCampaignCreate'};
+    const dialogByKind = {create: 'collectionEntryForm'};
     const dialogId = dialogByKind[context?.kind];
     return context?.handlers?.window?.openDialog?.({dialogId, context});
   },
 })`
-		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "advertiser.js"), code)
-		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "advertiser.yaml"), `
-windowKey: advertiser
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "collection.js"), code)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "collection.yaml"), `
+windowKey: collection
 resources:
-  dataSources: [advertiser_properties]
+  dataSources: [collection_details]
 view:
-  content: {id: advertiser, dataSourceRef: advertiser_properties}
+  content: {id: collection, dataSourceRef: collection_details}
 `)
-		_, err := LoadWorkspaceWindow(context.Background(), "advertiser", nil)
+		_, err := LoadWorkspaceWindow(context.Background(), "collection", nil)
 		if err == nil {
 			t.Fatal("expected action code references to require assignment")
 		}
-		if !strings.Contains(err.Error(), "resources.dialogs is missing: advertiserCampaignCreate, campaignFlightDraft, orderDraft") {
+		if !strings.Contains(err.Error(), "resources.dialogs is missing: collectionEntryForm, entryStageEditor, revisionDraft") {
 			t.Fatalf("unexpected dialog validation error: %v", err)
 		}
 		if strings.Contains(err.Error(), "resources.dataSources") {
 			t.Fatalf("missing datasource must be a warning, not an error: %v", err)
 		}
-		if strings.Contains(err.Error(), "adOrderPicker") {
+		if strings.Contains(err.Error(), "chooseRevision") {
 			t.Fatalf("commented out code must not create references: %v", err)
 		}
 
-		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "advertiser.yaml"), `
-windowKey: advertiser
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "collection.yaml"), `
+windowKey: collection
 resources:
-  dataSources: [advertiser_properties, advertiser_user_pools]
-  dialogs: [advertiserCampaignCreate, campaignFlightDraft, orderDraft]
+  dataSources: [collection_details, collection_members]
+  dialogs: [collectionEntryForm, entryStageEditor, revisionDraft]
 view:
-  content: {id: advertiser, dataSourceRef: advertiser_properties}
+  content: {id: collection, dataSourceRef: collection_details}
 `)
-		got, err := LoadWorkspaceWindow(context.Background(), "advertiser", nil)
+		got, err := LoadWorkspaceWindow(context.Background(), "collection", nil)
 		if err != nil {
 			t.Fatalf("load window with complete assignment: %v", err)
 		}
-		if !containsDialog(got, "orderDraft") || containsDialog(got, "adOrderPicker") {
+		if !containsDialog(got, "revisionDraft") || containsDialog(got, "chooseRevision") {
 			t.Fatalf("unexpected dialogs: %v", dialogIDs(got))
 		}
 	})
@@ -322,26 +320,26 @@ view:
 
 func TestLoadWorkspaceWindowPreservesUnresolvedAssignmentsWithoutBlocking(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
-		writeStewardLikeWorkspace(t, root)
+		writeCollectionWorkspace(t, root)
 		// Assigned ids the workspace does not (yet) provide are declared intent:
 		// they are logged as unresolved and never fail the window.
-		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "advertiser.yaml"), `
-windowKey: advertiser
-namespace: Advertiser
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "collection.yaml"), `
+windowKey: collection
+namespace: Collection
 resources:
-  dataSources: [advertiser_properties, advertiser_custom_segment_patch]
+  dataSources: [collection_details, collection_label_write]
   dialogs: [noSuchDialog]
   models: [noSuchRegistry]
   resourceModels: [noSuchModel]
   schemas: [noSuchSchema]
 view:
-  content: {id: advertiser, dataSourceRef: advertiser_properties}
+  content: {id: collection, dataSourceRef: collection_details}
 `)
-		got, err := LoadWorkspaceWindow(context.Background(), "advertiser", nil)
+		got, err := LoadWorkspaceWindow(context.Background(), "collection", nil)
 		if err != nil {
 			t.Fatalf("unresolved assignments must not block the window: %v", err)
 		}
-		if _, ok := got.DataSource["advertiser_properties"]; !ok || len(got.DataSource) != 1 {
+		if _, ok := got.DataSource["collection_details"]; !ok || len(got.DataSource) != 1 {
 			t.Fatalf("unexpected datasources: %v", sortedDataSourceKeys(got))
 		}
 		if len(got.Dialogs) != 0 || len(got.Schemas) != 0 || len(got.ResourceModels) != 0 {
@@ -396,31 +394,31 @@ func codeOf(window *forgeTypes.Window) string {
 
 func TestLoadWorkspaceWindowAssignsModelRegistryByName(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
-		writeStewardLikeWorkspace(t, root)
-		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "campaign.yaml"), `
-windowKey: campaign
+		writeCollectionWorkspace(t, root)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "entry.yaml"), `
+windowKey: entry
 resources:
-  models: [campaign]
+  models: [entry]
 view:
-  content: {id: campaign}
+  content: {id: entry}
 `)
-		got, err := LoadWorkspaceWindow(context.Background(), "campaign", nil)
+		got, err := LoadWorkspaceWindow(context.Background(), "entry", nil)
 		if err != nil {
-			t.Fatalf("load campaign window: %v", err)
+			t.Fatalf("load entry window: %v", err)
 		}
-		if _, ok := got.ResourceModels["campaignDraft"]; !ok {
+		if _, ok := got.ResourceModels["entryDraft"]; !ok {
 			t.Fatalf("registry models missing: %v", got.ResourceModels)
 		}
-		if _, ok := got.Schemas["campaignFlight"]; !ok {
+		if _, ok := got.Schemas["entryStage"]; !ok {
 			t.Fatalf("registry schemas missing: %v", got.Schemas)
 		}
 		// Model read/write datasources are transitive dependencies of the registry.
-		for _, id := range []string{"draft_campaign_create", "campaign_create_patch"} {
+		for _, id := range []string{"entry_draft_read", "entry_draft_write"} {
 			if _, ok := got.DataSource[id]; !ok {
 				t.Fatalf("model datasource %s missing: %v", id, sortedDataSourceKeys(got))
 			}
 		}
-		if _, leaked := got.ResourceModels["orderDraft"]; leaked {
+		if _, leaked := got.ResourceModels["revisionDraft"]; leaked {
 			t.Fatal("unassigned order registry leaked")
 		}
 	})
@@ -428,7 +426,7 @@ view:
 
 func TestLoadWorkspaceWindowToleratesReferencesOutsideWorkspace(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
-		writeStewardLikeWorkspace(t, root)
+		writeCollectionWorkspace(t, root)
 		// Host-provided datasources and dialogs are unknown to the workspace and
 		// must not be reported as missing assignments.
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "chat.yaml"), `
@@ -455,28 +453,28 @@ view:
 
 func TestLoadWorkspaceWindowLocalDeclarationsWinOverWorkspaceAssets(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
-		writeStewardLikeWorkspace(t, root)
-		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "campaign.yaml"), `
-windowKey: campaign
+		writeCollectionWorkspace(t, root)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "entry.yaml"), `
+windowKey: entry
 resources:
-  dataSources: [draft_campaign_create]
+  dataSources: [entry_draft_read]
 dataSource:
-  draft_campaign_create: {cardinality: object}
+  entry_draft_read: {cardinality: object}
 schemas:
-  campaignDraft: {type: object, properties: {name: {type: string}}}
+  entryDraft: {type: object, properties: {name: {type: string}}}
 resourceModels:
-  campaignDraft: {schemaRef: campaignDraft}
+  entryDraft: {schemaRef: entryDraft}
 view:
-  content: {id: campaign, dataSourceRef: draft_campaign_create}
+  content: {id: entry, dataSourceRef: entry_draft_read}
 `)
-		got, err := LoadWorkspaceWindow(context.Background(), "campaign", nil)
+		got, err := LoadWorkspaceWindow(context.Background(), "entry", nil)
 		if err != nil {
-			t.Fatalf("load campaign window: %v", err)
+			t.Fatalf("load entry window: %v", err)
 		}
-		if got.DataSource["draft_campaign_create"].Cardinality != "object" {
+		if got.DataSource["entry_draft_read"].Cardinality != "object" {
 			t.Fatal("window-owned datasource was overwritten by the workspace asset")
 		}
-		if _, ok := got.Schemas["campaignDraft"].Properties["flights"]; ok {
+		if _, ok := got.Schemas["entryDraft"].Properties["stages"]; ok {
 			t.Fatal("window-owned schema was overwritten by the workspace registry")
 		}
 	})
@@ -545,31 +543,31 @@ func TestCollectWindowReferencesCoversForgeVocabulary(t *testing.T) {
 
 func TestAssignedDialogIncludesOptionsDatasource(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
-		writeStewardLikeWorkspace(t, root)
+		writeCollectionWorkspace(t, root)
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDialog, "categoryPicker.yaml"), `
 id: categoryPicker
 title: Category
 content:
   id: categoryForm
   items:
-    - {id: category, type: select, optionsDataSourceRef: advertiser_user_pools}
+    - {id: category, type: select, optionsDataSourceRef: collection_members}
 `)
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "details.yaml"), `
 windowKey: details
 resources:
-  dataSources: [advertiser_properties]
+  dataSources: [collection_details]
   dialogs: [categoryPicker]
 view:
-  content: {id: details, dataSourceRef: advertiser_properties}
+  content: {id: details, dataSourceRef: collection_details}
 `)
 		got, err := LoadWorkspaceWindow(context.Background(), "details", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := got.DataSource["advertiser_user_pools"]; !ok {
+		if _, ok := got.DataSource["collection_members"]; !ok {
 			t.Fatal("assigned dialog lost its options datasource")
 		}
-		if _, leaked := got.DataSource["order_properties"]; leaked {
+		if _, leaked := got.DataSource["revision_details"]; leaked {
 			t.Fatal("unrelated datasource leaked into window")
 		}
 	})
@@ -602,12 +600,12 @@ func sortedDataSourceKeys(window *forgeTypes.Window) []string {
 
 func TestChatAttachesNamedLookupDialogClosure(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
-		writeStewardLikeWorkspace(t, root)
-		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeLookup, "order.yaml"), `
-id: order_lookup
+		writeCollectionWorkspace(t, root)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeLookup, "revision.yaml"), `
+id: revision_lookup
 bindings:
-  - named: {name: order}
-    lookup: {dataSource: order_lookup, dialogId: adOrderPicker}
+  - named: {name: revision}
+    lookup: {dataSource: revision_lookup, dialogId: chooseRevision}
 `)
 		chat := &forgeTypes.Window{WindowKey: "chat/new", View: forgeTypes.View{Content: &forgeTypes.Container{Chat: &forgeTypes.Chat{}}}}
 		if err := MergeWorkspaceForgeAssets(context.Background(), chat, nil); err != nil {
@@ -620,16 +618,16 @@ bindings:
 		if err := json.Unmarshal(chat.LookupOverlays[0], &original); err != nil {
 			t.Fatal(err)
 		}
-		if original.ID != "order_lookup" || len(original.Bindings) != 1 || original.Bindings[0].Named.Name != "order" {
+		if original.ID != "revision_lookup" || len(original.Bindings) != 1 || original.Bindings[0].Named.Name != "revision" {
 			t.Fatal("named lookup declaration changed")
 		}
-		if _, ok := chat.DataSource["order_lookup"]; !ok {
+		if _, ok := chat.DataSource["revision_lookup"]; !ok {
 			t.Fatal("named lookup datasource missing")
 		}
-		if len(chat.Dialogs) != 1 || chat.Dialogs[0].Id != "adOrderPicker" {
+		if len(chat.Dialogs) != 1 || chat.Dialogs[0].Id != "chooseRevision" {
 			t.Fatalf("picker missing: %v", dialogIDs(chat))
 		}
-		if _, leaked := chat.DataSource["order_properties"]; leaked {
+		if _, leaked := chat.DataSource["revision_details"]; leaked {
 			t.Fatal("unrelated order window leaked into chat")
 		}
 	})

@@ -3,7 +3,7 @@ package codec
 import authored "github.com/viant/forge/backend/authoring/markdown"
 
 // MarkdownMessage and MarkdownDocument retain Core's local loader API while
-// Forge supplies the shared grammar used by AIStudio and other producers.
+// Forge supplies the shared grammar for authored Markdown.
 type MarkdownMessage = authored.Message
 type MarkdownDocument = authored.Document
 

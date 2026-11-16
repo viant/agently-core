@@ -32,7 +32,7 @@ func TestForgeXLSXExporter_ExportRendersCanonicalReportFill(t *testing.T) {
 	require.NoError(t, err)
 	value, err := workbook.GetCellValue("Report", "A2")
 	require.NoError(t, err)
-	require.Equal(t, "Display", value)
+	require.Equal(t, "Alpha", value)
 	value, err = workbook.GetCellValue("Report", "B2")
 	require.NoError(t, err)
 	require.Equal(t, "$42.50", value)
