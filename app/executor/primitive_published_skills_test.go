@@ -142,8 +142,16 @@ func testPublishedSkillClosedCohort(t *testing.T, binary bool) {
 	require.True(t, handled)
 	require.Equal(t, "exact supporting bytes", result.Contents[0].Text)
 	require.Zero(t, trap.calls)
-	// Lost admission cannot fall back to an endpoint or retained package.
+	// An activated cohort document is guidance, not a tool authority.
+	// A metadata outage must not prevent independently selected tool calls.
+	execution := skills.WithRuntimeState(ctx, service, selected, []string{item.CatalogURI})
 	source.denied = true
+	for range 100 {
+		require.NoError(t, skills.ValidateExecution(execution, "catalog:read", nil))
+		require.NoError(t, skills.ValidateExecution(execution, "llm/tools:list", nil))
+	}
+	require.Zero(t, trap.calls)
+	// Fresh reads still observe lost admission without a legacy fallback.
 	_, err = service.GetVisible(ctx, selected, page.Items[0].URI)
 	require.Error(t, err)
 	_, handled, err = delivery.ReadRemoteResource(ctx, item, "skill://example/review/refs/note.txt")

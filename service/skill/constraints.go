@@ -15,6 +15,7 @@ import (
 
 type Constraints struct {
 	Denied              bool
+	Cause               error
 	RemoteServers       []string
 	ToolPatterns        []string
 	ExecFirstTokenAllow []string
@@ -120,9 +121,16 @@ func (s *RuntimeState) Constraints() *Constraints {
 	s.mu.RUnlock()
 	var items []*skillproto.Skill
 	for _, name := range names {
+		// Published cohort skills supply guidance. Tool execution retains the
+		// host's selected tools and the tool provider's own authorization.
+		// Re-reading their publisher here would turn metadata availability
+		// into an additional execution gate for every tool in the turn.
+		if owner, ok := s.service.delivery.(interface{ OwnsReference(string) bool }); ok && owner.OwnsReference(name) {
+			continue
+		}
 		item, err := s.service.GetVisible(s.ctx, s.agent, name)
 		if err != nil && strings.Contains(name, "/") {
-			return &Constraints{Denied: true}
+			return &Constraints{Denied: true, Cause: err}
 		}
 		if err == nil {
 			items = append(items, item)
@@ -328,6 +336,9 @@ func ValidateExecution(ctx context.Context, toolName string, args map[string]int
 		return nil
 	}
 	if c.Denied {
+		if c.Cause != nil {
+			return fmt.Errorf("active skill could not be loaded: %w", c.Cause)
+		}
 		return fmt.Errorf("active skill authorization is no longer available")
 	}
 	var registry tool.Registry
