@@ -89,3 +89,27 @@ func TestQualifiedRemoteReadDoesNotEnumerateUnrelatedPrimitiveCatalog(t *testing
 	require.Equal(t, 1, legacy.lists)
 	require.Equal(t, 1, legacy.reads, "sources without an ownership classifier retain their original qualified selection")
 }
+
+func TestActiveCohortSkillDoesNotGateIndependentToolExecution(t *testing.T) {
+	delivery := &directReferenceDelivery{owner: true}
+	service := &Service{delivery: delivery}
+	actor := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	agent := &agentmdl.Agent{Skills: []string{"*"}}
+	execution := WithRuntimeState(actor, service, agent, []string{"skill://example/review"})
+	for range 100 {
+		require.NoError(t, ValidateExecution(execution, "catalog:read", nil))
+		require.NoError(t, ValidateExecution(execution, "llm/tools:list", nil))
+	}
+	require.Zero(t, delivery.reads)
+	require.Zero(t, delivery.lists)
+	// Removing the owning source changes the next invocation's handling.
+	delivery.owner = false
+	require.Error(t, ValidateExecution(execution, "catalog:read", nil))
+}
+
+func TestActiveSkillPreservesCancellationIdentity(t *testing.T) {
+	ctx := WithConstraints(context.Background(), &Constraints{Denied: true, Cause: context.Canceled})
+	require.ErrorIs(t, ValidateExecution(ctx, "catalog:read", nil), context.Canceled)
+	ctx = WithConstraints(context.Background(), &Constraints{Denied: true, Cause: context.DeadlineExceeded})
+	require.ErrorIs(t, ValidateExecution(ctx, "catalog:read", nil), context.DeadlineExceeded)
+}
