@@ -8,6 +8,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/runtime/evidence"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/forge/backend/reporting/fenced"
 )
 
 type AddInput struct {
@@ -59,6 +60,11 @@ func (s *Service) add(ctx context.Context, in, out interface{}) error {
 	content, err = evidence.RewriteContent(ctx, content)
 	if err != nil {
 		return err
+	}
+	if strings.Contains(content, "```forge-report") {
+		if _, err = fenced.Parse(content); err != nil {
+			return fmt.Errorf("report was not saved: %w; correct the report JSON and retry message:add with the complete report", err)
+		}
 	}
 	interim := 0
 	if input.Interim != nil && *input.Interim {

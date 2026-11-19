@@ -2,6 +2,7 @@ package message
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -109,4 +110,52 @@ func deref(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func TestAdd_RejectsMalformedReportBeforeWritesAndAcceptsCorrectedRetry(t *testing.T) {
+	valid := "```forge-report\n" + `{"version":1,"id":"example","sequence":1,"mode":"start","grammar":"report-document-v1","blocks":[{"id":"finding","kind":"markdownBlock","markdown":"The rule is [[\"if\",6]].\nThe value is [Value]."}]}` + "\n```"
+	cases := map[string]string{
+		"quoted rule":             strings.Replace(valid, `\"if\"`, `"if"`, 1),
+		"literal newline":         strings.Replace(valid, `\nThe value`, "\nThe value", 1),
+		"unclosed report":         strings.TrimSuffix(valid, "\n```"),
+		"malformed attached data": valid + "\n```forge-data\n" + `{"version":2,"id":"rows","reportRef":"example","sequence":2,"data":[{"value":"[Value]"}]` + "\n```",
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			for _, interim := range []bool{false, true} {
+				conv := &addFakeConv{}
+				svc := New(conv)
+				ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "example", TurnID: "turn"})
+				var output AddOutput
+				err := svc.add(ctx, &AddInput{Content: content, Interim: &interim}, &output)
+				require.ErrorContains(t, err, "report was not saved")
+				require.ErrorContains(t, err, "retry message:add")
+				require.Empty(t, conv.patchedMessages)
+				require.Empty(t, conv.patchedConvs)
+				require.Empty(t, output.MessageID)
+				require.NoError(t, svc.add(ctx, &AddInput{Content: valid, Interim: &interim}, &output))
+				require.Len(t, conv.patchedMessages, 1)
+				require.Equal(t, valid, deref(conv.patchedMessages[0].Content))
+				require.NotEmpty(t, output.MessageID)
+			}
+		})
+	}
+}
+
+func TestAdd_PreservesOrdinaryLegacyAndValidReportMessages(t *testing.T) {
+	start := "```forge-report\n" + `{"version":1,"id":"example","sequence":1,"mode":"start","grammar":"report-document-v1","blocks":[{"id":"summary","kind":"markdownBlock","markdown":"Example."}]}` + "\n```"
+	for _, content := range []string{
+		"An ordinary note mentioning forge-report.",
+		"```forge-ui\n" + `{"kind":"dashboard.guidedResult","title":"Example"}` + "\n```",
+		"```forge-data id=rows format=csv\nlabel,value\nExample,1\n```\n```forge-ui\n{}\n```",
+		start,
+		start + "\n```forge-report\n" + `{"version":1,"id":"example","sequence":2,"mode":"commit"}` + "\n```",
+	} {
+		conv := &addFakeConv{}
+		svc := New(conv)
+		ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "example", TurnID: "turn"})
+		require.NoError(t, svc.add(ctx, &AddInput{Content: content}, &AddOutput{}))
+		require.Len(t, conv.patchedMessages, 1)
+		require.Equal(t, content, deref(conv.patchedMessages[0].Content))
+	}
 }
