@@ -118,6 +118,17 @@ The two mechanisms are independent. If both are configured, the whole-window
 check and the legacy resource-capability check must both pass. They may point
 to the same MCP tool only if that tool implements both request contracts.
 
+## Published-window display facts
+
+Published windows reuse the configured principal-presentation projection used by
+ordinary managed windows. Producer-supplied display snapshots retain precedence.
+Source admission and datasource authorization remain with their existing owners;
+display facts do not grant access to either surface.
+
+Responses containing display snapshots use `Cache-Control: private, no-store`
+and return fresh metadata instead of a conditional 304. Windows without display
+snapshots retain their admitted source-hash revalidation behavior.
+
 ## Security boundaries
 
 - Identity travels through `context.Context`; client-supplied roles are never
