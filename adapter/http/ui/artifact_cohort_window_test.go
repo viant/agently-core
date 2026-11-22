@@ -136,7 +136,7 @@ func TestPublishedWindowGetUsesOnlyAdmittedLocalVariantAndRechecks304(t *testing
 	if first.Header().Get("X-Artifact-Version") != "9007199254740993" {
 		t.Fatal("published response lost the exact artifact version")
 	}
-	if first.Code != http.StatusOK || first.Header().Get("ETag") != `"abcdef.cohort-v2"` || first.Header().Get("X-Artifact-Hash") != "abcdef" || first.Header().Get("Cache-Control") != "private, no-cache" || legacy.calls != 0 || published.calls != 1 || published.uri != expected.URI || bound != 1 {
+	if first.Code != http.StatusOK || first.Header().Get("ETag") != `"abcdef.cohort-v3"` || first.Header().Get("X-Artifact-Hash") != "abcdef" || first.Header().Get("Cache-Control") != "private, no-cache" || legacy.calls != 0 || published.calls != 1 || published.uri != expected.URI || bound != 1 {
 		t.Fatalf("published GET: %d %q calls=%d/%d bound=%d body=%s", first.Code, first.Header().Get("ETag"), legacy.calls, published.calls, bound, first.Body.String())
 	}
 	var body struct {
@@ -153,7 +153,7 @@ func TestPublishedWindowGetUsesOnlyAdmittedLocalVariantAndRechecks304(t *testing
 	if oldRepresentation.Code != http.StatusOK {
 		t.Fatalf("old representation incorrectly reused: %d", oldRepresentation.Code)
 	}
-	second := request(`"abcdef.cohort-v2"`)
+	second := request(`"abcdef.cohort-v3"`)
 	if second.Header().Get("X-Artifact-Version") != first.Header().Get("X-Artifact-Version") {
 		t.Fatal("conditional response lost the selected artifact version")
 	}

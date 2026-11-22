@@ -10,17 +10,19 @@ import (
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	identity "github.com/viant/agently-core/protocol/resource"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/service/ui/permittedview"
 	forgetypes "github.com/viant/forge/backend/types"
 )
 
 // Bump when host-side projection of a published window changes. The producer
 // hash identifies immutable source bytes; this tag identifies HTTP bytes.
-const publishedWindowRepresentationVersion = "cohort-v2"
+const publishedWindowRepresentationVersion = "cohort-v3"
 
 // tryPublishedWindow handles only operator-registered providers and namespace
 // claims. Unknown namespaces continue through the existing route. A denied or
 // unavailable claimed root never falls back to legacy reads.
-func tryPublishedWindow(w http.ResponseWriter, r *http.Request, registrations map[string]*publishedWindowRegistration, pathParts []string) bool {
+func tryPublishedWindow(w http.ResponseWriter, r *http.Request, settings handlerOptions, capabilities *permittedview.Runtime, useDefaults bool, pathParts []string) bool {
+	registrations := settings.published
 	if len(registrations) == 0 {
 		return false
 	}
@@ -137,6 +139,11 @@ func tryPublishedWindow(w http.ResponseWriter, r *http.Request, registrations ma
 			return true
 		}
 	}
+	presented, err := projectManagedWindowPresentation(r.Context(), variant.Window, settings.windows, capabilities, useDefaults)
+	if err != nil || presented == nil {
+		writeWindowError(w, err)
+		return true
+	}
 	representationETag := `"` + hash + "." + publishedWindowRepresentationVersion + `"`
 	w.Header().Set("ETag", representationETag)
 	w.Header().Set("X-Artifact-Hash", hash)
@@ -145,14 +152,19 @@ func tryPublishedWindow(w http.ResponseWriter, r *http.Request, registrations ma
 	}
 	w.Header().Set("Cache-Control", "private, no-cache")
 	w.Header().Set("Vary", "Authorization, Cookie")
-	if r.Header.Get("If-None-Match") == representationETag {
+	personalized := presented.AuthorizationSnapshot != nil
+	if personalized {
+		w.Header().Set("Cache-Control", "private, no-store")
+	}
+	if !personalized && r.Header.Get("If-None-Match") == representationETag {
 		w.WriteHeader(http.StatusNotModified)
 		return true
 	}
-	variant.Window.SelectionBinding = nil
-	variant.Window.LocalStateOwner = nil
+	responseWindow := *presented
+	responseWindow.SelectionBinding = nil
+	responseWindow.LocalStateOwner = nil
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(permittedWindowResponse{Status: "ok", Data: forgetypes.ConsumerWindow(variant.Window)})
+	_ = json.NewEncoder(w).Encode(permittedWindowResponse{Status: "ok", Data: forgetypes.ConsumerWindow(&responseWindow)})
 	return true
 }
 
