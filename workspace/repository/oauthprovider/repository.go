@@ -37,7 +37,10 @@ type Document struct {
 type TokenResponse struct {
 	TokenURL    string `yaml:"tokenURL" json:"tokenURL"`
 	Resource    string `yaml:"resource" json:"resource"`
-	SubjectPath string `yaml:"subjectPath" json:"subjectPath"`
+	SubjectPath string `yaml:"subjectPath,omitempty" json:"subjectPath,omitempty"`
+	// SubjectFromIDToken requires a verified OIDC identity from the bound exchange.
+	// It is mutually exclusive with SubjectPath and never permits token imports.
+	SubjectFromIDToken bool `yaml:"subjectFromIDToken,omitempty" json:"subjectFromIDToken,omitempty"`
 }
 
 // Introspection declares the provider's authenticated token-introspection

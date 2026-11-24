@@ -113,7 +113,7 @@ func TestValidateTokenResponse(t *testing.T) {
 			if tc.mutate != nil {
 				tc.mutate(token)
 			}
-			grant, err := validateTokenResponse(policy, requirement, token, tc.previous, now)
+			grant, err := validateTokenResponse(policy, requirement, token, tc.previous, now, nil)
 			if (err != nil) != tc.wantError {
 				t.Fatalf("validation error = %v", err)
 			}
@@ -123,15 +123,15 @@ func TestValidateTokenResponse(t *testing.T) {
 		})
 	}
 	requirement.Scopes = []string{"tasks:read"}
-	if _, err := validateTokenResponse(policy, requirement, opaqueResponse("user-1", now), nil, now); err == nil {
+	if _, err := validateTokenResponse(policy, requirement, opaqueResponse("user-1", now), nil, now, nil); err == nil {
 		t.Fatal("missing scopes accepted")
 	}
 	previous := &OAuthToken{Subject: "user-1", Scopes: requirement.Scopes}
-	if _, err := validateTokenResponse(policy, requirement, opaqueResponse("user-1", now), previous, now); err != nil {
+	if _, err := validateTokenResponse(policy, requirement, opaqueResponse("user-1", now), previous, now, nil); err != nil {
 		t.Fatal(err)
 	}
 	emptyScopes := opaqueResponse("user-1", now).WithExtra(map[string]interface{}{"scope": "", "data": map[string]interface{}{"gid": "user-1"}})
-	if _, err := validateTokenResponse(policy, requirement, emptyScopes, previous, now); err == nil {
+	if _, err := validateTokenResponse(policy, requirement, emptyScopes, previous, now, nil); err == nil {
 		t.Fatal("explicit scope reduction accepted")
 	}
 }

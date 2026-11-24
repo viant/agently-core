@@ -85,6 +85,38 @@ Caller code never sees the raw token.
 - [doc/mcp-integration.md](mcp-integration.md) — how auth reaches external tools.
 - [doc/sdk.md](sdk.md) — which SDK surfaces honour OAuth automatically.
 
+## Delegated opaque grants with OIDC identity
+
+A provider with opaque access tokens can establish its account identity from a
+signed ID token returned by the server's bound authorization-code exchange.
+Declare this policy in `oauth/providers/<provider>.yaml`:
+
+```yaml
+tokenResponse:
+  tokenURL: https://identity.example.com/token
+  resource: https://api.example.com/
+  subjectFromIDToken: true
+```
+
+This explicit option replaces `subjectPath`; configure exactly one identity
+source. Existing plain-subject token-response providers keep their behavior.
+The MCP requirement must select `tokenType: accessToken`, the same issuer and
+resource, and include `openid` in its scopes. A confidential server-side OAuth
+client and the exact pinned HTTPS token endpoint are required. Client secrets
+remain in the client's protected `configURL`, outside provider metadata.
+
+The native callback verifies the ID token using trusted provider keys, issuer,
+client audience, nonce, lifetime and authorized-party claims. When supplied,
+`at_hash` must bind it to the returned access token. A verified subject becomes
+the linked account identity; the outgoing credential remains the opaque access
+token. Raw client-supplied token imports cannot use this policy.
+
+Refresh retains the linked subject when the provider omits an ID token. If a
+refresh returns one, it is verified and must retain the original subject.
+Malformed or changed identity fails without replacing the stored credential.
+Connection ownership, native storage, refresh leases and workspace-token reuse
+policies are unchanged.
+
 ## Session-import verification boundary
 
 For auth-enabled workspaces, caller-supplied session tokens are verified before

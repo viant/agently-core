@@ -51,8 +51,11 @@ func tokenResponsePolicy(ctx context.Context, registry *providerregistry.Registr
 	if authcfg.NormalizeIssuer(requirement.Issuer) != authcfg.NormalizeIssuer(doc.Issuer) || strings.TrimSpace(doc.Issuer) == "" {
 		return nil, fmt.Errorf("token-response issuer does not match the provider")
 	}
-	if strings.TrimSpace(policy.SubjectPath) == "" {
-		return nil, fmt.Errorf("token-response subjectPath is required")
+	if (strings.TrimSpace(policy.SubjectPath) != "") == policy.SubjectFromIDToken {
+		return nil, fmt.Errorf("token-response requires exactly one of subjectPath or subjectFromIDToken")
+	}
+	if policy.SubjectFromIDToken && !scopesCover(requirement.Scopes, []string{"openid"}) {
+		return nil, fmt.Errorf("OIDC token-response identity requires the openid scope")
 	}
 	return policy, nil
 }
@@ -75,11 +78,20 @@ func tokenResponseSubject(token *oauth2.Token, path string) string {
 // exchange. Issuer/resource come from its pinned provider policy, not decoded
 // token claims. The subject and lifetime come from the HTTPS token response.
 // Refresh responses may omit a subject/scopes, retaining the original grant.
-func validateTokenResponse(policy *oauthprovider.TokenResponse, requirement *authcfg.Requirement, token *oauth2.Token, previous *OAuthToken, now time.Time) (*verifiedGrant, error) {
+func validateTokenResponse(policy *oauthprovider.TokenResponse, requirement *authcfg.Requirement, token *oauth2.Token, previous *OAuthToken, now time.Time, identity *verifiedGrant) (*verifiedGrant, error) {
 	if token == nil || strings.TrimSpace(token.AccessToken) == "" || !strings.EqualFold(token.TokenType, "bearer") || !token.Expiry.After(now) {
 		return nil, fmt.Errorf("token response requires a bearer access token with a future expiration")
 	}
 	subject := tokenResponseSubject(token, policy.SubjectPath)
+	if policy.SubjectFromIDToken {
+		subject = ""
+		if identity != nil {
+			subject = identity.subject
+		}
+		if subject == "" && previous == nil {
+			return nil, fmt.Errorf("token response requires a verified OIDC identity")
+		}
+	}
 	if previous != nil {
 		if subject != "" && subject != previous.Subject {
 			return nil, fmt.Errorf("token refresh changed the provider subject")
