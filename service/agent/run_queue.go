@@ -54,6 +54,10 @@ func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, er
 	rec.SetId(turnID)
 	rec.SetConversationID(conversationID)
 	rec.SetStatus("queued")
+	if len(input.Attachments) > 0 {
+		// Queue readers must not select a turn before its native file carriers exist.
+		rec.SetStatus("pending")
+	}
 	rec.SetQueueSeq(queueSeq)
 	rec.SetCreatedAt(now)
 	rec.SetStartedByMessageID(turnID)
@@ -74,6 +78,20 @@ func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, er
 	}
 	if err := s.conversation.PatchMessage(ctx, msg); err != nil {
 		return false, fmt.Errorf("failed to persist queued message: %w", err)
+	}
+	if len(input.Attachments) > 0 {
+		turn := runtimerequestctx.TurnMeta{ConversationID: conversationID, TurnID: turnID, ParentMessageID: turnID, Assistant: input.AgentID}
+		if err := s.processAttachments(runtimerequestctx.WithTurnMeta(ctx, turn), turn, input); err != nil {
+			rec.SetStatus("failed")
+			rec.SetErrorMessage(err.Error())
+			_ = s.conversation.PatchTurn(ctx, rec)
+			s.patchQueuedStarterMessageStatus(ctx, conversationID, turnID, turnID, "failed")
+			return false, fmt.Errorf("failed to prepare queued attachments: %w", err)
+		}
+		rec.SetStatus("queued")
+		if err := s.conversation.PatchTurn(ctx, rec); err != nil {
+			return false, fmt.Errorf("failed to admit queued attachments: %w", err)
+		}
 	}
 	if patcher, ok := s.dataService.(interface {
 		PatchTurnQueue(ctx context.Context, in *turnqueuemodel.TurnQueue) error

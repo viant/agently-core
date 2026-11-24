@@ -49,6 +49,7 @@ import (
 type Option func(*Service)
 
 type Service struct {
+	attachmentMu               sync.Mutex
 	hostDocuments              HostDocumentReader
 	toolBundlesConfigured      bool
 	plannerContractsConfigured bool

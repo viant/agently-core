@@ -2,18 +2,20 @@ package message
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/runtime/evidence"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/forge/backend/authoring/markdown"
 	"github.com/viant/forge/backend/reporting/fenced"
 )
 
 type AddInput struct {
 	Role    string `json:"role" description:"Message role. Currently only assistant is supported."`
-	Content string `json:"content" description:"Message content to persist in the current turn."`
+	Content string `json:"content" description:"Message content to persist in the current turn. Structured cards and reports require valid JSON; a rejected save can be corrected and retried."`
 	Interim *bool  `json:"interim,omitempty" description:"Whether the message is interim. Defaults to false."`
 	Mode    string `json:"mode,omitempty" description:"Optional message mode, e.g. task or exec."`
 	Status  string `json:"status,omitempty" description:"Optional message status."`
@@ -65,6 +67,18 @@ func (s *Service) add(ctx context.Context, in, out interface{}) error {
 		if _, err = fenced.Parse(content); err != nil {
 			return fmt.Errorf("report was not saved: %w; correct the report JSON and retry message:add with the complete report", err)
 		}
+	}
+	if err = markdown.VisitFences(content, func(_ string, body []byte) error {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(body, &object); err != nil {
+			return err
+		}
+		if object == nil {
+			return fmt.Errorf("forge-ui must contain a JSON object")
+		}
+		return nil
+	}, "forge-ui"); err != nil {
+		return fmt.Errorf("response card was not saved: %w; correct the forge-ui JSON and retry message:add with the complete card", err)
 	}
 	interim := 0
 	if input.Interim != nil && *input.Interim {

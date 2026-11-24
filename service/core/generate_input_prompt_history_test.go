@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -239,4 +240,38 @@ func TestGenerateInputInit_PreservesMessageIDForReplayToolResults(t *testing.T) 
 	assert.Equal(t, "call_abc123", in.Message[1].ToolCallId)
 	require.Equal(t, llm.RoleUser, in.Message[2].Role)
 	assert.Equal(t, "continue", in.Message[2].Content)
+}
+
+func TestGenerateInputInit_KeepsAnsweredQuestionBeforeSubsequentToolResults(t *testing.T) {
+	for _, prompt := range []string{"", "Expanded request"} {
+		for _, inPast := range []bool{false, true} {
+			name := fmt.Sprintf("prompt=%q/current-in-past=%t", prompt, inPast)
+			t.Run(name, func(t *testing.T) {
+				current := &binding.Turn{ID: "current", Messages: []*binding.Message{
+					{ID: "request", Kind: binding.MessageKindChatUser, Role: "user", Content: "Review the setup"},
+					{ID: "question", Kind: binding.MessageKindElicitPrompt, Role: "assistant", Content: "Which result?"},
+					{ID: "answer", Kind: binding.MessageKindElicitAnswer, Role: "user", Content: `{"result":"visits"}`},
+					{ID: "read", Kind: binding.MessageKindToolResult, Role: "tool", ToolOpID: "read-call", ToolName: "resources-read", Content: `{"content":"source text"}`},
+					{ID: "save", Kind: binding.MessageKindToolResult, Role: "tool", ToolOpID: "save-call", ToolName: "message-add", Content: `{"id":"saved-answer"}`},
+				}}
+				history := binding.History{CurrentTurnID: "current", Current: current, Past: []*binding.Turn{{ID: "old", Messages: []*binding.Message{
+					{ID: "old-answer", Kind: binding.MessageKindElicitAnswer, Role: "user", Content: "old selection"},
+				}}}}
+				if inPast {
+					history.Current = nil
+					history.Past = append(history.Past, current)
+				}
+				in := &GenerateInput{Prompt: &binding.Prompt{Text: prompt}, Binding: &binding.Binding{History: history}}
+				require.NoError(t, in.Init(context.Background()))
+				var order []string
+				for _, message := range in.Message {
+					if message.ID != "" {
+						order = append(order, message.ID)
+					}
+				}
+				require.Equal(t, []string{"request", "question", "answer", "read", "read", "save", "save"}, order, "an already-answered question must not become the newest user request after every save")
+				require.Equal(t, llm.RoleTool, in.Message[len(in.Message)-1].Role)
+			})
+		}
+	}
 }

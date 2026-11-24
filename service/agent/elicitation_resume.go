@@ -95,7 +95,8 @@ func (s *Service) continueResolvedElicitation(ctx context.Context, receipt *rece
 		if !isTerminalArtifactStatus(call.Status) {
 			return errElicitationSettling
 		}
-		if call.Status != "failed" || !strings.Contains(valueOrEmpty(call.ErrorMessage), "context deadline exceeded") {
+		// The tool executor records an exhausted wait budget as canceled without an error message.
+		if call.Status != "canceled" && (call.Status != "failed" || !strings.Contains(valueOrEmpty(call.ErrorMessage), "context deadline exceeded")) {
 			return nil
 		}
 		iteration = row.iteration

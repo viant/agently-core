@@ -148,7 +148,11 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 			Bytes int64 `json:"bytes"`
 		}
 		if err := json.Unmarshal(raw, &aux); err == nil && aux.Bytes > 0 {
-			s.llm.SetAttachmentUsage(convID, aux.Bytes)
+			s.attachmentMu.Lock()
+			if aux.Bytes > s.llm.AttachmentUsage(convID) {
+				s.llm.SetAttachmentUsage(convID, aux.Bytes)
+			}
+			s.attachmentMu.Unlock()
 		}
 	}
 	applyMetaTools := true

@@ -298,6 +298,27 @@ it('preserves a message-add highlight while a later report streams', async () =>
     expect(h.rows().some(row=>row.kind==='assistant'&&row.messageId==='highlights'&&row.content==='Public highlights')).toBe(true);
 });
 
+it.each([
+    {schemaVersion:'1',parts:[{kind:'forgeUI',payload:{version:1,blocks:[]}}],reports:[]},
+    {schemaVersion:'1',parts:[],reports:[{id:'summary',scope:'message',status:'committed',grammar:'report-document-v1',source:{title:'Summary',blocks:[]}}]},
+])('keeps a persisted rich message standalone when its activity arrives', async (renderedContent) => {
+    const publicMessage=metadata({nativeMessageId:'saved',messageKind:'standalone',mode:'task',pageId:undefined});
+    const final=metadata({nativeMessageId:'final',modelCallId:'final-model',pageId:'final-page',mode:'task'});
+    const h=harness('agently',[start,
+        {type:'TEXT_MESSAGE_START',messageId:'saved',role:'assistant',metadata:publicMessage},
+        {type:'TEXT_MESSAGE_CONTENT',messageId:'saved',delta:'Saved result'},
+        {type:'ACTIVITY_SNAPSHOT',messageId:'saved/activity',activityType:'agently.rendered-content',content:{version:'1',renderedContent},metadata:publicMessage},
+        {type:'TEXT_MESSAGE_END',messageId:'saved'},
+        {type:'TEXT_MESSAGE_START',messageId:'final',role:'assistant',metadata:final},
+        {type:'TEXT_MESSAGE_CONTENT',messageId:'final',delta:'Saved above.'},
+        {type:'TEXT_MESSAGE_END',messageId:'final'},finish],{allowHostEffects:true});
+    await h.run();
+    expect(h.rows().filter(row=>row.kind==='assistant'&&row.messageId==='saved')).toEqual([
+        expect.objectContaining({content:'Saved result',renderedContent}),
+    ]);
+    expect(h.store().turns.flatMap(turn=>turn.pages).some(page=>page.pageId==='saved')).toBe(false);
+});
+
 it('keeps internal lanes hidden and model finals page-owned despite a standalone marker', async () => {
     const h=harness('agently',[start,
         {type:'TEXT_MESSAGE_START',messageId:'internal',role:'assistant',metadata:metadata({nativeMessageId:'internal',messageKind:'standalone',mode:'chain'})},

@@ -112,6 +112,8 @@ func (s *Service) processAttachments(ctx context.Context, turn runtimerequestctx
 	if len(input.Attachments) == 0 {
 		return nil
 	}
+	s.attachmentMu.Lock()
+	defer s.attachmentMu.Unlock()
 	modelName := ""
 	if input.ModelOverride != "" {
 		modelName = input.ModelOverride

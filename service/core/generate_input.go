@@ -3,9 +3,7 @@ package core
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -144,29 +142,6 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		}
 	}
 
-	if i.Binding.History.Current != nil {
-		for _, elicitationMsg := range i.Binding.History.Current.Messages {
-			if elicitationMsg == nil {
-				continue
-			}
-			if elicitationMsg.Kind != binding.MessageKindElicitPrompt && elicitationMsg.Kind != binding.MessageKindElicitAnswer {
-				continue
-			}
-			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole(elicitationMsg.Role), elicitationMsg.Content))
-			content := strings.TrimSpace(elicitationMsg.Content)
-			keys := []string{}
-			if content != "" && strings.HasPrefix(content, "{") {
-				var tmp map[string]interface{}
-				if err := json.Unmarshal([]byte(content), &tmp); err == nil {
-					for k := range tmp {
-						keys = append(keys, k)
-					}
-					sort.Strings(keys)
-				}
-			}
-			_ = keys
-		}
-	}
 	return nil
 }
 
@@ -302,6 +277,11 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPro
 		if currentTurn != nil {
 			for _, m := range currentTurn.Messages {
 				if m == nil {
+					continue
+				}
+				if m.Kind == binding.MessageKindElicitPrompt || m.Kind == binding.MessageKindElicitAnswer {
+					// Keep the answer before work already completed in response to it.
+					out = append(out, m.ToLLM())
 					continue
 				}
 				if !replacedCurrentUser &&

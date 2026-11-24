@@ -27,6 +27,14 @@ import (
 // Reproduce the expired message/askUser waiter against the native answer receipt
 // writer, then submit the answer through the same entry point as the HTTP API.
 func TestResolveElicitationResumesExpiredAskUserOnce(t *testing.T) {
+	for _, status := range []string{"failed", "canceled"} {
+		t.Run(status, func(t *testing.T) { testResolveExpiredAskUser(t, status, false) })
+	}
+	t.Run("stopped_turn", func(t *testing.T) { testResolveExpiredAskUser(t, "canceled", true) })
+}
+
+func testResolveExpiredAskUser(t *testing.T, status string, stopped bool) {
+	t.Helper()
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "user"})
 	server, err := native.New(ctx, native.Options{WorkspaceRoot: t.TempDir()})
 	require.NoError(t, err)
@@ -87,7 +95,11 @@ func TestResolveElicitationResumesExpiredAskUserOnce(t *testing.T) {
 	tool.SetParentMessageID("expired-model")
 	tool.SetRole("tool")
 	tool.SetType("tool_op")
-	tool.SetContent("elicitation failed: context deadline exceeded")
+	timeoutMessage := "elicitation failed: context deadline exceeded"
+	if status == "canceled" {
+		timeoutMessage = "tool execution was cancelled"
+	}
+	tool.SetContent(timeoutMessage)
 	require.NoError(t, conv.PatchMessage(ctx, tool))
 	toolCall := apiconv.NewToolCall()
 	toolCall.SetMessageID("expired-tool")
@@ -97,18 +109,26 @@ func TestResolveElicitationResumesExpiredAskUserOnce(t *testing.T) {
 	toolCall.SetToolKind("general")
 	toolCall.SetIteration(2)
 	timeoutBody := []byte(`{"error":"elicitation failed: context deadline exceeded"}`)
+	if status == "canceled" {
+		timeoutBody = []byte(timeoutMessage)
+	}
 	timeoutPayload := apiconv.NewPayload()
 	timeoutPayload.SetId("original-timeout-output")
 	timeoutPayload.SetKind("tool_response")
 	timeoutPayload.SetMimeType("application/json")
+	if status == "canceled" {
+		timeoutPayload.SetMimeType("text/plain")
+	}
 	timeoutPayload.SetStorage("inline")
 	timeoutPayload.SetSizeBytes(len(timeoutBody))
 	timeoutPayload.SetInlineBody(timeoutBody)
 	require.NoError(t, conv.PatchPayload(ctx, timeoutPayload))
 	toolCall.ResponsePayloadID = func() *string { value := "original-timeout-output"; return &value }()
 	toolCall.Has.ResponsePayloadID = true
-	toolCall.SetStatus("failed")
-	toolCall.SetErrorMessage("elicitation failed: context deadline exceeded")
+	toolCall.SetStatus(status)
+	if status == "failed" {
+		toolCall.SetErrorMessage(timeoutMessage)
+	}
 	require.NoError(t, conv.PatchToolCall(ctx, toolCall))
 	svc.elicitation = elicitation.New(conv, nil, router.New(), elicitation.NoopAwaiterFactory())
 	request := &execution.Elicitation{ElicitRequestParams: schema.ElicitRequestParams{Message: "Choose your segment", ElicitationId: "expired-ask"}}
@@ -119,6 +139,10 @@ func TestResolveElicitationResumesExpiredAskUserOnce(t *testing.T) {
 	_, _, err = svc.elicitation.Wait(waitCtx, "resume-conv", "expired-ask")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.False(t, svc.elicitation.HasLiveWaiter("resume-conv", "expired-ask"))
+	if stopped {
+		turn.SetStatus("canceled")
+		require.NoError(t, conv.PatchTurn(ctx, turn))
+	}
 	payload := map[string]interface{}{"segmentId": "viant.taxonomy:1489641"}
 	wrongOwner := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "other"})
 	require.Error(t, svc.ResolveElicitation(wrongOwner, "resume-conv", "expired-ask", "accept", payload))
@@ -126,6 +150,16 @@ func TestResolveElicitationResumesExpiredAskUserOnce(t *testing.T) {
 	resolveCtx, cancelRequest := context.WithCancel(ctx)
 	require.NoError(t, svc.ResolveElicitation(resolveCtx, "resume-conv", "expired-ask", "accept", payload))
 	cancelRequest() // Closing the HTTP request must not cancel the admitted continuation.
+	if stopped {
+		require.EqualValues(t, 0, finder.calls.Load())
+		stored, err := conv.GetConversation(ctx, "resume-conv", apiconv.WithIncludeTranscript(true))
+		require.NoError(t, err)
+		require.Equal(t, "canceled", stored.GetTranscript()[0].Status)
+		storedRun, err := svc.dataService.GetRun(ctx, "resume-turn", nil)
+		require.NoError(t, err)
+		require.Equal(t, 2, storedRun.Iteration)
+		return
+	}
 	require.Eventually(t, func() bool { return finder.calls.Load() == 1 }, time.Second, 10*time.Millisecond, "accepted answer must resume the expired execution")
 	receipt, err := svc.elicitation.InspectResolution(ctx, "resume-conv", "expired-ask", "accept", payload, "")
 	require.NoError(t, err)
@@ -144,6 +178,7 @@ func TestResolveElicitationResumesExpiredAskUserOnce(t *testing.T) {
 				continue
 			}
 			require.NotContains(t, llm.MessageText(message), "context deadline exceeded", "active model tool result must reflect the accepted answer")
+			require.NotContains(t, llm.MessageText(message), "tool execution was cancelled", "resumed model must receive the saved answer")
 			var result map[string]interface{}
 			if json.Unmarshal([]byte(llm.MessageText(message)), &result) == nil && result["action"] == "accept" {
 				require.Equal(t, payload, result["payload"])
