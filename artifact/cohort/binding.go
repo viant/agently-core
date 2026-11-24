@@ -72,6 +72,10 @@ func verifiedCohortSession(ctx context.Context) (string, error) {
 	return owner.Binding, nil
 }
 
+// Preserve the existing per-entry hot-memory budget independently of payload
+// acceptance. Larger artifacts use the same compressed file backing.
+const maxHotArtifactFrameBytes = (4 << 20) + 4096
+
 // PrepareBinding resolves the trusted MCP definition and state
 // directory once at startup. It never borrows a browser's BFF token or mints a
 // policy grant; Client must already target the configured metadata producer.
@@ -104,7 +108,7 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 	if err != nil {
 		return Binding{}, err
 	}
-	store, err := artifactcache.New(artifactcache.Config{SizeMB: 32, MaxEntries: 4096, MaxEntryBytes: artifactcohort.MaxPayloadBytes + 4096, Backing: backing})
+	store, err := artifactcache.New(artifactcache.Config{SizeMB: 32, MaxEntries: 4096, MaxEntryBytes: maxHotArtifactFrameBytes, Backing: backing})
 	if err != nil {
 		return Binding{}, err
 	}
