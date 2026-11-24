@@ -746,7 +746,14 @@ func (r *DelegatedCredentialResolver) refreshDelegated(ctx context.Context, cano
 	}
 	var responseGrant *verifiedGrant
 	if responsePolicy != nil {
-		responseGrant, err = validateTokenResponse(responsePolicy, requirement, refreshed, stored, r.now())
+		var identity *verifiedGrant
+		if responsePolicy.SubjectFromIDToken && refreshed.Extra("id_token") != nil {
+			verifier := (&mcpLinkService{}).defaultVerifyJWT()
+			identity, err = verifyTokenResponseIdentity(ctx, resolved, refreshed, "", oauthCfg.ClientID, r.now(), verifier)
+		}
+		if err == nil {
+			responseGrant, err = validateTokenResponse(responsePolicy, requirement, refreshed, stored, r.now(), identity)
+		}
 		if err != nil {
 			release()
 			r.setCooldown(canonical, resolved.storageKey)
