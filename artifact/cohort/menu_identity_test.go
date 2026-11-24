@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -37,7 +38,7 @@ func TestCohortMenuUsesRequestIdentityAndKeepsMetadataIdentity(t *testing.T) {
 	publisher := artifactcohort.NewPublisher()
 	artifact, _, err := publisher.Publish(ctx, artifactcohort.RootRef{URI: "navigation://example/main", Kind: "navigation", Version: 1}, json.RawMessage(`{"schemaVersion":1,"source":{"dataSourceRef":{"resource":{"uri":"datasource://example/rows"},"providerIdentity":"example-publisher"}},"applications":[]}`), func(context.Context, json.RawMessage) error { return nil })
 	require.NoError(t, err)
-	target, _, err := publisher.Publish(ctx, artifactcohort.RootRef{URI: "window://example/details", Kind: "window", Version: 1}, json.RawMessage(`{"schemaVersion":1,"window":{"title":"Details"}}`), func(context.Context, json.RawMessage) error { return nil })
+	target, _, err := publisher.Publish(ctx, artifactcohort.RootRef{URI: "window://example/details", Kind: "window", Version: 1}, json.RawMessage(`{"schemaVersion":1,"window":{"title":"`+strings.Repeat("d", 5<<20)+`"}}`), func(context.Context, json.RawMessage) error { return nil })
 	require.NoError(t, err)
 	policy := authz.Resource{Tenant: "example-tenant", Kind: "cohort", ID: "readers", Version: "logical"}
 	_, err = publisher.ReplaceCatalog(ctx, []authz.Document{{Resource: policy, Revision: 1, Policies: map[string]authz.Policy{artifactcohort.PolicyAction: {Mode: "protected", Rule: &authz.Rule{Kind: "role", Value: "reader"}}}}}, []artifactcohort.Cohort{{Tenant: "example-tenant", Name: "readers", PolicyResource: policy, Roots: []artifactcohort.RootRef{artifact.Root, target.Root}}}, publisher.Generation())
@@ -173,6 +174,14 @@ func TestCohortMenuUsesRequestIdentityAndKeepsMetadataIdentity(t *testing.T) {
 			mu.Lock()
 			tokens["Bearer "+token] = subject
 			mu.Unlock()
+			if subject == "allowed-user" {
+				require.NoError(t, binding.Source.EnsureAdmitted(r.Context()))
+				replica, ok := binding.Source.(*artifactcohort.Replica)
+				require.True(t, ok)
+				view, err := replica.Open(r.Context(), target.Root.URI)
+				require.NoError(t, err)
+				require.Equal(t, target.Root.Hash, artifactcohort.Hash(view.Payload()))
+			}
 			result, e := source.GetMenuWithParameters(r.Context(), artifact.Root.URI, map[string]any{"scope": "synthetic"})
 			require.NoError(t, e)
 			if result != nil {
