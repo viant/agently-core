@@ -147,6 +147,8 @@ func TestAdd_PreservesOrdinaryLegacyAndValidReportMessages(t *testing.T) {
 	for _, content := range []string{
 		"An ordinary note mentioning forge-report.",
 		"```forge-ui\n" + `{"kind":"dashboard.guidedResult","title":"Example"}` + "\n```",
+		"```forge-ui\n{}\n```\n```forge-ui\n{\"unknownField\":true}\n```",
+		"````text\n```forge-ui\n{literal example\n```\n````",
 		"```forge-data id=rows format=csv\nlabel,value\nExample,1\n```\n```forge-ui\n{}\n```",
 		start,
 		start + "\n```forge-report\n" + `{"version":1,"id":"example","sequence":2,"mode":"commit"}` + "\n```",
@@ -157,5 +159,32 @@ func TestAdd_PreservesOrdinaryLegacyAndValidReportMessages(t *testing.T) {
 		require.NoError(t, svc.add(ctx, &AddInput{Content: content}, &AddOutput{}))
 		require.Len(t, conv.patchedMessages, 1)
 		require.Equal(t, content, deref(conv.patchedMessages[0].Content))
+	}
+}
+
+func TestAdd_RejectsMalformedUICardBeforeWritesAndAcceptsCorrectedRetry(t *testing.T) {
+	valid := "```forge-ui\n" + `{"version":1,"title":"Review","blocks":[],"note":"First step.\nSecond step."}` + "\n```"
+	for name, content := range map[string]string{
+		"literal newline": strings.Replace(valid, `\nSecond`, "\nSecond", 1),
+		"unclosed card":   strings.TrimSuffix(valid, "\n```"),
+		"non-object":      "```forge-ui\n[]\n```",
+		"null":            "```forge-ui\nnull\n```",
+		"empty":           "```forge-ui\n\n```",
+	} {
+		t.Run(name, func(t *testing.T) {
+			conv := &addFakeConv{}
+			svc := New(conv)
+			ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "example", TurnID: "turn"})
+			var output AddOutput
+			err := svc.add(ctx, &AddInput{Content: content}, &output)
+			require.ErrorContains(t, err, "card was not saved")
+			require.ErrorContains(t, err, "retry message:add")
+			require.Empty(t, conv.patchedMessages)
+			require.Empty(t, conv.patchedConvs)
+			require.Empty(t, output.MessageID)
+			require.NoError(t, svc.add(ctx, &AddInput{Content: valid}, &output))
+			require.Len(t, conv.patchedMessages, 1)
+			require.Equal(t, valid, deref(conv.patchedMessages[0].Content))
+		})
 	}
 }

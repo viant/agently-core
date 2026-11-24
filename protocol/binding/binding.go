@@ -655,7 +655,7 @@ func (h *History) LLMMessages() []llm.Message {
 		return out
 	}
 	trimmedCurrentID := strings.TrimSpace(h.CurrentTurnID)
-	appendLLM := func(msg *Message, omitTools bool) {
+	appendLLM := func(msg *Message, omitTools, includeElicitation bool) {
 		if msg == nil {
 			return
 		}
@@ -667,6 +667,9 @@ func (h *History) LLMMessages() []llm.Message {
 			toolMsgs := ToolResultLLMMessages(msg)
 			out = append(out, toolMsgs...)
 		case MessageKindElicitPrompt, MessageKindElicitAnswer:
+			if includeElicitation {
+				out = append(out, msg.ToLLM())
+			}
 			return
 		default:
 			out = append(out, msg.ToLLM())
@@ -686,19 +689,19 @@ func (h *History) LLMMessages() []llm.Message {
 			isCurrentTurn := trimmedCurrentID != "" && strings.TrimSpace(t.ID) == trimmedCurrentID
 			omitToolsForTurn := omitTools && !isCurrentTurn
 			for _, m := range t.Messages {
-				appendLLM(m, omitToolsForTurn) // omit tool results if turn-level tool exposure and not current turn
+				appendLLM(m, omitToolsForTurn, isCurrentTurn) // omit tool results if turn-level tool exposure and not current turn
 			}
 		}
 		if h.Current != nil {
 			for _, m := range h.Current.Messages {
-				appendLLM(m, false)
+				appendLLM(m, false, true)
 			}
 		}
 		return out
 	}
 	// Fallback: legacy flat Messages view.
 	for _, m := range h.Messages {
-		appendLLM(m, false)
+		appendLLM(m, false, false)
 	}
 	return out
 }
