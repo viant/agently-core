@@ -2043,10 +2043,15 @@ func (r *Registry) InitializeWithRefreshContext(ctx, refreshCtx context.Context)
 		return done
 	}
 	r.addInternalMcp()
-	servers, err := r.listServers(ctx)
-	if err != nil {
-		r.warnf("list servers failed: %v", err)
-	} else {
+	// Prepare registered native schemas before any remote inventory I/O. These
+	// independent definitions must be available even during cold peer discovery.
+	r.mu.RLock()
+	native := make([]string, 0, len(r.internal))
+	for server := range r.internal {
+		native = append(native, server)
+	}
+	r.mu.RUnlock()
+	warm := func(servers []string) {
 		var wg sync.WaitGroup
 		for _, server := range servers {
 			if !r.shouldWarmServer(ctx, server) {
@@ -2064,6 +2069,19 @@ func (r *Registry) InitializeWithRefreshContext(ctx, refreshCtx context.Context)
 			}(server)
 		}
 		wg.Wait()
+	}
+	warm(native)
+	servers, err := r.listServers(ctx)
+	if err != nil {
+		r.warnf("list servers failed: %v", err)
+	} else {
+		external := make([]string, 0, len(servers))
+		for _, server := range servers {
+			if !r.isInternalServer(server) {
+				external = append(external, server)
+			}
+		}
+		warm(external)
 	}
 	return r.startAutoRefresh(refreshCtx)
 }
@@ -2484,14 +2502,9 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	if ok && c != nil {
 		px, _ := mcpproxy.NewProxy(ctx, server, diagnosticCatalogClient(server, c))
 		var opts []mcpclient.RequestOption
-		if r.mgr != nil {
-			ctx = r.mgr.WithAuthTokenContext(ctx, server)
-		}
-		useID := false
-		if r.mgr != nil {
-			useID = r.mgr.UseIDToken(ctx, server)
-		}
-		if tok := authctx.MCPAuthToken(ctx, useID); tok != "" && !r.isDelegatedAuthServer(ctx, server) {
+		// The native service shares verified ingress, just like its execution
+		// path. A remote MCP configuration cannot replace those credentials.
+		if tok := authctx.MCPAuthToken(ctx, false); tok != "" {
 			opts = append(opts, mcpclient.WithAuthToken(tok))
 		}
 		var tools []mcpschema.Tool

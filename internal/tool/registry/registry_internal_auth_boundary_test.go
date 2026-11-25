@@ -25,6 +25,50 @@ type internalAuthBoundaryManager struct {
 	options, get, useID, withAuth, touch atomic.Int32
 }
 
+type internalUnavailableInventory struct {
+	internalAuthBoundaryManager
+	names   atomic.Int32
+	onNames func()
+}
+
+func (m *internalUnavailableInventory) Names(context.Context) ([]string, error) {
+	m.names.Add(1)
+	if m.onNames != nil {
+		m.onNames()
+	}
+	return nil, errors.New("unrelated inventory is unavailable")
+}
+
+func TestNativeStartupWarmupSurvivesExternalInventoryFailure(t *testing.T) {
+	manager := &internalUnavailableInventory{}
+	registry := &Registry{mgr: manager, cache: map[string]*toolCacheEntry{}, internal: map[string]mcpclient.Interface{}}
+	if err := registry.AddInternalService(&internalAuthBoundaryService{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	manager.onNames = func() {
+		if !registry.hasCachedServerTools("sample/internal") {
+			t.Error("external inventory I/O started before native schemas were ready")
+		}
+	}
+	done := registry.InitializeWithRefreshContext(ctx, ctx)
+	defer func() { cancel(); <-done }()
+	definitions := registry.DefinitionMetadataWithContext(authctx.WithUserInfo(ctx, &authctx.UserInfo{Subject: "sample-principal"}))
+	found := false
+	for _, definition := range definitions {
+		if definition.Name == "sample/internal:read" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("unrelated inventory failure prevented native schema warmup")
+	}
+	if manager.get.Load() != 0 {
+		t.Fatal("native warmup acquired a remote client")
+	}
+}
+
 func (m *internalAuthBoundaryManager) Get(context.Context, string, string) (mcpclient.Interface, error) {
 	m.get.Add(1)
 	return nil, errors.New("unexpected remote client acquisition")
