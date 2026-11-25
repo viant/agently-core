@@ -70,6 +70,7 @@ func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (serv
 		entries = append(entries, entry)
 	}
 	r.mu.RUnlock()
+	public := map[string]bool{}
 	for _, entry := range entries {
 		if entry == nil || entry.mcpDef.Name == "" {
 			continue
@@ -85,7 +86,12 @@ func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (serv
 		if !nameMatches(server, entry.mcpDef.Name) {
 			continue
 		}
-		if r.isInternalServer(server) || r.isPublicToolCatalog(ctx, server) {
+		allowed, checked := public[server]
+		if !checked {
+			allowed = r.isInternalServer(server) || r.isPublicToolCatalog(ctx, server)
+			public[server] = allowed
+		}
+		if allowed {
 			add(server, entry.mcpDef.Name)
 		}
 	}
