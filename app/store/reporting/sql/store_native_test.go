@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -22,7 +23,9 @@ import (
 	reportshareartifactmodel "github.com/viant/agently-core/model/reportshareartifact"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
 	fsstate "github.com/viant/agently-core/workspace/store/fs"
+	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/standalone"
+	xhandler "github.com/viant/xdatly/handler"
 )
 
 func reportingRuntime(t *testing.T) (context.Context, *Store, *sql.DB, *standalone.Server) {
@@ -44,6 +47,23 @@ func reportingRuntime(t *testing.T) (context.Context, *Store, *sql.DB, *standalo
 	client, err := New(ctx, server, nil, nil)
 	require.NoError(t, err)
 	return ctx, client.(*Store), db, server
+}
+
+type adoptionFailure struct {
+	cause error
+}
+
+func (f adoptionFailure) InvokeComponent(context.Context, dexec.ComponentRequest) (any, error) {
+	return nil, fmt.Errorf("commit adoption: %w", f.cause)
+}
+
+func TestAdoptReportRunRetainsConflictFromTransactionCommit(t *testing.T) {
+	owner := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "owner"})
+	conflict := &xhandler.Conflict{Entity: "example", Field: "revision", Reason: "changed"}
+	store := &Store{native: adoptionFailure{cause: conflict}}
+	err := store.AdoptReportRunAndContextCAS(owner, &reportrunmodel.Record{OwnerID: "owner"}, 1, &reportcontextmodel.Record{OwnerID: "owner"}, 0)
+	require.ErrorIs(t, err, reportstore.ErrCASMismatch)
+	require.ErrorIs(t, err, conflict)
 }
 
 func TestNativeReportingStoreLifecycle(t *testing.T) {

@@ -23,6 +23,7 @@ import (
 	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/spec"
+	xhandler "github.com/viant/xdatly/handler"
 )
 
 var adoptionTarget = dexec.ComponentTarget{
@@ -89,11 +90,14 @@ func (s *Store) adoptReportRunNative(ctx context.Context, run *reportrunmodel.Re
 		Input:  &adoption.Input{Run: &nativeRun, Context: &nativePointer, ExpectedRunRevision: expectedRunRevision, ExpectedContextRevision: expectedContextRevision},
 	})
 	if err != nil {
+		var conflict *xhandler.Conflict
 		switch {
 		case errors.Is(err, adoption.ErrNotFound):
 			return reportstore.ErrNotFound
-		case errors.Is(err, adoption.ErrCASMismatch):
-			return reportstore.ErrCASMismatch
+		case errors.Is(err, adoption.ErrCASMismatch), errors.As(err, &conflict):
+			// Buffered native writes can discover the conflict when the outer
+			// adoption transaction completes, after the component has returned.
+			return errors.Join(reportstore.ErrCASMismatch, err)
 		case errors.Is(err, adoption.ErrImmutable):
 			return reportstore.ErrImmutable
 		default:
