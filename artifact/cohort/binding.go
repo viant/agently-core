@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"path/filepath"
 	"strings"
 	"time"
@@ -55,18 +56,33 @@ type verifiedCohortFacts struct {
 }
 
 func (p verifiedCohortFacts) Resolve(ctx context.Context) (authz.Facts, error) {
+	if err := ctx.Err(); err != nil {
+		return authz.Facts{}, err
+	}
 	if p.source == nil {
 		return authz.Facts{}, authz.ErrDenied
 	}
 	principal, err := p.source.ResolvePrincipal(ctx)
-	if err != nil || principal.Facts.Subject == "" || principal.Facts.Issuer == "" || principal.Facts.Tenant != p.tenant || !principal.Facts.ValidUntil.After(time.Now()) {
+	if err != nil {
+		if cause := ctx.Err(); cause != nil && errors.Is(err, authz.ErrDenied) && !errors.Is(err, authz.ErrUnavailable) {
+			return authz.Facts{}, errors.Join(cause, err)
+		}
+		return authz.Facts{}, err
+	}
+	if cause := ctx.Err(); cause != nil {
+		return authz.Facts{}, cause
+	}
+	if principal.Facts.Subject == "" || principal.Facts.Issuer == "" || principal.Facts.Tenant != p.tenant || !principal.Facts.ValidUntil.After(time.Now()) {
 		return authz.Facts{}, authz.ErrDenied
 	}
 	return principal.Facts, nil
 }
 func verifiedCohortSession(ctx context.Context) (string, error) {
 	owner, err := svcauth.LocalStateOwner(ctx)
-	if err != nil || owner == nil || owner.Binding == "" || !owner.ValidUntil.After(time.Now()) {
+	if err != nil {
+		return "", err
+	}
+	if owner == nil || owner.Binding == "" || !owner.ValidUntil.After(time.Now()) {
 		return "", authz.ErrDenied
 	}
 	return owner.Binding, nil
@@ -143,11 +159,9 @@ func PrepareBinding(ctx context.Context, rt *executor.Runtime, registration Regi
 		binding.ConnectionName = registration.ConnectionName + "#global"
 		binding.ConnectionAliases = nil
 		binding.Optional = true
-		if registration.Notifications != nil {
-			binding.Reconcile = registration.Notifications.ReconcileHint
-		}
 	}
 	if registration.Notifications != nil {
+		binding.Reconcile = registration.Notifications.ReconcileHint
 		binding.Start = func(context.Context) error { return registration.Notifications.AttachReplica(replica) }
 	}
 	return binding, nil

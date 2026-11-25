@@ -98,7 +98,7 @@ func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t 
 	notify := make(chan struct{}, 1)
 	streamReady := make(chan struct{}, 1)
 	var authenticated, gets, fetches, legacy, namespaceLists atomic.Int32
-	var globalAvailable atomic.Bool
+	var globalAvailable, exampleAvailable atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" {
 			authenticated.Add(1)
@@ -161,6 +161,10 @@ func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t 
 				_ = json.Unmarshal(req.Params.Arguments["namespace"], &namespace)
 				if namespace != "example" && namespace != "global" {
 					http.Error(w, "wrong namespace", 400)
+					return
+				}
+				if namespace == "example" && !exampleAvailable.Load() {
+					http.Error(w, "namespace unavailable", http.StatusServiceUnavailable)
 					return
 				}
 				if namespace == "global" && !globalAvailable.Load() {
@@ -229,6 +233,8 @@ func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t 
 	require.NoError(t, err)
 	require.Len(t, bindings, 2, "retain the global binding even before the producer advertises it")
 	require.Zero(t, namespaceLists.Load(), "global synchronization must not depend on a startup catalog listing")
+	require.True(t, bindings[0].Optional, "configured presentation metadata must not prevent native host startup")
+	require.NotNil(t, bindings[0].Reconcile, "an initial outage must use the existing notification worker for recovery")
 	require.True(t, bindings[1].Optional)
 	require.Equal(t, "catalog#global", bindings[1].ConnectionName)
 	require.Equal(t, []string{"global"}, bindings[1].Namespaces)
@@ -258,9 +264,14 @@ func TestAnonymousLocalMetadataColdStartNotificationsAndVerifiedUserAdmission(t 
 
 	binding := bindings[0]
 	defer binding.Close()
-	require.NoError(t, binding.Source.Sync(context.Background()))
+	beforeRecovery := gets.Load()
+	require.Error(t, binding.Source.Sync(context.Background()), "initial unavailable metadata must not become empty success")
 	require.Zero(t, principals.calls.Load(), "anonymous cold start requested an interactive principal")
 	require.NoError(t, binding.Start(context.Background()))
+	binding.Reconcile()
+	require.Eventually(t, func() bool { return gets.Load() >= beforeRecovery+2 }, time.Second, time.Millisecond, "existing worker must observe the continuing outage")
+	exampleAvailable.Store(true)
+	require.Eventually(t, func() bool { return binding.Source.(interface{ KnownHash() string }).KnownHash() != "" }, 3*time.Second, time.Millisecond, "existing worker must recover a configured namespace without host restart")
 	select {
 	case <-streamReady:
 	case <-time.After(3 * time.Second):

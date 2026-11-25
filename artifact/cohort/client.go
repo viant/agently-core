@@ -44,10 +44,12 @@ func (b artifactHostBearer) RoundTrip(request *http.Request) (*http.Response, er
 	return b.base.RoundTrip(clone)
 }
 
-// NewHostClient opens a dedicated stateless MCP client for the
+// NewHostClient constructs a dedicated stateless MCP client for the
 // published metadata catalog. A producer restart cannot strand a negotiated
 // Mcp-Session-Id in this client. expectedEndpoint pins the trusted destination.
-// A nil token selects a producer's anonymous metadata contract.
+// A nil token selects a producer's anonymous metadata contract. The SDK
+// negotiates on the first metadata operation, so producer availability belongs
+// to synchronization/reconciliation rather than client construction.
 func NewHostClient(ctx context.Context, rt *executor.Runtime, connection, provider, expectedEndpoint, origin string, token HostToken) (mcpclient.Interface, *artifactcohort.NotificationHandler, error) {
 	if ctx == nil || ctx.Err() != nil || rt == nil || rt.MCPManager == nil || connection == "" || provider == "" {
 		return nil, nil, artifactcohort.ErrInvalid
@@ -73,11 +75,6 @@ func NewHostClient(ctx context.Context, rt *executor.Runtime, connection, provid
 		return nil, nil, fmt.Errorf("artifact cohort transport: %w", err)
 	}
 	client := mcpclient.New("agently-artifact-host", "1", transport, mcpclient.WithProtocolVersion(schema.LatestProtocolVersion))
-	if _, err = client.Initialize(ctx); err != nil {
-		client.Close()
-		handler.Close()
-		return nil, nil, fmt.Errorf("artifact cohort initialize: %w", err)
-	}
 	return client, handler, nil
 }
 

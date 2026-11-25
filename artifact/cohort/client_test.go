@@ -129,3 +129,34 @@ func TestArtifactHostStatelessClientSurvivesProducerSessionReset(t *testing.T) {
 		t.Fatalf("missing initialize/calls: %d", requests.Load())
 	}
 }
+
+func TestMetadataHostClientConstructionDoesNotRequireProducerAvailability(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	manager, err := mcpmgr.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := server.URL + "/mcp"
+	config := &mcpcfg.MCPClient{PrimitiveProviderIdentity: "example-publisher", ClientOptions: &mcp.ClientOptions{Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: endpoint}}}}
+	if err = manager.RegisterLocal(context.Background(), "catalog", config, func(context.Context) (mcpclient.Interface, error) { return nil, nil }); err != nil {
+		t.Fatal(err)
+	}
+	client, notifications, err := NewHostClient(context.Background(), &executor.Runtime{MCPManager: manager}, "catalog", "example-publisher", endpoint, "", nil)
+	if err != nil {
+		t.Fatalf("producer availability prevented construction: %v", err)
+	}
+	defer notifications.Close()
+	defer client.(interface{ Close() }).Close()
+	if calls.Load() != 0 {
+		t.Fatal("constructor performed a remote availability probe")
+	}
+	_, err = client.CallTool(context.Background(), &schema.CallToolRequestParams{Name: artifactcohort.MethodDiscover}, mcpclient.WithNoRetry())
+	if err == nil || calls.Load() == 0 {
+		t.Fatal("metadata synchronization lost the producer failure")
+	}
+}

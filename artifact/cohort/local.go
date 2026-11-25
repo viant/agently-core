@@ -182,6 +182,9 @@ func PrepareLocalBindings(ctx context.Context, rt *executor.Runtime, path string
 			}
 			return nil, err
 		}
+		// Operator-configured remote metadata is unavailable until synchronized;
+		// native host functionality remains available while its owner recovers.
+		binding.Optional = true
 		if config.global {
 			globals = append(globals, binding)
 		} else {

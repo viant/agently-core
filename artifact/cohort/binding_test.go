@@ -3,6 +3,7 @@ package cohort
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,10 +21,38 @@ import (
 	mcpclient "github.com/viant/mcp/client"
 )
 
-type cohortPrincipal struct{ value gating.Principal }
+type cohortPrincipal struct {
+	value  gating.Principal
+	err    error
+	finish func()
+}
 
 func (p cohortPrincipal) ResolvePrincipal(context.Context) (gating.Principal, error) {
-	return p.value, nil
+	if p.finish != nil {
+		p.finish()
+	}
+	return p.value, p.err
+}
+
+func TestCohortFactsPreserveVerifiedIdentityFailure(t *testing.T) {
+	for _, cause := range []error{authz.ErrDenied, authz.ErrUnavailable, context.Canceled, context.DeadlineExceeded} {
+		principal := cohortPrincipal{err: fmt.Errorf("identity facts: %w", cause)}
+		facts, err := (verifiedCohortFacts{source: principal, tenant: "tenant"}).Resolve(context.Background())
+		if !errors.Is(err, cause) || facts.Subject != "" {
+			t.Fatalf("unexpected facts or cause: %v", err)
+		}
+	}
+}
+
+func TestCohortFactsRetainFailuresDuringCancellation(t *testing.T) {
+	for _, cause := range []error{authz.ErrUnavailable, authz.ErrDenied} {
+		ctx, cancel := context.WithCancel(context.Background())
+		provider := verifiedCohortFacts{source: cohortPrincipal{err: cause, finish: cancel}, tenant: "tenant"}
+		_, err := provider.Resolve(ctx)
+		if !errors.Is(err, cause) || (cause == authz.ErrDenied && !errors.Is(err, context.Canceled)) {
+			t.Fatalf("lost concurrent cause: %v", err)
+		}
+	}
 }
 
 func TestCohortFactsUseVerifiedPrincipalWithoutAccountGating(t *testing.T) {
