@@ -562,7 +562,13 @@ func (s *mcpLinkService) completeCallback(ctx context.Context, code, stateBlob s
 	}
 	var grant *verifiedGrant
 	if responsePolicy != nil {
-		grant, err = validateTokenResponse(responsePolicy, link.requirement, token, nil, s.now())
+		var identity *verifiedGrant
+		if responsePolicy.SubjectFromIDToken {
+			identity, err = verifyTokenResponseIdentity(ctx, link.resolved, token, payload.Nonce, oauthCfg.ClientID, s.now(), s.verifyJWT)
+		}
+		if err == nil {
+			grant, err = validateTokenResponse(responsePolicy, link.requirement, token, nil, s.now(), identity)
+		}
 	} else {
 		grant, err = s.validateGrant(ctx, link, token, payload.Nonce)
 	}

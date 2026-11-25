@@ -9,7 +9,6 @@ import (
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -98,7 +97,7 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 		if bindHTTPReport(w, r, settings.windows, strings.Join(pathParts, "/")) {
 			return
 		}
-		if tryPublishedWindow(w, r, settings.published, pathParts) {
+		if tryPublishedWindow(w, r, settings, capabilities, useDefaults, pathParts) {
 			return
 		}
 		var aWindow *forgeTypes.Window
@@ -169,33 +168,12 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 		var openParameters map[string]any
 		var presentationResource map[string]any
 		if canonical && !applyPermissionRequested(r) {
-			projectionSpan := observe.Start(r.Context(), "http.window.project", observe.Labels{Kind: "window"})
-			var projected *permittedview.Result
-			var err error
-			configured, hasConfigured := settings.windows.(interface{ HasWindowUIProjection() bool })
-			project, hasProjector := settings.windows.(interface {
-				ProjectWindowWithInput(context.Context, *permittedview.BoundView) (*forgeTypes.Window, error)
-			})
-			if aWindow.AuthorizationSnapshot == nil && hasConfigured && configured.HasWindowUIProjection() && hasProjector {
-				var window *forgeTypes.Window
-				window, err = project.ProjectWindowWithInput(r.Context(), &permittedview.BoundView{Window: aWindow})
-				projected = &permittedview.Result{Window: window}
-			} else {
-				runtime := capabilities
-				if runtime == nil && useDefaults {
-					runtime = permittedview.DefaultRuntime()
-				}
-				projected, err = runtime.ProjectPrincipal(r.Context(), aWindow)
-			}
-			projectionSpan.End(observe.OutcomeFor(err), observe.CacheUnknown)
-			if err != nil || projected == nil || projected.Window == nil {
+			projected, err := projectManagedWindowPresentation(r.Context(), aWindow, settings.windows, capabilities, useDefaults)
+			if err != nil || projected == nil {
 				writeWindowError(w, err)
 				return
 			}
-			aWindow = projected.Window
-			for _, diagnostic := range projected.Diagnostics {
-				log.Printf("window presentation: %s", diagnostic.Code)
-			}
+			aWindow = projected
 		}
 		if applyPermissionRequested(r) {
 			if rawVersion := strings.TrimSpace(r.URL.Query().Get("authorizationSchemaVersion")); rawVersion != "" && aWindow.Authorization != nil {
