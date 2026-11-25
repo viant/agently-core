@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 )
 
 // WorkspaceMutation is a single presentation edit shared by the UI and tools.
@@ -227,5 +228,6 @@ func applyWorkspaceMutationWithChange(existing any, mutation *WorkspaceMutation,
 // or database failure.
 type WorkspacePreferenceError struct{ Cause error }
 
-func (e *WorkspacePreferenceError) Error() string { return e.Cause.Error() }
-func (e *WorkspacePreferenceError) Unwrap() error { return e.Cause }
+func (e *WorkspacePreferenceError) Error() string       { return e.Cause.Error() }
+func (e *WorkspacePreferenceError) Unwrap() error       { return e.Cause }
+func (e *WorkspacePreferenceError) HTTPStatusCode() int { return http.StatusBadRequest }

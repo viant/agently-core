@@ -210,7 +210,7 @@ func (s *DatlyUserService) UpdatePreferences(ctx context.Context, username strin
 			return err
 		}
 		if len(data) > 65535 {
-			return &WorkspacePreferenceError{Cause: fmt.Errorf("preferences exceed the existing settings storage limit")}
+			return &WorkspacePreferenceError{Cause: fmt.Errorf("These settings are too large to save. Shorten personal task prompts or remove unused workspace shortcuts, then try again.")}
 		}
 		user.SetSettings(userTextPtr(string(data)))
 	}

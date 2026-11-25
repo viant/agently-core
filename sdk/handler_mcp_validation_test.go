@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	identity "github.com/viant/agently-core/protocol/resource"
+	svc "github.com/viant/agently-core/protocol/tool/service"
+	authsvc "github.com/viant/agently-core/service/auth"
 	requestctx "github.com/viant/forge/backend/requestctx"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -133,4 +136,32 @@ func TestExplicitInputStatusDoesNotBecomePermissionFromWording(t *testing.T) {
 	denied := errors.Join(input, explicitInputStatusError{status: 403, message: "denied"})
 	require.Equal(t, 403, statusForToolExecuteError(denied))
 	require.Equal(t, 403, statusForDatasourceErr(denied))
+}
+
+type workspaceValidationService struct{ calls int }
+
+func (*workspaceValidationService) Name() string { return "sample/preferences" }
+func (*workspaceValidationService) Methods() svc.Signatures {
+	return svc.Signatures{{Name: "update", Input: reflect.TypeOf(&struct{}{}), Output: reflect.TypeOf(&map[string]string{})}}
+}
+func (s *workspaceValidationService) Method(string) (svc.Executable, error) {
+	return func(context.Context, any, any) error {
+		s.calls++
+		return &authsvc.WorkspacePreferenceError{Cause: errors.New("A group with this name already exists.")}
+	}, nil
+}
+func TestNativeWorkspaceValidationKeepsBadRequestThroughMCPAndHTTP(t *testing.T) {
+	manager, err := manager.New(nil)
+	require.NoError(t, err)
+	reg, err := registry.NewWithManager(manager)
+	require.NoError(t, err)
+	source := &workspaceValidationService{}
+	require.NoError(t, reg.AddInternalService(source))
+	request := httptest.NewRequest(http.MethodPost, "/v1/tools/sample/preferences:update/execute", strings.NewReader(`{}`))
+	request.SetPathValue("name", "sample/preferences:update")
+	response := httptest.NewRecorder()
+	handleExecuteTool(registryToolHTTPClient{registry: reg})(response, request)
+	require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), "A group with this name already exists.")
+	require.Equal(t, 1, source.calls, "invalid edits must not replay")
 }
