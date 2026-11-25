@@ -22,7 +22,7 @@ func logWindowDefinitionFailure(key string, err error) {
 	case errors.Is(err, forgeservice.ErrWindowSelectionUnavailable):
 		category, status = "unavailable", http.StatusServiceUnavailable
 	case errors.Is(err, context.Canceled):
-		category = "canceled"
+		category, status = "canceled", 499
 	case errors.Is(err, identity.ErrResourceStale):
 		category = "stale"
 	case errors.Is(err, identity.ErrResourceDenied):

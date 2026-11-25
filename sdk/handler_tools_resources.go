@@ -364,21 +364,21 @@ func statusForToolApprovalErr(err error) int {
 }
 
 func statusForToolExecuteError(err error) int {
-	// Identity errors can also wrap a policy denial; preserve that distinction.
-	if errors.Is(err, authz.ErrIdentityDenied) || errors.Is(err, resourcepolicy.ErrIdentityRejected) {
-		return http.StatusUnauthorized
-	}
-	if errors.Is(err, authz.ErrDenied) || errors.Is(err, resourcepolicy.ErrDenied) || errors.Is(err, identity.ErrResourceDenied) {
-		return http.StatusForbidden
-	}
-	if errors.Is(err, authz.ErrUnavailable) {
-		return http.StatusServiceUnavailable
+	if errors.Is(err, context.Canceled) {
+		return http.StatusRequestTimeout
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return http.StatusGatewayTimeout
 	}
-	if errors.Is(err, context.Canceled) {
-		return http.StatusRequestTimeout
+	// Identity errors can also wrap a policy denial; preserve that distinction.
+	if errors.Is(err, authz.ErrIdentityDenied) || errors.Is(err, resourcepolicy.ErrIdentityRejected) {
+		return http.StatusUnauthorized
+	}
+	if errors.Is(err, authz.ErrUnavailable) {
+		return http.StatusServiceUnavailable
+	}
+	if errors.Is(err, authz.ErrDenied) || errors.Is(err, resourcepolicy.ErrDenied) || errors.Is(err, identity.ErrResourceDenied) {
+		return http.StatusForbidden
 	}
 	if errors.Is(err, identity.ErrResourceStale) || errors.Is(err, personalreporting.ErrPersonalDefaultAmbiguous) {
 		return http.StatusConflict
@@ -449,6 +449,14 @@ func toolExecuteErrorResponse(err error, result string) (int, error, string) {
 			return status, errors.New("The new report binding was activated. Check the open report before retrying."), ""
 		}
 		return status, primitiveprovider.ErrReportOpenUnconfirmed, ""
+	}
+	switch status {
+	case http.StatusRequestTimeout:
+		return status, context.Canceled, ""
+	case http.StatusGatewayTimeout:
+		return status, context.DeadlineExceeded, ""
+	case http.StatusServiceUnavailable:
+		return status, authz.ErrUnavailable, ""
 	}
 	if errors.Is(err, personalreporting.ErrPersonalDefaultUnavailable) && (status == http.StatusForbidden || status == http.StatusNotFound || status == http.StatusConflict) {
 		// The user already owns the default mapping. Only its recovery advice

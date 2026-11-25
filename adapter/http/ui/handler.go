@@ -111,7 +111,7 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 			if err != nil {
 				logWindowDefinitionFailure(windowKey, err)
 				switch {
-				case errors.Is(err, context.DeadlineExceeded), errors.Is(err, forgeservice.ErrWindowSelectionUnavailable):
+				case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded), errors.Is(err, forgeservice.ErrWindowSelectionUnavailable):
 					writeWindowError(w, err)
 				default:
 					http.Error(w, "window not found or access denied", http.StatusNotFound)
@@ -503,6 +503,8 @@ func capabilityValuesFromQuery(values []string) []string {
 func writeWindowError(w http.ResponseWriter, err error) {
 	status, message := http.StatusForbidden, "resource not found or access denied"
 	switch {
+	case errors.Is(err, context.Canceled):
+		status, message = 499, "request canceled"
 	case errors.Is(err, context.DeadlineExceeded):
 		status, message = http.StatusGatewayTimeout, "permission service timed out"
 	case errors.Is(err, permittedview.ErrUnavailable) || errors.Is(err, forgeservice.ErrWindowSelectionUnavailable):

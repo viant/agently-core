@@ -165,6 +165,15 @@ func handleListLookupRegistry(client Backend) http.HandlerFunc {
 // statusForDatasourceErr maps the sentinel "not configured" error to 501 so
 // clients can distinguish it from genuine internal errors.
 func statusForDatasourceErr(err error) int {
+	if errors.Is(err, context.Canceled) {
+		return http.StatusRequestTimeout
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return http.StatusGatewayTimeout
+	}
+	if errors.Is(err, authz.ErrIdentityDenied) || errors.Is(err, policy.ErrIdentityRejected) {
+		return http.StatusUnauthorized
+	}
 	var upstream *dsproto.UpstreamAuthorizationError
 	var rpcError *jsonrpc.Error
 	if errors.As(err, &rpcError) && isAuthStatus(rpcError.Code) {
@@ -176,13 +185,16 @@ func statusForDatasourceErr(err error) int {
 	if errors.As(err, &upstream) && (upstream.Status == 401 || upstream.Status == 403) {
 		return upstream.Status
 	}
-	if errors.Is(err, policy.ErrDenied) || errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) || errors.Is(err, authz.ErrDenied) {
+	if errors.Is(err, policy.ErrDenied) || errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) {
 		return http.StatusForbidden
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return http.StatusGatewayTimeout
+	if errors.Is(err, authz.ErrUnavailable) || errors.Is(err, gating.ErrUnavailable) {
+		return http.StatusServiceUnavailable
 	}
-	if errors.Is(err, permittedview.ErrUnavailable) || errors.Is(err, authz.ErrUnavailable) || errors.Is(err, gating.ErrUnavailable) {
+	if errors.Is(err, authz.ErrDenied) {
+		return http.StatusForbidden
+	}
+	if errors.Is(err, permittedview.ErrUnavailable) {
 		return http.StatusServiceUnavailable
 	}
 	if errors.Is(err, ErrDatasourceStackNotConfigured) {
@@ -208,6 +220,10 @@ func writeDatasourceError(w http.ResponseWriter, err error) {
 		}
 	}
 	switch status {
+	case http.StatusRequestTimeout:
+		err = context.Canceled
+	case http.StatusConflict:
+		err = errors.New("The resource changed. Refresh it before retrying.")
 	case http.StatusNotFound:
 		var producer interface {
 			HTTPStatusCode() int
@@ -299,7 +315,7 @@ func upstreamTypedHTTPStatus(err error) int {
 		}
 		return false
 	}
-	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusBadRequest, http.StatusUnprocessableEntity, http.StatusNotFound} {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusBadRequest, http.StatusUnprocessableEntity, http.StatusConflict, http.StatusNotFound} {
 		if hasStatus(err, status) {
 			return status
 		}

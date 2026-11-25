@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 
@@ -12,17 +13,36 @@ import (
 
 type reportBindingFixture struct {
 	*publishedWindowBindingFixture
-	fail  bool
-	reads int
-	pin   *identity.ResolvedResource
+	fail    bool
+	failure error
+	reads   int
+	pin     *identity.ResolvedResource
 }
 
 func (f *reportBindingFixture) ReportDefinition(context.Context, *service.ReportDefinitionInput) (*service.ReportDefinitionOutput, error) {
 	f.reads++
+	if f.failure != nil {
+		return nil, f.failure
+	}
 	if f.fail {
 		return nil, errors.New("unavailable")
 	}
 	return &service.ReportDefinitionOutput{Resource: f.pin, Definition: []byte(`{"privateDefinition":"not returned"}`)}, nil
+}
+
+func TestRestoredReportCancellationDoesNotBecomeAccessDenial(t *testing.T) {
+	f := &reportBindingFixture{
+		publishedWindowBindingFixture: &publishedWindowBindingFixture{emissionHandoffFixture: &emissionHandoffFixture{selectionHTTPFixture: selectionHTTP(t)}},
+		failure:                       fmt.Errorf("private report source detail: %w", context.Canceled),
+	}
+	handler := NewEmbeddedHandlerWithAuthorization(t.TempDir(), nil, nil, nil, WithWindowResourceProvider(f))
+	req := httptest.NewRequest("GET", "/window/report:%2F%2Fexample%2Fsummary?applyPermission=true&windowId=restored-report&clientId=owned-client", nil)
+	req.Header.Set("Mcp-Session-Id", "owned-session")
+	out := httptest.NewRecorder()
+	handler.ServeHTTP(out, req)
+	if out.Code != 499 || out.Body.String() != "request canceled\n" || f.reads != 1 || f.bindings != 0 {
+		t.Fatalf("report cancellation lost at HTTP boundary: status=%d reads=%d bindings=%d body=%s", out.Code, f.reads, f.bindings, out.Body.String())
+	}
 }
 func TestRestoredReportBindsThroughExistingHTTPWindowPath(t *testing.T) {
 	f := &reportBindingFixture{publishedWindowBindingFixture: &publishedWindowBindingFixture{emissionHandoffFixture: &emissionHandoffFixture{selectionHTTPFixture: selectionHTTP(t)}}, pin: &identity.ResolvedResource{URI: "report://example/summary"}}

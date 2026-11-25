@@ -53,7 +53,7 @@ func TestCanonicalHTTPOpenPreservesTrustedResolutionFailures(t *testing.T) {
 			failure error
 			status  int
 		}{
-			{"timeout", context.DeadlineExceeded, 504}, {"unavailable", service.ErrWindowSelectionUnavailable, 503},
+			{"canceled", context.Canceled, 499}, {"timeout", context.DeadlineExceeded, 504}, {"unavailable", service.ErrWindowSelectionUnavailable, 503},
 			{"public authz unavailable", authz.ErrUnavailable, 503},
 			{"public gate unavailable", gating.ErrUnavailable, 503},
 			{"native mapped unavailable", permittedview.ErrUnavailable, 503}, {"denied", identity.ErrResourceDenied, 404}, {"stale", identity.ErrResourceStale, 404}, {"unknown", errors.New("unavailable timeout 403 private text"), 404},

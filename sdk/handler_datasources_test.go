@@ -447,6 +447,12 @@ func TestHandleFetchDatasource_TypedAdmissionFailuresStayRetryableWithoutDispatc
 		redact bool
 	}{
 		{"timeout", fmt.Errorf("sensitive authority payload: %w", context.DeadlineExceeded), 504, true},
+		{"canceled", fmt.Errorf("sensitive authority payload: %w", context.Canceled), 408, true},
+		{"canceled identity check", errors.Join(context.Canceled, authz.ErrDenied), 408, true},
+		{"timed out identity check", errors.Join(context.DeadlineExceeded, authz.ErrDenied), 504, true},
+		{"unavailable identity check", errors.Join(authz.ErrUnavailable, authz.ErrDenied), 503, true},
+		{"rejected identity", fmt.Errorf("sensitive authority payload: %w", authz.ErrIdentityDenied), 401, true},
+		{"producer conflict", qualifiedPublicationError{409, "conflict"}, 409, true},
 		{"unavailable", fmt.Errorf("sensitive authority payload: %w", permittedview.ErrUnavailable), 503, true},
 		{"generic authz unavailable", fmt.Errorf("sensitive authority payload: %w", authz.ErrUnavailable), 503, true},
 		{"generic gate unavailable", fmt.Errorf("sensitive authority payload: %w", gating.ErrUnavailable), 503, true},
@@ -454,7 +460,7 @@ func TestHandleFetchDatasource_TypedAdmissionFailuresStayRetryableWithoutDispatc
 		{"forbidden", identity.ErrResourceDenied, 403, false},
 		{"revoke", dsproto.ErrDatasourceDenied, 403, false},
 		{"denial wins over outage", errors.Join(identity.ErrResourceDenied, permittedview.ErrUnavailable), 403, false},
-		{"authz denial wins over outage", errors.Join(authz.ErrDenied, permittedview.ErrUnavailable), 403, false},
+		{"incomplete identity verification remains unavailable", errors.Join(authz.ErrDenied, permittedview.ErrUnavailable), 503, true},
 		{"availability text is not a trusted status", errors.New("dependency unavailable"), 500, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -471,7 +477,7 @@ func TestHandleFetchDatasource_TypedAdmissionFailuresStayRetryableWithoutDispatc
 				if writer.Code != tc.status {
 					t.Fatalf("want%d got%d: %s", tc.status, writer.Code, writer.Body.String())
 				}
-				if tc.redact && strings.Contains(writer.Body.String(), "sensitive authority payload") {
+				if tc.redact && (strings.Contains(writer.Body.String(), "sensitive authority payload") || strings.Contains(writer.Body.String(), "sensitive producer details")) {
 					t.Fatalf("authority payload leaked: %s", writer.Body.String())
 				}
 			}

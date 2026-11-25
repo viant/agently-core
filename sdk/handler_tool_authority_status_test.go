@@ -35,6 +35,9 @@ func TestToolHTTPPreservesTypedAuthorityErrorsWithoutPartialDefinition(t *testin
 		{"identity", errors.Join(identity.ErrResourceDenied, authz.ErrIdentityDenied), 401},
 		{"policy-identity", policy.ErrIdentityRejected, 401},
 		{"unavailable", authz.ErrUnavailable, 503},
+		{"unavailable identity check", errors.Join(authz.ErrUnavailable, authz.ErrDenied), 503},
+		{"canceled identity check", errors.Join(context.Canceled, authz.ErrDenied), 408},
+		{"timed out identity check", errors.Join(context.DeadlineExceeded, authz.ErrDenied), 504},
 		{"untyped-policy-text", errors.New("policy evaluator failed unexpectedly"), 500},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -51,7 +54,7 @@ func TestToolHTTPPreservesTypedAuthorityErrorsWithoutPartialDefinition(t *testin
 				if response.Code != tc.status {
 					t.Fatalf("status=%d want=%d", response.Code, tc.status)
 				}
-				if (tc.status == 401 || tc.status == 403) && strings.Contains(response.Body.String(), "restricted-definition") {
+				if (tc.status == 401 || tc.status == 403 || tc.status == 408 || tc.status == 503 || tc.status == 504) && strings.Contains(response.Body.String(), "restricted-definition") {
 					t.Fatal("authorization failure released partial definition")
 				}
 			}
